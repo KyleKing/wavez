@@ -1,3 +1,13 @@
+## v0.4.0 (2026-08-16)
+
+### Feat
+
+- **thread**: log the tool input alongside its result
+
+### Fix
+
+- **cli**: give each -p run its own thread unless resumed
+
 ## v0.3.0 (2026-08-16)
 
 ### Feat
