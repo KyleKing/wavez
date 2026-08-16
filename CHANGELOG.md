@@ -1,3 +1,9 @@
+## v0.1.1 (2026-08-16)
+
+### Fix
+
+- **ci**: check out the v-prefixed tag in the release job
+
 ## v0.1.0 (2026-08-16)
 
 ### Feat
