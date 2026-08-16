@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/app"
@@ -30,8 +31,11 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	if a.SystemPrefix != "The store owns SQLite. Gates trigger on change events." {
-		t.Errorf("SystemPrefix = %q, want the Architecture section only", a.SystemPrefix)
+	if !strings.HasPrefix(a.SystemPrefix, app.BaseSystem) {
+		t.Errorf("SystemPrefix does not open with the base instructions: %q", a.SystemPrefix)
+	}
+	if !strings.Contains(a.SystemPrefix, "The store owns SQLite. Gates trigger on change events.") {
+		t.Errorf("SystemPrefix is missing the listed Architecture section: %q", a.SystemPrefix)
 	}
 	if got, want := len(a.Tools.Names()), 6; got != want {
 		t.Errorf("len(Tools.Names()) = %d, want %d: %v", got, want, a.Tools.Names())

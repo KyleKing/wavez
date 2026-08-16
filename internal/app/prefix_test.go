@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/kyleking/wavez/internal/app"
+	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/llm/fake"
+	"github.com/kyleking/wavez/internal/permission"
 )
 
 const agentsMD = `# AGENTS
@@ -118,5 +121,32 @@ func writeFile(t *testing.T, path, content string) {
 
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+func TestSystemPrefixAlwaysCarriesTheBaseInstructions(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Arch\n\nproject text\n"), 0o600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	a, err := app.New(t.Context(), root, config.Defaults(root), permission.DenyAll(),
+		app.WithProviders(fake.New("local"), fake.New("hosted")))
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := a.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+
+	if !strings.Contains(a.SystemPrefix, "Formatting and imports are fixed automatically") {
+		t.Fatal("base system instructions missing from the prefix")
+	}
+	if strings.Contains(a.SystemPrefix, "project text") {
+		t.Fatal("an unlisted file entered the prefix")
 	}
 }

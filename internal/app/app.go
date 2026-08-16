@@ -168,7 +168,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		CoverageAdapter: adapter,
 		Permission:      permGate,
 		SandboxDir:      sandboxDir,
-		SystemPrefix:    prefix,
+		SystemPrefix:    systemPrefix(prefix),
 		threadLogDir:    filepath.Join(stateDir, threadLogDirName),
 	}, nil
 }
