@@ -58,3 +58,6 @@ tmp/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# wavez runtime state: index, thread logs, sandbox sessions
+/.wavez/

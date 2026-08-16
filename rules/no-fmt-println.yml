@@ -1,0 +1,12 @@
+# A bare Go pattern parses as a type conversion and silently matches nothing,
+# so call patterns need an explicit context and selector.
+id: no-fmt-println
+language: go
+message: use the project logger, not fmt.Println
+severity: warning
+files:
+  - internal/**
+rule:
+  pattern:
+    context: 'func _() { fmt.Println($$$ARGS) }'
+    selector: call_expression
