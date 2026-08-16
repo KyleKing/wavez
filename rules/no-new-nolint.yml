@@ -1,0 +1,13 @@
+# Silencing a check is the failure mode this exists to catch: AGENTS.md says to
+# fix the cause rather than disable a linter, and an agent that cannot reach
+# "done" any other way will reach for a suppression. Gating on it is what makes
+# the rule bind, since prose in an instructions file may or may not be followed.
+# A bare directive is refused; one carrying a reason after `//` is allowed,
+# because that is the house style and it forces the author to say why.
+id: no-bare-nolint
+language: go
+message: fix the cause instead of silencing the check, or give the nolint a reason
+severity: error
+rule:
+  kind: comment
+  regex: '^//nolint:[a-zA-Z0-9_,-]+\s*$'

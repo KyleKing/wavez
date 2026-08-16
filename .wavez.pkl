@@ -1,0 +1,16 @@
+amends ".wavez/Wavez.pkl"
+
+// Only what the agent cannot get from a gate. The rest of AGENTS.md is either
+// enforced deterministically or irrelevant to a model mid-edit.
+context = new Listing {
+  "AGENTS.md#Verify before you report"
+  "AGENTS.md#Go conventions"
+}
+
+astGrepRules = new Listing {
+  "rules/*.yml"
+}
+
+// Read from the login keychain, so no key reaches the environment or the repo:
+//   security add-generic-password -s wavez-openrouter -a "$USER" -w '<key>' -U
+hostedKeyCommand = "security find-generic-password -w -s wavez-openrouter"
