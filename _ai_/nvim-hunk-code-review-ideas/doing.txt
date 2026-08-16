@@ -1,0 +1,3 @@
+Idea: hunk, but for jj/git of any commit, integrated into nvim to allow for navigation beyond the diff/toggling between diff|new/other? Allows me to iterate on code review locally and post (which should be deterministic now that the data is structured
+^Did I previously have a claude conversation on this scope/ideas? - yes in ... (I swear I found it and copied the file over! found it by searching hunk.dev in conversations I think?)
+^For the hunk idea, I expect there to be native incremental diff (not just per file) and ignore merge (and maybe track force-pushes somehow with local cached state/changes?)

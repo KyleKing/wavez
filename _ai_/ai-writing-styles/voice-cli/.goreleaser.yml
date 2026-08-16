@@ -1,0 +1,58 @@
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - main: ./cmd/voice-cli
+    id: voice-cli
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - arm64
+      - "386"
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: arm64
+    binary: voice-cli
+    no_unique_dist_dir: true
+
+archives:
+  - id: voice-cli
+    format: binary
+    name_template: "voice-cli-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  draft: false
+  prerelease: auto
