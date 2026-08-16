@@ -21,17 +21,17 @@ type LineRange struct {
 // on the model asking for a test run.
 type Change struct {
 	Path    string      `json:"path"`
+	Ranges  []LineRange `json:"ranges,omitempty"`
 	Added   int         `json:"added"`
 	Removed int         `json:"removed"`
-	Ranges  []LineRange `json:"ranges,omitempty"`
 }
 
 // Result is what a tool returns. Content is the only part the model sees, so it
 // is already trimmed by the tool's own rules.
 type Result struct {
 	Content string   `json:"content"`
-	IsError bool     `json:"is_error,omitempty"`
 	Changes []Change `json:"changes,omitempty"`
+	IsError bool     `json:"is_error,omitempty"`
 }
 
 // Errorf builds a Result carrying a failure the model is expected to correct.
@@ -65,15 +65,19 @@ func NewRegistry(tools ...Tool) *Registry {
 		r.byName[t.Name()] = t
 		r.order = append(r.order, t.Name())
 	}
+
 	return r
 }
 
 // Get returns the named tool, or ErrNotFound.
+//
+//nolint:ireturn // the registry exists to hand back the Tool interface
 func (r *Registry) Get(name string) (Tool, error) {
 	t, ok := r.byName[name]
 	if !ok {
 		return nil, ErrNotFound
 	}
+
 	return t, nil
 }
 
@@ -81,5 +85,6 @@ func (r *Registry) Get(name string) (Tool, error) {
 func (r *Registry) Names() []string {
 	out := make([]string, len(r.order))
 	copy(out, r.order)
+
 	return out
 }

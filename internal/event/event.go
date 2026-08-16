@@ -11,6 +11,7 @@ import (
 // Kind discriminates an Event. Transcript rows are typed by it.
 type Kind string
 
+// Kinds an Event may take.
 const (
 	KindUser       Kind = "user"
 	KindAgent      Kind = "agent"
@@ -26,6 +27,7 @@ const (
 // State is a thread's lifecycle position, rendered as a glyph in every view.
 type State string
 
+// Positions a thread may hold.
 const (
 	StateIdle    State = "idle"
 	StateWorking State = "working"
@@ -39,20 +41,19 @@ const (
 // Event is one append-only record in a thread's log. Seq is unique and
 // monotonic per thread, so a client can resume a stream from its last Seq.
 type Event struct {
-	Seq      uint64    `json:"seq"`
-	ThreadID string    `json:"thread_id"`
-	At       time.Time `json:"at"`
-	Kind     Kind      `json:"kind"`
-
+	// Detail holds kind-specific structured fields for clients that want more
+	// than Text, and is omitted from compaction.
+	Detail   map[string]any `json:"detail,omitempty"`
+	At       time.Time      `json:"at"`
+	ThreadID string         `json:"thread_id"`
+	Kind     Kind           `json:"kind"`
 	// Text is the human-facing line for the row.
 	Text string `json:"text,omitempty"`
 	// Tool names the tool for KindTool and KindPermission.
 	Tool string `json:"tool,omitempty"`
-	// Changes carries file changes a tool produced, which is what triggers gates.
-	Changes []tool.Change `json:"changes,omitempty"`
 	// State is set on KindState.
 	State State `json:"state,omitempty"`
-	// Detail holds kind-specific structured fields for clients that want more
-	// than Text, and is omitted from compaction.
-	Detail map[string]any `json:"detail,omitempty"`
+	// Changes carries file changes a tool produced, which is what triggers gates.
+	Changes []tool.Change `json:"changes,omitempty"`
+	Seq     uint64        `json:"seq"`
 }

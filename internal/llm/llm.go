@@ -10,6 +10,7 @@ import (
 // Role identifies who produced a Message.
 type Role string
 
+// Roles a Message may carry.
 const (
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
@@ -22,8 +23,8 @@ const (
 type Message struct {
 	Role       Role       `json:"role"`
 	Content    string     `json:"content,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	IsError    bool       `json:"is_error,omitempty"`
 }
 
@@ -62,6 +63,7 @@ type Usage struct {
 // StopReason explains why the model stopped generating.
 type StopReason string
 
+// Reasons a model stops generating.
 const (
 	StopEndTurn   StopReason = "end_turn"
 	StopToolUse   StopReason = "tool_use"
@@ -71,6 +73,7 @@ const (
 // ChunkKind discriminates the Chunk union.
 type ChunkKind string
 
+// Kinds a streamed Chunk may take.
 const (
 	ChunkText     ChunkKind = "text"
 	ChunkToolCall ChunkKind = "tool_call"

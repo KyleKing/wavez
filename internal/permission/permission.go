@@ -19,13 +19,13 @@ const (
 
 // Request describes an action awaiting approval.
 type Request struct {
-	ThreadID string   `json:"thread_id"`
-	Tool     string   `json:"tool"`
-	Action   string   `json:"action"`
-	Detail   string   `json:"detail,omitempty"`
-	Paths    []string `json:"paths,omitempty"`
+	ThreadID string `json:"thread_id"`
+	Tool     string `json:"tool"`
+	Action   string `json:"action"`
+	Detail   string `json:"detail,omitempty"`
 	// Key groups actions that one AllowAlways covers, such as a command name.
-	Key string `json:"key"`
+	Key   string   `json:"key"`
+	Paths []string `json:"paths,omitempty"`
 }
 
 // Gate decides whether an action may run. Model output is never a Gate input:
@@ -41,11 +41,11 @@ type GateFunc func(ctx context.Context, req Request) (Decision, error)
 func (f GateFunc) Ask(ctx context.Context, req Request) (Decision, error) { return f(ctx, req) }
 
 // AllowAll is a Gate for headless runs that have already accepted the risk.
-func AllowAll() Gate {
+func AllowAll() Gate { //nolint:ireturn // a Gate is what the caller wires in
 	return GateFunc(func(context.Context, Request) (Decision, error) { return Allow, nil })
 }
 
 // DenyAll is a Gate for read-only threads such as plan mode.
-func DenyAll() Gate {
+func DenyAll() Gate { //nolint:ireturn // a Gate is what the caller wires in
 	return GateFunc(func(context.Context, Request) (Decision, error) { return Deny, nil })
 }
