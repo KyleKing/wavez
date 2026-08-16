@@ -1,19 +1,58 @@
 # Wavez
 
-My personal AI Coding Assistant that does most of what you would expect, but does a few things differently (naming TBD):
+A personal AI coding agent built for one user, one laptop, and repeated narrow work. It spends fewer tokens by doing the predictable parts of coding deterministically (which tests to run, how to rename a symbol, what to strip from context) and reserves the model for the parts that need judgment.
 
-- **Routines**: user-configured routines defined in pkl. Modeled on semantics for async workflows like Hatchet (locks to prevent contention and maximize parallelization, multiple entry points, DAG-based relationships, etc.)
-- **Recordings**: whenever the AI steps through a problem (like interacting with the browser, PTY, etc.) the sequence is recorded to allow replay after making changes, look for regression, etc. These can then be turned into unit or integration tests or discarded once they've served their purpose (eg short-lived routines)
-- **Modifiers**: whenever possible, use macros and refactoring tools to produce the end result with the fewest tokens and lowest latency (eg renames are a dozen tokens calling the CLI instead of hundreds or thousands of tokens; the model specifies the shape of the code to a CLI, which puts the imports and code in the right order; etc.)
-- **Gates**: instead of wasting tokens on the AI deciding what needs to be tested, the routines are run based on changes (eg from the coverage map and new tests, run a subset the test suite; run formatting; etc.) all parallelized and with minimum contention
-- Not One Session: instead of a single god session, the interactions are composable and concurrent/scheduled, while maximizing prompt caching and compaction
-  - **Threads**: each work stream has its own compacted conversation history
-  - **Scheduling**: editing and execution phases allow agents to coordinate on changes and when to pause to allow execution, routines and codebase analysis allows different agents to plan their changes, then be scheduled to minimize memory usage (eg from local models) and contention (from editing the same files/feature). Likely based around a DAG of defined tasks (how to show in the TUI?)
-  - **Compaction**: constantly strips the unnecessary content from user messages because it aggressively narrows the relevant context, which is user editable. Uses both AI and deterministic rules/heuristics to be fast, predictable, and efficient (eg trims unnecessary output from STDOUT, compresses images, etc.)
-- Additional goals: fast and predictable, minimize RAM/CPU, works across directories (rather than worktrees), a single pane of glass across agents, leverages local and frontier models rather than coupling, long-running services are stopped when not used (eg Docker compose)
+Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, per-feature requirements, decisions, and phases. `_ai_/` holds the half-finished projects and research this consolidates.
 
-TLDR: use fewer tokens, build faster, and with higher quality
+## What it does differently
 
-Misc. ideas:
+- **Gates** run checks in response to what changed. The model never decides what to test. Coverage map plus changed lines selects the test subset. Format and lint run as pre-passes. Passing gates return nothing to the model. Failures return only the failing test names and the frames that touch changed files
+- **Routines** are user-defined workflows in pkl with workflow-engine semantics (DAG steps, concurrency keys, cancel-in-progress, multiple triggers) that run locally with resource locks. Gates are the built-in routines
+- **Modifiers** let the model call a refactor engine (rename, move, extract, add import, stub from signature) with a dozen tokens instead of emitting the edited text. Backed by LSP, `gopls`, `ast-grep`, `ts-morph`, and `rope`
+- **Threads** replace the single god session. Each work stream has its own compacted history. A scheduler coordinates threads that touch the same directories, alternates edit and execute phases, and respects the laptop's memory
+- **Compaction** is deterministic first (append-only trimming that keeps the prompt-cache prefix stable, rule-based stdout truncation, tool results dropped after N turns) and model-based only for the residue
+- **Recordings** capture PTY and browser step sequences as they happen so a fix can be replayed for regression, then promoted to a test or discarded
 
-`pkl` for per-project configuration (TBD on integration/reuse of hk?), `go` and `bubble tea` for the TUI, local models with ...TBD, support for frontier models on ...TBD, bring your own CLI tools (written in TS, Python, Go, Rust, etc. - at least for the deterministic part?) for routine execution, KiteSurf or similar for the browser agent?, code intelligence with ...TBD (need something for coverage, dependency mapping, etc.), support for mobile with ...TBD (need to figure out tailscale vs. other?), security (carry through the best ideas from MCP/CLI/tool-use? AND sandboxing, auto-mode, etc. to protect files/secrets?), web search ...TBD (use local IP, pre-filter/compact pages, what search API, how to ensure current in this year vs. relevant for the right software version?, leverage Dash Docs and similar focused products?, etc.), limited and opionated Tools like question tool, no extensibility by design (too early to consider plugins, etc. and not before ruff adds them), deep integration with either jj or git (but not both? git commit messages come from tasks? and executed by integrated logic rather like my ai-gh-pr.py rather than letting the model define the string bash command?), TUI app for day-to-day usage/web app for managing memory and reviewing operations?, ability to run one-off prompts with `-p "..."`?, ability to checkout large codebases at a specific commit then execute a prepared set of user prompts to compare output side-by-side with Claude/OpenCode/etc. for token, time, and output quality (based on resolving real tickets and/or comparing to known solutions?), using tools that know the risk of different parts of the codebase from churn/git bisect analysis,
+Also: local models first (chosen for tokens/sec on this laptop), hosted models through OpenRouter when a task needs more, works across directories rather than worktrees, one pane of glass across concurrent agents, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
+
+TLDR: fewer tokens, faster builds, higher quality, low RAM.
+
+## Phases
+
+| Version | Usable for | Adds |
+|---|---|---|
+| v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox), chat loop, Gates, sandbox + permission gate, local model + OpenRouter escalation |
+| v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings |
+| v0.3 | Cheaper and faster on the same work | Modifiers, deterministic compaction, code-relationship store (imports, symbols, line-to-test), web search |
+| v0.4 | Away from the laptop | jj/git integration layer, mobile client (Tailscale + PWA + push) |
+| v0.5 | Proving it | Browser recordings, benchmark harness against Claude Code / OpenCode |
+
+Innovation tokens go to Routines + Gates and Modifiers. Everything else copies prior art (Crush for the Go tool loop and Bubble Tea patterns, opencode for compaction policy, `_ai_/` projects for locks, risk scoring, and browser safety).
+
+## Non-goals
+
+- Serving more than one user or trust level (no config hierarchy, no policy layer, no telemetry export)
+- Plugins or extensibility. Tools are built in and opinionated
+- Replacing herdr, tmux, or an editor. Wavez owns the agent loop and the checks around it
+- Multi-agent hierarchies past one level of delegation
+
+## Prior art in this repo
+
+| Directory | Contributes |
+|---|---|
+| `_ai_/my-pi/` | Research on harness architecture, local inference, Go TUI, mobile, benchmarks, and the previous design proposal |
+| `_ai_/agent-locks/` | Working Go implementation of advisory directory-subtree leases across agent sessions |
+| `_ai_/code-in-the-loop/` | Browser automation ADRs: deterministic replay, falsifiable expectations, deny-by-default mutations |
+| `_ai_/is-it-risky-determinitically.md` | Deterministic risk signals for a diff (capability delta, blast radius, signature change) |
+| `_ai_/local-code-search/` | DuckDB + tree-sitter hybrid code index design |
+| `_ai_/what-did-ai-do/` | Session IR across agent transcripts, working-tree re-resolution of decisions |
+| `_ai_/ai-dispatch/` | Remote dispatch plan: Tailscale identity, signed envelopes, sandbox settings |
+| `_ai_/merge-based-stacking/` | Merge-forward stacking and review state that survives force-pushes |
+| `_ai_/worktrees-vs-directories.md` | Why directory identity is the isolation unit and the git layer is orthogonal |
+
+## Open questions
+
+- Whether a stronger local coder than qwen3:8b exists that fits 16 GB, or whether multi-file edits always go hosted
+- How much of the session ledger needs a model-written handoff note versus structural facts alone
+- How to keep the per-test coverage map incremental across branches and rebases without a full 4-minute rebuild
+- Web search: which API, how to keep results current for the right software version, whether Dash docsets cover enough
