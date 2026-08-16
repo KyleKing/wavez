@@ -1,6 +1,6 @@
 # Design proposal: a single-user coding agent, optimized relentlessly for one person
 
-Date: 2026-08-12. Built on the research in [docs/research/](research/), synthesized in [research/SYNTHESIS.md](research/SYNTHESIS.md). This document is the design, not the research; it argues for specific choices rather than surveying options.
+Date: 2026-08-12. Built on the research in this directory, synthesized in [2026-08-synthesis.md](2026-08-synthesis.md). This document is the design, not the research; it argues for specific choices rather than surveying options.
 
 ## Thesis
 
@@ -26,7 +26,7 @@ What survives, because it's cheap and it's exactly where the 2025-2026 incident 
 
 ## Architecture
 
-Fork Crush (`charmbracelet/crush`), don't build the core loop from zero. It's Go, Bubble Tea, has the best local-model support of anything surveyed, and is actively maintained. Rewriting a tool-use loop, a virtualized scrollback list, syntax-highlighted diffing, and goroutine-safe streaming from scratch would mean re-solving problems Crush has already solved and battle-tested, for no capability gain. See [research/existing-alternatives-landscape.md](research/existing-alternatives-landscape.md) for the fork-viability analysis; validate this by prototyping the routing layer (below) against Crush's actual code for a day before committing.
+Fork Crush (`charmbracelet/crush`), don't build the core loop from zero. It's Go, Bubble Tea, has the best local-model support of anything surveyed, and is actively maintained. Rewriting a tool-use loop, a virtualized scrollback list, syntax-highlighted diffing, and goroutine-safe streaming from scratch would mean re-solving problems Crush has already solved and battle-tested, for no capability gain. See [existing-alternatives-landscape.md](existing-alternatives-landscape.md) for the fork-viability analysis; validate this by prototyping the routing layer (below) against Crush's actual code for a day before committing.
 
 The subsystems that don't exist anywhere yet, and that make this a genuinely different tool rather than a Crush clone, layer on top:
 
@@ -85,7 +85,7 @@ Every tool surveyed supports both local and cloud providers, but none of them ro
 
 **Routing signal, in priority order:**
 
-1. **Task shape**, inferred from the pending action, not the prompt text. A single-file edit under N lines with no cross-file dependency, or a diff-line question (section 2), stays local. A multi-file refactor, a task that already failed once locally, or anything requiring more than the local model's practical working context (8K-32K tokens on a 64GB Mac, per [research/local-inference-apple-silicon.md](research/local-inference-apple-silicon.md)) escalates to the cloud model immediately, not after burning a failed local attempt.
+1. **Task shape**, inferred from the pending action, not the prompt text. A single-file edit under N lines with no cross-file dependency, or a diff-line question (section 2), stays local. A multi-file refactor, a task that already failed once locally, or anything requiring more than the local model's practical working context (8K-32K tokens on a 64GB Mac, per [local-inference-apple-silicon.md](local-inference-apple-silicon.md)) escalates to the cloud model immediately, not after burning a failed local attempt.
 2. **Prior failure on this exact task.** One local failure (malformed tool call, repetition loop, wrong-file edit, or a gate failure the local model can't resolve after one retry) escalates for the remainder of that task. Don't retry local past one failure; the local-model failure modes documented in research (qwen2.5-coder emitting tool calls as markdown text, qwen3:14b looping 10 times burning 30K tokens) are not the kind that resolve on retry.
 3. **Explicit override**, a flag or keybinding to force local or force cloud for a given turn, because you will sometimes know better than the heuristic.
 
@@ -95,7 +95,7 @@ Every tool surveyed supports both local and cloud providers, but none of them ro
 
 ## 4. Tool and MCP surface pruning
 
-The gap this closes isn't just token cost, it's decision quality: tool-selection accuracy degrades as the number of available tools grows, which is exactly why Anthropic's own tool-design guidance (cited in [research/agentic-harness-architecture.md](research/agentic-harness-architecture.md)) is about consolidating and clarifying tool descriptions, not adding more of them. A single-user tool can go further than a general-purpose one here, because the tool surface only has to cover what your actual projects use, not every workflow a general audience might need.
+The gap this closes isn't just token cost, it's decision quality: tool-selection accuracy degrades as the number of available tools grows, which is exactly why Anthropic's own tool-design guidance (cited in [agentic-harness-architecture.md](agentic-harness-architecture.md)) is about consolidating and clarifying tool descriptions, not adding more of them. A single-user tool can go further than a general-purpose one here, because the tool surface only has to cover what your actual projects use, not every workflow a general audience might need.
 
 - **Per-project tool manifests, not one global tool list.** A project that doesn't use Docker doesn't get Docker tools loaded into context for that session, full stop, not deferred-but-still-named. Derive the manifest from what's actually detectable in the project (lockfiles, config files, an explicit small `.agent/tools.yaml` allowlist) rather than exposing every tool the harness knows how to run everywhere.
 - **One generic execution primitive plus an allowlist, instead of many named wrapper tools where a wrapper adds no real capability.** If a "tool" is just `run("docker build ...")`, it doesn't need its own schema and name distinct from a general shell-run primitive; give the model fewer, clearer choices rather than a long menu.
@@ -106,10 +106,10 @@ The gap this closes isn't just token cost, it's decision quality: tool-selection
 
 Mobile notifications and review are a hard requirement, not a lower-priority nice-to-have, so this moves up in the build order relative to the earlier draft. Two things follow from "hard requirement" that wouldn't follow from "eventually":
 
-- **Notifications are batched and judged worth an interruption, not fired per event.** Given gates run frequently and mostly pass silently (section 1), a push for every gate result would be noise; push on gate failure that needs a decision, on session end with a ledger summary, or on an explicit "needs your input" state, using the same ntfy.sh pattern from [research/remote-mobile-access.md](research/remote-mobile-access.md).
+- **Notifications are batched and judged worth an interruption, not fired per event.** Given gates run frequently and mostly pass silently (section 1), a push for every gate result would be noise; push on gate failure that needs a decision, on session end with a ledger summary, or on an explicit "needs your input" state, using the same ntfy.sh pattern from [remote-mobile-access.md](remote-mobile-access.md).
 - **The line-level diff Q&A view (section 2) has to be a first-class mobile surface, not a TUI feature ported later.** Design the anchor/thread data model in section 2 to be transport-agnostic from day one (a small JSON object served over the local HTTP API, rendered by both the Bubble Tea view and the PWA), rather than building it against Bubble Tea's data structures first and translating afterward.
 
-Otherwise, the design from [research/remote-mobile-access.md](research/remote-mobile-access.md) stands: Tailscale (mesh, Funnel only if reachability beyond your own devices is required), a QR-pairing flow minting a device-scoped bearer token, a PWA hitting the local HTTP API, ntfy.sh for push. No native app, no Wish/SSH server, until the PWA proves insufficient.
+Otherwise, the design from [remote-mobile-access.md](remote-mobile-access.md) stands: Tailscale (mesh, Funnel only if reachability beyond your own devices is required), a QR-pairing flow minting a device-scoped bearer token, a PWA hitting the local HTTP API, ntfy.sh for push. No native app, no Wish/SSH server, until the PWA proves insufficient.
 
 The benchmark harness is unchanged in design from the synthesis: reuse Terminal-Bench or Harbor for task/scoring, Claude Code's own OTEL export or Inspect AI's `sandbox_agent_bridge()` for cost/token accounting, a thin wrapper tying them together that also reads this tool's own gate log and ledger to add turn count and gate-failure count to the comparison, metrics none of the reused tools capture.
 
@@ -118,7 +118,7 @@ The benchmark harness is unchanged in design from the synthesis: reuse Terminal-
 A few more levers worth building because they're cheap, structural, and directly reduce either token spend or wrong turns, the same criteria everything above was chosen against:
 
 - **Read-once file cache keyed by content hash.** If a file hasn't changed since it was last read into context (checkable against the gate system's own changed-file detection), reuse the cached content instead of re-issuing a read tool call. Zero LLM cost, purely a dedupe layer.
-- **Diff/hunk context instead of whole-file context for follow-up edits.** When continuing work on a file already touched this session, feed the diff since last touched plus a tree-sitter symbol outline rather than the full file text again, the same instinct behind Aider's repo-map approach (documented in [research/agentic-harness-architecture.md](research/agentic-harness-architecture.md)) applied at the single-file level.
+- **Diff/hunk context instead of whole-file context for follow-up edits.** When continuing work on a file already touched this session, feed the diff since last touched plus a tree-sitter symbol outline rather than the full file text again, the same instinct behind Aider's repo-map approach (documented in [agentic-harness-architecture.md](agentic-harness-architecture.md)) applied at the single-file level.
 - **Deterministic formatting and lint-autofix before the model ever sees a diff.** Run the project's formatter and any auto-fixable lint rules as a pre-pass, not a gate the model has to react to; trivial style issues shouldn't consume a turn or a token.
 - **A structural symbol index (tree-sitter or ctags) for "where is X defined" instead of multiple grep-and-read round trips.** This is a deterministic lookup replacing several probabilistic tool calls, cheaper and more reliable than letting the model explore its way there.
 - **Speculative gate pre-warming.** Start compiling/warming the test binary for the affected package while the model is still generating the edit, so gate latency overlaps generation latency instead of stacking after it. Purely a scheduling optimization on top of section 1's gate design, no new architecture.

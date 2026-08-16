@@ -38,19 +38,9 @@ Innovation tokens go to Routines + Gates and Modifiers. Everything else copies p
 - Replacing herdr, tmux, or an editor. Wavez owns the agent loop and the checks around it
 - Multi-agent hierarchies past one level of delegation
 
-## Prior art in this repo
+## Prior art
 
-| Directory | Contributes |
-|---|---|
-| `_ai_/my-pi/` | Research on harness architecture, local inference, Go TUI, mobile, benchmarks, and the previous design proposal |
-| `_ai_/agent-locks/` | Working Go implementation of advisory directory-subtree leases across agent sessions |
-| `_ai_/code-in-the-loop/` | Browser automation ADRs: deterministic replay, falsifiable expectations, deny-by-default mutations |
-| `_ai_/is-it-risky-determinitically.md` | Deterministic risk signals for a diff (capability delta, blast radius, signature change) |
-| `_ai_/local-code-search/` | DuckDB + tree-sitter hybrid code index design |
-| `_ai_/what-did-ai-do/` | Session IR across agent transcripts, working-tree re-resolution of decisions |
-| `_ai_/ai-dispatch/` | Remote dispatch plan: Tailscale identity, signed envelopes, sandbox settings |
-| `_ai_/merge-based-stacking/` | Merge-forward stacking and review state that survives force-pushes |
-| `_ai_/worktrees-vs-directories.md` | Why directory identity is the isolation unit and the git layer is orthogonal |
+[`_ai_/README.md`](_ai_/README.md) indexes the research pass, the design notes `DESIGN.md` leans on, the demos, and the projects relocated to sibling directories (`../agent-locks`, `../code-in-the-loop`, `../what-did-ai-do`, `../local-code`).
 
 ## Open questions
 

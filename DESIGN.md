@@ -1,6 +1,6 @@
 # Wavez design
 
-High-level design: what each piece does, requirements per feature, decisions as y-statements, and phases. Not an implementation plan. Research and prior art live in `_ai_/`, especially [`_ai_/my-pi/docs/DESIGN-PROPOSAL.md`](_ai_/my-pi/docs/DESIGN-PROPOSAL.md) and [`_ai_/my-pi/docs/research/SYNTHESIS.md`](_ai_/my-pi/docs/research/SYNTHESIS.md), which this supersedes.
+High-level design: what each piece does, requirements per feature, decisions as y-statements, and phases. Not an implementation plan. Research and prior art live in `_ai_/`, especially [`_ai_/research/2026-08-design-proposal.md`](_ai_/research/2026-08-design-proposal.md) and [`_ai_/research/2026-08-synthesis.md`](_ai_/research/2026-08-synthesis.md), which this supersedes. [`_ai_/README.md`](_ai_/README.md) is the index.
 
 ## Problem
 
@@ -64,7 +64,7 @@ flowchart LR
 |---|---|
 | Local API | JSON over a unix socket. Every client (TUI, `-p`, phone) uses the same events and commands, which is what makes v0.4 mobile a client and not a rewrite |
 | Thread manager | One thread per work stream: its own history, compaction state, and directory set |
-| Scheduler and locks | Directory-subtree leases (from `_ai_/agent-locks`), edit and execute phases, memory-aware admission so the local model and a test run do not fight for RAM |
+| Scheduler and locks | Directory-subtree leases (from `_ai_/notes/agent-lock-coordination.md`), edit and execute phases, memory-aware admission so the local model and a test run do not fight for RAM |
 | Agent loop | Streaming tool-use loop, bounded retries, loop detection, permission gate |
 | Model router | Task shape decides local vs hosted. Explicit override per turn |
 | Tools and Modifiers | Read, edit, shell, search, question, browser (later), plus refactor operations backed by LSP and CLIs |
@@ -298,14 +298,14 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 - Transport: Tailscale. `tailscale serve` fronts `wavezd`'s API and injects `Tailscale-User-Login`, so identity is the tailnet's. Funnel only if reachability off-tailnet is needed
 - Client: PWA installed to the home screen. Views: threads list, one thread's transcript, approvals queue, diff with Ask-a-line, and a new-thread form. Same API and events as the TUI
 - Push: ntfy.sh (or Web Push once the PWA is installed) for gate failures needing a decision, permission prompts, and thread completion. Batched, never per event
-- Dispatch: starting a thread from the phone reuses `_ai_/ai-dispatch`'s signed-envelope design (HMAC, timestamp window, nonce set, kill-switch file)
+- Dispatch: starting a thread from the phone reuses `_ai_/notes/ai-dispatch-plan.md`'s signed-envelope design (HMAC, timestamp window, nonce set, kill-switch file)
 - Limits to state up front: the Mac must stay awake (`caffeinate` while threads run), no offline mode, no terminal streaming (structured events only), and the phone cannot open the sandbox wider than the thread already had
 - Alternatives considered: native SwiftUI app (later, if push action buttons prove insufficient), SSH via Wish (rejected on the 2026 CVEs), a hosted relay (rejected, one user does not need infrastructure)
 
 ### Recordings (v0.2 PTY, v0.5 browser)
 
 - Every PTY session and browser step the agent drives is logged as an action, selector or command, and result
-- Replay runs the same steps and diffs the observed result. Steps carry confirm and falsify expectations from `_ai_/code-in-the-loop` ADR 0006 rather than raw sleeps
+- Replay runs the same steps and diffs the observed result. Steps carry confirm and falsify expectations from `_ai_/notes/code-in-the-loop-adrs.md` ADR 0006 rather than raw sleeps
 - Promotion writes a test file from a per-language template. Discard is the default after the routine that produced it succeeds
 - One `browser.Session` interface (click, read accessibility tree, screenshot, record) with two backends. Default is `go-rod` on a fresh profile, so an injected page finds no ambient credentials and deny-by-default mutation and the egress allowlist live in Wavez's process. `browser-control` (extension plus local WebSocket relay on the real profile) is a per-thread opt-in for tasks that need a logged-in session, never the default. Kitesurf runs only inside Workers and is out
 - Vision calls only for visual judgments. Chrome 136+ refuses `--remote-debugging-port` on the default profile, so those two backends are the only routes
@@ -414,15 +414,15 @@ Grouped by rough priority. Each stays out until the phase that would use it, wit
 
 Likely later:
 
-- Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/is-it-risky-determinitically.md`. Belongs in Gates once the code-relationship store exists (v0.3)
+- Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-relationship store exists (v0.3)
 - Churn and bug-correlation per file or function. code-maat (Clojure CLI, CSV hotspots and coupling) and PyDriller (Python library for commit mining and SZZ pipelines) exist today, no maintained bare CLI for defect prediction does. Feeds the same risk score once the code-relationship store exists
 - Merge-then-monitor: join merges against Sentry or health metrics after the fact to label outcomes. Separate tool, not a pre-merge gate
-- Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/merge-based-stacking`). Depends on the v0.4 VCS layer
+- Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the v0.4 VCS layer
 - Ask-a-line threads persisted like review comments. Depends on diff anchors (v0.3)
 
 Maybe:
 
-- Comprehension quizzes from transcripts (`_ai_/what-did-ai-do`). Works today as its own tool against Wavez's session IR
+- Comprehension quizzes from transcripts (`../what-did-ai-do`). Works today as its own tool against Wavez's session IR
 - Dash docsets as a local first hop for web search
 - Learned router heuristics from usage. Start fixed
 - ACP server mode for editors other than Neovim, and semantic (embedding) search over the store
