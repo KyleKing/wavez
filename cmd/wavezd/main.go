@@ -20,6 +20,7 @@ import (
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/llm"
+	"github.com/kyleking/wavez/internal/sysinfo"
 )
 
 var (
@@ -95,6 +96,7 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithBroker(broker),
 		daemon.WithLogDir(filepath.Join(root, ".wavez", "threads")),
 		daemon.WithPrefix(prefix(a)),
+		daemon.WithStatsSource(machineStats{ctx: ctx}),
 	)
 	if err != nil {
 		return fmt.Errorf("starting daemon: %w", err)
@@ -107,6 +109,21 @@ func serve(ctx context.Context, dir, sock string) error {
 	}
 
 	return nil
+}
+
+// machineStats reads real memory for the diagnostics strip. A zeroed reading
+// is reported as zero rather than guessed, so the panel never invents a number.
+type machineStats struct {
+	ctx context.Context //nolint:containedctx // StatsSource.Stats takes no context
+}
+
+func (m machineStats) Stats() daemon.MemStats {
+	mem, err := sysinfo.ReadMemory(m.ctx)
+	if err != nil {
+		return daemon.MemStats{}
+	}
+
+	return daemon.MemStats{UsedBytes: mem.UsedBytes, TotalBytes: mem.TotalBytes}
 }
 
 func prefix(a *app.App) agent.Prefix {
