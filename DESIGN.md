@@ -453,9 +453,16 @@ Wavez does not auto-load `AGENTS.md`, `CLAUDE.md`, `.agents/`, or `.claude/`. Mo
 - Version pinning: queries carry the detected package version so results match the software in use
 - Dash docsets as a local first hop where they exist
 
-### Benchmark (v0.5)
+### Benchmark (harness v0.3, comparison v0.5)
 
-- Check out a codebase at a commit, run a prepared prompt set, compare tokens, wall-clock, and pass rate against Claude Code and OpenCode. Reuse Harbor for scoring, add turn count and gate failures from the ledger
+The thesis is "fewer tokens, faster, same or better code", so it needs a harness early enough to measure v0.3 against v0.1, and a comparison against Claude Code and OpenCode once the agent is whole. opencode-bench is the reference shape (a task set, per-agent adapters, a scoring rubric). Harbor and Terminal-Bench are the reference for sandboxed task execution and scoring.
+
+- Tasks come from real commits in the user's repos, replayed from the parent tree with the commit message as the prompt and the real diff plus the repo's own tests as the oracle, the same method as `_ai_/demos/intent-edits/corpus`. Twenty to thirty tasks stratified by size and kind (add, change, fix, refactor, cross-file). Public tasks (Terminal-Bench, SWE-bench-style) come later for external comparison
+- Metrics per run: pass rate against tests, output tokens, input tokens, cache hit share, wall time, hosted cost, turns, tool calls, malformed calls, gate failures, and the share of the final diff produced by resolvers and Modifiers versus model text. The last one is the number that proves or refutes the design
+- Adapters: Wavez through `-p` with JSON output, Claude Code through `-p --output-format json`, OpenCode through its server API. Same task text, same sandbox, three runs each. The `_ai_/demos/intent-edits/timing` scripts are the seed
+- Two lanes: local-only (qwen3:8b, no network) and hosted-allowed. Reported separately, since the local lane is where the deterministic layer has to carry the most
+- Output is one table per model lane plus a per-task drill-down, written to `_ai_/bench/` with the run's SHAs, and rerunnable from one command in a routine
+- What Wavez adds that the reference tools do not capture: turn count, gate failures, resolver share, and per-thread spend from the ledger
 
 ## Decisions
 
@@ -486,9 +493,9 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 |---|---|---|
 | v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
 | v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta |
-| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
+| v0.3 | The same task costs measurably fewer tokens than v0.1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
-| v0.5 | A benchmark table against Claude Code on 20 tasks | Browser recordings, benchmark harness |
+| v0.5 | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
 
 ## Considered and deferred
 

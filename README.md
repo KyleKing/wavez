@@ -27,9 +27,9 @@ TLDR: fewer tokens, faster builds, higher quality, low RAM.
 |---|---|---|
 | v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox), chat loop, code-intelligence store with `search` and `context`, Gates, sandbox + permission gate, local model + OpenRouter escalation |
 | v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings, semantic index, similarity notes, repo map |
-| v0.3 | Cheaper and faster on the same work, from Neovim too | Modifiers, intent edits, deterministic compaction, cross-stack contract nodes, `wavez.nvim`, web search |
+| v0.3 | Cheaper and faster on the same work, from Neovim too | Benchmark harness on replayed commits, Modifiers, intent edits, deterministic compaction, cross-stack contract nodes, `wavez.nvim`, web search |
 | v0.4 | Away from the laptop | jj/git integration layer, mobile client (Tailscale + PWA + push) |
-| v0.5 | Proving it | Browser recordings, benchmark harness against Claude Code / OpenCode |
+| v0.5 | Proving it | Browser recordings, benchmark comparison against Claude Code and OpenCode in local and hosted lanes |
 
 Innovation tokens go to Routines + Gates and Modifiers. Everything else copies prior art (Crush for the Go tool loop and Bubble Tea patterns, opencode for compaction policy, `_ai_/` projects for locks, risk scoring, and browser safety).
 
