@@ -1,0 +1,8 @@
+pkgone/greeter.go	func	NewGreeter	15-17	func NewGreeter(prefix string) *Greeter	NewGreeter builds a Greeter with the given prefix.
+pkgone/greeter.go	method	Greet	10-12	func (g *Greeter) Greet(name string) string	Greet returns a greeting for name.
+pkgone/greeter.go	type	Greeter	5-7	type Greeter struct {
+	Prefix string
+}	Greeter says hello to someone by name.
+pysrc/greeter.py	class	Greeter	4-9	class Greeter:	Says hello to someone by name.
+pysrc/greeter.py	func	greet	7-9	def greet(self, name):	Return a greeting for name.
+pysrc/greeter.py	func	new_greeter	12-14	def new_greeter(prefix):	Build a Greeter with the given prefix.
