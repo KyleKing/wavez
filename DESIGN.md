@@ -35,6 +35,7 @@ flowchart LR
         Tools[Tools and Modifiers]
         Routines[Routine runner and Gates]
         Store[(Project state SQLite and JSONL)]
+        Code[(Code intelligence store)]
     end
     subgraph external [External]
         Local[Ollama local models]
@@ -58,6 +59,8 @@ flowchart LR
     Routines --> VCS
     Threads --> Store
     Routines --> Store
+    Tools --> Code
+    Routines --> Code
 ```
 
 | Component | Responsibility |
@@ -68,6 +71,7 @@ flowchart LR
 | Agent loop | Streaming tool-use loop, bounded retries, loop detection, permission gate |
 | Model router | Task shape decides local vs hosted. Explicit override per turn |
 | Tools and Modifiers | Read, edit, shell, search, question, browser (later), plus refactor operations backed by LSP and CLIs |
+| Code intelligence | One SQLite store per project: symbols, edges, FTS, vectors, coverage, contracts. Fed by tree-sitter, `codegraph`, coverage adapters, and a local embedder. One `search` tool and one `context` bundle |
 | Routine runner and Gates | pkl-defined DAGs triggered by change events, coverage-selected tests, output trimming |
 | Project state | Gate log, coverage map, ledger, context manifests, diff anchors, recordings. Survives sessions |
 
@@ -269,8 +273,8 @@ like Foo: add Bar            # mirror an existing symbol's shape
 
 - Triggered by change events from the edit tool and from a file watcher, never by the model deciding to test
 - Changed-file detection stores its own last-known-good marker (SHA or op ID), not a session ID
-- Test selection reads one code-relationship store, a SQLite file per project with three tables: import edges (file to file), symbol definitions and references, and line-to-test coverage. Adapters feed it, gates query it, and every other consumer (Modifiers, scheduler contention, risk scoring) reads the same store
-- Adapters: `codegraph` for symbols and edges (calls, references, imports, 763 ms to index a 10k LOC Go repo, needs `--filter "**/*_test.go"` on Go), coverage.py `--cov-context=test` for Python line-to-test (+8% over plain coverage, works under xdist), a per-test `go test -run` coverprofile loop for Go, tree-sitter where codegraph is missing. `vitest --changed` or `testpick` for JS later. Demos: `_ai_/demos/code-store-go`, `_ai_/demos/code-store-python`
+- Test selection reads the code-intelligence store (see that section): symbols, edges, coverage. Adapters feed it, gates query it, and every other consumer reads the same store
+- Coverage adapters (`codegraph` and tree-sitter feed symbols and edges, see Code intelligence): coverage.py `--cov-context=test` for Python line-to-test (+8% over plain coverage, works under xdist), a per-test `go test -run` coverprofile loop for Go. `vitest --changed` or `testpick` for JS later. Demos: `_ai_/demos/code-store-go`, `_ai_/demos/code-store-python`
 - Selection order: line-to-test where the map covers the changed lines, transitive importers of changed files otherwise, whole package as the last fallback. Measured on gh-repo-dashboard: line-level cuts a 522-test suite to 3-5 tests for a one-function change, importer-level returns 383 for a widely imported file, so the coverage map ships in v0.1
 - The coverage map is built once per clone (249 s for 522 Go tests with 8 workers, 27x a plain run) and updated incrementally: only tests whose covered files changed by content hash re-run
 - Full run on a cadence: after N selective passes, after a time threshold, or when the map flags an untracked file
@@ -366,17 +370,28 @@ Minimal on purpose. The daily loop is send, open, review, jump. Nothing else unt
 - Ask-a-line from a hunk in diff mode is the same call the TUI makes
 - Existing plugins (sidekick, codecompanion, avante, claudecode.nvim) mostly wrap a CLI in a terminal buffer, so the socket-backed shape is already the smaller design
 
-### Code search and similarity (v0.3)
+### Code intelligence (v0.1 core, v0.2 semantic, v0.3 cross-stack)
 
-- Fuzzy symbol and file search from the code-relationship store (FTS5 over symbol names and paths, the same index `codegraph` builds), exposed as one tool to the model and one picker to Neovim and the palette
-- Semantic search is opt-in per project: a local embedding model over symbols and docs, vectors memory-mapped next to the store, the technique Codanna uses. Not built until fuzzy plus graph queries fall short. Until then [codanna.nvim](https://github.com/KyleKing/codanna.nvim) covers semantic search, symbols, callers, and impact from Neovim against Codanna's own index, and Wavez's `wavez.nvim` reuses its picker layer (Telescope, mini.pick, snacks) rather than adding one
-- Similarity ("squinting"): pylint and jscpd catch type-1 and type-2 clones. Wavez looks for the near misses using signals the store already has, and surfaces a "possibly similar to `pkg.Foo`" note at edit time only when two independent signals agree
-  - normalized token fingerprint (identifiers and literals abstracted, winnowed or MinHashed, after MOSS and SourcererCC)
-  - structural vector per function (node-type counts, depth, branch count, after Deckard)
-  - callee-set overlap from the call edges, which catches functions with zero token overlap that do the same thing
-  - control-flow shape as a nesting-depth sequence from tree-sitter
-  - test-coverage overlap from the line-to-test table, corroborating only
-- The note is advisory to the model and a row in the thread, never an auto-refactor. `dupl` (Go) and jscpd stay available as exact-clone gates
+One store per project, several indexes, one query surface. Every subsystem that needs to know the code reads it: gates (test selection), Modifiers (symbol lookup), intent edits (siblings and conventions), similarity notes, context collection, the scheduler (contention by dependency), risk scoring, and the Neovim pickers.
+
+**Store.** One SQLite file: `files` (path, content hash), `symbols` (kind, name, file, range, signature, doc), `edges` (calls, references, imports, contains, implements, plus `bridge` for contracts, each with a confidence), `fts` (FTS5 trigram over symbol names, paths, and file text), `vectors` (sqlite-vec, per symbol), `coverage` (file, range, test), `contracts` (routes, operations, tables), and later `history` (churn per symbol). One file to back up, one transaction domain, readable from Go without a server.
+
+**Indexers, all incremental by content hash.**
+
+- Symbols and text: tree-sitter through the Go bindings, reparse only changed files, FTS rows per symbol and file
+- Graph edges: `codegraph` as an adapter in v0.1 (763 ms to index a 10k LOC Go repo, call and reference edges across 20 languages, rows copied into `edges`), because writing a resolver per language is the expensive part. Its cross-language linking is by name only (its issue #765), so bridge edges come from the cross-stack detectors, not from it. An own resolver on tree-sitter (import table plus local scope) replaces it per language only where its edges prove wrong. SCIP indexers are the escalation for compiler-grade resolution if ever needed
+- Coverage: the per-test loop and coverage.py contexts from the Gates section
+- Vectors (v0.2): `qwen3-embedding:0.6b` through Ollama (639 MB, fits beside the 8B generator), one chunk per tree-sitter symbol so signature, doc, and body stay together, re-embed only symbols whose hash changed. Brute force is fine into the tens of thousands of vectors, sqlite-vec after that
+
+**Query surface.** One `search` tool with a `mode` (fuzzy, semantic, graph, hybrid) and one `context` call that returns a ranked bundle for the model's first turn: a repo map (PageRank over the symbol graph, Aider style, under 1k tokens by default), the touched symbols with their callers and callees one hop out, and the tests that cover them. A small model plans better against one tool with a mode than four tools it has to choose between, and it cannot afford five search turns to recover from a bad first retrieval.
+
+**Roles by index.** Fuzzy and graph are primary retrieval, since agentic grep-and-read plus graph traversal is competitive with embedding RAG in 2026 measurements and cheaper on a small context. Semantic search is for what lexical cannot do: "find code like this", near-miss duplicates, docs and comments, and natural-language questions from Neovim. A local cross-encoder reranker is deferred until hybrid results are measurably worse than they should be.
+
+**Similarity ("squinting", v0.2).** pylint and jscpd catch type-1 and type-2 clones. Wavez looks for near misses with signals the store already has and surfaces "possibly similar to `pkg.Foo`" only when two independent signals agree: normalized token fingerprint (identifiers and literals abstracted, winnowed or MinHashed, after MOSS and SourcererCC), structural vector per function (node-type counts, depth, branches, after Deckard), callee-set overlap from the call edges (catches zero-token-overlap duplicates), nesting-depth sequence, embedding neighbours, and coverage overlap as corroboration. Advisory to the model and a row in the thread, never an auto-refactor. `dupl` (Go) and jscpd stay as exact-clone gates.
+
+**Neovim.** [codanna.nvim](https://github.com/KyleKing/codanna.nvim) already gives semantic search, symbols, callers, and impact pickers against Codanna's index. `wavez.nvim` reuses that picker layer (Telescope, mini.pick, snacks) pointed at the Wavez store, so one set of keymaps works whether the index is Codanna's or Wavez's. Codanna itself stays a reference and an alternative indexer, not a dependency.
+
+**Not chosen.** Zoekt (Go trigram search) unless regex and boolean queries over a large repo become the need, since FTS5 trigram covers a 10k-500k LOC repo. universal-ctags (GPL-2.0, symbols only). Standing language servers as the store (Serena's shape) because N servers are too heavy for an always-on daemon on 16 GB, though LSP stays the Modifiers' execution engine. Sliding-window chunking, since AST chunks keep a symbol whole. A vector database process of any kind.
 
 ### Cross-stack graph (v0.3)
 
@@ -399,7 +414,7 @@ Features nobody praises and everybody misses. Copied from Claude Code, Codex, Op
 - Two hooks, pre-tool-use and post-tool-use, as external commands
 - Model switch and thinking toggle mid-thread, cost and token counters in the header
 - Image and screenshot input (v0.2), notifications on needs-input and done (v0.2)
-- Repo map from the store as cheap default context, after Aider (v0.3)
+- Repo map from the store as cheap default context, after Aider (v0.2)
 - MCP client, connected per thread on demand from an allowlist in `.wavez.pkl`, never all up front (v0.3)
 - Plan mode is a thread whose tools are read-only, not a separate mode
 
@@ -429,7 +444,8 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of a single-binary low-RAM agent, facing Go vs Rust vs TypeScript, we chose Go with Bubble Tea v2, to reuse Crush's proven patterns and the user's Go tooling, accepting that jcode (Rust) will stay leaner
 - In the context of Crush's FSL-1.1-MIT license and its `internal/` layout, facing fork vs copy, we copy its tool loop and TUI patterns into our own code, to keep the surface small and avoid the FSL window, accepting slower start than a fork
 - In the context of per-project config, facing pkl vs CUE vs TOML, we chose pkl through `pkl-go` with one long-lived evaluator, to get typed schemas with `amends` and share the mental model with hk, accepting a `pkl server` subprocess (~30 MB RSS) and a pre-1.0 Go binding. Measured in `_ai_/demos/pkl-routines`: ~130 µs warm, 10-14 ms cold, so no cache layer is needed
-- In the context of test selection, facing `pytest-testmon` per language vs one store, we keep one SQLite line-to-test and import-graph schema fed by per-language adapters (coverage.py contexts, Go coverprofile loops, `codegraph`), to let gates, modifiers, and the scheduler share one model of the code, accepting that we own the selection logic
+- In the context of code intelligence, facing one external index (codegraph, Codanna, Serena) vs an own store, we own the SQLite schema and the tree-sitter, FTS, vector, and coverage indexers in Go and take `codegraph` as an edge adapter, to keep the central store under Wavez's control and let every subsystem query one file, accepting that call-edge resolution depends on an external binary until an own resolver replaces it per language
+- In the context of retrieval for a small local model, facing embedding RAG vs graph and lexical first, we make fuzzy plus graph the primary path with a repo map and one-hop neighbourhood on the first turn and semantic search a secondary mode, to fit a 4-32k window in one or two turns, accepting weaker recall on natural-language questions until the semantic mode is measured
 - In the context of workflow semantics, facing embedding a Go workflow library vs writing a scheduler, we write a small in-process DAG runner, to keep it single-process and testable, accepting that we own it
 - In the context of a 16 GB M2 Pro, facing local-only vs hosted-only vs router, we run local first with escalation to OpenRouter after one failure or on task shape, to keep routine edits offline and cheap, accepting that multi-file work will mostly go hosted
 - In the context of coordination between threads, facing worktrees vs directories, we key locks and identity on directory subtrees, to match how agents actually write (6.8% of writes leave the cwd), accepting that isolation of dependencies is the project's job
@@ -447,9 +463,9 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 
 | Version | Done when | Ships |
 |---|---|---|
-| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, line-anchored edit tool, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
-| v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission |
-| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, fuzzy search and repo map from the store, similarity notes, cross-stack contract nodes, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
+| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, line-anchored edit tool, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
+| v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map |
+| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | v0.5 | A benchmark table against Claude Code on 20 tasks | Browser recordings, benchmark harness |
 
@@ -459,8 +475,8 @@ Grouped by rough priority. Each stays out until the phase that would use it, wit
 
 Likely later:
 
-- Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-relationship store exists (v0.3)
-- Churn and bug-correlation per file or function. code-maat (Clojure CLI, CSV hotspots and coupling) and PyDriller (Python library for commit mining and SZZ pipelines) exist today, no maintained bare CLI for defect prediction does. Feeds the same risk score once the code-relationship store exists
+- Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-intelligence store exists (v0.3)
+- Churn and bug-correlation per file or function. code-maat (Clojure CLI, CSV hotspots and coupling) and PyDriller (Python library for commit mining and SZZ pipelines) exist today, no maintained bare CLI for defect prediction does. Feeds the same risk score once the code-intelligence store exists
 - Merge-then-monitor: join merges against Sentry or health metrics after the fact to label outcomes. Separate tool, not a pre-merge gate
 - Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the v0.4 VCS layer
 - Ask-a-line threads persisted like review comments. Depends on diff anchors (v0.3)

@@ -9,9 +9,10 @@ Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, pe
 - **Gates** run checks in response to what changed. The model never decides what to test. Coverage map plus changed lines selects the test subset. Format and lint run as pre-passes. Passing gates return nothing to the model. Failures return only the failing test names and the frames that touch changed files
 - **Routines** are user-defined workflows in pkl with workflow-engine semantics (DAG steps, concurrency keys, cancel-in-progress, multiple triggers) that run locally with resource locks. Gates are the built-in routines
 - **Edits** are line-anchored ops (replace, insert, delete by content-hashed line id) so the model emits an address and new lines, never the old text, and stale edits are rejected before writing. Hosted models keep their native formats
-- **Intent edits** (exploration) go further: the model or a human states `add fn parseTTL(cfg Config) time.Duration near TTL` or `like Foo: add Bar`, and a resolver driven by the code-relationship store places the code, adds imports, plumbs config, registers routes, writes the test stub, and leaves a small local model only the hole that structure cannot decide. The same resolver is a completion source in Neovim
+- **Intent edits** (exploration) go further: the model or a human states `add fn parseTTL(cfg Config) time.Duration near TTL` or `like Foo: add Bar`, and a resolver driven by the code-intelligence store places the code, adds imports, plumbs config, registers routes, writes the test stub, and leaves a small local model only the hole that structure cannot decide. The same resolver is a completion source in Neovim
 - **Modifiers** let the model call a refactor engine (rename, move, extract, add import, stub from signature) with a dozen tokens instead of emitting the edited text. Backed by LSP, `gopls`, `ast-grep`, `ts-morph`, and `rope`
 - **Threads** replace the single god session. Each work stream has its own compacted history. A scheduler coordinates threads that touch the same directories, alternates edit and execute phases, and respects the laptop's memory
+- **Code intelligence** is one SQLite store per project (symbols, call and import edges, trigram FTS, embeddings, line-to-test coverage, cross-stack contracts) fed incrementally by tree-sitter, `codegraph`, coverage adapters, and a small local embedder. One `search` tool with fuzzy, semantic, graph, and hybrid modes, and one `context` bundle (repo map plus one-hop neighbourhood plus covering tests) for a small model's first turn. Everything else reads it: gates, modifiers, intent edits, similarity notes, the scheduler, Neovim pickers
 - **Compaction** is deterministic first (append-only trimming that keeps the prompt-cache prefix stable, rule-based stdout truncation, tool results dropped after N turns) and model-based only for the residue
 - **Recordings** capture PTY and browser step sequences as they happen so a fix can be replayed for regression, then promoted to a test or discarded
 
@@ -23,9 +24,9 @@ TLDR: fewer tokens, faster builds, higher quality, low RAM.
 
 | Version | Usable for | Adds |
 |---|---|---|
-| v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox), chat loop, Gates, sandbox + permission gate, local model + OpenRouter escalation |
-| v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings |
-| v0.3 | Cheaper and faster on the same work, from Neovim too | Modifiers, deterministic compaction, code-relationship store (imports, symbols, line-to-test, cross-stack contract nodes), fuzzy search and similarity notes, `wavez.nvim`, web search |
+| v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox), chat loop, code-intelligence store with `search` and `context`, Gates, sandbox + permission gate, local model + OpenRouter escalation |
+| v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings, semantic index, similarity notes, repo map |
+| v0.3 | Cheaper and faster on the same work, from Neovim too | Modifiers, intent edits, deterministic compaction, cross-stack contract nodes, `wavez.nvim`, web search |
 | v0.4 | Away from the laptop | jj/git integration layer, mobile client (Tailscale + PWA + push) |
 | v0.5 | Proving it | Browser recordings, benchmark harness against Claude Code / OpenCode |
 
