@@ -1,3 +1,17 @@
+## v0.6.0 (2026-08-16)
+
+### Feat
+
+- **vcs**: replace git with jj and take checkpoints from the operation log
+- **rules**: gate bare nolint and load the guidance wavez never saw
+- **agent**: escalate on a repeated call and gate an abandoned change set
+
+### Fix
+
+- **app**: resolve the hosted key lazily so a local run needs no credential
+- **gate**: format in process so a released binary needs no goimports
+- **release**: ship wavezd alongside wavez
+
 ## v0.5.0 (2026-08-16)
 
 ### Feat
