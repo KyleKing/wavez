@@ -1,0 +1,83 @@
+package sandbox_test
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/kyleking/wavez/internal/sandbox"
+)
+
+func requireSandboxExec(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("sandbox-exec"); err != nil {
+		t.Skip("sandbox-exec not available on this host")
+	}
+}
+
+func TestExec_Probes(t *testing.T) {
+	requireSandboxExec(t)
+	t.Parallel()
+
+	projectRoot := t.TempDir()
+	sessionTmp := t.TempDir()
+	outsideDir := t.TempDir()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir: %v", err)
+	}
+	sshConfig := filepath.Join(home, ".ssh", "config")
+	if _, err := os.Stat(sshConfig); err != nil {
+		t.Skipf("no %s to probe against: %v", sshConfig, err)
+	}
+
+	tests := []struct {
+		name   string
+		args   []string
+		wantOK bool
+	}{
+		{
+			name:   "write inside project root",
+			args:   []string{"sh", "-c", "echo x > '" + filepath.Join(projectRoot, "probe") + "'"},
+			wantOK: true,
+		},
+		{
+			name:   "write outside project root",
+			args:   []string{"sh", "-c", "echo x > '" + filepath.Join(outsideDir, "probe") + "'"},
+			wantOK: false,
+		},
+		{
+			name:   "read ~/.ssh",
+			args:   []string{"cat", sshConfig},
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := sandbox.Exec(context.Background(), projectRoot, sessionTmp, tt.args...)
+			if err != nil {
+				t.Fatalf("Exec: %v", err)
+			}
+
+			gotOK := result.ExitCode == 0
+			if gotOK != tt.wantOK {
+				t.Errorf("Exec(%v) exit=%d stderr=%q, want ok=%v", tt.args, result.ExitCode, result.Stderr, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestExec_NoCommand(t *testing.T) {
+	t.Parallel()
+
+	_, err := sandbox.Exec(context.Background(), t.TempDir(), t.TempDir())
+	if err == nil {
+		t.Fatal("Exec() with no args: want error, got nil")
+	}
+}
