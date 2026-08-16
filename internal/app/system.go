@@ -20,7 +20,9 @@ How this harness works, which differs from what you may expect:
 - Anchor str_replace on the shortest snippet that appears exactly once. A long
   anchor fails more often than a short one.
 - Repeating a failed call unchanged ends the task. Change the anchor instead.
-- Use search to find code rather than reading whole files.`
+- Use search to find code rather than reading whole files.
+- Never silence a check to make it pass. Do not add a suppression comment, skip a
+  test, or widen a timeout. Fix the cause, or report that you could not.`
 
 func systemPrefix(context string) string {
 	if strings.TrimSpace(context) == "" {

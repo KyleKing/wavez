@@ -9,6 +9,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
 )
@@ -168,27 +169,50 @@ func TestHostedKeyComesFromTheConfiguredCommand(t *testing.T) {
 	}
 }
 
-func TestHostedKeyCommandFailureIsReported(t *testing.T) {
+// A local-only run must start without a hosted credential it never uses, so
+// the key resolves on the first hosted request rather than at construction.
+func TestHostedKeyFailureDoesNotBlockAppConstruction(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	cfg := config.Defaults(root)
 	cfg.HostedKeyCommand = "false"
 
-	if _, err := app.New(t.Context(), root, cfg, permission.DenyAll()); err == nil {
-		t.Fatal("a failing key command was accepted, so a locked secret store would look like no key")
+	a, err := app.New(t.Context(), root, cfg, permission.DenyAll())
+	if err != nil {
+		t.Fatalf("a failing key command blocked a local-only run: %v", err)
+	}
+	if cerr := a.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
 	}
 }
 
-func TestEmptyHostedKeyCommandOutputIsAnError(t *testing.T) {
+func TestHostedKeyErrorsOnFirstHostedRequest(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.HostedKeyCommand = "true"
+	cfg.HostedKeyCommand = "true" // succeeds, prints nothing
 
-	_, err := app.New(t.Context(), root, cfg, permission.DenyAll())
-	if !errors.Is(err, app.ErrEmptyKeyCommand) {
-		t.Fatalf("err = %v, want ErrEmptyKeyCommand", err)
+	a, err := app.New(t.Context(), root, cfg, permission.DenyAll())
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := a.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+
+	var streamErr error
+	for _, err := range a.Hosted.Stream(t.Context(), llm.Request{Model: "m"}) {
+		if err != nil {
+			streamErr = err
+
+			break
+		}
+	}
+	if !errors.Is(streamErr, app.ErrEmptyKeyCommand) {
+		t.Fatalf("stream error = %v, want ErrEmptyKeyCommand", streamErr)
 	}
 }

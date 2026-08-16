@@ -6,16 +6,20 @@ package openaic
 import (
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // Client streams chat completions from one OpenAI-compatible endpoint.
 type Client struct {
 	httpClient *http.Client
 	headers    map[string]string
+	apiKeyFn   func() (string, error)
+	keyErr     error
 	name       string
 	baseURL    string
 	apiKey     string
 	model      string
+	keyOnce    sync.Once
 }
 
 // Option configures a Client.
@@ -29,6 +33,13 @@ func WithBaseURL(url string) Option {
 // WithAPIKey sets the bearer token sent as an Authorization header.
 func WithAPIKey(key string) Option {
 	return func(c *Client) { c.apiKey = key }
+}
+
+// WithAPIKeyFunc resolves the bearer token on first use instead of at
+// construction, so a local-only run never pays for a credential it does not
+// need. The result is cached; an error surfaces on the request that needed it.
+func WithAPIKeyFunc(fn func() (string, error)) Option {
+	return func(c *Client) { c.apiKeyFn = fn }
 }
 
 // WithModel sets the model name sent in each request body.
@@ -64,3 +75,14 @@ func New(name string, opts ...Option) *Client {
 
 // Name implements llm.Provider.
 func (c *Client) Name() string { return c.name }
+
+func (c *Client) resolveKey() (string, error) {
+	c.keyOnce.Do(func() {
+		if c.apiKeyFn == nil {
+			return
+		}
+		c.apiKey, c.keyErr = c.apiKeyFn()
+	})
+
+	return c.apiKey, c.keyErr
+}

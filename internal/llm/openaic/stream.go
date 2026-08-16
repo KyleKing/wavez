@@ -156,8 +156,12 @@ func (c *Client) do(ctx context.Context, req llm.Request) (*http.Response, error
 		return nil, fmt.Errorf("openaic: %s: building request: %w", c.name, err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	key, err := c.resolveKey()
+	if err != nil {
+		return nil, err
+	}
+	if key != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+key)
 	}
 	for k, v := range c.headers {
 		httpReq.Header.Set(k, v)
