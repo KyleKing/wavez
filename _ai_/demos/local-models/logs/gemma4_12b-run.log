@@ -1,0 +1,104 @@
+=== gemma4:12b ===
+load: {
+  "load_wall_seconds": 14.158460140228271,
+  "mem_before": "System-wide memory free percentage: 82%",
+  "mem_after": "System-wide memory free percentage: 30%",
+  "ollama_ps": "NAME          ID              SIZE      PROCESSOR    CONTEXT    UNTIL              \ngemma4:12b    4eb23ef187e2    8.0 GB    100% GPU     4096       4 minutes from now",
+  "response_load_duration_ns": 7489272958
+}
+decode runs: [
+  {
+    "run": 0,
+    "eval_count": 300,
+    "eval_duration_ns": 21929191000,
+    "decode_toks_per_sec": 13.680395232090413,
+    "prompt_eval_count": 731,
+    "prompt_eval_duration_ns": 5436828000,
+    "prompt_eval_toks_per_sec": 134.45339819468262,
+    "total_duration_ns": 27839302333
+  },
+  {
+    "run": 1,
+    "eval_count": 300,
+    "eval_duration_ns": 21924860000,
+    "decode_toks_per_sec": 13.68309763437486,
+    "prompt_eval_count": 731,
+    "prompt_eval_duration_ns": 229447000,
+    "prompt_eval_toks_per_sec": 3185.92093163127,
+    "total_duration_ns": 22614822750
+  },
+  {
+    "run": 2,
+    "eval_count": 300,
+    "eval_duration_ns": 22028252000,
+    "decode_toks_per_sec": 13.61887452531413,
+    "prompt_eval_count": 731,
+    "prompt_eval_duration_ns": 224091000,
+    "prompt_eval_toks_per_sec": 3262.0676421632284,
+    "total_duration_ns": 22719350375
+  }
+]
+tool call runs: [
+  {
+    "run": 0,
+    "well_formed": true,
+    "tool_calls": [
+      {
+        "id": "call_lofzwzb5",
+        "function": {
+          "index": 0,
+          "name": "edit_file",
+          "arguments": {
+            "new_text": "TTL",
+            "old_text": "DefaultTTL",
+            "path": "internal/lease/lease.go"
+          }
+        }
+      }
+    ],
+    "content": ""
+  },
+  {
+    "run": 1,
+    "well_formed": true,
+    "tool_calls": [
+      {
+        "id": "call_pxs3v9d1",
+        "function": {
+          "index": 0,
+          "name": "edit_file",
+          "arguments": {
+            "new_text": "TTL",
+            "old_text": "DefaultTTL",
+            "path": "internal/lease/lease.go"
+          }
+        }
+      }
+    ],
+    "content": ""
+  },
+  {
+    "run": 2,
+    "well_formed": true,
+    "tool_calls": [
+      {
+        "id": "call_iamn74hx",
+        "function": {
+          "index": 0,
+          "name": "list_files_recursive",
+          "arguments": {
+            "path": "internal/lease/lease.go"
+          }
+        }
+      }
+    ],
+    "content": ""
+  }
+]
+prefix cache: {
+  "first_prompt_eval_duration_ns": 16195365000,
+  "first_prompt_eval_count": 2672,
+  "second_prompt_eval_duration_ns": 379904000,
+  "second_prompt_eval_count": 2672,
+  "speedup_ratio": 42.6301513013814
+}

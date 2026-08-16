@@ -1,0 +1,57 @@
+amends "Wavez.pkl"
+
+routines {
+  ["test-select"] {
+    triggers { "*_test.go"; "*.go" }
+    steps {
+      new {
+        name = "select"
+        cmd { "go"; "test"; "./..."; "-run"; "TestSelect" }
+        needs {}
+        concurrencyKey = "test-select"
+        cancelInProgress = true
+      }
+    }
+    locks {}
+  }
+  ["fmt"] {
+    triggers { "*.go" }
+    steps {
+      new {
+        name = "gofmt"
+        cmd { "gofmt"; "-l"; "-w"; "." }
+        needs {}
+        concurrencyKey = "fmt"
+        cancelInProgress = false
+      }
+      new {
+        name = "goimports"
+        cmd { "goimports"; "-w"; "." }
+        needs { "gofmt" }
+        concurrencyKey = "fmt"
+        cancelInProgress = false
+      }
+    }
+    locks { "fmt" }
+  }
+  ["lint"] {
+    triggers { "*.go" }
+    steps {
+      new {
+        name = "vet"
+        cmd { "go"; "vet"; "./..." }
+        needs {}
+        concurrencyKey = "lint"
+        cancelInProgress = false
+      }
+      new {
+        name = "staticcheck"
+        cmd { "staticcheck"; "./..." }
+        needs { "vet" }
+        concurrencyKey = "lint"
+        cancelInProgress = false
+      }
+    }
+    locks { "lint" }
+  }
+}

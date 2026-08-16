@@ -1,0 +1,32 @@
+[
+  {
+    "run": 0,
+    "eval_count": 547,
+    "eval_duration_ns": 29237226000,
+    "decode_toks_per_sec": 18.70902526799225,
+    "prompt_eval_count": 608,
+    "prompt_eval_duration_ns": 3446130000,
+    "prompt_eval_toks_per_sec": 176.42979225972323,
+    "total_duration_ns": 32904816166
+  },
+  {
+    "run": 1,
+    "eval_count": 670,
+    "eval_duration_ns": 36872494000,
+    "decode_toks_per_sec": 18.17072639567044,
+    "prompt_eval_count": 608,
+    "prompt_eval_duration_ns": 40013000,
+    "prompt_eval_toks_per_sec": 15195.061604978382,
+    "total_duration_ns": 37195738000
+  },
+  {
+    "run": 2,
+    "eval_count": 780,
+    "eval_duration_ns": 43337077000,
+    "decode_toks_per_sec": 17.99844507279529,
+    "prompt_eval_count": 608,
+    "prompt_eval_duration_ns": 52435000,
+    "prompt_eval_toks_per_sec": 11595.3084771622,
+    "total_duration_ns": 43738640292
+  }
+]

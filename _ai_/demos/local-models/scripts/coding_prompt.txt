@@ -1,0 +1,89 @@
+You are reviewing a Go package that manages file-based leases for a multi-agent
+lock system. Below is the current implementation. Explain, in a short paragraph,
+what race condition could occur if two processes call Acquire() at nearly the
+same time, and propose a one-sentence fix.
+
+```go
+package lease
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+type Lease struct {
+	Owner     string    `json:"owner"`
+	Path      string    `json:"path"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+const DefaultTTL = 5 * time.Minute
+
+type Manager struct {
+	dir string
+	ttl time.Duration
+}
+
+func NewManager(dir string) *Manager {
+	return &Manager{dir: dir, ttl: DefaultTTL}
+}
+
+func (m *Manager) leasePath(name string) string {
+	return filepath.Join(m.dir, name+".lease.json")
+}
+
+func (m *Manager) Acquire(name, owner string) (*Lease, error) {
+	p := m.leasePath(name)
+	if existing, err := m.read(p); err == nil {
+		if time.Now().Before(existing.ExpiresAt) && existing.Owner != owner {
+			return nil, fmt.Errorf("lease %q held by %q until %s", name, existing.Owner, existing.ExpiresAt)
+		}
+	}
+	lease := &Lease{
+		Owner:     owner,
+		Path:      p,
+		ExpiresAt: time.Now().Add(m.ttl),
+	}
+	data, err := json.MarshalIndent(lease, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		return nil, err
+	}
+	return lease, nil
+}
+
+func (m *Manager) Release(name, owner string) error {
+	p := m.leasePath(name)
+	existing, err := m.read(p)
+	if err != nil {
+		return nil
+	}
+	if existing.Owner != owner {
+		return fmt.Errorf("lease %q not held by %q", name, owner)
+	}
+	return os.Remove(p)
+}
+
+func (m *Manager) read(p string) (*Lease, error) {
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var l Lease
+	if err := json.Unmarshal(data, &l); err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+```
+
+Also list two edge cases the Release() function does not handle correctly,
+and suggest what error type Acquire() should return so callers can
+distinguish "lease held by someone else" from "disk write failure" with
+errors.Is or errors.As. Keep your answer under 200 words total and focus
+on correctness, not style.
