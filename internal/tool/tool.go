@@ -39,6 +39,13 @@ func Errorf(format string, args ...any) Result {
 	return Result{Content: fmt.Sprintf(format, args...), IsError: true}
 }
 
+// Spec advertises one tool to a provider.
+type Spec struct {
+	Name        string
+	Description string
+	Schema      json.RawMessage
+}
+
 // Tool is one deterministic operation the model may invoke. Run must be safe to
 // call concurrently with other tools and must not retain input after returning.
 type Tool interface {
@@ -79,6 +86,18 @@ func (r *Registry) Get(name string) (Tool, error) {
 	}
 
 	return t, nil
+}
+
+// Specs advertises every registered tool to a provider, in registration order.
+// The order is stable so the prompt prefix stays cacheable across turns.
+func (r *Registry) Specs() []Spec {
+	out := make([]Spec, 0, len(r.order))
+	for _, name := range r.order {
+		t := r.byName[name]
+		out = append(out, Spec{Name: t.Name(), Description: t.Description(), Schema: t.Schema()})
+	}
+
+	return out
 }
 
 // Names lists registered tools in registration order.
