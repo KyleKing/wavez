@@ -61,6 +61,10 @@ const (
 // non-cancellation stream failure distinct from ctx.Err().
 var ErrScriptedFailure = errors.New("agent: provider stream failed")
 
+// errNoCheckpointer is returned by RestoreCheckpoint when the Loop was
+// built with no Checkpointer configured.
+var errNoCheckpointer = errors.New("agent: no Checkpointer configured for this Loop")
+
 // Prefix holds the parts of an llm.Request that stay byte-identical across
 // every turn of one Run: the system prompt (including the session ledger,
 // which Run folds in once at the start) and the tool set. Only Messages grows
@@ -73,9 +77,10 @@ type Prefix struct {
 
 // Outcome reports how Run ended.
 type Outcome struct {
-	Stop      Stop
-	Turns     int
-	ToolCalls int
+	Stop       Stop
+	Checkpoint string
+	Turns      int
+	ToolCalls  int
 }
 
 // Verifier gates a run once the model reports it is done, per DESIGN.md's
@@ -87,11 +92,24 @@ type Verifier interface {
 	Verify(ctx context.Context, changes []tool.Change) (feedback string, ok bool)
 }
 
+// Checkpointer captures and restores a jj checkpoint around a run, per
+// DESIGN.md's VCS decision to take checkpointing from jj's operation log
+// instead of writing own snapshots. Capture must be cheap enough to call
+// before every run, since jj snapshots the working copy as a side effect
+// of any command. Restore must be safe to call when nothing changed since
+// the checkpoint it is given.
+type Checkpointer interface {
+	Capture(ctx context.Context, repoRoot string) (string, error)
+	Restore(ctx context.Context, repoRoot, checkpoint string) error
+}
+
 // Options bounds and configures a Loop.
 type Options struct {
 	Verifier        Verifier
+	Checkpointer    Checkpointer
 	LocalModel      string
 	HostedModel     string
+	RepoRoot        string
 	MaxTurns        int
 	MaxToolCalls    int
 	MaxVerifyRounds int
@@ -120,6 +138,17 @@ func WithVerifier(v Verifier) Option { return func(o *Options) { o.Verifier = v 
 
 // WithMaxVerifyRounds overrides DefaultMaxVerifyRounds.
 func WithMaxVerifyRounds(n int) Option { return func(o *Options) { o.MaxVerifyRounds = n } }
+
+// WithCheckpointer configures Run to capture a checkpoint at the start of
+// every run and record it on Outcome and on any failure event so a caller
+// can restore repoRoot to it. Run itself never restores: DESIGN.md defaults
+// to reporting the restore point rather than performing it, since
+// destroying uncommitted work without asking is worse than leaving it. Run
+// fails outright if Capture errors, since a checkpoint that cannot be taken
+// is not a checkpoint that succeeded.
+func WithCheckpointer(c Checkpointer, repoRoot string) Option {
+	return func(o *Options) { o.Checkpointer, o.RepoRoot = c, repoRoot }
+}
 
 // Loop drives one thread's tool-use turns against a local and a hosted
 // llm.Provider, chosen per turn by internal/router.
@@ -163,6 +192,11 @@ func (l *Loop) Run(
 		system += "\n\n## Session ledger\n" + prefix.Ledger
 	}
 
+	checkpoint, err := l.captureCheckpoint(ctx)
+	if err != nil {
+		return Outcome{}, err
+	}
+
 	if err := th.AppendUser(ctx, prompt); err != nil {
 		return Outcome{}, fmt.Errorf("appending prompt: %w", err)
 	}
@@ -171,8 +205,42 @@ func (l *Loop) Run(
 	}
 
 	r := &run{loop: l, thread: th, system: system, tools: prefix.Tools, hint: hint, gk: newGateKeeper(l.gate)}
+	r.outcome.Checkpoint = checkpoint
 
 	return r.drive(ctx)
+}
+
+// captureCheckpoint takes the checkpoint Run records on Outcome, when a
+// Checkpointer is configured. It returns a wrapped error rather than an
+// empty checkpoint on failure, so a run never proceeds believing it has a
+// restore point it does not.
+func (l *Loop) captureCheckpoint(ctx context.Context) (string, error) {
+	if l.options.Checkpointer == nil {
+		return "", nil
+	}
+
+	checkpoint, err := l.options.Checkpointer.Capture(ctx, l.options.RepoRoot)
+	if err != nil {
+		return "", fmt.Errorf("capturing checkpoint: %w", err)
+	}
+
+	return checkpoint, nil
+}
+
+// RestoreCheckpoint reverts RepoRoot to checkpoint, the operation id
+// Outcome.Checkpoint reports. Run never calls this itself; it is the entry
+// point a coordinator calls once it decides to act on a reported restore
+// point rather than merely surface it.
+func (l *Loop) RestoreCheckpoint(ctx context.Context, checkpoint string) error {
+	if l.options.Checkpointer == nil {
+		return errNoCheckpointer
+	}
+
+	if err := l.options.Checkpointer.Restore(ctx, l.options.RepoRoot, checkpoint); err != nil {
+		return fmt.Errorf("restoring checkpoint %s: %w", checkpoint, err)
+	}
+
+	return nil
 }
 
 // run holds the mutable state of one Loop.Run call.
@@ -447,7 +515,11 @@ func (r *run) stopCanceled(ctx context.Context) (Outcome, error) {
 
 func (r *run) stopBound(ctx context.Context, stop Stop, reason string) (Outcome, error) {
 	r.outcome.Stop = stop
-	ev := event.Event{Kind: event.KindError, Text: reason, Detail: map[string]any{"bound": string(stop)}}
+	detail := map[string]any{"bound": string(stop)}
+	if r.outcome.Checkpoint != "" {
+		detail["checkpoint"] = r.outcome.Checkpoint
+	}
+	ev := event.Event{Kind: event.KindError, Text: reason, Detail: detail}
 	if _, err := r.thread.Log().Append(ev); err != nil {
 		return Outcome{}, fmt.Errorf("logging bound: %w", err)
 	}
@@ -473,6 +545,9 @@ func (r *run) verifyAbandoned(ctx context.Context) {
 	if !ok {
 		detail["feedback"] = feedback
 	}
+	if r.outcome.Checkpoint != "" {
+		detail["checkpoint"] = r.outcome.Checkpoint
+	}
 	if _, err := r.thread.Log().Append(event.Event{
 		Kind: event.KindGate, Text: gateText(ok), Detail: detail,
 	}); err != nil {
@@ -491,7 +566,11 @@ func gateText(ok bool) string {
 func (r *run) stopFailed(ctx context.Context, cause error) (Outcome, error) {
 	r.outcome.Stop = StopFailed
 	reason := fmt.Sprintf("provider stream failed: %v", cause)
-	if _, err := r.thread.Log().Append(event.Event{Kind: event.KindError, Text: reason}); err != nil {
+	detail := map[string]any{}
+	if r.outcome.Checkpoint != "" {
+		detail["checkpoint"] = r.outcome.Checkpoint
+	}
+	if _, err := r.thread.Log().Append(event.Event{Kind: event.KindError, Text: reason, Detail: detail}); err != nil {
 		return Outcome{}, fmt.Errorf("logging failure: %w", err)
 	}
 	if err := r.thread.SetState(ctx, event.StateFailed); err != nil {

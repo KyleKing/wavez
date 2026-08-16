@@ -1,6 +1,6 @@
-// Package vcs shells out to git for the primitives gates need: a repo's
-// root, the files that changed since a marker, and a diff for a set of
-// files. It is the git-only slice of DESIGN.md's v0.4 Operations interface,
-// kept to what the v0.1 gate actually consumes; a jj backend is a later
-// package, not a wider interface here.
+// Package vcs shells out to jj for the primitives an agent run needs: a
+// repo's root, the files changed since an operation, a diff for a set of
+// files, and per-turn checkpoint capture and restore built on jj's own
+// operation log. DESIGN.md's VCS decision runs jj alone against a
+// colocated repo, so there is no git backend and no library dependency.
 package vcs

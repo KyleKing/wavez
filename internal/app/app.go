@@ -23,6 +23,7 @@ import (
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
+	"github.com/kyleking/wavez/internal/vcs"
 )
 
 const (
@@ -165,6 +166,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		agent.WithLocalModel(cfg.LocalModel),
 		agent.WithHostedModel(cfg.HostedModel),
 		agent.WithVerifier(verifier),
+		agent.WithCheckpointer(vcs.NewJj(), root),
 	}
 	if options.MaxTurns > 0 {
 		loopOpts = append(loopOpts, agent.WithMaxTurns(options.MaxTurns))
