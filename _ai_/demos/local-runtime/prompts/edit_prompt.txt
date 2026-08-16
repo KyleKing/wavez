@@ -1,0 +1,93 @@
+Here is a Go file:
+
+```go
+package ledger
+
+import (
+	"errors"
+	"sync"
+	"time"
+)
+
+var ErrInsufficientFunds = errors.New("insufficient funds")
+var ErrAccountNotFound = errors.New("account not found")
+
+type Account struct {
+	ID        string
+	Owner     string
+	Balance   int64
+	CreatedAt time.Time
+}
+
+type Transaction struct {
+	ID          string
+	AccountID   string
+	Amount      int64
+	Description string
+	CreatedAt   time.Time
+}
+
+type Store struct {
+	mu           sync.RWMutex
+	accounts     map[string]*Account
+	transactions map[string][]*Transaction
+}
+
+func NewStore() *Store {
+	return &Store{
+		accounts:     make(map[string]*Account),
+		transactions: make(map[string][]*Transaction),
+	}
+}
+
+func (s *Store) CreateAccount(owner string) *Account {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	acc := &Account{
+		ID:        newID(),
+		Owner:     owner,
+		Balance:   0,
+		CreatedAt: time.Now(),
+	}
+	s.accounts[acc.ID] = acc
+	return acc
+}
+
+func (s *Store) GetAccount(id string) (*Account, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	acc, ok := s.accounts[id]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	return acc, nil
+}
+
+// PostTransaction is deliberately naive: it does not check for overdraft.
+// TODO: enforce ErrInsufficientFunds before applying a debit.
+func (s *Store) PostTransaction(accountID string, amount int64, desc string) (*Transaction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	acc, ok := s.accounts[accountID]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	acc.Balance += amount
+	tx := &Transaction{
+		ID:          newID(),
+		AccountID:   accountID,
+		Amount:      amount,
+		Description: desc,
+		CreatedAt:   time.Now(),
+	}
+	s.transactions[accountID] = append(s.transactions[accountID], tx)
+	return tx, nil
+}
+
+func newID() string {
+	return time.Now().Format("20060102150405.000000000")
+}
+
+```
+
+Change only the `PostTransaction` function so that it rejects a transaction with `ErrInsufficientFunds` if `acc.Balance + amount < 0`, before mutating the balance. Keep everything else in the file byte-for-byte identical, including comments, imports, and formatting. Return the complete file back in a single fenced go code block, no commentary.

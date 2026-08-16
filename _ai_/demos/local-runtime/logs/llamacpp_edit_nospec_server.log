@@ -1,0 +1,16 @@
+0.00.148.383 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.149.778 W srv  llama_server: -----------------
+0.00.149.780 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.149.780 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.149.780 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.149.780 W srv  llama_server: -----------------
+0.00.152.006 I srv    load_model: loading model '/Users/kyleking/.ollama/models/blobs/sha256-a3de86cd1c132c822487ededd47a324c50491393e6565cd14bafa40d0b8e686f'
+0.00.519.531 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.01.113.425 I cmn          init: llama threadpool init, n_threads = 6
+0.01.267.189 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+0.01.278.432 I srv  llama_server: model loaded
+0.01.278.436 I srv  llama_server: listening on http://127.0.0.1:8090
+0.02.208.145 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.02.208.203 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.09.370.293 I slot print_timing: id  0 | task 0 | n_gen =    100, tg =  21.05 t/s, tg_3s =  21.26 t/s
+0.12.370.873 I slot print_timing: id  0 | task 0 | n_gen =    160, tg =  20.64 t/s, tg_3s =  20.00 t/s

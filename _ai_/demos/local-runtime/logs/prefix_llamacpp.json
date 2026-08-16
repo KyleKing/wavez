@@ -1,0 +1,44 @@
+{
+  "append_only_sequence": [
+    {
+      "step": "prefix+suffix1",
+      "wall_s": 22.883,
+      "prompt_eval_tokens": 4262,
+      "cache_n": 0,
+      "prompt_eval_s": 22.147,
+      "prompt_eval_tok_s": 192.4
+    },
+    {
+      "step": "prefix+suffix2",
+      "wall_s": 57.869,
+      "prompt_eval_tokens": 26,
+      "cache_n": 4230,
+      "prompt_eval_s": 0.24,
+      "prompt_eval_tok_s": 108.2
+    },
+    {
+      "step": "prefix+suffix3",
+      "wall_s": 1.274,
+      "prompt_eval_tokens": 27,
+      "cache_n": 4230,
+      "prompt_eval_s": 0.24,
+      "prompt_eval_tok_s": 112.6
+    }
+  ],
+  "trimmed_prefix": {
+    "step": "trimmed_prefix+suffix_new",
+    "wall_s": 2.503,
+    "prompt_eval_tokens": 178,
+    "cache_n": 4014,
+    "prompt_eval_s": 1.157,
+    "prompt_eval_tok_s": 153.8
+  },
+  "unchanged_prefix_control": {
+    "step": "unchanged_prefix+suffix_new (control)",
+    "wall_s": 2.601,
+    "prompt_eval_tokens": 232,
+    "cache_n": 4014,
+    "prompt_eval_s": 1.479,
+    "prompt_eval_tok_s": 156.9
+  }
+}

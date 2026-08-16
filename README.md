@@ -12,6 +12,7 @@ Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, pe
 - **Edits** in v0.1 are `str_replace` with a fuzzy fallback (measured better than hashed-line ops on an 8B model), kept small, re-verified by a gate, escalated after one failure. Named changes go to Modifiers and intents instead of text
 - **Intent edits** (exploration) go further: the model or a human states `add fn parseTTL(cfg Config) time.Duration near TTL` or `like Foo: add Bar`, and a resolver driven by the code-intelligence store places the code, adds imports, plumbs config, registers routes, writes the test stub, and leaves a small local model only the hole that structure cannot decide. The same resolver is a completion source in Neovim
 - **Modifiers** let the model call a refactor engine (rename, move, extract, add import, stub from signature) with a dozen tokens instead of emitting the edited text. Backed by LSP, `gopls`, `ast-grep`, `ts-morph`, and `rope`
+- **A dashboard, not a chat app.** Home lists threads across repos the way gh-repo-dashboard lists repos, an inbox collects every prompt that needs you, a schedule view shows lanes and locks, and a diagnostics panel shows memory, CPU, model state, cache hit rates, gate latency, and lease contention live. Vim-shaped controls layered from arrows to `:` verbs
 - **Threads** replace the single god session. Each work stream has its own compacted history. A scheduler coordinates threads that touch the same directories, alternates edit and execute phases, and respects the laptop's memory
 - **Code intelligence** is one SQLite store per project (symbols, call and import edges, trigram FTS, embeddings, line-to-test coverage, cross-stack contracts) fed incrementally by tree-sitter, `codegraph`, coverage adapters, and a small local embedder. One `search` tool with fuzzy, semantic, graph, and hybrid modes, and one `context` bundle (repo map plus one-hop neighbourhood plus covering tests) for a small model's first turn. Everything else reads it: gates, modifiers, intent edits, similarity notes, the scheduler, Neovim pickers
 - **Compaction** is deterministic first (append-only trimming that keeps the prompt-cache prefix stable, rule-based stdout truncation, tool results dropped after N turns) and model-based only for the residue
@@ -25,9 +26,9 @@ TLDR: fewer tokens, faster builds, higher quality, low RAM.
 
 | Version | Usable for | Adds |
 |---|---|---|
-| v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox), chat loop, code-intelligence store with `search` and `context`, Gates, sandbox + permission gate, local model + OpenRouter escalation |
+| v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox, diagnostics strip, vim controls), chat loop, code-intelligence store with `search` and `context`, Gates, sandbox + permission gate, local model + OpenRouter escalation |
 | v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings, semantic index, similarity notes, repo map |
-| v0.3 | Cheaper and faster on the same work, from Neovim too | Benchmark harness on replayed commits, Modifiers, intent edits, deterministic compaction, cross-stack contract nodes, `wavez.nvim`, web search |
+| v0.3 | Cheaper and faster on the same work, from Neovim too | Benchmark harness on replayed commits and extreme-ends performance, Modifiers, intent edits, deterministic compaction, cross-stack contract nodes, `wavez.nvim`, web search |
 | v0.4 | Away from the laptop | jj/git integration layer, mobile client (Tailscale + PWA + push) |
 | v0.5 | Proving it | Browser recordings, benchmark comparison against Claude Code and OpenCode in local and hosted lanes |
 
