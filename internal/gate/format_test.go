@@ -2,8 +2,8 @@ package gate_test
 
 import (
 	"context"
+	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,19 +12,8 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
-// requireGoimports skips when goimports is absent, since the format pre-pass
-// shells out to it and the pin lives in mise rather than in the module.
-func requireGoimports(t *testing.T) {
-	t.Helper()
-
-	if _, err := exec.LookPath("goimports"); err != nil {
-		t.Skip("goimports not on PATH; run under `mise exec --`")
-	}
-}
-
 func TestFormatGateRewritesUnformattedFiles(t *testing.T) {
 	t.Parallel()
-	requireGoimports(t)
 
 	repoRoot := t.TempDir()
 	path := filepath.Join(repoRoot, "a.go")
@@ -61,7 +50,6 @@ func TestFormatGateRewritesUnformattedFiles(t *testing.T) {
 
 func TestFormatGateFixesMissingImport(t *testing.T) {
 	t.Parallel()
-	requireGoimports(t)
 
 	repoRoot := t.TempDir()
 
@@ -98,30 +86,37 @@ func TestFormatGateFixesMissingImport(t *testing.T) {
 	}
 }
 
-func TestFormatGateReportsMissingGoimports(t *testing.T) {
+// The format pre-pass is what turns the dogfooded "model forgot the import"
+// failure into a compiling file.
+func TestFormatGateAddsAMissingImport(t *testing.T) {
+	t.Parallel()
 	repoRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repoRoot, "a.go"), []byte("package a\n"), 0o600); err != nil {
+	goMod := filepath.Join(repoRoot, "go.mod")
+	if err := os.WriteFile(goMod, []byte("module fixture\n\ngo 1.22\n"), 0o600); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	src := "package a\n\nfunc F() string { return filepath.Join(\"a\", \"b\") }\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, "a.go"), []byte(src), 0o600); err != nil {
 		t.Fatalf("writing fixture file: %v", err)
 	}
-
-	gofmtPath, err := exec.LookPath("gofmt")
-	if err != nil {
-		t.Fatalf("LookPath(gofmt): %v", err)
-	}
-
-	binDir := t.TempDir()
-	if err := os.Symlink(gofmtPath, filepath.Join(binDir, "gofmt")); err != nil {
-		t.Fatalf("symlinking gofmt: %v", err)
-	}
-	t.Setenv("PATH", binDir)
 
 	g := gate.NewFormatGate(repoRoot)
 	rc := gate.RunContext{RepoRoot: repoRoot, Changes: []tool.Change{{Path: "a.go"}}}
 
-	if _, err := g.Run(context.Background(), rc); err == nil {
-		t.Fatal("Run: want an error when goimports is absent from PATH")
-	} else if !strings.Contains(err.Error(), "goimports") {
-		t.Errorf("err = %v, want it to name goimports", err)
+	res, err := g.Run(context.Background(), rc)
+	if err != nil {
+		t.Fatalf("Run with an empty PATH: %v", err)
+	}
+	if !res.Pass {
+		t.Fatalf("Result.Pass = false, want true")
+	}
+
+	out, err := os.ReadFile(filepath.Join(repoRoot, "a.go")) //nolint:gosec // test fixture path
+	if err != nil {
+		t.Fatalf("reading formatted file: %v", err)
+	}
+	if !strings.Contains(string(out), `"path/filepath"`) {
+		t.Fatalf("missing import was not added:\n%s", out)
 	}
 }
 
@@ -137,5 +132,40 @@ func TestFormatGateNoOpWithoutGoFiles(t *testing.T) {
 	}
 	if !result.Pass {
 		t.Errorf("Pass = false, want true for a batch with no Go files")
+	}
+}
+
+// imports.Process adds nothing when it cannot reach the go toolchain, which
+// would read as a clean format rather than a check that never ran.
+func TestFormatGateReportsAnAbsentGoToolchain(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "a.go"), []byte("package a\n"), 0o600); err != nil {
+		t.Fatalf("writing fixture file: %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	g := gate.NewFormatGate(repoRoot)
+	rc := gate.RunContext{RepoRoot: repoRoot, Changes: []tool.Change{{Path: "a.go"}}}
+
+	_, err := g.Run(context.Background(), rc)
+	if err == nil {
+		t.Fatal("Run: want an error when the go toolchain is absent")
+	}
+	if !strings.Contains(err.Error(), "go not found on PATH") {
+		t.Fatalf("err = %v, want it to name the missing go binary", err)
+	}
+}
+
+// The file list arrives from tool results, so containment is verified here
+// rather than trusted.
+func TestFormatGateRefusesAPathOutsideTheRepo(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	g := gate.NewFormatGate(repoRoot)
+	rc := gate.RunContext{RepoRoot: repoRoot, Changes: []tool.Change{{Path: "../escape.go"}}}
+
+	if _, err := g.Run(context.Background(), rc); !errors.Is(err, gate.ErrOutsideRepo) {
+		t.Fatalf("err = %v, want ErrOutsideRepo", err)
 	}
 }

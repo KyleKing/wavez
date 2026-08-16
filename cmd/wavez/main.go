@@ -135,7 +135,12 @@ func headless(ctx context.Context, opt options) error {
 		return err
 	}
 
-	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), app.WithAsker(stdinAsker{}))
+	appOpts := []app.Option{app.WithAsker(stdinAsker{})}
+	if opt.maxTurns > 0 {
+		appOpts = append(appOpts, app.WithMaxTurns(opt.maxTurns))
+	}
+
+	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), appOpts...)
 	if err != nil {
 		return fmt.Errorf("building project: %w", err)
 	}
@@ -156,12 +161,7 @@ func headless(ctx context.Context, opt options) error {
 		return err
 	}
 
-	loop := a.Loop
-	if opt.maxTurns > 0 {
-		loop = agent.New(a.Local, a.Hosted, a.Tools, a.Permission, agent.WithMaxTurns(opt.maxTurns))
-	}
-
-	outcome, err := loop.Run(ctx, th, prefix(a), opt.prompt, hint)
+	outcome, err := a.Loop.Run(ctx, th, prefix(a), opt.prompt, hint)
 	if err != nil {
 		return fmt.Errorf("running thread: %w", err)
 	}

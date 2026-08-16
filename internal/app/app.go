@@ -79,6 +79,7 @@ type App struct {
 type Options struct {
 	Local, Hosted llm.Provider
 	Asker         tools.Asker
+	MaxTurns      int
 }
 
 // Option configures an Options.
@@ -89,6 +90,11 @@ type Option func(*Options)
 // use this with internal/llm/fake, never a real model.
 func WithProviders(local, hosted llm.Provider) Option {
 	return func(o *Options) { o.Local, o.Hosted = local, hosted }
+}
+
+// WithMaxTurns bounds model turns for every thread this App builds.
+func WithMaxTurns(n int) Option {
+	return func(o *Options) { o.MaxTurns = n }
 }
 
 // WithAsker sets the Asker backing the question tool. A headless run and
@@ -156,8 +162,15 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	runner, adapter, verifier := buildGateRunner(ctx, root, store, gateLog, cfg)
 
-	loop := agent.New(local, hosted, registry, permGate,
-		agent.WithLocalModel(cfg.LocalModel), agent.WithHostedModel(cfg.HostedModel), agent.WithVerifier(verifier))
+	loopOpts := []agent.Option{
+		agent.WithLocalModel(cfg.LocalModel),
+		agent.WithHostedModel(cfg.HostedModel),
+		agent.WithVerifier(verifier),
+	}
+	if options.MaxTurns > 0 {
+		loopOpts = append(loopOpts, agent.WithMaxTurns(options.MaxTurns))
+	}
+	loop := agent.New(local, hosted, registry, permGate, loopOpts...)
 
 	return &App{
 		Root:            root,
