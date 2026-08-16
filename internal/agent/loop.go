@@ -41,8 +41,8 @@ const (
 	// distribution, not a tuned figure.
 	DefaultMaxWallClock = 180 * time.Second
 	// DefaultMaxHostedSpendUSD bounds accumulated hosted-tier spend for one
-	// Run. It matches qwen/qwen3-coder-30b-a3b-instruct's price in
-	// DefaultPricing at a few full escalated turns' worth of tokens.
+	// Run, at roughly fifty escalated turns of the hosted default's price in
+	// DefaultPricing.
 	DefaultMaxHostedSpendUSD = 0.10
 	// DefaultMaxStagnantErrors bounds consecutive tool-call results that
 	// return an error, regardless of whether their inputs matched: the
@@ -59,12 +59,15 @@ type ModelPricing struct {
 	OutputPerMillion float64
 }
 
-// DefaultPricing prices the hosted default DESIGN.md's model-routing
-// decision names (qwen/qwen3-coder-30b-a3b-instruct), per its published
-// OpenRouter rate. A model with no entry here prices at zero, so the cost
-// ceiling never trips for a model wavez has no real price for.
+// DefaultPricing prices the models DESIGN.md's model-routing decision
+// names, per their published OpenRouter rates. A model with no entry here
+// prices at zero, so the cost ceiling never trips for a model wavez has no
+// real price for.
+//
+//nolint:mnd // published per-million-token prices, not magic numbers
 var DefaultPricing = map[string]ModelPricing{
-	//nolint:mnd // published per-million-token price, not a magic number
+	"openai/gpt-5-mini":                 {InputPerMillion: 0.25, OutputPerMillion: 2.00},
+	"qwen/qwen3-coder":                  {InputPerMillion: 0.30, OutputPerMillion: 1.00},
 	"qwen/qwen3-coder-30b-a3b-instruct": {InputPerMillion: 0.07, OutputPerMillion: 0.28},
 }
 

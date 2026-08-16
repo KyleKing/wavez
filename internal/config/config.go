@@ -11,8 +11,10 @@ import "time"
 // DefaultLocalModel is the local model name used when no config overrides it.
 const DefaultLocalModel = "qwen3:8b"
 
-// DefaultHostedModel is the hosted model name used when no config overrides it.
-const DefaultHostedModel = "qwen/qwen3-coder-30b-a3b-instruct"
+// DefaultHostedModel is the hosted model name used when no config overrides
+// it. Reliable tool calling is the binding constraint on this choice, not
+// price: a model that renders calls as prose escalates to nothing.
+const DefaultHostedModel = "openai/gpt-5-mini"
 
 // DefaultContextWindow is the local model's served context window, in
 // tokens, matching internal/router.LocalContextBudget.
