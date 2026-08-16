@@ -1,3 +1,17 @@
+## v0.2.0 (2026-08-16)
+
+### Feat
+
+- **gate**: change-triggered checks with three-tier test selection
+- **vcs**: changed files and diffs against a gate-owned marker
+- **agent**: streaming tool-use loop with bounded retries and loop detection
+- **thread**: append-only history, deterministic compaction, and session ledger
+- **tools**: read, write, str_replace, shell, search, and question tools
+
+### Refactor
+
+- **ci**: read the release tag from the bump job instead of rebuilding it
+
 ## v0.1.1 (2026-08-16)
 
 ### Fix
