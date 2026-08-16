@@ -85,6 +85,32 @@ harness-side cause found so far is fixed, so what is left is the model. The
 design's own answers are the next things to test: escalate to hosted after one
 failed edit, and move named changes to Modifiers and intents.
 
+## The loop closing
+
+A forced-broken edit now runs the whole path: the model edits, gates fail
+verification, the trimmed build error comes back, the model reads it correctly
+("declared but not used, and undefinedSymbol is not defined"), the thread ends
+`verify_failed`, and the checkpoint operation id is on both the error event and
+the abandoned-gate event. `jj op restore <id>` puts the file back and the repo
+builds clean.
+
+Three harness bugs stood between that and the earlier runs, all mine:
+
+- `-max-turns` rebuilt the loop without the verifier, and every dogfood run
+  passed that flag, so gates could never have fired
+- The format pre-pass shelled out to `goimports`, which a released binary would
+  never have on PATH. It runs in process now, and fails loudly when the go
+  toolchain is missing rather than silently adding no imports
+- A missing hosted key blocked a local-only run, because the hosted provider
+  resolved its credential at construction
+
+The model reached for `//nolint:varcheck` to silence a build error rather than
+fix it. The guidance against that is in this repo's AGENTS.md, and wavez never
+read it: not auto-loading agent files is a design decision, and the mechanism
+that replaces it (`context` in `.wavez.pkl`, plus rules) was simply unused. Both
+are wired now, and the rule catches a bare `//nolint` while allowing the house
+style that carries a reason.
+
 ## Open
 
 - The model asserted success on code that does not compile, and nothing

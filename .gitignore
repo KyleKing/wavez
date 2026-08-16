@@ -64,3 +64,6 @@ Desktop.ini
 
 # goreleaser output
 /dist/
+
+# jj working state
+/.jj/
