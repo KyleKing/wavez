@@ -1,0 +1,26 @@
+; Variant of wavez.sb: allow any loopback port instead of just 11434.
+; Still cannot allowlist by hostname (see README.md); this only widens the
+; port range on 127.0.0.1/::1, e.g. for a local proxy listening elsewhere.
+; Params: same as wavez.sb (PROJECT_ROOT, SESSION_TMP, HOME).
+
+(version 1)
+(allow default)
+
+(deny file-write*)
+(allow file-write*
+  (subpath (param "PROJECT_ROOT"))
+  (subpath (param "SESSION_TMP"))
+  (literal "/dev/null")
+  (literal "/dev/tty"))
+
+(deny file-read*
+  (subpath (string-append (param "HOME") "/.ssh"))
+  (subpath (string-append (param "HOME") "/.aws"))
+  (subpath (string-append (param "HOME") "/.config/gh"))
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
+  (subpath (string-append (param "HOME") "/.claude")))
+
+(deny network*)
+(allow network-outbound (local ip "localhost:*"))
+(allow network-outbound (remote ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))

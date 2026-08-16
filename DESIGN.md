@@ -214,15 +214,14 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 
 ### Edits (v0.1)
 
-Decode speed is the local bottleneck (qwen3:8b at ~18 tok/s), so the edit format that emits the fewest output tokens wins on latency before any apply-model trick does.
+Decode speed is the local bottleneck (qwen3:8b at ~18 tok/s), so the edit path that emits the fewest output tokens wins on latency, and the model's training exposure decides which format it gets right.
 
-- One line-anchored edit tool. `read` returns lines tagged with a short content hash (`42#k3| …`), and `edit` takes ops addressed by hash: replace `a..b`, insert after `n`, delete `a..b`, several per call. The harness rejects an op whose hash is stale before writing anything, so the model never reproduces old text and never edits a moved line. This is the hashline idea from the opencode and pi plugin ecosystems, built in
-- Fallback: fuzzy search-and-replace (opencode and Aider style) only when the model emits text anchors, and whole-file write only for new files
+- v0.1 ships `str_replace` (old and new string, exact match with a fuzzy fallback on whitespace and indentation, uniqueness enforced) as the general edit tool for local and hosted models alike. Measured in a real tool loop on qwen3:8b (`_ai_/demos/edit-loop`, 5 tasks, 20 runs): `str_replace` succeeded 2/10 by strict spec reading, hashline 1/10, at a third of the tokens (190 vs 605) and wall time (12.5 s vs 37.7 s). Every hashline failure was the model failing the `N#hh` anchor syntax, so its hash rejection never had a stale edit to catch. It stays a candidate for a stronger local model, not the default
+- Two `str_replace` failure modes shape the tool: hallucinated indentation in `old_string` after a read (the fuzzy fallback normalizes leading whitespace and offers the closest match), and non-unique matches when the task is itself about a repeated expression (the error returns line numbers of each match so the model can widen the anchor)
+- Both formats are weak on an 8B model (2/10 and 1/10), so v0.1 keeps local edits small, always re-verifies with a gate rather than trusting `done`, escalates to hosted after one failed edit, and pushes as much as possible to Modifiers and intent edits where the model emits a name or an intent instead of text
 - Hosted models use their native format through the same tool surface: `apply_patch` (V4A) for GPT-family, `str_replace` for Claude-family
-- Modifiers are the first choice for anything with a name (rename, move, extract, stub, import). The edit tool carries the arbitrary-shape residue
-- Runtime, not tool: n-gram prompt-lookup speculation in llama.cpp (`ngram-*` strategies) for edit-shaped output where most tokens copy the prompt, ~2.4x published. Ollama's MTP path is model-specific and unverified for qwen3:8b
-- Not built: a hosted fast-apply model (Morph, Relace). Extra latency and a paid dependency, and the sketch-then-merge pattern is being dropped even by teams with GPU budget. No open-weight small apply model exists to run locally
-- Unmeasured: hashline ops vs `str_replace` on qwen3:8b malformed-edit rate. Aider's leaderboard has no 8B number and its small-model result (whole-file wins) is from 0.5-3B models. Demo before v0.1 locks the format
+- Runtime, not tool: n-gram prompt-lookup speculation in llama.cpp for edit-shaped output where most tokens copy the prompt (measured in `_ai_/demos/local-runtime`)
+- Not built: a hosted fast-apply model (Morph, Relace). Extra latency and a paid dependency, and no open-weight small apply model exists to run locally
 
 ### Intent edits (exploration, target v0.3 after Modifiers)
 
@@ -349,7 +348,7 @@ Roles beyond linting:
 
 ### Safety (v0.1)
 
-- macOS Seatbelt profile per project: writes scoped to the project root and a session temp dir, secrets and `~/.ssh` denied, network through an allowlist proxy
+- macOS Seatbelt profile per project (`_ai_/demos/sandbox`, 9 probes pass on macOS 26): writes scoped to the project root and a session temp dir, reads of `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/Library/Keychains`, and `~/.claude` denied, `GOCACHE`, `GOMODCACHE`, and `GOTMPDIR` redirected into the session dir, `/dev/null` and `/dev/tty` allowed explicitly, every path realpath'd before it enters the profile (`/tmp` and `/var` are symlinks and `subpath` is a literal prefix match). Network is loopback-only in the profile, and a host allowlist lives in a local proxy on a loopback port because Seatbelt filters by IP and port, never hostname. `sandbox-exec` is deprecated but runs clean, and Claude Code and Codex depend on it too
 - Destructive-command guard in front of shell, modeled on `dcg`, deterministic and fail-closed
 - Permission prompt only for what escapes both. `y`, `n`, `a` for the thread
 - Model output never becomes a policy input. Approval comes from the deterministic checker or the user
@@ -474,7 +473,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of VCS, facing git-only vs jj-only vs both, we build the abstraction in v0.4 with git and jj backends and colocated repos as the norm, to get change IDs and op-log undo without losing GitHub tooling, accepting the extra backend
 - In the context of remote access, facing native app vs PWA vs SSH, we chose Tailscale plus a PWA plus push, to ship in days with no App Store or server, accepting that the laptop must stay awake
 - In the context of extensibility, facing plugins vs built-in tools, we ship no plugin system, to keep the tool surface auditable and small, accepting that new tools mean code changes
-- In the context of edits on a slow local decoder, facing search-and-replace, unified diff, whole-file, or hashed line ops, we build a line-anchored op tool with fuzzy fallback and native formats for hosted models, to keep output tokens near the address-plus-new-lines minimum and reject stale edits before writing, accepting that the format is unproven on an 8B model until the demo runs
+- In the context of edits on a slow local decoder, facing search-and-replace, unified diff, whole-file, or hashed line ops, we ship `str_replace` with a fuzzy fallback and escalate after one failed edit, to use the format the model already knows and keep output tokens low, accepting weak local edit success until Modifiers and intent edits carry most changes (hashline measured worse on qwen3:8b)
 - In the context of a polyglot monorepo, facing name-matched cross-language edges vs contract nodes, we add contract nodes and confidence-tiered bridge edges with generated clients and E2E network logs as ground truth, to select tests across the frontend and backend seam, accepting that hand-written fetch calls stay low-confidence
 - In the context of structural rules, facing Semgrep vs `ast-grep` vs native linters only, we embed `ast-grep` for gates, codemods, and convention rules and keep Semgrep CE as an opt-in routine for taint and diff-aware risk, to get a fast MIT engine on every edit and avoid the registry license, accepting that cross-file taint needs Semgrep Pro
 - In the context of project instructions, facing auto-loading `AGENTS.md` and `CLAUDE.md` vs explicit opt-in, we list context files and sections in `.wavez.pkl`, to keep token cost and prompt-injection surface fixed and to avoid re-stating what gates already do, accepting a one-time mapping step for repos with a mature `CLAUDE.md`
@@ -485,7 +484,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 
 | Version | Done when | Ships |
 |---|---|---|
-| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, line-anchored edit tool, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
+| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
 | v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta |
 | v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
@@ -534,7 +533,6 @@ No:
 
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
 - Intent edits: hole-fill correctness with retry-against-gates and hosted escalation, and whether `qwen2.5-coder` infill beats chat-style fill on qwen3:8b
-- Hashline ops vs `str_replace` on qwen3:8b: malformed rate, output tokens, and wall time per edit (next demo)
 - Monorepo per-package test commands in v0.1 or later
 - How the scheduler surfaces a deep DAG without a graph widget (current answer: one row per thread, drill in)
 - Whether Ask-a-line threads persist across sessions as review comments do

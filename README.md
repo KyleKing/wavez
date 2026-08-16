@@ -9,7 +9,7 @@ Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, pe
 - **Structural rules** (`ast-grep` embedded, Semgrep CE opt-in) enforce project conventions as YAML instead of prose, gate every edit, drive codemods and autofix as Modifier calls, and flag new capabilities in a change set
 - **Gates** run checks in response to what changed. The model never decides what to test. Coverage map plus changed lines selects the test subset. Format and lint run as pre-passes. Passing gates return nothing to the model. Failures return only the failing test names and the frames that touch changed files
 - **Routines** are user-defined workflows in pkl with workflow-engine semantics (DAG steps, concurrency keys, cancel-in-progress, multiple triggers) that run locally with resource locks. Gates are the built-in routines
-- **Edits** are line-anchored ops (replace, insert, delete by content-hashed line id) so the model emits an address and new lines, never the old text, and stale edits are rejected before writing. Hosted models keep their native formats
+- **Edits** in v0.1 are `str_replace` with a fuzzy fallback (measured better than hashed-line ops on an 8B model), kept small, re-verified by a gate, escalated after one failure. Named changes go to Modifiers and intents instead of text
 - **Intent edits** (exploration) go further: the model or a human states `add fn parseTTL(cfg Config) time.Duration near TTL` or `like Foo: add Bar`, and a resolver driven by the code-intelligence store places the code, adds imports, plumbs config, registers routes, writes the test stub, and leaves a small local model only the hole that structure cannot decide. The same resolver is a completion source in Neovim
 - **Modifiers** let the model call a refactor engine (rename, move, extract, add import, stub from signature) with a dozen tokens instead of emitting the edited text. Backed by LSP, `gopls`, `ast-grep`, `ts-morph`, and `rope`
 - **Threads** replace the single god session. Each work stream has its own compacted history. A scheduler coordinates threads that touch the same directories, alternates edit and execute phases, and respects the laptop's memory
@@ -49,7 +49,6 @@ Innovation tokens go to Routines + Gates and Modifiers. Everything else copies p
 
 - Whether a stronger local coder than qwen3:8b exists that fits 16 GB, or whether multi-file edits always go hosted
 - How much of the session ledger needs a model-written handoff note versus structural facts alone
-- Whether hashed-line edit ops beat `str_replace` on an 8B local model (malformed rate, tokens, latency)
 - Intent edits: hole-fill correctness on an 8B model with retry against gates, or a FIM-tuned local model, before the resolver's 4x speed win over a hosted model counts
 - How to keep the per-test coverage map incremental across branches and rebases without a full 4-minute rebuild
 - Web search: which API, how to keep results current for the right software version, whether Dash docsets cover enough

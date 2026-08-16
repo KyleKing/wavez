@@ -7,3 +7,4 @@ wavez-bench
 pull-*.log
 ollama-serve.log
 intentgo
+editloop
