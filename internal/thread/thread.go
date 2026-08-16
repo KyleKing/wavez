@@ -5,6 +5,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/kyleking/wavez/internal/event"
@@ -12,6 +13,9 @@ import (
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/tool"
 )
+
+// maxLoggedInput bounds the tool input kept in the event log.
+const maxLoggedInput = 2000
 
 // ID names one thread. It is the eventlog file's base name, so it must be
 // filesystem-safe.
@@ -160,10 +164,13 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 	return nil
 }
 
-// AppendToolResult appends a tool's result to history, tagged to
-// toolCallID, and logs a KindTool event carrying the changes it produced. It
-// does nothing and returns ctx.Err() if ctx is already canceled.
-func (t *Thread) AppendToolResult(ctx context.Context, toolCallID, toolName string, result tool.Result) error {
+// AppendToolResult appends a tool's result to history, tagged to toolCallID,
+// and logs a KindTool event carrying the changes it produced and the input the
+// model sent, truncated. The input is logged because a failed edit anchor
+// cannot be diagnosed after the fact without it.
+func (t *Thread) AppendToolResult(
+	ctx context.Context, toolCallID, toolName string, input json.RawMessage, result tool.Result,
+) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
@@ -176,6 +183,9 @@ func (t *Thread) AppendToolResult(ctx context.Context, toolCallID, toolName stri
 	t.entries = append(t.entries, TurnMessage{Message: msg, Turn: t.turn})
 
 	ev := event.Event{Kind: event.KindTool, Tool: toolName, Text: result.Content, Changes: result.Changes}
+	if len(input) > 0 {
+		ev.Detail = map[string]any{"input": truncate(string(input), maxLoggedInput)}
+	}
 	if _, err := t.log.Append(ev); err != nil {
 		return fmt.Errorf("logging tool turn: %w", err)
 	}
@@ -211,6 +221,14 @@ func (t *Thread) Close() error {
 	}
 
 	return nil
+}
+
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+
+	return s[:limit] + "…"
 }
 
 func contextErr(ctx context.Context) error {

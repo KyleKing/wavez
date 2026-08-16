@@ -379,7 +379,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) error {
 }
 
 func (r *run) appendToolResult(ctx context.Context, call llm.ToolCall, result tool.Result) error {
-	if err := r.thread.AppendToolResult(ctx, call.ID, call.Name, result); err != nil {
+	if err := r.thread.AppendToolResult(ctx, call.ID, call.Name, call.Input, result); err != nil {
 		return fmt.Errorf("appending tool result: %w", err)
 	}
 

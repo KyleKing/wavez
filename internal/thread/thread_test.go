@@ -2,6 +2,8 @@ package thread_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/event"
@@ -60,7 +62,7 @@ func TestHistoryIsAppendOnlyAndCopied(t *testing.T) {
 	if err := th.AppendAssistant(ctx, llm.Message{Content: "hi"}, nil); err != nil {
 		t.Fatalf("AppendAssistant: %v", err)
 	}
-	if err := th.AppendToolResult(ctx, "call-1", "read", tool.Result{Content: "file contents"}); err != nil {
+	if err := th.AppendToolResult(ctx, "call-1", "read", nil, tool.Result{Content: "file contents"}); err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 
@@ -144,5 +146,45 @@ func TestBeginTurnIncrements(t *testing.T) {
 	}
 	if th.Turn() != 2 {
 		t.Errorf("Turn = %d, want 2", th.Turn())
+	}
+}
+
+// A failed edit anchor cannot be diagnosed after the fact without the input
+// the model actually sent.
+func TestAppendToolResultLogsTheInput(t *testing.T) {
+	t.Parallel()
+
+	th, err := thread.Open(t.TempDir(), "t1", []string{"."})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := th.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+
+	input := json.RawMessage(`{"path":"a.go","old_string":"x"}`)
+	if err := th.AppendToolResult(t.Context(), "c1", "str_replace", input, tool.Result{Content: "ok"}); err != nil {
+		t.Fatalf("AppendToolResult: %v", err)
+	}
+
+	events, err := th.Log().Since(0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+
+	var got string
+	for _, ev := range events {
+		if ev.Kind == event.KindTool {
+			s, ok := ev.Detail["input"].(string)
+			if !ok {
+				t.Fatalf("tool event detail has no string input: %v", ev.Detail)
+			}
+			got = s
+		}
+	}
+	if !strings.Contains(got, "old_string") {
+		t.Fatalf("tool input not logged, got %q", got)
 	}
 }
