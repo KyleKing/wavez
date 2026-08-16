@@ -14,6 +14,8 @@ import (
 const (
 	maxReadLines = 500
 	minLineNum   = 1
+	// An omitted end_line means "to the end of the file".
+	maxInt = int(^uint(0) >> 1)
 )
 
 var readSchema = buildSchema(map[string]schemaProperty{
@@ -28,8 +30,8 @@ var readSchema = buildSchema(map[string]schemaProperty{
 	},
 	"end_line": {
 		Type: schemaTypeInteger,
-		Description: "1-indexed last line to read, inclusive. Must be set together with " +
-			"start_line, and must be >= start_line.",
+		Description: "1-indexed last line to read, inclusive. Omit it to read from " +
+			"start_line to the end of the file. Must be >= start_line when set.",
 	},
 }, propPath)
 
@@ -83,6 +85,10 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 	abs, err := resolvePath(r.root, in.Path)
 	if err != nil {
 		return tool.Errorf("%v", err), nil
+	}
+
+	if in.EndLine == 0 && in.StartLine >= minLineNum {
+		in.EndLine = maxInt
 	}
 
 	if in.StartLine != 0 || in.EndLine != 0 {

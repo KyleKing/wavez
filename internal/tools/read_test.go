@@ -110,3 +110,28 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 
 	return data
 }
+
+// The model routinely sends start_line alone. Rejecting that cost a whole turn.
+func TestRead_OmittedEndLineReadsToEndOfFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\nfour\n"), 0o600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	res, err := tools.NewRead(root).Run(t.Context(), json.RawMessage(`{"path":"a.txt","start_line":3}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("omitting end_line was rejected: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "three") || !strings.Contains(res.Content, "four") {
+		t.Fatalf("did not read to end of file: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "two") {
+		t.Fatalf("read started before start_line: %s", res.Content)
+	}
+}
