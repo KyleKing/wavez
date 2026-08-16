@@ -1,0 +1,17 @@
+[
+  {
+    "wall_s": 8.781,
+    "decode_tokens": 519,
+    "decode_tok_s": 87.9
+  },
+  {
+    "wall_s": 5.938,
+    "decode_tokens": 519,
+    "decode_tok_s": 88.0
+  },
+  {
+    "wall_s": 6.132,
+    "decode_tokens": 519,
+    "decode_tok_s": 85.1
+  }
+]

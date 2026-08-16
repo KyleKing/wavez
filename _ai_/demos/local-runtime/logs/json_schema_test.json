@@ -1,0 +1,7 @@
+{
+  "request": {
+    "response_format": {"type":"json_schema","json_schema":{"name":"intent","schema":{"type":"object","properties":{"intent":{"type":"string","enum":["edit","explain","test","other"]}},"required":["intent"]}}}
+  },
+  "response_content": "{\"intent\": \"other\"}",
+  "note": "constrained decoding respected the enum, valid JSON, no extra text"
+}

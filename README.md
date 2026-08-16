@@ -18,7 +18,7 @@ Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, pe
 - **Compaction** is deterministic first (append-only trimming that keeps the prompt-cache prefix stable, rule-based stdout truncation, tool results dropped after N turns) and model-based only for the residue
 - **Recordings** capture PTY and browser step sequences as they happen so a fix can be replayed for regression, then promoted to a test or discarded
 
-Also: local models first (chosen for tokens/sec on this laptop), hosted models through OpenRouter when a task needs more, works across directories rather than worktrees, one pane of glass across concurrent agents, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
+Also: local models first (qwen3:8b on `llama-server` with n-gram speculation, chosen by measurement on this laptop), hosted models through OpenRouter when a task needs more, works across directories rather than worktrees, one pane of glass across concurrent agents, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
 
 TLDR: fewer tokens, faster builds, higher quality, low RAM.
 

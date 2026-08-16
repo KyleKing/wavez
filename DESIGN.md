@@ -354,6 +354,7 @@ Roles beyond linting:
 ### Threads and scheduling (v0.2)
 
 - A thread is a directory set plus a history plus a compaction state. Threads across directories are the norm, worktrees optional
+- Event log per thread with a retention policy from day one: a ring buffer in memory and overflow to disk on both daemon and client. The spike (`_ai_/demos/daemon-tui`) held 105k events fine at 30 MB daemon RSS but showed the client's heap-driven CPU creep and the daemon's unbounded slice growth. Fan-out to subscribers blocks on backlog replay and sheds only on live streams, and per-connection channels are never closed by a producer
 - Scheduler phases: edit (threads write, gates queue) and execute (gates and routines run, edits pause for the touched subtrees)
 - Memory-aware admission: the local model and a large test run do not overlap when headroom is below a threshold (with qwen3:8b loaded ~31% is free, enough for a Go suite, while gemma4:12b leaves 14-18% and is not). Long-running services (compose stacks) stop when idle
 - Contention rules come from leases plus a dependency map, so two threads planning changes to the same feature serialize
@@ -363,7 +364,7 @@ Roles beyond linting:
 ### Compaction (v0.3, minimal version in v0.1)
 
 - Deterministic first: truncate stdout by rule (first and last lines, frames touching changed files), drop tool results older than N turns, downscale images, replace repeated file reads with a hash reference
-- Append-only. Earlier turns are never mutated, so the prompt-cache prefix survives. Trimming happens by writing shorter replacements forward
+- Append-only. Earlier turns are never mutated, so the prompt-cache prefix survives. Trimming happens by writing shorter replacements forward. Measured: a mid-context edit costs 5-7x an append on the local runtime (`_ai_/demos/local-runtime`)
 - Model summarization only for the residue, using the small local model, with the user able to edit the summary
 - Session ledger: one line per thread end, structural facts extracted from logs, a model handoff note only where structure cannot capture it
 - Context manifest tags every item entering a prompt with source, id, and reason so "why did it write this" is a lookup, not a question
@@ -371,7 +372,9 @@ Roles beyond linting:
 ### Model routing (v0.1)
 
 - Local first. Measured on this laptop (`_ai_/demos/local-models`): qwen3:8b decodes at 18 tok/s, made 3/3 well-formed and correct tool calls, and leaves ~5 GB free. gemma4:12b decodes at 14 tok/s, hallucinated a tool name once, and thrashes to 2 tok/s under memory pressure. qwen3:8b is the v0.1 local model for edits, compaction, and line questions
-- Prefix cache reuse through Ollama is real (2k-token prefix re-eval 9.4 s to 47 ms), so the stable-prefix rule pays off locally as well as hosted. Ollama serves 4096 context by default. Raising it multiplies KV memory, so the router's local context budget is a tuned number, not the model's trained max
+- Runtime: `llama-server` (llama.cpp) through its OpenAI-compatible endpoint, with `--spec-type ngram-simple`, `--cache-reuse`, `--jinja`, and `json_schema` constrained output. Ollama stays for pulling and listing models only. Measured in `_ai_/demos/local-runtime` on the same GGUF: load and decode are identical (Ollama runs llama-server underneath), n-gram speculation gives 4.3x decode on a copy-heavy edit (85 vs 20 tok/s, 88% draft acceptance, no draft model, no extra memory), and Ollama exposes neither flag
+- Prefix cache reuse is real on both: appending a suffix to a cached 3k-token prefix costs ~0.2 s of prompt eval, editing the middle costs 5-7x more. That is the measured reason compaction appends and never mutates. Served context is a tuned number (8k in the spike), since raising it multiplies KV memory on 16 GB
+- Only one model fits at a time. Two servers on the same 6 GB model OOM'd Metal, which is the concrete case for the scheduler's memory-aware admission
 - Escalate to OpenRouter on task shape (multi-file, over the local context budget) or after one local failure. Never retry local past one failure
 - Holes from intent edits route by size: bodies under a few lines local with retry against gates, judgment-sized holes hosted. Either way the hosted model writes tens of tokens, not files
 - Explicit override per turn. Cost and token counters per thread in the header
@@ -506,6 +509,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of code intelligence, facing one external index (codegraph, Codanna, Serena) vs an own store, we own the SQLite schema and the tree-sitter, FTS, vector, and coverage indexers in Go and take `codegraph` as an edge adapter, to keep the central store under Wavez's control and let every subsystem query one file, accepting that call-edge resolution depends on an external binary until an own resolver replaces it per language
 - In the context of retrieval for a small local model, facing embedding RAG vs graph and lexical first, we make fuzzy plus graph the primary path with a repo map and one-hop neighbourhood on the first turn and semantic search a secondary mode, to fit a 4-32k window in one or two turns, accepting weaker recall on natural-language questions until the semantic mode is measured
 - In the context of workflow semantics, facing embedding a Go workflow library vs writing a scheduler, we write a small in-process DAG runner, to keep it single-process and testable, accepting that we own it
+- In the context of the local runtime, facing Ollama vs llama-server on the same engine, we serve through `llama-server` and keep Ollama for model management, to get n-gram speculation, tunable prefix reuse, and grammar-constrained output, accepting that Wavez manages the server process and GGUF path itself
 - In the context of a 16 GB M2 Pro, facing local-only vs hosted-only vs router, we run local first with escalation to OpenRouter after one failure or on task shape, to keep routine edits offline and cheap, accepting that multi-file work will mostly go hosted
 - In the context of coordination between threads, facing worktrees vs directories, we key locks and identity on directory subtrees, to match how agents actually write (6.8% of writes leave the cwd), accepting that isolation of dependencies is the project's job
 - In the context of safety, facing prompts-only vs sandbox, we run Seatbelt plus a deterministic destructive-command guard with prompts for the remainder, to make catastrophic actions unreachable rather than discouraged, accepting some setup per project
@@ -523,7 +527,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 
 | Version | Done when | Ships |
 |---|---|---|
-| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
+| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
 | v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta |
 | v0.3 | The same task costs measurably fewer tokens than v0.1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
@@ -566,7 +570,7 @@ No:
 - Charm's runway. Crush is a reference, not a dependency, so this is a research-continuity risk only
 - Coverage-map adapters per language are the long tail. Importer-based selection from `codegraph` is the fallback, and on this repo it is close to running everything
 - `codegraph`'s SQLite schema is its own and may change. Wavez copies rows into its store rather than querying theirs
-- Bubble Tea v2 broke imports and APIs in February 2026, so Crush-era snippets need translation
+- Bubble Tea v2 broke imports and APIs in February 2026 (`charm.land/...` paths, `View() tea.View`, `tea.KeyPressMsg`, FPS-capped cell-diff renderer), so Crush-era snippets need translation. The spike found no scroll stall at 100 events/s and rolled its own virtualized transcript because `bubbles/v2` viewport and list do not fit a live-growing log
 
 ## Open questions
 

@@ -1,0 +1,62 @@
+[
+  {
+    "try": 1,
+    "well_formed": true,
+    "tool_calls": [
+      {
+        "type": "function",
+        "function": {
+          "name": "rename_symbol",
+          "arguments": "{\"file\": \"internal/store/store.go\", \"old_name\": \"PostTransaction\", \"new_name\": \"RecordTransaction\"}"
+        },
+        "id": "eZSs3YgSGi8fxmGiZhmROs6rFx7owe4A"
+      }
+    ],
+    "parsed_args": {
+      "file": "internal/store/store.go",
+      "old_name": "PostTransaction",
+      "new_name": "RecordTransaction"
+    },
+    "content": ""
+  },
+  {
+    "try": 2,
+    "well_formed": true,
+    "tool_calls": [
+      {
+        "type": "function",
+        "function": {
+          "name": "rename_symbol",
+          "arguments": "{\"file\": \"internal/store/store.go\", \"old_name\": \"PostTransaction\", \"new_name\": \"RecordTransaction\"}"
+        },
+        "id": "t1odvKvxaaCDq65rFcQjgADmEW3yhN9Q"
+      }
+    ],
+    "parsed_args": {
+      "file": "internal/store/store.go",
+      "old_name": "PostTransaction",
+      "new_name": "RecordTransaction"
+    },
+    "content": ""
+  },
+  {
+    "try": 3,
+    "well_formed": true,
+    "tool_calls": [
+      {
+        "type": "function",
+        "function": {
+          "name": "rename_symbol",
+          "arguments": "{\"file\": \"internal/store/store.go\", \"old_name\": \"PostTransaction\", \"new_name\": \"RecordTransaction\"}"
+        },
+        "id": "UqcdjKquQpEN2gVIO1BdGhhHTIs2WDKk"
+      }
+    ],
+    "parsed_args": {
+      "file": "internal/store/store.go",
+      "old_name": "PostTransaction",
+      "new_name": "RecordTransaction"
+    },
+    "content": ""
+  }
+]
