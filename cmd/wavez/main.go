@@ -19,12 +19,14 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
+	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
+	"github.com/kyleking/wavez/internal/tui"
 )
 
 var (
@@ -44,6 +46,7 @@ type options struct {
 	model    string
 	with     string
 	resume   string
+	socket   string
 	allowAll bool
 	maxTurns int
 }
@@ -67,6 +70,7 @@ func run(args []string) error {
 	fs.StringVar(&opt.dir, "dir", "", "project root (defaults to the enclosing repo, then cwd)")
 	fs.StringVar(&opt.model, "model", "", "force a tier for every turn: local or hosted")
 	fs.StringVar(&opt.with, "with", "", "add one file to the stable prefix for this run only")
+	fs.StringVar(&opt.socket, "socket", "", "daemon socket path (defaults to <root>/.wavez/d.sock)")
 	fs.StringVar(&opt.resume, "resume", "", "continue an existing thread by id instead of starting a new one")
 	fs.BoolVar(&opt.allowAll, "allow-all", false, "approve every permission prompt without asking")
 	fs.IntVar(&opt.maxTurns, "max-turns", 0, "cap model turns (0 uses the loop default)")
@@ -80,16 +84,44 @@ func run(args []string) error {
 
 		return nil
 	}
-	if opt.prompt == "" {
-		printHelp(os.Stdout)
-
-		return nil
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if opt.prompt == "" {
+		return launchTUI(ctx, opt)
+	}
+
 	return headless(ctx, opt)
+}
+
+// launchTUI attaches to a running wavezd. The daemon is started separately so
+// a client crash never takes the threads with it.
+func launchTUI(ctx context.Context, opt options) error {
+	root, err := resolveRoot(ctx, opt.dir)
+	if err != nil {
+		return err
+	}
+
+	sock := opt.socket
+	if sock == "" {
+		sock = filepath.Join(root, ".wavez", "d.sock")
+	}
+
+	client, err := api.Dial(ctx, sock)
+	if err != nil {
+		return fmt.Errorf("no daemon at %s: %w (start one with `wavezd`)", sock, err)
+	}
+	defer func() {
+		if cerr := client.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "wavez: closing connection: %v\n", cerr)
+		}
+	}()
+
+	if err := tui.Run(ctx, client, tui.Options{Dir: root, NoColor: os.Getenv("NO_COLOR") != ""}); err != nil {
+		return fmt.Errorf("running the interface: %w", err)
+	}
+
+	return nil
 }
 
 func headless(ctx context.Context, opt options) error {
@@ -291,10 +323,11 @@ Flags:
   -model <tier>   force local or hosted for every turn
   -with <file>    add one file to the stable prefix for this run only
   -resume <id>    continue an existing thread instead of starting a new one
+  -socket <path>  daemon socket path (defaults to <root>/.wavez/d.sock)
   -allow-all      approve every permission prompt without asking
   -max-turns <n>  cap model turns
   -v              print version information
 
-The TUI is not wired yet; -p is the only entry point.
+With no -p, wavez attaches to a running wavezd and opens the interface.
 `)
 }
