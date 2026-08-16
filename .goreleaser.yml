@@ -45,10 +45,13 @@ builds:
     binary: wavezd
 
 archives:
+  # One archive holding both binaries: the TUI attaches to the daemon, so a
+  # cask that installed only one would install something that cannot run. A
+  # cask also refuses more than one archive per OS/Arch.
   - id: wavez
     ids: [wavez, wavezd]
-    formats: [binary]
-    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+    formats: [tar.gz]
+    name_template: "wavez-{{ .Os }}-{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
