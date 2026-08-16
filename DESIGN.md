@@ -400,10 +400,13 @@ Ollama already pulls and lists models, and `llama-server` already serves them, s
 - Permission prompt only for what escapes both. `y`, `n`, `a` for the thread
 - Model output never becomes a policy input. Approval comes from the deterministic checker or the user
 
-### VCS (M4)
+### VCS (M1 for checkpointing, M4 for the rest)
 
-- One `Operations` interface with `git` and `jj` backends shelled out, factory by detection, copied from `../gh-repo-dashboard/internal/vcs`
-- Agent-facing primitives: changed files since marker, diff for a set of files, commit or new change with a message derived from the thread's task, undo through `jj op log` where available
+- One jj implementation, shelled out. No backend abstraction, because there is one backend
+- Checkpoint and undo come free: jj snapshots the working copy on every command, so a turn's starting point is an operation id, and undoing a thread is `jj op restore` to that id. Wavez writes no snapshots of its own
+- A run whose gates fail offers the restore rather than leaving broken files on disk, since a thread that ends red and edits anyway is the worst outcome available
+- Agent-facing primitives: changed files since an operation id, diff for a set of files, a new change with a message derived from the thread's task, and restore to an operation id
+- Colocated, so `.git` stays on disk for `gh`, CI, and git hooks. Every command wavez runs is a jj command
 - Commit messages and PR bodies are produced by Wavez logic (like `ai-gh-pr.py`), not by the model composing a shell command
 - Merge-forward stacking and review state that survives force-pushes are candidates, not commitments
 
@@ -476,7 +479,7 @@ The store has to cut across a polyglot monorepo, so a change to a Python or Go r
 Features nobody praises and everybody misses. Copied from Claude Code, Codex, OpenCode, Crush, and Aider, in the milestone they are needed.
 
 - Resume and continue a thread, `@file` and `@symbol` mentions, `-p` with JSON output
-- Checkpoint and undo of file changes per turn (own snapshots in M1, `jj op log` in M4)
+- Checkpoint and undo of file changes per turn, from `jj op log` rather than snapshots wavez writes itself
 - LSP diagnostics fed back after an edit as a gate, the way Crush wires LSP into its loop
 - Two hooks, pre-tool-use and post-tool-use, as external commands
 - Model switch and thinking toggle mid-thread, cost and token counters in the header
@@ -526,7 +529,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of a 16 GB M2 Pro, facing local-only vs hosted-only vs router, we run local first with escalation to OpenRouter after one failure or on task shape, to keep routine edits offline and cheap, accepting that multi-file work will mostly go hosted
 - In the context of coordination between threads, facing worktrees vs directories, we key locks and identity on directory subtrees, to match how agents actually write (6.8% of writes leave the cwd), accepting that isolation of dependencies is the project's job
 - In the context of safety, facing prompts-only vs sandbox, we run Seatbelt plus a deterministic destructive-command guard with prompts for the remainder, to make catastrophic actions unreachable rather than discouraged, accepting some setup per project
-- In the context of VCS, facing git-only vs jj-only vs both, we build the abstraction in M4 with git and jj backends and colocated repos as the norm, to get change IDs and op-log undo without losing GitHub tooling, accepting the extra backend
+- In the context of VCS, facing git-only vs jj-only vs both, we chose jj alone in a colocated repo and pulled it forward from M4, to get per-turn checkpointing and undo from the operation log instead of writing our own snapshots, accepting that every machine running wavez needs jj installed. jj snapshots the working copy on every command, so an agent's checkpoint is a side effect of working rather than a feature. Colocated is what jj's own GitHub guidance recommends and is required here anyway, since hk installs its hooks through git config
 - In the context of remote access, facing native app vs PWA vs SSH, we chose Tailscale plus a PWA plus push, to ship in days with no App Store or server, accepting that the laptop must stay awake
 - In the context of extensibility, facing plugins vs built-in tools, we ship no plugin system, to keep the tool surface auditable and small, accepting that new tools mean code changes
 - In the context of edits on a slow local decoder, facing search-and-replace, unified diff, whole-file, or hashed line ops, we ship `str_replace` with a fuzzy fallback and escalate after one failed edit, to use the format the model already knows and keep output tokens low, accepting weak local edit success until Modifiers and intent edits carry most changes (hashline measured worse on qwen3:8b)
@@ -574,7 +577,7 @@ Maybe:
 
 No:
 
-- jj-only. Colocated repos keep git for GitHub tooling
+- A git backend beside the jj one. jj's git interop already covers GitHub, and two backends would double the surface for no gain
 - KiteSurf as the browser backend (Workers only). browser-control as the default backend (real profile, allow-by-default filter in a third-party relay), kept as an opt-in behind the same interface
 - Wish/SSH for remote access (2026 CVEs)
 - Plugins, MCP servers loaded up front, multi-agent hierarchies past one level of delegation
