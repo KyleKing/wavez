@@ -23,7 +23,7 @@ TLDR: fewer tokens, faster builds, higher quality, low RAM.
 |---|---|---|
 | v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox), chat loop, Gates, sandbox + permission gate, local model + OpenRouter escalation |
 | v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings |
-| v0.3 | Cheaper and faster on the same work | Modifiers, deterministic compaction, code-relationship store (imports, symbols, line-to-test), web search |
+| v0.3 | Cheaper and faster on the same work, from Neovim too | Modifiers, deterministic compaction, code-relationship store (imports, symbols, line-to-test), fuzzy search and similarity notes, `wavez.nvim`, web search |
 | v0.4 | Away from the laptop | jj/git integration layer, mobile client (Tailscale + PWA + push) |
 | v0.5 | Proving it | Browser recordings, benchmark harness against Claude Code / OpenCode |
 
@@ -33,6 +33,7 @@ Innovation tokens go to Routines + Gates and Modifiers. Everything else copies p
 
 - Serving more than one user or trust level (no config hierarchy, no policy layer, no telemetry export)
 - Plugins or extensibility. Tools are built in and opinionated
+- Auto-loading `AGENTS.md`, `CLAUDE.md`, or `.agents/`. Context is listed explicitly in `.wavez.pkl`
 - Replacing herdr, tmux, or an editor. Wavez owns the agent loop and the checks around it
 - Multi-agent hierarchies past one level of delegation
 

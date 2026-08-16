@@ -213,7 +213,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - Triggered by change events from the edit tool and from a file watcher, never by the model deciding to test
 - Changed-file detection stores its own last-known-good marker (SHA or op ID), not a session ID
 - Test selection reads one code-relationship store, a SQLite file per project with three tables: import edges (file to file), symbol definitions and references, and line-to-test coverage. Adapters feed it, gates query it, and every other consumer (Modifiers, scheduler contention, risk scoring) reads the same store
-- Adapters: `codegraph` for symbols and edges (calls, references, imports; 763 ms to index a 10k LOC Go repo, needs `--filter "**/*_test.go"` on Go), coverage.py `--cov-context=test` for Python line-to-test (+8% over plain coverage, works under xdist), a per-test `go test -run` coverprofile loop for Go, tree-sitter where codegraph is missing. `vitest --changed` or `testpick` for JS later. Demos: `_ai_/demos/code-store-go`, `_ai_/demos/code-store-python`
+- Adapters: `codegraph` for symbols and edges (calls, references, imports, 763 ms to index a 10k LOC Go repo, needs `--filter "**/*_test.go"` on Go), coverage.py `--cov-context=test` for Python line-to-test (+8% over plain coverage, works under xdist), a per-test `go test -run` coverprofile loop for Go, tree-sitter where codegraph is missing. `vitest --changed` or `testpick` for JS later. Demos: `_ai_/demos/code-store-go`, `_ai_/demos/code-store-python`
 - Selection order: line-to-test where the map covers the changed lines, transitive importers of changed files otherwise, whole package as the last fallback. Measured on gh-repo-dashboard: line-level cuts a 522-test suite to 3-5 tests for a one-function change, importer-level returns 383 for a widely imported file, so the coverage map ships in v0.1
 - The coverage map is built once per clone (249 s for 522 Go tests with 8 workers, 27x a plain run) and updated incrementally: only tests whose covered files changed by content hash re-run
 - Full run on a cadence: after N selective passes, after a time threshold, or when the map flags an untracked file
@@ -244,7 +244,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 
 - A thread is a directory set plus a history plus a compaction state. Threads across directories are the norm, worktrees optional
 - Scheduler phases: edit (threads write, gates queue) and execute (gates and routines run, edits pause for the touched subtrees)
-- Memory-aware admission: the local model and a large test run do not overlap when headroom is below a threshold (with qwen3:8b loaded ~31% is free, enough for a Go suite; gemma4:12b leaves 14-18% and is not). Long-running services (compose stacks) stop when idle
+- Memory-aware admission: the local model and a large test run do not overlap when headroom is below a threshold (with qwen3:8b loaded ~31% is free, enough for a Go suite, while gemma4:12b leaves 14-18% and is not). Long-running services (compose stacks) stop when idle
 - Contention rules come from leases plus a dependency map, so two threads planning changes to the same feature serialize
 - Threads can spawn sub-threads (one level) and fork from a transcript row, inheriting the compacted history up to that point
 - The schedule view shows one lane per thread with the active routine's DAG inline
@@ -298,6 +298,52 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 - One `browser.Session` interface (click, read accessibility tree, screenshot, record) with two backends. Default is `go-rod` on a fresh profile, so an injected page finds no ambient credentials and deny-by-default mutation and the egress allowlist live in Wavez's process. `browser-control` (extension plus local WebSocket relay on the real profile) is a per-thread opt-in for tasks that need a logged-in session, never the default. Kitesurf runs only inside Workers and is out
 - Vision calls only for visual judgments. Chrome 136+ refuses `--remote-debugging-port` on the default profile, so those two backends are the only routes
 
+### Neovim (v0.3)
+
+Minimal on purpose. The daily loop is send, open, review, jump. Nothing else until those four are worn in.
+
+- `wavez.nvim` talks to `wavezd` over the same unix-socket JSON API as the TUI. No PTY scraping, no ACP until Neovim has native ACP support (an ACP server mode is a thin adapter over the same API when that day comes)
+- Send: visual selection or buffer plus cursor position into the current thread, or a new thread scoped to the file's repo
+- Open: the thread view in a floating terminal, using the launcher pattern already in `~/.config/nvim/lua/kyleking/deps/terminal-integration.lua`
+- Review: the thread's change set as nvim diff mode per file, touched files as a quickfix list, hunk accept or reject writes back through the API
+- Ask-a-line from a hunk in diff mode is the same call the TUI makes
+- Existing plugins (sidekick, codecompanion, avante, claudecode.nvim) mostly wrap a CLI in a terminal buffer, so the socket-backed shape is already the smaller design
+
+### Code search and similarity (v0.3)
+
+- Fuzzy symbol and file search from the code-relationship store (FTS5 over symbol names and paths, the same index `codegraph` builds), exposed as one tool to the model and one picker to Neovim and the palette
+- Semantic search is opt-in per project: a local embedding model over symbols and docs, vectors memory-mapped next to the store, the technique Codanna uses. Not built until fuzzy plus graph queries fall short
+- Similarity ("squinting"): pylint and jscpd catch type-1 and type-2 clones. Wavez looks for the near misses using signals the store already has, and surfaces a "possibly similar to `pkg.Foo`" note at edit time only when two independent signals agree
+  - normalized token fingerprint (identifiers and literals abstracted, winnowed or MinHashed, after MOSS and SourcererCC)
+  - structural vector per function (node-type counts, depth, branch count, after Deckard)
+  - callee-set overlap from the call edges, which catches functions with zero token overlap that do the same thing
+  - control-flow shape as a nesting-depth sequence from tree-sitter
+  - test-coverage overlap from the line-to-test table, corroborating only
+- The note is advisory to the model and a row in the thread, never an auto-refactor. `dupl` (Go) and jscpd stay available as exact-clone gates
+
+### Table stakes (v0.1 unless noted)
+
+Features nobody praises and everybody misses. Copied from Claude Code, Codex, OpenCode, Crush, and Aider, in the phase they are needed.
+
+- Resume and continue a thread, `@file` and `@symbol` mentions, `-p` with JSON output
+- Checkpoint and undo of file changes per turn (own snapshots in v0.1, `jj op log` in v0.4)
+- LSP diagnostics fed back after an edit as a gate, the way Crush wires LSP into its loop
+- Two hooks, pre-tool-use and post-tool-use, as external commands
+- Model switch and thinking toggle mid-thread, cost and token counters in the header
+- Image and screenshot input (v0.2), notifications on needs-input and done (v0.2)
+- Repo map from the store as cheap default context, after Aider (v0.3)
+- MCP client, connected per thread on demand from an allowlist in `.wavez.pkl`, never all up front (v0.3)
+- Plan mode is a thread whose tools are read-only, not a separate mode
+
+### Project instructions
+
+Wavez does not auto-load `AGENTS.md`, `CLAUDE.md`, `.agents/`, or `.claude/`. Most of what those files carry (test commands, lint rules, style) is what gates and routines do deterministically, and the rest is repo text the model reads on every turn.
+
+- `.wavez.pkl` has an explicit `context` list of files or headed sections (`AGENTS.md#architecture`) that enter the stable prefix
+- `wavez import agents-md` lifts recognizable command blocks out of an existing file into routines once, so that section can be dropped from `context`
+- `--with AGENTS.md` on one thread covers the one-off case without changing the persisted config
+- Skills in `~/.claude/skills` are not inherited. The user maps what they want into `context` or routines
+
 ### Web search (v0.3)
 
 - One search tool, one fetch tool. Results and pages pre-trimmed to text before the model sees them
@@ -323,6 +369,8 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of VCS, facing git-only vs jj-only vs both, we build the abstraction in v0.4 with git and jj backends and colocated repos as the norm, to get change IDs and op-log undo without losing GitHub tooling, accepting the extra backend
 - In the context of remote access, facing native app vs PWA vs SSH, we chose Tailscale plus a PWA plus push, to ship in days with no App Store or server, accepting that the laptop must stay awake
 - In the context of extensibility, facing plugins vs built-in tools, we ship no plugin system, to keep the tool surface auditable and small, accepting that new tools mean code changes
+- In the context of project instructions, facing auto-loading `AGENTS.md` and `CLAUDE.md` vs explicit opt-in, we list context files and sections in `.wavez.pkl`, to keep token cost and prompt-injection surface fixed and to avoid re-stating what gates already do, accepting a one-time mapping step for repos with a mature `CLAUDE.md`
+- In the context of editor integration, facing ACP vs the daemon's own socket API, we ship a small `wavez.nvim` over the socket API first, to keep one API for every client, accepting an ACP adapter later if Neovim gains native support
 - In the context of compaction, facing client-side rewriting vs append-only trimming, we trim append-only and summarize residue with a local model, to keep prompt caches valid, accepting more tokens per turn than aggressive rewriting
 
 ## Phases
@@ -331,7 +379,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 |---|---|---|
 | v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, tools, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
 | v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission |
-| v0.3 | The same task costs measurably fewer tokens than v0.1 | Modifiers for Go, Python, TypeScript, deterministic compaction, symbol index, coverage map store, web search, context manifest and Ask-a-line |
+| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, deterministic compaction, fuzzy search and repo map from the store, similarity notes, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | v0.5 | A benchmark table against Claude Code on 20 tasks | Browser recordings, benchmark harness |
 
@@ -352,6 +400,8 @@ Maybe:
 - Comprehension quizzes from transcripts (`_ai_/what-did-ai-do`). Works today as its own tool against Wavez's session IR
 - Dash docsets as a local first hop for web search
 - Learned router heuristics from usage. Start fixed
+- ACP server mode for editors other than Neovim, and semantic (embedding) search over the store
+- Similarity as a gate that blocks. It starts as an advisory note
 - Native SwiftUI mobile client if the PWA's push action buttons fall short
 
 No:
