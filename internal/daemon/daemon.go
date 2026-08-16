@@ -22,13 +22,18 @@ import (
 const (
 	defaultShutdownGrace = 10 * time.Second
 	dialProbeTimeout     = 200 * time.Millisecond
+	// The sun_path limit: macOS allows 104 bytes including the terminator.
+	maxSockPath = 103
 )
 
 // Sentinel errors New, Serve, and Shutdown return.
 var (
-	ErrLoopRequired           = errors.New("daemon: WithLoop is required")
-	ErrBrokerRequired         = errors.New("daemon: WithBroker is required")
-	ErrLogDirRequired         = errors.New("daemon: WithLogDir is required")
+	ErrLoopRequired   = errors.New("daemon: WithLoop is required")
+	ErrBrokerRequired = errors.New("daemon: WithBroker is required")
+	ErrLogDirRequired = errors.New("daemon: WithLogDir is required")
+	// ErrSockPathTooLong reports a socket path past the platform's sun_path
+	// limit, which otherwise surfaces as a bare "invalid argument".
+	ErrSockPathTooLong        = errors.New("daemon: socket path too long")
 	ErrAlreadyServing         = errors.New("daemon: already serving")
 	ErrNotServing             = errors.New("daemon: not serving")
 	ErrDaemonAlreadyListening = errors.New("daemon: a daemon is already listening on this socket")
@@ -280,6 +285,10 @@ func (s *Server) wakePending() {
 // socket file left by a daemon that crashed rather than a live one still
 // listening.
 func listen(ctx context.Context, path string) (net.Listener, error) {
+	if len(path) > maxSockPath {
+		return nil, fmt.Errorf("%w: %d bytes, limit is %d: %s", ErrSockPathTooLong, len(path), maxSockPath, path)
+	}
+
 	var lc net.ListenConfig
 
 	ln, err := lc.Listen(ctx, "unix", path)

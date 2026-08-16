@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,4 +253,24 @@ func chunkTexts(n int) []string {
 	}
 
 	return out
+}
+
+// An overlong path fails inside connect() as a bare "invalid argument", which
+// reads as a bug in the client rather than a bad socket path.
+func TestServeRejectsAnOverlongSocketPath(t *testing.T) {
+	t.Parallel()
+
+	broker := daemon.NewBroker()
+	loop := agent.New(fake.New("local"), fake.New("hosted"), tool.NewRegistry(), broker.Gate())
+	long := filepath.Join(os.TempDir(), strings.Repeat("d", 120)+".sock")
+
+	srv, err := daemon.New(long,
+		daemon.WithLoop(loop), daemon.WithBroker(broker), daemon.WithLogDir(t.TempDir()))
+	if err != nil {
+		t.Fatalf("daemon.New: %v", err)
+	}
+
+	if err := srv.Serve(t.Context()); !errors.Is(err, daemon.ErrSockPathTooLong) {
+		t.Fatalf("Serve error = %v, want ErrSockPathTooLong", err)
+	}
 }
