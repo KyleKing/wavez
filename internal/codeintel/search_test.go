@@ -59,3 +59,30 @@ func TestSearch_GraphModeQueriesEdges(t *testing.T) {
 		t.Errorf("expected no edges before the codegraph adapter runs, got %d", len(results))
 	}
 }
+
+// A path, an operator, or a quote in the query used to reach FTS5 as syntax and
+// fail with "fts5: syntax error", which a model sees as a broken tool.
+func TestSearchAcceptsQueriesThatLookLikeFTSSyntax(t *testing.T) {
+	t.Parallel()
+
+	store, ctx := openStore(t)
+
+	queries := []string{
+		"internal/lease",
+		`"unbalanced`,
+		"foo AND bar",
+		"a-b*c",
+		"NEAR(x y)",
+		"...",
+	}
+	for _, q := range queries {
+		t.Run(q, func(t *testing.T) {
+			t.Parallel()
+			if _, err := store.Search(ctx, codeintel.SearchQuery{
+				Mode: codeintel.SearchFuzzy, Text: q,
+			}); err != nil {
+				t.Fatalf("Search(%q) failed: %v", q, err)
+			}
+		})
+	}
+}

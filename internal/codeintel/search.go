@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 )
 
 // SearchMode selects a retrieval strategy for Search.
@@ -83,10 +85,30 @@ func (s *Store) Search(ctx context.Context, q SearchQuery) ([]SearchResult, erro
 	}
 }
 
+// ftsQuery makes arbitrary text safe to hand FTS5. Unquoted input is parsed as
+// query syntax, so anything holding a path, an operator, or punctuation is a
+// syntax error rather than a search. Each run of query-safe characters becomes
+// its own quoted phrase, which also keeps a caller from injecting operators.
+func ftsQuery(text string) string {
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	})
+	if len(fields) == 0 {
+		return `""`
+	}
+
+	quoted := make([]string, 0, len(fields))
+	for _, f := range fields {
+		quoted = append(quoted, `"`+f+`"`)
+	}
+
+	return strings.Join(quoted, " ")
+}
+
 func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ? ORDER BY rank, kind, ref_id LIMIT ?`,
-		q.Text, q.Limit)
+		ftsQuery(q.Text), q.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("fuzzy search %q: %w", q.Text, err)
 	}
