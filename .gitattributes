@@ -6,3 +6,6 @@
 *.toml text eol=lf
 *.pkl text eol=lf
 *.sh text eol=lf
+
+# Golden fixtures are byte-exact, including line endings
+*.golden -text
