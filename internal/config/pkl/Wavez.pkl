@@ -13,8 +13,17 @@ context: Listing<String> = new Listing {}
 /// Local model name served by llama-server.
 localModel: String = "qwen3:8b"
 
-/// Hosted model name, escalated to per internal/router.
-hostedModel: String = "anthropic/claude-sonnet-4"
+/// Hosted model name, escalated to per internal/router. The default is the
+/// coder model DESIGN.md's risk list rules out locally at 19 GB, which running
+/// it hosted resolves.
+hostedModel: String = "qwen/qwen3-coder-30b-a3b-instruct"
+
+/// Command whose stdout is the hosted API key, after the shape of a git
+/// credential helper, so the key never enters the environment or the repo.
+/// Examples: "op read op://vault/item/credential" or
+/// "security find-generic-password -w -s wavez-openrouter". When empty, Wavez
+/// falls back to the OPENROUTER_API_KEY environment variable.
+hostedKeyCommand: String = ""
 
 /// Local model's served context window, in tokens.
 contextWindow: Int = 8000

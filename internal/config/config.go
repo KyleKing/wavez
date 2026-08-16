@@ -12,7 +12,7 @@ import "time"
 const DefaultLocalModel = "qwen3:8b"
 
 // DefaultHostedModel is the hosted model name used when no config overrides it.
-const DefaultHostedModel = "anthropic/claude-sonnet-4"
+const DefaultHostedModel = "qwen/qwen3-coder-30b-a3b-instruct"
 
 // DefaultContextWindow is the local model's served context window, in
 // tokens, matching internal/router.LocalContextBudget.
@@ -29,15 +29,18 @@ const DefaultFullRunCadence = 20
 // Config is one project's Wavez configuration: what DESIGN.md's "Project
 // instructions" and "Gates (v0.1)" sections say v0.1 reads, and no more.
 type Config struct {
-	Root           string
-	LocalModel     string
-	HostedModel    string
-	Context        []string
-	ExtraDirs      []string
-	AstGrepRules   []string
-	ContextWindow  int
-	GateDebounce   time.Duration
-	FullRunCadence int
+	Root        string
+	LocalModel  string
+	HostedModel string
+	// HostedKeyCommand's stdout is the hosted API key. Empty means fall back
+	// to the OPENROUTER_API_KEY environment variable.
+	HostedKeyCommand string
+	Context          []string
+	ExtraDirs        []string
+	AstGrepRules     []string
+	ContextWindow    int
+	GateDebounce     time.Duration
+	FullRunCadence   int
 }
 
 // Defaults returns the Config a project with no ".wavez.pkl" gets: every

@@ -378,6 +378,7 @@ Roles beyond linting:
 - Escalate to OpenRouter on task shape (multi-file, over the local context budget) or after one local failure. Never retry local past one failure
 - Holes from intent edits route by size: bodies under a few lines local with retry against gates, judgment-sized holes hosted. Either way the hosted model writes tens of tokens, not files
 - Explicit override per turn. Cost and token counters per thread in the header
+- The hosted key comes from a command in `.wavez.pkl` whose stdout is the key, after a git credential helper, so it never enters the environment, the repo, or the process table. `OPENROUTER_API_KEY` stays as a fallback. The default hosted model is `qwen/qwen3-coder-30b-a3b-instruct` ($0.07 in, $0.28 out per M), which is the coder model the risk list rules out locally at 19 GB, so hosting it resolves that directly. At a typical escalation of 4k in and 400 out that is $0.0004 per edit
 - Anthropic caching through OpenRouter requires the native Anthropic wire format and a pinned provider. The harness keeps a stable prefix (system, tools, ledger) and appends after it
 
 ### Local model management (M2)

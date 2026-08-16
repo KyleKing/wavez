@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,5 +149,46 @@ func TestSystemPrefixAlwaysCarriesTheBaseInstructions(t *testing.T) {
 	}
 	if strings.Contains(a.SystemPrefix, "project text") {
 		t.Fatal("an unlisted file entered the prefix")
+	}
+}
+
+func TestHostedKeyComesFromTheConfiguredCommand(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.HostedKeyCommand = "printf sk-from-command"
+
+	a, err := app.New(t.Context(), root, cfg, permission.DenyAll())
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	if cerr := a.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
+	}
+}
+
+func TestHostedKeyCommandFailureIsReported(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.HostedKeyCommand = "false"
+
+	if _, err := app.New(t.Context(), root, cfg, permission.DenyAll()); err == nil {
+		t.Fatal("a failing key command was accepted, so a locked secret store would look like no key")
+	}
+}
+
+func TestEmptyHostedKeyCommandOutputIsAnError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.HostedKeyCommand = "true"
+
+	_, err := app.New(t.Context(), root, cfg, permission.DenyAll())
+	if !errors.Is(err, app.ErrEmptyKeyCommand) {
+		t.Fatalf("err = %v, want ErrEmptyKeyCommand", err)
 	}
 }

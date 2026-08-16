@@ -31,14 +31,15 @@ const (
 // pklConfig is the wire shape EvaluateModule decodes ".wavez.pkl" into.
 // Field names and defaults mirror pkl/Wavez.pkl exactly.
 type pklConfig struct {
-	LocalModel     string   `pkl:"localModel"`
-	HostedModel    string   `pkl:"hostedModel"`
-	Context        []string `pkl:"context"`
-	ExtraDirs      []string `pkl:"extraDirs"`
-	AstGrepRules   []string `pkl:"astGrepRules"`
-	ContextWindow  int      `pkl:"contextWindow"`
-	DebounceMs     int      `pkl:"debounceMs"`
-	FullRunCadence int      `pkl:"fullRunCadence"`
+	LocalModel       string   `pkl:"localModel"`
+	HostedModel      string   `pkl:"hostedModel"`
+	HostedKeyCommand string   `pkl:"hostedKeyCommand"`
+	Context          []string `pkl:"context"`
+	ExtraDirs        []string `pkl:"extraDirs"`
+	AstGrepRules     []string `pkl:"astGrepRules"`
+	ContextWindow    int      `pkl:"contextWindow"`
+	DebounceMs       int      `pkl:"debounceMs"`
+	FullRunCadence   int      `pkl:"fullRunCadence"`
 }
 
 // Loader evaluates ".wavez.pkl" files through one long-lived pkl.Evaluator,
@@ -152,6 +153,9 @@ func fromPkl(root string, p pklConfig) Config {
 		cfg.LocalModel = p.LocalModel
 	}
 
+	if p.HostedKeyCommand != "" {
+		cfg.HostedKeyCommand = p.HostedKeyCommand
+	}
 	if p.HostedModel != "" {
 		cfg.HostedModel = p.HostedModel
 	}

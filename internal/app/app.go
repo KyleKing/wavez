@@ -144,10 +144,14 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	}
 
 	if hosted == nil {
+		key, kerr := hostedKey(ctx, cfg.HostedKeyCommand)
+		if kerr != nil {
+			return nil, kerr
+		}
 		hosted = openaic.New("hosted",
 			openaic.WithBaseURL(DefaultHostedBaseURL),
 			openaic.WithModel(cfg.HostedModel),
-			openaic.WithAPIKey(os.Getenv(HostedAPIKeyEnv)))
+			openaic.WithAPIKey(key))
 	}
 
 	runner, adapter, verifier := buildGateRunner(ctx, root, store, gateLog, cfg)
