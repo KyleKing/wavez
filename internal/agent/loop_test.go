@@ -181,16 +181,22 @@ func TestRun_MalformedToolCallTerminates(t *testing.T) {
 	}
 }
 
-func TestRun_IdenticalRepeatedToolCallIsLoop(t *testing.T) {
+// A repeat is evidence the tier is stuck, so the first one escalates rather
+// than killing the thread; only a repeat after escalating is a loop.
+func TestRun_RepeatedToolCallEscalatesThenStops(t *testing.T) {
 	t.Parallel()
 
 	call := llm.ToolCall{ID: "1", Name: "echo", Input: rawJSON(t, map[string]any{"a": 1})}
 	repeat := llm.ToolCall{ID: "2", Name: call.Name, Input: call.Input}
+	again := llm.ToolCall{ID: "3", Name: call.Name, Input: call.Input}
+
 	local := fake.New("local",
 		fake.Turn{ToolCalls: []llm.ToolCall{call}, StopReason: llm.StopToolUse},
 		fake.Turn{ToolCalls: []llm.ToolCall{repeat}, StopReason: llm.StopToolUse},
 	)
-	hosted := fake.New("hosted")
+	hosted := fake.New("hosted",
+		fake.Turn{ToolCalls: []llm.ToolCall{again}, StopReason: llm.StopToolUse},
+	)
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
@@ -201,10 +207,20 @@ func TestRun_IdenticalRepeatedToolCallIsLoop(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	if out.Stop != agent.StopLoopDetected {
-		t.Fatalf("Stop = %q, want loop_detected", out.Stop)
+		t.Fatalf("Stop = %q, want loop_detected once the hosted tier repeats too", out.Stop)
 	}
-	if out.ToolCalls != 1 {
-		t.Errorf("ToolCalls = %d, want 1: only the first call runs", out.ToolCalls)
+	if len(hosted.Requests()) == 0 {
+		t.Fatal("a repeated call did not escalate to the hosted tier")
+	}
+
+	var critique bool
+	for _, msg := range th.History() {
+		if msg.Role == llm.RoleTool && msg.IsError && strings.Contains(msg.Content, "already made this exact") {
+			critique = true
+		}
+	}
+	if !critique {
+		t.Fatal("the model was never told why its repeat was rejected")
 	}
 }
 

@@ -284,3 +284,47 @@ func TestRun_ChangesAccumulateAcrossToolsAndTurns(t *testing.T) {
 		t.Fatalf("changes = %+v, want a.go then b.go", got)
 	}
 }
+
+// Ending on a bound with edited files and no verification is the worst case:
+// changed code and no signal.
+func TestRun_BoundedRunStillVerifiesWhatItChanged(t *testing.T) {
+	t.Parallel()
+
+	call := llm.ToolCall{ID: "1", Name: "changer", Input: rawJSON(t, map[string]any{"a": 1})}
+	local := fake.New("local",
+		fake.Turn{ToolCalls: []llm.ToolCall{call}, StopReason: llm.StopToolUse},
+	)
+	hosted := fake.New("hosted")
+
+	th := newThread(t)
+	reg := tool.NewRegistry(changeTool{name: "changer", changes: []tool.Change{{Path: "a.go", Added: 2}}})
+	v := &stubVerifier{script: []verifyOutcome{{feedback: "build failed: undefined: filepath", ok: false}}}
+	loop := agent.New(local, hosted, reg, permission.AllowAll(),
+		agent.WithMaxTurns(1), agent.WithVerifier(v))
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Stop != agent.StopMaxTurns {
+		t.Fatalf("Stop = %q, want max_turns", out.Stop)
+	}
+	if len(v.calls) == 0 {
+		t.Fatal("a bounded run left changed files unverified")
+	}
+
+	events, err := th.Log().Since(0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+
+	var logged bool
+	for _, ev := range events {
+		if abandoned, ok := ev.Detail["abandoned"].(bool); ok && abandoned && ev.Kind == event.KindGate {
+			logged = true
+		}
+	}
+	if !logged {
+		t.Fatal("the abandoned change set's gate result was never logged")
+	}
+}

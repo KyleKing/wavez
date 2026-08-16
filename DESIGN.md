@@ -238,7 +238,9 @@ Vim-shaped, layered so the floor is discoverable and the ceiling is fast, in the
 ### Chat loop (M1)
 
 - Streaming tool-use loop with typed tools: read, edit, shell, grep, symbol lookup, question, and modifiers
-- Bounded retries. A malformed tool call or an identical repeated call is a failure, not a retry
+- Bounded retries. A malformed tool call is a failure, not a retry: 2026 measurements on tool-call recovery find malformed calls mostly unrecoverable, since an early wrong step compounds instead of correcting
+- An identical repeated call is evidence the tier is stuck rather than grounds to end the thread. It fails that call, hands the model a short critique of why, and escalates to the next tier, which is the same rule the router already applies after one local failure. A repeat after escalating ends the thread
+- A run that ends on a bound still gates whatever it changed. Changed files with no verification is the worst outcome available
 - Permission gate before anything destructive, defaulting to ask. Sandbox behind it
 - Read-once cache keyed by content hash. Unchanged files are not re-read into context
 - `-p "…"` runs one prompt headless and prints the result

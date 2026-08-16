@@ -336,9 +336,26 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 			return true, out, err
 		}
 		if r.lastCall != nil && r.lastCall.Name == call.Name && bytes.Equal(r.lastCall.Input, call.Input) {
-			out, err := r.stopBound(ctx, StopLoopDetected, fmt.Sprintf("identical repeated tool call %q", call.Name))
+			if r.localFailed {
+				out, err := r.stopBound(ctx, StopLoopDetected,
+					fmt.Sprintf("identical repeated tool call %q after escalating", call.Name))
 
-			return true, out, err
+				return true, out, err
+			}
+
+			// A repeat is evidence the tier is stuck, not that the thread should
+			// die: the router already escalates after one local failure, and
+			// repeated malformed calls compound rather than self-correct. Hand
+			// the model back a critique and let the next turn run hosted.
+			r.localFailed = true
+			if err := r.appendToolResult(ctx, call, tool.Errorf(
+				"you already made this exact %s call and it did not move the task forward; "+
+					"read the previous result, then either change the arguments or stop", call.Name)); err != nil {
+				return true, Outcome{}, err
+			}
+			r.outcome.ToolCalls++
+
+			return false, Outcome{}, nil
 		}
 
 		if err := r.runTool(ctx, call); err != nil {
@@ -434,11 +451,41 @@ func (r *run) stopBound(ctx context.Context, stop Stop, reason string) (Outcome,
 	if _, err := r.thread.Log().Append(ev); err != nil {
 		return Outcome{}, fmt.Errorf("logging bound: %w", err)
 	}
+	r.verifyAbandoned(ctx)
 	if err := r.thread.SetState(ctx, event.StateFailed); err != nil {
 		return Outcome{}, fmt.Errorf("setting state: %w", err)
 	}
 
 	return r.outcome, nil
+}
+
+// verifyAbandoned runs the gates over whatever a bounded run already changed.
+// Ending on a bound with edited files and no verification is the worst case:
+// changed code and no signal. The result is logged, never fed back, because
+// the run is over.
+func (r *run) verifyAbandoned(ctx context.Context) {
+	if r.loop.options.Verifier == nil || len(r.changes) == 0 {
+		return
+	}
+
+	feedback, ok := r.loop.options.Verifier.Verify(ctx, r.changes)
+	detail := map[string]any{"pass": ok, "abandoned": true}
+	if !ok {
+		detail["feedback"] = feedback
+	}
+	if _, err := r.thread.Log().Append(event.Event{
+		Kind: event.KindGate, Text: gateText(ok), Detail: detail,
+	}); err != nil {
+		return
+	}
+}
+
+func gateText(ok bool) string {
+	if ok {
+		return "gates passed on the abandoned change set"
+	}
+
+	return "gates failed on the abandoned change set"
 }
 
 func (r *run) stopFailed(ctx context.Context, cause error) (Outcome, error) {
