@@ -220,6 +220,51 @@ Decode speed is the local bottleneck (qwen3:8b at ~18 tok/s), so the edit format
 - Not built: a hosted fast-apply model (Morph, Relace). Extra latency and a paid dependency, and the sketch-then-merge pattern is being dropped even by teams with GPU budget. No open-weight small apply model exists to run locally
 - Unmeasured: hashline ops vs `str_replace` on qwen3:8b malformed-edit rate. Aider's leaderboard has no 8B number and its small-model result (whole-file wins) is from 0.5-3B models. Demo before v0.1 locks the format
 
+### Intent edits (exploration, target v0.3 after Modifiers)
+
+The direction past line ops and named refactors: the model (or a human) states an intent in a few tokens and a resolver produces the code. The resolver is mostly deterministic and store-driven, with a small local model filling only the holes that structure cannot decide. The same resolver is a completion source for Neovim, so it doubles as tab completion over the whole repo.
+
+The bet: most of a change is not the interesting part. Placement, imports, signatures, plumbing, registrations, tests, and formatting follow from the repo, and the store already knows the repo.
+
+**Resolution layers.** Each layer runs only if the one above could not decide.
+
+1. Deterministic from tools: placement after related symbols, import add and order (`goimports`, `ruff`, tsserver), format, stubs from a signature or interface (`impl`, `gopls` fill struct and switch), tags, exports and barrel files, `__all__`
+2. Heuristic from the store: naming that matches sibling symbols, the error-handling shape used by neighbours (return, wrap, log), the fixture pattern the package's tests use, which registration table a new route or command joins, where a config field is read and documented, the contract counterpart across the stack (route to client method to type)
+3. Small local model, fill-in-the-middle under a grammar constraint, for the one hole that remains (a body, a condition, a message). Prefix and suffix come from the resolved skeleton, so the model writes 5-30 tokens, not a function
+4. Escalate to a hosted model when the hole is larger than a body or the intent is ambiguous
+
+**Intent grammar.** A small typed schema, not prose, so a local model cannot emit a malformed intent and a human can type it in a picker:
+
+```
+add fn parseTTL(cfg Config) time.Duration in internal/lease near TTL default=30m
+add field Config.TTL time.Duration from=env:LEASE_TTL doc="lease lifetime"
+add route GET /leases/{id} -> handler getLease client=yes test=yes
+add test for parseTTL like=TestTTL
+like Foo: add Bar            # mirror an existing symbol's shape
+```
+
+`like` is the strongest primitive: mirror the structure of a named sibling (its imports, error style, test, registration) with names substituted. It reuses the similarity signals from the store in reverse.
+
+**What the resolver can take off the model, by kind of change.**
+
+- Add a function or method: placement, imports, doc line in repo style, test stub with the package's fixture pattern, callers if the intent names them
+- Add a field or option: struct field, constructor or options function, env or config read, default, validation, docs, the test table row
+- Add a route or command: handler stub, registration in the router or CLI table, generated client method and type on the frontend, contract node in the store, E2E test stub
+- Change a signature: every caller updated (LSP rename plus argument insertion), tests updated, wrappers regenerated
+- Add a type: constructor, `String`, JSON tags, mock or fake if an interface, exhaustive switch cases filled where a new enum member appears
+- Delete: dead-code check through the graph before removal, imports pruned, docs and registrations dropped
+- Cross-file consistency after any edit: the "what else must change" list from the graph (callers, tests, contract counterparts, docs), offered as a next-edit queue instead of predicted by a model
+
+**Extreme tab completion for humans.** In Neovim the same resolver drives a completion source: typing `func parseTTL(` offers the resolved skeleton with imports and a test, `:Wavez add …` accepts an intent line, and after any manual edit the next-edit queue lists what the graph says now needs attention. Where a ranking is needed among candidates, a 1.5B next-edit model (Sweep's open model or Continue's Instinct, both local) can order them. The location comes from the graph, not the model, which is the reverse of Copilot NES's location-then-generation split.
+
+**Where it stops.** Naming when no sibling sets the convention, whether a default is a rule or a magic number, error-handling shape when neighbours disagree, and anything with business meaning. Those become explicit slots in the intent (with repo-derived defaults) or a hole for the model. The resolver never guesses semantics silently. A wrong resolution must be visible in the diff and cheap to reject.
+
+**Token arithmetic.** An intent is 10-30 output tokens. A hole fill is 5-30. Everything else is generated at CPU speed and verified by gates. Against 50-200 lines emitted as text at 18 tok/s locally, that is the difference between seconds and minutes per change, and it composes: Modifiers cover named refactors, intents cover additions and plumbing, line ops cover the residue.
+
+**Prior art.** Zed's Zeta2 and Cursor's Tab feed diff history and LSP context to a model, Copilot NES splits location and generation, Aider's architect mode has a strong model describe and a weak one edit (30-50% cheaper reported), Serena inserts after symbols instead of round-tripping files, ast-grep and Comby rewrite with metavariables, Hazel and program sketching separate skeleton from holes, llama.cpp grammars and FIM tokens constrain what a small model may write. Nothing found combines a repo graph, deterministic resolvers, and grammar-constrained hole filling into one edit tool.
+
+**Demo before committing.** Take twenty real commits from calcipy and gh-repo-dashboard, express each as one or two intent lines, and measure how many lines the resolver reproduces without a model, how many need a hole, and how many are out of reach.
+
 ### Gates (v0.1)
 
 - Triggered by change events from the edit tool and from a file watcher, never by the model deciding to test
@@ -404,7 +449,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 |---|---|---|
 | v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, line-anchored edit tool, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
 | v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission |
-| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, deterministic compaction, fuzzy search and repo map from the store, similarity notes, cross-stack contract nodes, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
+| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, fuzzy search and repo map from the store, similarity notes, cross-stack contract nodes, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | v0.5 | A benchmark table against Claude Code on 20 tasks | Browser recordings, benchmark harness |
 
@@ -450,6 +495,7 @@ No:
 ## Open questions
 
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
+- Intent edits: how much of a real commit a deterministic resolver reproduces (the twenty-commit demo)
 - Hashline ops vs `str_replace` on qwen3:8b: malformed rate, output tokens, and wall time per edit (next demo)
 - Monorepo per-package test commands in v0.1 or later
 - How the scheduler surfaces a deep DAG without a graph widget (current answer: one row per thread, drill in)
