@@ -34,6 +34,34 @@ format pre-pass, not to the model.
 Lesson: measure the harness before blaming the model. Two of the three causes
 were ours, and they were worth 8.6x in wall time.
 
+## Model A/B, same edit task
+
+| Model | Decode | Native tool calls | Edit task |
+|---|---|---|---|
+| qwen3:8b, thinking on | 21.5 tok/s | yes | 119 s, did not compile |
+| qwen3:8b, thinking off | 21.5 tok/s | yes | 14 s, right placement |
+| qwen2.5-coder:7b | 30.9 tok/s | **no** | 10.5 s, no tool call at all |
+
+qwen2.5-coder is faster and coder-tuned and still unusable here: its GGUF chat
+template carries no tool support, so llama.cpp returns `tool_calls: null` and
+the model invents `<function name=... />` XML in the content instead. Confirmed
+against llama-server directly, so this is the template, not our client. It keeps
+the role DESIGN.md already gives it, filling holes for intent edits, where no
+tool call is needed.
+
+qwen3:8b with thinking off stays the local default. Nothing in the 16 GB class
+beats it for an agentic loop, and the tiers above it are ruled out by disk
+before RAM: Devstral Small 2 wants 32 GB, Muse Glimmer is ~20 GB at 4-bit, and
+the disk-streaming C engines (kimi-k3-in-c, colibri) need 167 GB to 1.7 TB and
+run at 0.05 to 0.1 tok/s, roughly 500x slower than what an agent loop needs.
+
+## ast-grep
+
+A bare Go pattern silently matches nothing: `fmt.Println($$$ARGS)` parses as a
+type conversion with an ERROR node, and the scan exits 0 having matched zero
+times, which is indistinguishable from a clean pass. Call patterns need the
+`context` plus `selector` form. The rule loader should reject the bare form.
+
 ## Open
 
 - The model asserted success on code that does not compile, and nothing
