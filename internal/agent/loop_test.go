@@ -259,14 +259,14 @@ func TestRun_MaxToolCallsBoundTrips(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithMaxToolCalls(1))
+	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithMaxToolCallsPerTurn(1))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if out.Stop != agent.StopMaxToolCalls {
-		t.Fatalf("Stop = %q, want max_tool_calls", out.Stop)
+	if out.Stop != agent.StopToolCallFlood {
+		t.Fatalf("Stop = %q, want tool_call_flood", out.Stop)
 	}
 	if out.ToolCalls != 1 {
 		t.Errorf("ToolCalls = %d, want 1: the bound trips before the second call runs", out.ToolCalls)

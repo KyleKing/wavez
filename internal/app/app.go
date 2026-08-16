@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/codeintel"
@@ -78,9 +79,13 @@ type App struct {
 
 // Options configures New.
 type Options struct {
-	Local, Hosted llm.Provider
-	Asker         tools.Asker
-	MaxTurns      int
+	Local, Hosted       llm.Provider
+	Asker               tools.Asker
+	MaxTurns            int
+	MaxToolCallsPerTurn int
+	MaxStagnantErrors   int
+	MaxWallClock        time.Duration
+	MaxHostedSpendUSD   float64
 }
 
 // Option configures an Options.
@@ -96,6 +101,30 @@ func WithProviders(local, hosted llm.Provider) Option {
 // WithMaxTurns bounds model turns for every thread this App builds.
 func WithMaxTurns(n int) Option {
 	return func(o *Options) { o.MaxTurns = n }
+}
+
+// WithMaxToolCallsPerTurn bounds tool calls within a single model turn for
+// every thread this App builds.
+func WithMaxToolCallsPerTurn(n int) Option {
+	return func(o *Options) { o.MaxToolCallsPerTurn = n }
+}
+
+// WithMaxWallClock bounds one run's total wall-clock time for every thread
+// this App builds.
+func WithMaxWallClock(d time.Duration) Option {
+	return func(o *Options) { o.MaxWallClock = d }
+}
+
+// WithMaxHostedSpendUSD bounds one run's accumulated hosted-tier spend for
+// every thread this App builds.
+func WithMaxHostedSpendUSD(v float64) Option {
+	return func(o *Options) { o.MaxHostedSpendUSD = v }
+}
+
+// WithMaxStagnantErrors bounds consecutive erroring tool-call results for
+// every thread this App builds.
+func WithMaxStagnantErrors(n int) Option {
+	return func(o *Options) { o.MaxStagnantErrors = n }
 }
 
 // WithAsker sets the Asker backing the question tool. A headless run and
@@ -170,6 +199,18 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	}
 	if options.MaxTurns > 0 {
 		loopOpts = append(loopOpts, agent.WithMaxTurns(options.MaxTurns))
+	}
+	if options.MaxToolCallsPerTurn > 0 {
+		loopOpts = append(loopOpts, agent.WithMaxToolCallsPerTurn(options.MaxToolCallsPerTurn))
+	}
+	if options.MaxWallClock > 0 {
+		loopOpts = append(loopOpts, agent.WithMaxWallClock(options.MaxWallClock))
+	}
+	if options.MaxHostedSpendUSD > 0 {
+		loopOpts = append(loopOpts, agent.WithMaxHostedSpendUSD(options.MaxHostedSpendUSD))
+	}
+	if options.MaxStagnantErrors > 0 {
+		loopOpts = append(loopOpts, agent.WithMaxStagnantErrors(options.MaxStagnantErrors))
 	}
 	loop := agent.New(local, hosted, registry, permGate, loopOpts...)
 

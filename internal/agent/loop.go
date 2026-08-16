@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
@@ -20,14 +22,51 @@ import (
 )
 
 const (
-	// DefaultMaxTurns is the default bound on model calls within one Run.
-	DefaultMaxTurns = 20
-	// DefaultMaxToolCalls is the default bound on tool executions within one Run.
-	DefaultMaxToolCalls = 50
+	// DefaultMaxTurns bounds model calls within one Run as a dead-man's
+	// switch: the deadline, cost ceiling, and stagnation bounds are meant to
+	// trip first, so this only catches a bug in one of those. Set well above
+	// any legitimate run.
+	DefaultMaxTurns = 200
+	// DefaultMaxToolCallsPerTurn bounds tool calls within a single model
+	// turn, not the whole run: a model flooding one turn with hundreds of
+	// calls is the one runaway pattern wall-clock cannot catch, since no
+	// decode happens between them.
+	DefaultMaxToolCallsPerTurn = 50
 	// DefaultMaxVerifyRounds is the default bound on verification rounds
 	// once the model reports it is done.
 	DefaultMaxVerifyRounds = 2
+	// DefaultMaxWallClock bounds one Run's total wall-clock time. 180s is
+	// dogfood.md's worst passing run (84s) plus roughly 2x headroom; it is a
+	// starting number to replace once the benchmark harness has a real
+	// distribution, not a tuned figure.
+	DefaultMaxWallClock = 180 * time.Second
+	// DefaultMaxHostedSpendUSD bounds accumulated hosted-tier spend for one
+	// Run. It matches qwen/qwen3-coder-30b-a3b-instruct's price in
+	// DefaultPricing at a few full escalated turns' worth of tokens.
+	DefaultMaxHostedSpendUSD = 0.10
+	// DefaultMaxStagnantErrors bounds consecutive tool-call results that
+	// return an error, regardless of whether their inputs matched: the
+	// near-miss loop (three different wrong str_replace anchors in a row)
+	// the exact-repeat detector cannot see.
+	DefaultMaxStagnantErrors = 3
+
+	million = 1_000_000.0
 )
+
+// ModelPricing prices one model's hosted usage in dollars per million tokens.
+type ModelPricing struct {
+	InputPerMillion  float64
+	OutputPerMillion float64
+}
+
+// DefaultPricing prices the hosted default DESIGN.md's model-routing
+// decision names (qwen/qwen3-coder-30b-a3b-instruct), per its published
+// OpenRouter rate. A model with no entry here prices at zero, so the cost
+// ceiling never trips for a model wavez has no real price for.
+var DefaultPricing = map[string]ModelPricing{
+	//nolint:mnd // published per-million-token price, not a magic number
+	"qwen/qwen3-coder-30b-a3b-instruct": {InputPerMillion: 0.07, OutputPerMillion: 0.28},
+}
 
 // Stop names why Run returned.
 type Stop string
@@ -36,15 +75,26 @@ type Stop string
 const (
 	// StopComplete means the model ended its turn with no pending tool call.
 	StopComplete Stop = "complete"
-	// StopMaxTurns means Run reached its configured turn bound.
+	// StopMaxTurns means Run reached its configured turn bound, a
+	// dead-man's switch that should only trip on a bug in another bound.
 	StopMaxTurns Stop = "max_turns"
-	// StopMaxToolCalls means Run reached its configured tool-call bound.
-	StopMaxToolCalls Stop = "max_tool_calls"
+	// StopToolCallFlood means a single model turn emitted more tool calls
+	// than the configured per-turn bound.
+	StopToolCallFlood Stop = "tool_call_flood"
 	// StopMalformedTool means a tool call's input was not valid JSON.
 	StopMalformedTool Stop = "malformed_tool_call"
 	// StopLoopDetected means a tool call repeated the immediately preceding
 	// call's name and input.
 	StopLoopDetected Stop = "loop_detected"
+	// StopStagnant means a configured number of consecutive tool-call
+	// results returned an error, regardless of whether their inputs matched.
+	StopStagnant Stop = "stagnant"
+	// StopDeadline means Run reached the absolute wall-clock deadline
+	// computed once at entry.
+	StopDeadline Stop = "deadline"
+	// StopCostCeiling means Run's accumulated hosted-tier spend crossed the
+	// configured dollar ceiling.
+	StopCostCeiling Stop = "cost_ceiling"
 	// StopCanceled means ctx was done before Run could reach another stop.
 	StopCanceled Stop = "canceled"
 	// StopFailed means the routed provider's stream failed for a reason
@@ -75,12 +125,21 @@ type Prefix struct {
 	Tools  []llm.ToolSpec
 }
 
-// Outcome reports how Run ended.
+// Outcome reports how Run ended, carrying the measured numbers a bound
+// report needs rather than just a turn count: elapsed wall time, tokens,
+// hosted spend, and, for a stagnation stop, which tool failed and how many
+// times in a row.
 type Outcome struct {
-	Stop       Stop
-	Checkpoint string
-	Turns      int
-	ToolCalls  int
+	Stop           Stop
+	Checkpoint     string
+	StagnantTool   string
+	Turns          int
+	ToolCalls      int
+	InputTokens    int
+	OutputTokens   int
+	Elapsed        time.Duration
+	HostedSpendUSD float64
+	StagnantCount  int
 }
 
 // Verifier gates a run once the model reports it is done, per DESIGN.md's
@@ -105,14 +164,19 @@ type Checkpointer interface {
 
 // Options bounds and configures a Loop.
 type Options struct {
-	Verifier        Verifier
-	Checkpointer    Checkpointer
-	LocalModel      string
-	HostedModel     string
-	RepoRoot        string
-	MaxTurns        int
-	MaxToolCalls    int
-	MaxVerifyRounds int
+	Verifier            Verifier
+	Checkpointer        Checkpointer
+	Clock               gate.Clock
+	Pricing             map[string]ModelPricing
+	LocalModel          string
+	HostedModel         string
+	RepoRoot            string
+	MaxTurns            int
+	MaxToolCallsPerTurn int
+	MaxVerifyRounds     int
+	MaxStagnantErrors   int
+	MaxWallClock        time.Duration
+	MaxHostedSpendUSD   float64
 }
 
 // Option configures a Loop.
@@ -121,8 +185,38 @@ type Option func(*Options)
 // WithMaxTurns overrides DefaultMaxTurns.
 func WithMaxTurns(n int) Option { return func(o *Options) { o.MaxTurns = n } }
 
-// WithMaxToolCalls overrides DefaultMaxToolCalls.
-func WithMaxToolCalls(n int) Option { return func(o *Options) { o.MaxToolCalls = n } }
+// WithMaxToolCallsPerTurn overrides DefaultMaxToolCallsPerTurn. It bounds
+// how many tool calls a single model turn may emit, not the whole run.
+func WithMaxToolCallsPerTurn(n int) Option { return func(o *Options) { o.MaxToolCallsPerTurn = n } }
+
+// WithMaxWallClock overrides DefaultMaxWallClock. Run computes an absolute
+// deadline once from this duration at entry and never re-derives it per
+// turn. Zero disables the bound.
+func WithMaxWallClock(d time.Duration) Option { return func(o *Options) { o.MaxWallClock = d } }
+
+// WithMaxHostedSpendUSD overrides DefaultMaxHostedSpendUSD, the dollar
+// ceiling on one run's accumulated hosted-tier spend. Local turns never
+// accrue cost, so this only bites once a turn escalates. Zero disables it.
+func WithMaxHostedSpendUSD(v float64) Option { return func(o *Options) { o.MaxHostedSpendUSD = v } }
+
+// WithMaxStagnantErrors overrides DefaultMaxStagnantErrors: the number of
+// consecutive tool-call results that must return an error, regardless of
+// whether their inputs matched the previous call, before Run stops. Any
+// successful tool call resets the count. Zero disables it. This trigger is
+// independent of the exact-repeat detection Run always runs.
+func WithMaxStagnantErrors(n int) Option { return func(o *Options) { o.MaxStagnantErrors = n } }
+
+// WithPricing replaces the per-model dollar-per-million-token table Run
+// prices hosted usage against, in full. Start from DefaultPricing to extend
+// it rather than lose the entry it carries.
+func WithPricing(pricing map[string]ModelPricing) Option {
+	return func(o *Options) { o.Pricing = pricing }
+}
+
+// WithClock overrides the Clock Run reads for its deadline and
+// Outcome.Elapsed. Tests inject a fake Clock to advance time without
+// sleeping; production leaves the default, gate.RealClock.
+func WithClock(c gate.Clock) Option { return func(o *Options) { o.Clock = c } }
 
 // WithLocalModel sets the model name sent in a request routed local.
 func WithLocalModel(name string) Option { return func(o *Options) { o.LocalModel = name } }
@@ -160,17 +254,24 @@ type Loop struct {
 	options Options
 }
 
-// New builds a Loop. Gate is consulted for any tool call whose Tool
+// New builds a Loop. PermGate is consulted for any tool call whose Tool
 // implements PermissionRequester and reports the call needs approval.
-func New(local, hosted llm.Provider, tools *tool.Registry, gate permission.Gate, opts ...Option) *Loop {
+func New(local, hosted llm.Provider, tools *tool.Registry, permGate permission.Gate, opts ...Option) *Loop {
 	options := Options{
-		MaxTurns: DefaultMaxTurns, MaxToolCalls: DefaultMaxToolCalls, MaxVerifyRounds: DefaultMaxVerifyRounds,
+		MaxTurns:            DefaultMaxTurns,
+		MaxToolCallsPerTurn: DefaultMaxToolCallsPerTurn,
+		MaxVerifyRounds:     DefaultMaxVerifyRounds,
+		MaxWallClock:        DefaultMaxWallClock,
+		MaxHostedSpendUSD:   DefaultMaxHostedSpendUSD,
+		MaxStagnantErrors:   DefaultMaxStagnantErrors,
+		Clock:               gate.RealClock{},
+		Pricing:             DefaultPricing,
 	}
 	for _, opt := range opts {
 		opt(&options)
 	}
 
-	return &Loop{local: local, hosted: hosted, tools: tools, gate: gate, options: options}
+	return &Loop{local: local, hosted: hosted, tools: tools, gate: permGate, options: options}
 }
 
 // Run appends prompt to th as a user turn, then drives model turns until the
@@ -204,7 +305,17 @@ func (l *Loop) Run(
 		return Outcome{}, fmt.Errorf("setting state: %w", err)
 	}
 
-	r := &run{loop: l, thread: th, system: system, tools: prefix.Tools, hint: hint, gk: newGateKeeper(l.gate)}
+	start := l.options.Clock.Now()
+
+	var deadline time.Time
+	if l.options.MaxWallClock > 0 {
+		deadline = start.Add(l.options.MaxWallClock)
+	}
+
+	r := &run{
+		loop: l, thread: th, system: system, tools: prefix.Tools, hint: hint, gk: newGateKeeper(l.gate),
+		startTime: start, deadline: deadline,
+	}
 	r.outcome.Checkpoint = checkpoint
 
 	return r.drive(ctx)
@@ -227,6 +338,19 @@ func (l *Loop) captureCheckpoint(ctx context.Context) (string, error) {
 	return checkpoint, nil
 }
 
+// priceTurn prices one turn's usage against the configured per-model table.
+// A model with no pricing entry contributes zero cost, so the cost ceiling
+// never trips on a model wavez has no real price for. CacheReadTokens is not
+// priced separately yet, pending real cache-rate data.
+func (l *Loop) priceTurn(model string, usage *llm.Usage) float64 {
+	p, ok := l.options.Pricing[model]
+	if !ok {
+		return 0
+	}
+
+	return float64(usage.InputTokens)/million*p.InputPerMillion + float64(usage.OutputTokens)/million*p.OutputPerMillion
+}
+
 // RestoreCheckpoint reverts RepoRoot to checkpoint, the operation id
 // Outcome.Checkpoint reports. Run never calls this itself; it is the entry
 // point a coordinator calls once it decides to act on a reported restore
@@ -245,17 +369,21 @@ func (l *Loop) RestoreCheckpoint(ctx context.Context, checkpoint string) error {
 
 // run holds the mutable state of one Loop.Run call.
 type run struct {
-	loop         *Loop
-	thread       *thread.Thread
-	gk           *gateKeeper
-	lastCall     *llm.ToolCall
-	system       string
-	tools        []llm.ToolSpec
-	changes      []tool.Change
-	outcome      Outcome
-	hint         router.Input
-	verifyRounds int
-	localFailed  bool
+	startTime         time.Time
+	deadline          time.Time
+	thread            *thread.Thread
+	gk                *gateKeeper
+	lastCall          *llm.ToolCall
+	loop              *Loop
+	system            string
+	changes           []tool.Change
+	tools             []llm.ToolSpec
+	hint              router.Input
+	outcome           Outcome
+	verifyRounds      int
+	turnToolCalls     int
+	consecutiveErrors int
+	localFailed       bool
 }
 
 func (r *run) drive(ctx context.Context) (Outcome, error) {
@@ -263,8 +391,17 @@ func (r *run) drive(ctx context.Context) (Outcome, error) {
 		if ctx.Err() != nil {
 			return r.stopCanceled(ctx)
 		}
+		if !r.deadline.IsZero() && !r.loop.options.Clock.Now().Before(r.deadline) {
+			reason := fmt.Sprintf("deadline reached: %s elapsed, %d file(s) changed",
+				r.elapsed().Round(time.Second), changedFileCount(r.changes))
+
+			return r.stopBound(ctx, StopDeadline, reason)
+		}
 		if r.outcome.Turns >= r.loop.options.MaxTurns {
-			return r.stopBound(ctx, StopMaxTurns, fmt.Sprintf("max turns reached: %d", r.loop.options.MaxTurns))
+			reason := fmt.Sprintf("max turns reached (dead-man's switch): %d, %s elapsed",
+				r.loop.options.MaxTurns, r.elapsed().Round(time.Second))
+
+			return r.stopBound(ctx, StopMaxTurns, reason)
 		}
 
 		done, out, err := r.turn(ctx)
@@ -277,12 +414,29 @@ func (r *run) drive(ctx context.Context) (Outcome, error) {
 	}
 }
 
+// elapsed reports wall time since Run began, read from the configured
+// Clock so it advances under a fake clock in tests without sleeping.
+func (r *run) elapsed() time.Duration {
+	return r.loop.options.Clock.Now().Sub(r.startTime)
+}
+
+// changedFileCount counts the distinct file paths across changes.
+func changedFileCount(changes []tool.Change) int {
+	seen := make(map[string]struct{}, len(changes))
+	for _, c := range changes {
+		seen[c.Path] = struct{}{}
+	}
+
+	return len(seen)
+}
+
 // turn runs one model call and, if it asked for tools, executes them. It
 // returns done=true once Run should stop, along with the Outcome and error to
 // return from drive in that case.
 func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	r.thread.BeginTurn()
 	r.outcome.Turns++
+	r.turnToolCalls = 0
 
 	route := router.Route(router.Input{
 		Override:        r.hint.Override,
@@ -319,6 +473,21 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	msg := llm.Message{Content: text, ToolCalls: calls}
 	if err := r.thread.AppendAssistant(ctx, msg, usage); err != nil {
 		return true, Outcome{}, fmt.Errorf("appending assistant turn: %w", err)
+	}
+
+	if usage != nil {
+		r.outcome.InputTokens += usage.InputTokens
+		r.outcome.OutputTokens += usage.OutputTokens
+		if route.Choice == router.ChoiceHosted {
+			r.outcome.HostedSpendUSD += r.loop.priceTurn(req.Model, usage)
+		}
+	}
+	if r.loop.options.MaxHostedSpendUSD > 0 && r.outcome.HostedSpendUSD >= r.loop.options.MaxHostedSpendUSD {
+		reason := fmt.Sprintf("hosted spend ceiling reached: $%.4f spent (ceiling $%.4f) after %d turn(s)",
+			r.outcome.HostedSpendUSD, r.loop.options.MaxHostedSpendUSD, r.outcome.Turns)
+		out, err := r.stopBound(ctx, StopCostCeiling, reason)
+
+		return true, out, err
 	}
 
 	if stopReason == llm.StopEndTurn {
@@ -366,6 +535,7 @@ func (r *run) finishOrVerify(ctx context.Context) (bool, Outcome, error) {
 }
 
 func (r *run) complete(ctx context.Context) (bool, Outcome, error) {
+	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopComplete
 	if err := r.thread.SetState(ctx, event.StateDone); err != nil {
 		return true, Outcome{}, fmt.Errorf("setting state: %w", err)
@@ -391,9 +561,10 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 	for i := range calls {
 		call := calls[i]
 
-		if r.outcome.ToolCalls >= r.loop.options.MaxToolCalls {
-			reason := fmt.Sprintf("max tool calls reached: %d", r.loop.options.MaxToolCalls)
-			out, err := r.stopBound(ctx, StopMaxToolCalls, reason)
+		if r.turnToolCalls >= r.loop.options.MaxToolCallsPerTurn {
+			reason := fmt.Sprintf("per-turn tool-call flood guard tripped: %d calls in one turn",
+				r.loop.options.MaxToolCallsPerTurn)
+			out, err := r.stopBound(ctx, StopToolCallFlood, reason)
 
 			return true, out, err
 		}
@@ -404,54 +575,99 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 			return true, out, err
 		}
 		if r.lastCall != nil && r.lastCall.Name == call.Name && bytes.Equal(r.lastCall.Input, call.Input) {
-			if r.localFailed {
-				out, err := r.stopBound(ctx, StopLoopDetected,
-					fmt.Sprintf("identical repeated tool call %q after escalating", call.Name))
-
-				return true, out, err
-			}
-
-			// A repeat is evidence the tier is stuck, not that the thread should
-			// die: the router already escalates after one local failure, and
-			// repeated malformed calls compound rather than self-correct. Hand
-			// the model back a critique and let the next turn run hosted.
-			r.localFailed = true
-			if err := r.appendToolResult(ctx, call, tool.Errorf(
-				"you already made this exact %s call and it did not move the task forward; "+
-					"read the previous result, then either change the arguments or stop", call.Name)); err != nil {
-				return true, Outcome{}, err
-			}
-			r.outcome.ToolCalls++
-
-			return false, Outcome{}, nil
+			return r.handleRepeatedCall(ctx, call)
 		}
 
-		if err := r.runTool(ctx, call); err != nil {
+		result, err := r.runTool(ctx, call)
+		if err != nil {
 			return true, Outcome{}, err
 		}
 		r.lastCall = &call
 		r.outcome.ToolCalls++
+		r.turnToolCalls++
+
+		if done, out, err := r.checkStagnation(ctx, call.Name, result.IsError); done {
+			return true, out, err
+		}
 	}
 
 	return false, Outcome{}, nil
 }
 
-func (r *run) runTool(ctx context.Context, call llm.ToolCall) error {
+// handleRepeatedCall is runTools' branch for a call that repeats the
+// immediately preceding call's name and input. A repeat is evidence the
+// tier is stuck, not that the thread should die: the router already
+// escalates after one local failure, and repeated malformed calls compound
+// rather than self-correct. The first repeat hands the model a critique and
+// lets the next turn run hosted; a repeat after escalating stops the run.
+// This also feeds the independent, generalized stagnation count, since the
+// critique is itself an error result.
+func (r *run) handleRepeatedCall(ctx context.Context, call llm.ToolCall) (bool, Outcome, error) {
+	if r.localFailed {
+		out, err := r.stopBound(ctx, StopLoopDetected,
+			fmt.Sprintf("identical repeated tool call %q after escalating", call.Name))
+
+		return true, out, err
+	}
+
+	r.localFailed = true
+	if err := r.appendToolResult(ctx, call, tool.Errorf(
+		"you already made this exact %s call and it did not move the task forward; "+
+			"read the previous result, then either change the arguments or stop", call.Name)); err != nil {
+		return true, Outcome{}, err
+	}
+	r.outcome.ToolCalls++
+	r.turnToolCalls++
+
+	if done, out, err := r.checkStagnation(ctx, call.Name, true); done {
+		return true, out, err
+	}
+
+	return false, Outcome{}, nil
+}
+
+// checkStagnation records one tool-call result toward the generalized
+// stagnation bound and, once MaxStagnantErrors consecutive results have
+// erred regardless of whether their inputs matched, stops the run. Any
+// non-error result resets the count. This is independent of the exact-repeat
+// detection in runTools, which keeps its own escalate-then-stop behavior.
+func (r *run) checkStagnation(ctx context.Context, toolName string, isError bool) (bool, Outcome, error) {
+	if !isError {
+		r.consecutiveErrors = 0
+
+		return false, Outcome{}, nil
+	}
+
+	r.consecutiveErrors++
+
+	if r.loop.options.MaxStagnantErrors <= 0 || r.consecutiveErrors < r.loop.options.MaxStagnantErrors {
+		return false, Outcome{}, nil
+	}
+
+	r.outcome.StagnantTool = toolName
+	r.outcome.StagnantCount = r.consecutiveErrors
+	reason := fmt.Sprintf("tool %q failed %d times in a row", toolName, r.consecutiveErrors)
+	out, err := r.stopBound(ctx, StopStagnant, reason)
+
+	return true, out, err
+}
+
+func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, error) {
 	t, err := r.loop.tools.Get(call.Name)
 	if err != nil {
 		unknown := tool.Errorf("unknown tool %q", call.Name)
 
-		return r.appendToolResult(ctx, call, unknown)
+		return unknown, r.appendToolResult(ctx, call, unknown)
 	}
 
 	allowed, err := r.gk.check(ctx, t, call.Input)
 	if err != nil {
-		return fmt.Errorf("checking permission for %q: %w", call.Name, err)
+		return tool.Result{}, fmt.Errorf("checking permission for %q: %w", call.Name, err)
 	}
 	if !allowed {
 		denied := tool.Errorf("permission denied for %q", call.Name)
 
-		return r.appendToolResult(ctx, call, denied)
+		return denied, r.appendToolResult(ctx, call, denied)
 	}
 
 	result, err := t.Run(ctx, call.Input)
@@ -460,7 +676,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) error {
 	}
 	r.changes = append(r.changes, result.Changes...)
 
-	return r.appendToolResult(ctx, call, result)
+	return result, r.appendToolResult(ctx, call, result)
 }
 
 func (r *run) appendToolResult(ctx context.Context, call llm.ToolCall, result tool.Result) error {
@@ -505,6 +721,7 @@ func (r *run) stream(
 }
 
 func (r *run) stopCanceled(ctx context.Context) (Outcome, error) {
+	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopCanceled
 	if err := r.thread.SetState(context.WithoutCancel(ctx), event.StateIdle); err != nil {
 		return r.outcome, fmt.Errorf("agent run canceled: %w (also failed logging cancellation: %w)", ctx.Err(), err)
@@ -514,6 +731,7 @@ func (r *run) stopCanceled(ctx context.Context) (Outcome, error) {
 }
 
 func (r *run) stopBound(ctx context.Context, stop Stop, reason string) (Outcome, error) {
+	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = stop
 	detail := map[string]any{"bound": string(stop)}
 	if r.outcome.Checkpoint != "" {
@@ -564,6 +782,7 @@ func gateText(ok bool) string {
 }
 
 func (r *run) stopFailed(ctx context.Context, cause error) (Outcome, error) {
+	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopFailed
 	reason := fmt.Sprintf("provider stream failed: %v", cause)
 	detail := map[string]any{}
