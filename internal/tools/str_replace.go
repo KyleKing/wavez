@@ -22,8 +22,10 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 			"than retyping it.",
 	},
 	"new_string": {
-		Type:        schemaTypeString,
-		Description: "Text to put in place of old_string. Must differ from old_string.",
+		Type: schemaTypeString,
+		Description: "Text that replaces old_string entirely. To insert lines before or " +
+			"after existing code, repeat that code inside new_string, or it is deleted. " +
+			"Must differ from old_string.",
 	},
 }, propPath, "old_string", "new_string")
 
@@ -49,8 +51,9 @@ func (*StrReplace) Name() string { return "str_replace" }
 // Description implements tool.Tool.
 func (*StrReplace) Description() string {
 	return "Replace one exact occurrence of old_string with new_string in an existing file. " +
-		"Fails if old_string matches zero or more than one location; the error names the line " +
-		"numbers so you can widen old_string to make it unique."
+		"new_string replaces old_string entirely, so an insertion must repeat the surrounding " +
+		"lines. Fails if old_string matches zero or more than one location; the error names the " +
+		"line numbers so you can widen old_string to make it unique."
 }
 
 // Schema implements tool.Tool.

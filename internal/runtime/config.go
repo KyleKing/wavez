@@ -14,6 +14,11 @@ const DefaultCacheReuse = 256
 // unless Config overrides it.
 const DefaultBinary = "llama-server"
 
+// thinkingOff disables a hybrid model's reasoning trace through the chat
+// template. Measured on qwen3:8b: replying "OK" costs 92 completion tokens
+// with it on and 3 with it off, and decode is the local bottleneck.
+const thinkingOff = `{"enable_thinking":false}`
+
 // Config configures one llama-server instance.
 type Config struct {
 	// GGUFPath is the model file llama-server loads with -m.

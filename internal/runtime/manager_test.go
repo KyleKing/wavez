@@ -58,6 +58,7 @@ func TestManager_Start_ReadyImmediately(t *testing.T) {
 		"--spec-type", "ngram-simple",
 		"--cache-reuse", "256",
 		"--jinja",
+		"--chat-template-kwargs", `{"enable_thinking":false}`,
 	}
 	if len(gotArgs) != len(wantArgs) {
 		t.Fatalf("process factory args = %v, want %v", gotArgs, wantArgs)

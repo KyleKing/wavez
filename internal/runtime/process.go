@@ -93,5 +93,6 @@ func buildArgs(cfg Config) []string {
 		"--spec-type", "ngram-simple",
 		"--cache-reuse", strconv.Itoa(cfg.cacheReuse()),
 		"--jinja",
+		"--chat-template-kwargs", thinkingOff,
 	}
 }
