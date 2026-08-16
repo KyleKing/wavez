@@ -19,9 +19,8 @@ stopped by this run), `qwen3:8b` (5.2GB, already pulled), `claude` CLI
   through `DetectNotes` and one caller (`cli.newRepo`), update the test
   table.
 
-Each spec embeds the full current file content, so every mode gets the
-same information. Baselines live in `copies/{t1,t2,t3}/`, minimal
-standalone Go modules.
+Each spec embeds the full current file content. Baselines live in
+`copies/{t1,t2,t3}/`, minimal standalone Go modules.
 
 ## Modes
 
@@ -36,11 +35,10 @@ standalone Go modules.
   measured). (3) `qwen3:8b` fills only the body given prefix/suffix. 2
   runs/task, both phases.
 
-Mode C targets the function-shaped core of each task, not the secondary
-test-file edits, since the intent grammar is fn-centric rather than
-struct-field- or test-table-centric. For T3, the hole-fill step assumes
-`SizeBytes` already exists (a prior intent in a real pipeline); the
-verifier patches it in before compiling.
+Mode C targets each task's function-shaped core, not the secondary
+test-file edits, since the intent grammar is fn-centric. For T3, the
+hole-fill step assumes `SizeBytes` already exists (a prior intent in a
+real pipeline); the verifier patches it in before compiling.
 
 FIM check: `POST /api/generate` with a `suffix` field against `qwen3:8b`
 returns `"does not support insert"`, confirming no native FIM support, so
@@ -104,18 +102,10 @@ input-token tax visible in `prompt_eval_count` above, worth maybe 20 to
 
 ```bash
 cd _ai_/demos/intent-edits/timing
-
-# Mode A (hosted), writes logs/hosted_<task>_<model>_run<n>.json
-./run_hosted.sh T1 1 claude-sonnet-5
-
-# Mode B (local-full), writes logs/local_full_<task>_run<n>.json
-python3 run_local_full.py T1 1
-
-# Mode C phase 1 (intent line), writes logs/intent_line_<task>_run<n>.json
-python3 run_intent_line.py T1 1
-# Mode C phase 2 (body fill), writes logs/body_fill_<task>_run<n>.json,
-# logs/results/body_fill_<task>_run<n>.go (assembled file)
-python3 run_body_fill.py T1 1
+./run_hosted.sh T1 1 claude-sonnet-5      # Mode A, logs/hosted_<task>_<model>_run<n>.json
+python3 run_local_full.py T1 1            # Mode B, logs/local_full_<task>_run<n>.json
+python3 run_intent_line.py T1 1           # Mode C phase 1, logs/intent_line_<task>_run<n>.json
+python3 run_body_fill.py T1 1             # Mode C phase 2, logs/body_fill_<task>_run<n>.json
 
 # Verification
 python3 verify.py T1 logs/results/hosted_T1_claude-sonnet-5_run1.txt run1  # modes A/B
