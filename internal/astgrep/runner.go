@@ -90,21 +90,28 @@ type Report struct {
 	Available   bool
 }
 
-// Scan runs every rule file in ruleFiles against repoRoot and aggregates
-// their findings. When ast-grep is not on PATH, Scan returns a Report with
+// Scan runs every rule file in ruleFiles against targets, or against
+// repoRoot when targets is empty, and aggregates their findings. Passing
+// the changed files as targets is what makes this cheap enough to gate on
+// every edit. When ast-grep is not on PATH, Scan returns a Report with
 // Available false and a non-nil error, since a check that cannot run must
 // never be reported as a pass.
-func (r *Runner) Scan(ctx context.Context, repoRoot string, ruleFiles []RuleFile) (Report, error) {
+func (r *Runner) Scan(ctx context.Context, repoRoot string, ruleFiles []RuleFile, targets ...string) (Report, error) {
 	avail := r.Resolve()
 	if !avail.Available {
 		return Report{Available: false, InstallHint: avail.InstallHint},
 			fmt.Errorf("%w: %s", ErrUnavailable, avail.InstallHint)
 	}
 
+	scanIn := targets
+	if len(scanIn) == 0 {
+		scanIn = []string{repoRoot}
+	}
+
 	var findings []Finding
 
 	for _, rf := range ruleFiles {
-		args := []string{"scan", "--rule", rf.Path, "--json=compact", repoRoot}
+		args := append([]string{"scan", "--rule", rf.Path, "--json=compact"}, scanIn...)
 
 		out, err := r.runCmd(ctx, avail.Binary, args, repoRoot)
 		if err != nil {

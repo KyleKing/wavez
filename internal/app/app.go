@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
+	"github.com/kyleking/wavez/internal/astgrep"
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/gate"
@@ -199,30 +200,13 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 			openaic.WithAPIKeyFunc(keyFn))
 	}
 
-	runner, adapter, verifier := buildGateRunner(root, store, gateLog, cfg, graph)
+	runner, adapter, verifier, err := buildGates(root, store, gateLog, cfg, graph)
+	if err != nil {
+		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
+		return nil, err
+	}
 
-	loopOpts := []agent.Option{
-		agent.WithLocalModel(cfg.LocalModel),
-		agent.WithHostedModel(cfg.HostedModel),
-		agent.WithVerifier(verifier),
-		agent.WithCheckpointer(vcs.NewJj(), root),
-	}
-	if options.MaxTurns > 0 {
-		loopOpts = append(loopOpts, agent.WithMaxTurns(options.MaxTurns))
-	}
-	if options.MaxToolCallsPerTurn > 0 {
-		loopOpts = append(loopOpts, agent.WithMaxToolCallsPerTurn(options.MaxToolCallsPerTurn))
-	}
-	if options.MaxWallClock > 0 {
-		loopOpts = append(loopOpts, agent.WithMaxWallClock(options.MaxWallClock))
-	}
-	if options.MaxHostedSpendUSD > 0 {
-		loopOpts = append(loopOpts, agent.WithMaxHostedSpendUSD(options.MaxHostedSpendUSD))
-	}
-	if options.MaxStagnantErrors > 0 {
-		loopOpts = append(loopOpts, agent.WithMaxStagnantErrors(options.MaxStagnantErrors))
-	}
-	loop := agent.New(local, hosted, registry, permGate, loopOpts...)
+	loop := agent.New(local, hosted, registry, permGate, loopOptions(root, cfg, options, verifier)...)
 
 	return &App{
 		Root:            root,
@@ -240,6 +224,39 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		SystemPrefix:    systemPrefix(prefix),
 		threadLogDir:    filepath.Join(stateDir, threadLogDirName),
 	}, nil
+}
+
+// loopOptions maps the Options a caller set to agent.Option values. A zero
+// bound means "leave the loop's own default", never "no bound".
+func loopOptions(root string, cfg config.Config, options Options, verifier agent.Verifier) []agent.Option {
+	out := []agent.Option{
+		agent.WithLocalModel(cfg.LocalModel),
+		agent.WithHostedModel(cfg.HostedModel),
+		agent.WithVerifier(verifier),
+		agent.WithCheckpointer(vcs.NewJj(), root),
+	}
+
+	if options.MaxTurns > 0 {
+		out = append(out, agent.WithMaxTurns(options.MaxTurns))
+	}
+
+	if options.MaxToolCallsPerTurn > 0 {
+		out = append(out, agent.WithMaxToolCallsPerTurn(options.MaxToolCallsPerTurn))
+	}
+
+	if options.MaxWallClock > 0 {
+		out = append(out, agent.WithMaxWallClock(options.MaxWallClock))
+	}
+
+	if options.MaxHostedSpendUSD > 0 {
+		out = append(out, agent.WithMaxHostedSpendUSD(options.MaxHostedSpendUSD))
+	}
+
+	if options.MaxStagnantErrors > 0 {
+		out = append(out, agent.WithMaxStagnantErrors(options.MaxStagnantErrors))
+	}
+
+	return out
 }
 
 func newSessionDir(stateDir string) (string, error) {
@@ -271,20 +288,71 @@ func buildRegistry(
 	)
 }
 
-func buildGateRunner(
+// conventionGates returns format plus convention when the project
+// configured rules, and format alone when it did not.
+func conventionGates(format *gate.FormatGate, convention *gate.ConventionGate) []gate.Gate {
+	if convention == nil {
+		return []gate.Gate{format}
+	}
+
+	return []gate.Gate{format, convention}
+}
+
+// loadConventionRules expands globs against the project root rather than
+// the daemon's working directory. A rule file that will not parse is a
+// configuration error, not a reason to run with convention checks silently
+// off.
+func loadConventionRules(root string, patterns []string) ([]astgrep.RuleFile, error) {
+	rules, err := astgrep.LoadRuleFiles(rootedGlobs(root, patterns))
+	if err != nil {
+		return nil, fmt.Errorf("loading ast-grep rules: %w", err)
+	}
+
+	return rules, nil
+}
+
+func rootedGlobs(root string, patterns []string) []string {
+	out := make([]string, len(patterns))
+	for i, p := range patterns {
+		if filepath.IsAbs(p) {
+			out[i] = p
+
+			continue
+		}
+
+		out[i] = filepath.Join(root, p)
+	}
+
+	return out
+}
+
+// buildGates loads the project's convention rules and assembles both gate
+// pipelines against them.
+func buildGates(
 	root string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config, graph *gate.ImportGraph,
-) (*gate.Runner, *gate.CoverageAdapter, *GateVerifier) {
-	gates := []gate.Gate{gate.NewFormatGate(root), gate.NewGoTestGate(root)}
+) (*gate.Runner, *gate.CoverageAdapter, *GateVerifier, error) {
+	rules, err := loadConventionRules(root, cfg.AstGrepRules)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// DESIGN.md's gate order: formatter, then convention rules, then the
+	// checks that cost real time. Verification adds a whole-module build in
+	// front of the test gate, since a compile failure makes every test
+	// result noise.
+	convention := gate.NewConventionGate(root, rules, nil)
+	gates := append(conventionGates(gate.NewFormatGate(root), convention), gate.NewGoTestGate(root))
 	runFunc := gate.BuildRunFunc(gate.RealClock{}, store, graph, gates, gateLog, root)
 	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce, runFunc)
 
 	manifestPath := filepath.Join(root, wavezDirName, coverageManifestFileName)
 	adapter := gate.NewCoverageAdapter(store, manifestPath, runtime.NumCPU())
 
-	verifyGates := []gate.Gate{gate.NewFormatGate(root), gate.NewBuildGate(root), gate.NewGoTestGate(root)}
+	verifyGates := append(conventionGates(gate.NewFormatGate(root), convention),
+		gate.NewBuildGate(root), gate.NewGoTestGate(root))
 	verifier := NewGateVerifier(root, store, graph, gateLog, gate.RealClock{}, verifyGates)
 
-	return runner, adapter, verifier
+	return runner, adapter, verifier, nil
 }
 
 // OpenThread opens or resumes a thread under this App's thread log
