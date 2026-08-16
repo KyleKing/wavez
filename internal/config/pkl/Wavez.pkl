@@ -1,0 +1,32 @@
+/// Wavez project config schema (DESIGN.md "Project instructions" and "Gates
+/// (v0.1)"). A project's `.wavez.pkl` amends this module. Wavez writes this
+/// file into the project's `.wavez/` directory on every load, so amend it as
+/// `".wavez/Wavez.pkl"`, not a copy checked into the project.
+module wavez.Wavez
+
+/// Files or headed sections (e.g. "AGENTS.md#architecture") that enter the
+/// agent's stable system prefix. Nothing outside this list is read
+/// automatically: Wavez does not auto-load AGENTS.md, CLAUDE.md, .agents/,
+/// or .claude/.
+context: Listing<String> = new Listing {}
+
+/// Local model name served by llama-server.
+localModel: String = "qwen3:8b"
+
+/// Hosted model name, escalated to per internal/router.
+hostedModel: String = "anthropic/claude-sonnet-4"
+
+/// Local model's served context window, in tokens.
+contextWindow: Int = 8000
+
+/// Extra directories, beyond the project root, the agent may read and write.
+extraDirs: Listing<String> = new Listing {}
+
+/// Gate debounce, in milliseconds, before a batch of changes runs.
+debounceMs: Int = 500
+
+/// Selective gate passes allowed before a full run is forced.
+fullRunCadence: Int = 20
+
+/// Glob patterns for ast-grep convention rule files.
+astGrepRules: Listing<String> = new Listing {}
