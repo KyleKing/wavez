@@ -208,6 +208,18 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - Read-once cache keyed by content hash. Unchanged files are not re-read into context
 - `-p "…"` runs one prompt headless and prints the result
 
+### Edits (v0.1)
+
+Decode speed is the local bottleneck (qwen3:8b at ~18 tok/s), so the edit format that emits the fewest output tokens wins on latency before any apply-model trick does.
+
+- One line-anchored edit tool. `read` returns lines tagged with a short content hash (`42#k3| …`), and `edit` takes ops addressed by hash: replace `a..b`, insert after `n`, delete `a..b`, several per call. The harness rejects an op whose hash is stale before writing anything, so the model never reproduces old text and never edits a moved line. This is the hashline idea from the opencode and pi plugin ecosystems, built in
+- Fallback: fuzzy search-and-replace (opencode and Aider style) only when the model emits text anchors, and whole-file write only for new files
+- Hosted models use their native format through the same tool surface: `apply_patch` (V4A) for GPT-family, `str_replace` for Claude-family
+- Modifiers are the first choice for anything with a name (rename, move, extract, stub, import). The edit tool carries the arbitrary-shape residue
+- Runtime, not tool: n-gram prompt-lookup speculation in llama.cpp (`ngram-*` strategies) for edit-shaped output where most tokens copy the prompt, ~2.4x published. Ollama's MTP path is model-specific and unverified for qwen3:8b
+- Not built: a hosted fast-apply model (Morph, Relace). Extra latency and a paid dependency, and the sketch-then-merge pattern is being dropped even by teams with GPU budget. No open-weight small apply model exists to run locally
+- Unmeasured: hashline ops vs `str_replace` on qwen3:8b malformed-edit rate. Aider's leaderboard has no 8B number and its small-model result (whole-file wins) is from 0.5-3B models. Demo before v0.1 locks the format
+
 ### Gates (v0.1)
 
 - Triggered by change events from the edit tool and from a file watcher, never by the model deciding to test
@@ -312,7 +324,7 @@ Minimal on purpose. The daily loop is send, open, review, jump. Nothing else unt
 ### Code search and similarity (v0.3)
 
 - Fuzzy symbol and file search from the code-relationship store (FTS5 over symbol names and paths, the same index `codegraph` builds), exposed as one tool to the model and one picker to Neovim and the palette
-- Semantic search is opt-in per project: a local embedding model over symbols and docs, vectors memory-mapped next to the store, the technique Codanna uses. Not built until fuzzy plus graph queries fall short
+- Semantic search is opt-in per project: a local embedding model over symbols and docs, vectors memory-mapped next to the store, the technique Codanna uses. Not built until fuzzy plus graph queries fall short. Until then [codanna.nvim](https://github.com/KyleKing/codanna.nvim) covers semantic search, symbols, callers, and impact from Neovim against Codanna's own index, and Wavez's `wavez.nvim` reuses its picker layer (Telescope, mini.pick, snacks) rather than adding one
 - Similarity ("squinting"): pylint and jscpd catch type-1 and type-2 clones. Wavez looks for the near misses using signals the store already has, and surfaces a "possibly similar to `pkg.Foo`" note at edit time only when two independent signals agree
   - normalized token fingerprint (identifiers and literals abstracted, winnowed or MinHashed, after MOSS and SourcererCC)
   - structural vector per function (node-type counts, depth, branch count, after Deckard)
@@ -320,6 +332,17 @@ Minimal on purpose. The daily loop is send, open, review, jump. Nothing else unt
   - control-flow shape as a nesting-depth sequence from tree-sitter
   - test-coverage overlap from the line-to-test table, corroborating only
 - The note is advisory to the model and a row in the thread, never an auto-refactor. `dupl` (Go) and jscpd stay available as exact-clone gates
+
+### Cross-stack graph (v0.3)
+
+The store has to cut across a polyglot monorepo, so a change to a Python or Go route selects the TypeScript code and tests that depend on it and back. Nothing off the shelf does this reliably: `codegraph` links across languages by name only (its issue #765), SCIP crosses only through generated code, Nx and Bazel stop at the package.
+
+- Contract nodes as first-class rows: HTTP route (method plus normalized path template), GraphQL operation and type, gRPC service and message, DB table and migration, env var, feature flag
+- `bridge` edges distinct from `calls` and `references`, each with a confidence tier: generated-client call (`operationId`, protobuf symbol, tRPC procedure) is exact, framework detector (FastAPI and Django decorators, Go `chi`/`gin`/`net/http` registration, Express and Hono routes) is high, normalized string match on a `fetch`/`axios`/`ky` call site is low
+- Path templates normalize to one param AST before matching, so `/users/{id}`, `/users/${id}`, and `/users/:id` are one route
+- Detectors ship in the order of the user's stack: FastAPI and Django, Go routers, TS `fetch` and generated OpenAPI clients (`openapi-typescript`, `orval`, `oapi-codegen`), then GraphQL and protobuf
+- Route-to-test edges from E2E: run Playwright with network logging (HAR) and record which routes each test hit, the same shape as line-to-test coverage. That is the only ground-truth crossing of the seam
+- Selection across the seam uses bridge edges above a confidence threshold, then falls back to package level. Whole-program cross-language type resolution (Kythe, Glean) is out of scope
 
 ### Table stakes (v0.1 unless noted)
 
@@ -369,6 +392,8 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of VCS, facing git-only vs jj-only vs both, we build the abstraction in v0.4 with git and jj backends and colocated repos as the norm, to get change IDs and op-log undo without losing GitHub tooling, accepting the extra backend
 - In the context of remote access, facing native app vs PWA vs SSH, we chose Tailscale plus a PWA plus push, to ship in days with no App Store or server, accepting that the laptop must stay awake
 - In the context of extensibility, facing plugins vs built-in tools, we ship no plugin system, to keep the tool surface auditable and small, accepting that new tools mean code changes
+- In the context of edits on a slow local decoder, facing search-and-replace, unified diff, whole-file, or hashed line ops, we build a line-anchored op tool with fuzzy fallback and native formats for hosted models, to keep output tokens near the address-plus-new-lines minimum and reject stale edits before writing, accepting that the format is unproven on an 8B model until the demo runs
+- In the context of a polyglot monorepo, facing name-matched cross-language edges vs contract nodes, we add contract nodes and confidence-tiered bridge edges with generated clients and E2E network logs as ground truth, to select tests across the frontend and backend seam, accepting that hand-written fetch calls stay low-confidence
 - In the context of project instructions, facing auto-loading `AGENTS.md` and `CLAUDE.md` vs explicit opt-in, we list context files and sections in `.wavez.pkl`, to keep token cost and prompt-injection surface fixed and to avoid re-stating what gates already do, accepting a one-time mapping step for repos with a mature `CLAUDE.md`
 - In the context of editor integration, facing ACP vs the daemon's own socket API, we ship a small `wavez.nvim` over the socket API first, to keep one API for every client, accepting an ACP adapter later if Neovim gains native support
 - In the context of compaction, facing client-side rewriting vs append-only trimming, we trim append-only and summarize residue with a local model, to keep prompt caches valid, accepting more tokens per turn than aggressive rewriting
@@ -377,9 +402,9 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 
 | Version | Done when | Ships |
 |---|---|---|
-| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, tools, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
+| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, line-anchored edit tool, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
 | v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission |
-| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, deterministic compaction, fuzzy search and repo map from the store, similarity notes, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
+| v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, deterministic compaction, fuzzy search and repo map from the store, similarity notes, cross-stack contract nodes, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | v0.5 | A benchmark table against Claude Code on 20 tasks | Browser recordings, benchmark harness |
 
@@ -425,6 +450,7 @@ No:
 ## Open questions
 
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
+- Hashline ops vs `str_replace` on qwen3:8b: malformed rate, output tokens, and wall time per edit (next demo)
 - Monorepo per-package test commands in v0.1 or later
 - How the scheduler surfaces a deep DAG without a graph widget (current answer: one row per thread, drill in)
 - Whether Ask-a-line threads persist across sessions as review comments do
