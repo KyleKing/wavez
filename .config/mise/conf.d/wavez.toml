@@ -1,0 +1,4 @@
+# Pins that override the template's "latest". An unpinned formatter drifts
+# between a laptop and a CI runner, and the check then fails only in CI.
+[tools]
+tombi = "1.4.0"

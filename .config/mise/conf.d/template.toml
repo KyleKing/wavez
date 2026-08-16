@@ -8,10 +8,7 @@ run = "go build -v -o wavez ./cmd/wavez"
 
 [tasks.ci]
 description = "Run all checks (used in GitHub Actions)"
-run = [
-  "go test -v -coverprofile=coverage.out ./...",
-  "go build -v -o wavez ./cmd/wavez"
-]
+run = ["go test -v -coverprofile=coverage.out ./...", "go build -v -o wavez ./cmd/wavez"]
 
 [tasks.clean]
 description = "Clean build artifacts"
