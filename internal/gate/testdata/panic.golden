@@ -1,0 +1,22 @@
+{"Time":"2026-08-16T10:53:38.590201-06:00","Action":"start","Package":"gtjpanic"}
+{"Time":"2026-08-16T10:53:38.851412-06:00","Action":"run","Package":"gtjpanic","Test":"TestPanics"}
+{"Time":"2026-08-16T10:53:38.851525-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"=== RUN   TestPanics\n"}
+{"Time":"2026-08-16T10:53:38.851564-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"--- FAIL: TestPanics (0.00s)\n"}
+{"Time":"2026-08-16T10:53:38.854486-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"panic: assignment to entry in nil map [recovered, repanicked]\n"}
+{"Time":"2026-08-16T10:53:38.854506-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"\n"}
+{"Time":"2026-08-16T10:53:38.854512-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"goroutine 4 [running]:\n"}
+{"Time":"2026-08-16T10:53:38.854541-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"testing.tRunner.func1.2({0x100b0ac40, 0x100b54c90})\n"}
+{"Time":"2026-08-16T10:53:38.854558-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"\t/Users/kyleking/.local/share/mise/installs/go/1.26.5/src/testing/testing.go:1974 +0x1a0\n"}
+{"Time":"2026-08-16T10:53:38.85459-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"testing.tRunner.func1()\n"}
+{"Time":"2026-08-16T10:53:38.8546-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"\t/Users/kyleking/.local/share/mise/installs/go/1.26.5/src/testing/testing.go:1977 +0x318\n"}
+{"Time":"2026-08-16T10:53:38.854605-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"panic({0x100b0ac40?, 0x100b54c90?})\n"}
+{"Time":"2026-08-16T10:53:38.854615-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"\t/Users/kyleking/.local/share/mise/installs/go/1.26.5/src/runtime/panic.go:860 +0x12c\n"}
+{"Time":"2026-08-16T10:53:38.854618-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"gtjpanic_test.TestPanics(0x78614a81c248?)\n"}
+{"Time":"2026-08-16T10:53:38.854622-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"\t/Users/kyleking/Developer/kyleking/wavez/internal/gate/testdata/fixture/gotestjson/panic/panic_test.go:7 +0x34\n"}
+{"Time":"2026-08-16T10:53:38.854626-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"testing.tRunner(0x78614a81c248, 0x100b33ef8)\n"}
+{"Time":"2026-08-16T10:53:38.854639-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"\t/Users/kyleking/.local/share/mise/installs/go/1.26.5/src/testing/testing.go:2036 +0xc4\n"}
+{"Time":"2026-08-16T10:53:38.854644-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"created by testing.(*T).Run in goroutine 1\n"}
+{"Time":"2026-08-16T10:53:38.854647-06:00","Action":"output","Package":"gtjpanic","Test":"TestPanics","Output":"\t/Users/kyleking/.local/share/mise/installs/go/1.26.5/src/testing/testing.go:2101 +0x3a8\n"}
+{"Time":"2026-08-16T10:53:38.85561-06:00","Action":"fail","Package":"gtjpanic","Test":"TestPanics","Elapsed":0}
+{"Time":"2026-08-16T10:53:38.85562-06:00","Action":"output","Package":"gtjpanic","Output":"FAIL\tgtjpanic\t0.265s\n"}
+{"Time":"2026-08-16T10:53:38.85563-06:00","Action":"fail","Package":"gtjpanic","Elapsed":0.265}

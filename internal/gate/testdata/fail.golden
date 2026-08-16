@@ -1,0 +1,9 @@
+{"Time":"2026-08-16T10:53:38.589815-06:00","Action":"start","Package":"gtjfail"}
+{"Time":"2026-08-16T10:53:39.084531-06:00","Action":"run","Package":"gtjfail","Test":"TestGreet"}
+{"Time":"2026-08-16T10:53:39.084696-06:00","Action":"output","Package":"gtjfail","Test":"TestGreet","Output":"=== RUN   TestGreet\n"}
+{"Time":"2026-08-16T10:53:39.084726-06:00","Action":"output","Package":"gtjfail","Test":"TestGreet","Output":"    greet_test.go:7: Greet(\"Ada\") = \"hi Ada\", want \"hello Ada\"\n"}
+{"Time":"2026-08-16T10:53:39.084752-06:00","Action":"output","Package":"gtjfail","Test":"TestGreet","Output":"--- FAIL: TestGreet (0.00s)\n"}
+{"Time":"2026-08-16T10:53:39.084758-06:00","Action":"fail","Package":"gtjfail","Test":"TestGreet","Elapsed":0}
+{"Time":"2026-08-16T10:53:39.084766-06:00","Action":"output","Package":"gtjfail","Output":"FAIL\n"}
+{"Time":"2026-08-16T10:53:39.085958-06:00","Action":"output","Package":"gtjfail","Output":"FAIL\tgtjfail\t0.496s\n"}
+{"Time":"2026-08-16T10:53:39.085992-06:00","Action":"fail","Package":"gtjfail","Elapsed":0.496}

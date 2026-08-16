@@ -1,0 +1,6 @@
+{"ImportPath":"gtjbuildfail [gtjbuildfail.test]","Action":"build-output","Output":"# gtjbuildfail [gtjbuildfail.test]\n"}
+{"ImportPath":"gtjbuildfail [gtjbuildfail.test]","Action":"build-output","Output":"./broken.go:4:9: invalid operation: 1 + \"x\" (mismatched types untyped int and untyped string)\n"}
+{"ImportPath":"gtjbuildfail [gtjbuildfail.test]","Action":"build-fail"}
+{"Time":"2026-08-16T10:53:38.511458-06:00","Action":"start","Package":"gtjbuildfail"}
+{"Time":"2026-08-16T10:53:38.511526-06:00","Action":"output","Package":"gtjbuildfail","Output":"FAIL\tgtjbuildfail [build failed]\n"}
+{"Time":"2026-08-16T10:53:38.511531-06:00","Action":"fail","Package":"gtjbuildfail","Elapsed":0,"FailedBuild":"gtjbuildfail [gtjbuildfail.test]"}
