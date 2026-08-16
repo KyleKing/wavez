@@ -12,9 +12,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # macOS because the product is macOS-only: the Seatbelt sandbox and the shell
+  # tool that runs inside it cannot execute anywhere else, and skipping them on
+  # Linux would leave the security boundary untested.
   ci:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

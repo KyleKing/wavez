@@ -2,9 +2,10 @@
 version: 2
 
 before:
+  # No test hook: the release builds a tag CI already tested, and goreleaser
+  # runs outside mise, so a test needing pkl or goimports fails here only.
   hooks:
     - go mod tidy
-    - go test ./...
 
 builds:
   - main: ./cmd/wavez
