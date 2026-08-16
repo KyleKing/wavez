@@ -9,6 +9,7 @@ import (
 	"github.com/kyleking/wavez/internal/guard"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/sandbox"
+	"github.com/kyleking/wavez/internal/stakes"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -81,12 +82,14 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	case guard.Refuse:
 		return tool.Errorf("refused: %s (%q)", verdict.Reason, verdict.Fragment), nil
 	case guard.NeedsApproval:
+		score := stakes.Compute(stakes.Input{ProjectRoot: s.root, Guard: &verdict.Verdict})
 		decision, err := s.gate.Ask(ctx, permission.Request{
 			ThreadID: s.threadID,
 			Tool:     s.Name(),
 			Action:   "run",
 			Detail:   in.Command,
 			Key:      approvalKey(in.Command),
+			Stakes:   &score,
 		})
 		if err != nil {
 			return tool.Errorf("requesting approval: %v", err), nil

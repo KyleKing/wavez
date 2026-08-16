@@ -9,6 +9,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/stakes"
 )
 
 // Protocol is the wire version. A client refuses a server that does not match.
@@ -107,14 +108,17 @@ type ThreadInfo struct {
 
 // PendingInfo is one row in the inbox: a permission prompt or a question.
 type PendingInfo struct {
-	Asked    time.Time `json:"asked"`
-	ID       string    `json:"id"`
-	ThreadID string    `json:"thread_id"`
-	Thread   string    `json:"thread"`
-	Dir      string    `json:"dir"`
-	Tool     string    `json:"tool,omitempty"`
-	Action   string    `json:"action"`
-	Detail   string    `json:"detail,omitempty"`
+	// Stakes is the deterministic evidence attached to the underlying
+	// permission.Request, if any. It never implies a decision.
+	Stakes   *stakes.Score `json:"stakes,omitempty"`
+	Asked    time.Time     `json:"asked"`
+	ID       string        `json:"id"`
+	ThreadID string        `json:"thread_id"`
+	Thread   string        `json:"thread"`
+	Dir      string        `json:"dir"`
+	Tool     string        `json:"tool,omitempty"`
+	Action   string        `json:"action"`
+	Detail   string        `json:"detail,omitempty"`
 	// Question is set when this is a question rather than a permission prompt,
 	// so the client shows a text field instead of yes/no/always.
 	Question bool `json:"question,omitempty"`
