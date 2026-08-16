@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
@@ -50,10 +52,40 @@ func newManager(logDir string, loop *agent.Loop, prefix agent.Prefix) *manager {
 }
 
 // createParams describes a new thread.
+const (
+	slugWords = 5
+	slugChars = 28
+)
+
 type createParams struct {
 	Model  string
 	Parent string
+	Prompt string
 	Dirs   []string
+}
+
+// slugName is the short handle every screen shows for a thread, derived from
+// the prompt because a thread id is not something a person can scan a list by.
+func slugName(prompt, fallback string) string {
+	fields := strings.FieldsFunc(strings.ToLower(prompt), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+
+	var parts []string
+
+	width := 0
+	for _, f := range fields {
+		if len(parts) == slugWords || width+len(f) > slugChars {
+			break
+		}
+		parts = append(parts, f)
+		width += len(f) + 1
+	}
+	if len(parts) == 0 {
+		return fallback
+	}
+
+	return strings.Join(parts, "-")
 }
 
 // create does not take a context: a thread outlives the request that
@@ -80,6 +112,7 @@ func (m *manager) create(p createParams) (*managedThread, error) {
 		dirs:    p.Dirs,
 		model:   p.Model,
 		parent:  p.Parent,
+		name:    slugName(p.Prompt, id),
 		created: time.Now(),
 		state:   event.StateIdle,
 	}

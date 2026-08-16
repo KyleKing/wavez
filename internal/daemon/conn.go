@@ -177,7 +177,7 @@ func (c *conn) handle(cmd api.Command) {
 }
 
 func (c *conn) handleNew(cmd api.Command) {
-	mt, err := c.srv.mgr.create(createParams{Dirs: cmd.Dirs, Model: cmd.Model, Parent: cmd.Parent})
+	mt, err := c.srv.mgr.create(createParams{Dirs: cmd.Dirs, Model: cmd.Model, Parent: cmd.Parent, Prompt: cmd.Prompt})
 	if err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
