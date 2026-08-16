@@ -1,0 +1,148 @@
+package thread_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/llm"
+	"github.com/kyleking/wavez/internal/thread"
+	"github.com/kyleking/wavez/internal/tool"
+)
+
+func open(t *testing.T, opts ...thread.Option) *thread.Thread {
+	t.Helper()
+	th, err := thread.Open(t.TempDir(), "t1", []string{"/repo"}, opts...)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := th.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+
+	return th
+}
+
+func TestOpenSetsIdentity(t *testing.T) {
+	t.Parallel()
+
+	th := open(t, thread.WithModel("qwen3:8b"), thread.WithParent("parent-1"))
+
+	if th.ID() != "t1" {
+		t.Errorf("ID = %q, want t1", th.ID())
+	}
+	if got := th.Dirs(); len(got) != 1 || got[0] != "/repo" {
+		t.Errorf("Dirs = %v, want [/repo]", got)
+	}
+	if th.Model() != "qwen3:8b" {
+		t.Errorf("Model = %q, want qwen3:8b", th.Model())
+	}
+	if th.Parent() != "parent-1" {
+		t.Errorf("Parent = %q, want parent-1", th.Parent())
+	}
+	if th.State() != event.StateIdle {
+		t.Errorf("State = %q, want idle", th.State())
+	}
+}
+
+func TestHistoryIsAppendOnlyAndCopied(t *testing.T) {
+	t.Parallel()
+
+	th := open(t)
+	ctx := context.Background()
+
+	if err := th.AppendUser(ctx, "hello"); err != nil {
+		t.Fatalf("AppendUser: %v", err)
+	}
+	th.BeginTurn()
+	if err := th.AppendAssistant(ctx, llm.Message{Content: "hi"}, nil); err != nil {
+		t.Fatalf("AppendAssistant: %v", err)
+	}
+	if err := th.AppendToolResult(ctx, "call-1", "read", tool.Result{Content: "file contents"}); err != nil {
+		t.Fatalf("AppendToolResult: %v", err)
+	}
+
+	got := th.History()
+	if len(got) != 3 {
+		t.Fatalf("History len = %d, want 3", len(got))
+	}
+
+	// Mutating the returned slice must not affect the thread's stored history.
+	got[0].Content = "tampered"
+	again := th.History()
+	if again[0].Content != "hello" {
+		t.Errorf("History()[0].Content = %q after external mutation, want unaffected %q", again[0].Content, "hello")
+	}
+
+	if got[0].Role != llm.RoleUser || got[1].Role != llm.RoleAssistant || got[2].Role != llm.RoleTool {
+		t.Errorf("roles = %v, want [user assistant tool]", []llm.Role{got[0].Role, got[1].Role, got[2].Role})
+	}
+	if got[2].ToolCallID != "call-1" {
+		t.Errorf("ToolCallID = %q, want call-1", got[2].ToolCallID)
+	}
+}
+
+func TestSetStateLogsEvent(t *testing.T) {
+	t.Parallel()
+
+	th := open(t)
+	ctx := context.Background()
+
+	if err := th.SetState(ctx, event.StateWorking); err != nil {
+		t.Fatalf("SetState: %v", err)
+	}
+	if th.State() != event.StateWorking {
+		t.Errorf("State = %q, want working", th.State())
+	}
+
+	events, err := th.Log().Since(0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	if len(events) != 1 || events[0].Kind != event.KindState || events[0].State != event.StateWorking {
+		t.Fatalf("events = %+v, want one KindState working event", events)
+	}
+}
+
+func TestAppendCanceledContextDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	th := open(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := th.AppendUser(ctx, "hello"); err == nil {
+		t.Fatal("AppendUser: want error on canceled ctx")
+	}
+	if len(th.History()) != 0 {
+		t.Errorf("History len = %d, want 0 after canceled append", len(th.History()))
+	}
+
+	events, err := th.Log().Since(0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("events len = %d, want 0 after canceled append", len(events))
+	}
+}
+
+func TestBeginTurnIncrements(t *testing.T) {
+	t.Parallel()
+
+	th := open(t)
+	if th.Turn() != 0 {
+		t.Fatalf("Turn = %d, want 0", th.Turn())
+	}
+	if got := th.BeginTurn(); got != 1 {
+		t.Errorf("BeginTurn = %d, want 1", got)
+	}
+	if got := th.BeginTurn(); got != 2 {
+		t.Errorf("BeginTurn = %d, want 2", got)
+	}
+	if th.Turn() != 2 {
+		t.Errorf("Turn = %d, want 2", th.Turn())
+	}
+}
