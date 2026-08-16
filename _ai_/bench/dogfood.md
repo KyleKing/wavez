@@ -62,6 +62,29 @@ type conversion with an ERROR node, and the scan exits 0 having matched zero
 times, which is indistinguishable from a clean pass. Call patterns need the
 `context` plus `selector` form. The rule loader should reject the bare form.
 
+## Harness fixes the runs paid for
+
+Each of these was found by watching a real run fail, not by review.
+
+- Thinking left on cost 30x the output tokens on short turns. 8.6x wall time
+- `str_replace` never said its replacement was total, so "insert before" deleted
+  the anchor line
+- A failed anchor echoed a near match as long as `old_string`, so a bad anchor
+  returned most of the file and paid for it twice
+- `read` rejected `start_line` without `end_line`, which is what the model sends,
+  wasting a turn every time
+- There was no base system prompt at all. The model got tool schemas and the
+  user's words, and nothing saying imports and formatting are automatic or that
+  gates decide when it is done
+
+## Where it stands
+
+The model lands the edit when its anchor matches and cannot reliably produce a
+verbatim anchor, which is DESIGN.md's measured 2/10 on this model. Every
+harness-side cause found so far is fixed, so what is left is the model. The
+design's own answers are the next things to test: escalate to hosted after one
+failed edit, and move named changes to Modifiers and intents.
+
 ## Open
 
 - The model asserted success on code that does not compile, and nothing
@@ -69,3 +92,7 @@ times, which is indistinguishable from a clean pass. Call patterns need the
 - Each `-p` run reuses one thread ID, so history accumulates across unrelated
   invocations
 - One streamed token is one event, so a sentence is 30 rows in the log
+- Tool inputs are not recorded in the event log, so a failed anchor cannot be
+  read back after the fact. That made every str_replace failure harder to
+  diagnose than it needed to be
+- Hosted escalation is still unexercised, so the router's main claim is unproven
