@@ -59,8 +59,11 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# wavez runtime state: index, thread logs, sandbox sessions
-/.wavez/
+# wavez runtime state. Wavez.pkl is deliberately tracked: `.wavez.pkl` amends
+# it, so anything that evaluates the config (pkl eval, hk, an editor) needs it
+# on disk. Wavez rewrites it from the binary on every load, so it self-heals.
+/.wavez/*
+!/.wavez/Wavez.pkl
 
 # goreleaser output
 /dist/
