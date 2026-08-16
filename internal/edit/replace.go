@@ -27,18 +27,30 @@ var (
 	ErrNoChange = errors.New("old_string and new_string are identical")
 )
 
+// maxCandidateLines bounds the near-match echoed back to the model. The
+// candidate is as long as old_string was, so an oversized anchor would
+// otherwise return most of the file and double the context it already cost.
+const maxCandidateLines = 12
+
 // NotFoundError reports that old_string matched nothing in source. Candidate
 // fields are populated when a whitespace-normalized near match exists, so a
 // model can compare its anchor against the source's actual indentation.
 type NotFoundError struct {
 	CandidateText string
 	CandidateLine int
+	// CandidateElided counts lines trimmed from the end of CandidateText.
+	CandidateElided int
 }
 
 // Error implements error.
 func (e *NotFoundError) Error() string {
 	if e.CandidateText == "" {
 		return ErrNotFound.Error()
+	}
+
+	if e.CandidateElided > 0 {
+		return fmt.Sprintf("%s; closest near match at line %d (%d more lines not shown):\n%s",
+			ErrNotFound, e.CandidateLine, e.CandidateElided, e.CandidateText)
 	}
 
 	return fmt.Sprintf("%s; closest near match at line %d:\n%s", ErrNotFound, e.CandidateLine, e.CandidateText)
@@ -300,8 +312,14 @@ func notFoundError(sourceLines, oldLines []string) error {
 		return &NotFoundError{}
 	}
 
+	shown, elided := n, 0
+	if shown > maxCandidateLines {
+		shown, elided = maxCandidateLines, n-maxCandidateLines
+	}
+
 	return &NotFoundError{
-		CandidateLine: bestIdx + 1,
-		CandidateText: strings.Join(sourceLines[bestIdx:bestIdx+n], "\n"),
+		CandidateLine:   bestIdx + 1,
+		CandidateText:   strings.Join(sourceLines[bestIdx:bestIdx+shown], "\n"),
+		CandidateElided: elided,
 	}
 }

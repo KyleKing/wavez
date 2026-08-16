@@ -3,6 +3,7 @@ package edit_test
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -298,4 +299,35 @@ func TestNotFoundError_Error(t *testing.T) {
 			t.Errorf("Error() = %q, want it to mention line 5 and foo", msg)
 		}
 	})
+}
+
+// A long old_string used to echo a candidate as long as itself, so a bad
+// anchor cost the model the file twice over.
+func TestReplace_NotFoundCandidateIsBounded(t *testing.T) {
+	t.Parallel()
+
+	var source, old strings.Builder
+	for i := range 200 {
+		fmt.Fprintf(&source, "line %d\n", i)
+		fmt.Fprintf(&old, "  line %d \n", i)
+	}
+
+	_, err := edit.Replace(source.String(), old.String(), "replacement\n")
+	if err == nil {
+		t.Fatal("expected a not-found error")
+	}
+
+	var nf *edit.NotFoundError
+	if !errors.As(err, &nf) {
+		t.Fatalf("got %T, want *edit.NotFoundError", err)
+	}
+	if got := strings.Count(nf.CandidateText, "\n") + 1; got > 12 {
+		t.Fatalf("candidate is %d lines, want at most 12", got)
+	}
+	if nf.CandidateElided == 0 {
+		t.Fatal("elided count not reported, so the model cannot tell it was truncated")
+	}
+	if !strings.Contains(err.Error(), "more lines not shown") {
+		t.Fatalf("error message hides the truncation: %s", err.Error())
+	}
 }
