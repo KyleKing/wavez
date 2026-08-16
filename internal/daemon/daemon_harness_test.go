@@ -16,6 +16,7 @@ import (
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
+	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/tool"
@@ -272,5 +273,32 @@ func TestServeRejectsAnOverlongSocketPath(t *testing.T) {
 
 	if err := srv.Serve(t.Context()); !errors.Is(err, daemon.ErrSockPathTooLong) {
 		t.Fatalf("Serve error = %v, want ErrSockPathTooLong", err)
+	}
+}
+
+// Home renders Step as words. It used to show the raw event kind ("state") and
+// would have flickered per streamed token.
+func TestStepTextIsWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+		ev   event.Event
+	}{
+		{name: "working state", ev: event.Event{Kind: event.KindState, State: event.StateWorking}, want: "working"},
+		{name: "needs input", ev: event.Event{Kind: event.KindState, State: event.StateNeedsIn}, want: "needs input"},
+		{name: "tool names itself", ev: event.Event{Kind: event.KindTool, Tool: "str_replace"}, want: "str_replace"},
+		{name: "permission", ev: event.Event{Kind: event.KindPermission}, want: "waiting for approval"},
+		{name: "agent text is not echoed", ev: event.Event{Kind: event.KindAgent, Text: "DAEMON"}, want: "responding"},
+		{name: "user turn leaves step alone", ev: event.Event{Kind: event.KindUser, Text: "hi"}, want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := daemon.StepTextForTest(tc.ev); got != tc.want {
+				t.Fatalf("stepText = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
