@@ -50,5 +50,6 @@ Innovation tokens go to Routines + Gates and Modifiers. Everything else copies p
 - Whether a stronger local coder than qwen3:8b exists that fits 16 GB, or whether multi-file edits always go hosted
 - How much of the session ledger needs a model-written handoff note versus structural facts alone
 - Whether hashed-line edit ops beat `str_replace` on an 8B local model (malformed rate, tokens, latency)
+- Intent edits: hole-fill correctness on an 8B model with retry against gates, or a FIM-tuned local model, before the resolver's 4x speed win over a hosted model counts
 - How to keep the per-test coverage map incremental across branches and rebases without a full 4-minute rebuild
 - Web search: which API, how to keep results current for the right software version, whether Dash docsets cover enough

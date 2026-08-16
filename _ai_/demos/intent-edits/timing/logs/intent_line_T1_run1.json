@@ -1,0 +1,17 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-08-16T13:23:41.071798Z",
+  "message": {
+    "role": "assistant",
+    "content": "add fn HostFromRemoteURL(url string) string in vcs near RemoteIdentity"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 1644162666,
+  "load_duration": 214257958,
+  "prompt_eval_count": 127,
+  "prompt_eval_duration": 551258000,
+  "eval_count": 17,
+  "eval_duration": 784539000,
+  "_wall_ms": 1678
+}

@@ -1,0 +1,4 @@
+{
+  "prefix": "package models\n\n// Next returns the next FilterMode in cyclic order.\nfunc (f FilterMode) Next() FilterMode {\n",
+  "suffix": "\n}\n"
+}

@@ -1,0 +1,19 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-08-16T13:24:32.327133Z",
+  "message": {
+    "role": "assistant",
+    "content": "if strings.Contains(remoteURL, \":\") {\n\t\turlParts := strings.SplitN(remoteURL, \":\", 2)\n\t\tif len(urlParts) > 0 {\n\t\t\turlParts[0] = strings.ToLower(urlParts[0])\n\t\t\tif strings.Contains(urlParts[0], \"/\") {\n\t\t\t\turlParts[0] = strings.Split(urlParts[0], \"/\")[0]\n\t\t\t}\n\t\t\treturn urlParts[0]\n\t\t}\n\t}\n\n\tif strings.Contains(remoteURL, \"@\") {\n\t\turlParts := strings.SplitN(remoteURL, \"@\", 2)\n\t\tif len(urlParts) > 0 {\n\t\t\turlParts[0] = strings.ToLower(urlParts[0])\n\t\t\tif strings.Contains(urlParts[0], \"/\") {\n\t\t\t\turlParts[0] = strings.Split(urlParts[0], \"/\")[0]\n\t\t\t}\n\t\t\treturn urlParts[0]\n\t\t}\n\t}\n\n\treturn \"\""
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 10795336167,
+  "load_duration": 182198584,
+  "prompt_eval_count": 141,
+  "prompt_eval_duration": 35895000,
+  "eval_count": 189,
+  "eval_duration": 10572716000,
+  "_wall_ms": 10826,
+  "_prefix": "package vcs\n\nimport (\n\t\"strings\"\n)\n\n// HostFromRemote extracts just the host portion of a git remote URL (the\n// same host RemoteIdentity embeds as the first segment of its returned\n// key), lowercased. A URL that names no resolvable host returns \"\".\nfunc HostFromRemote(remoteURL string) string {\n",
+  "_suffix": "\n}\n"
+}

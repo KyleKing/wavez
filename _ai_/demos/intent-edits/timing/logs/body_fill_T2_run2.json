@@ -1,0 +1,19 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-08-16T13:24:36.157369Z",
+  "message": {
+    "role": "assistant",
+    "content": "return FilterMode((f + 1) % len(FilterMode))"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 1281965333,
+  "load_duration": 174240875,
+  "prompt_eval_count": 97,
+  "prompt_eval_duration": 78815000,
+  "eval_count": 15,
+  "eval_duration": 1025258000,
+  "_wall_ms": 1312,
+  "_prefix": "package models\n\n// Next returns the next FilterMode in cyclic order.\nfunc (f FilterMode) Next() FilterMode {\n",
+  "_suffix": "\n}\n"
+}

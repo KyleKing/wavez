@@ -1,0 +1,19 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-08-16T13:24:21.442072Z",
+  "message": {
+    "role": "assistant",
+    "content": "if strings.Contains(remoteURL, \"://\") {\n\t\turlParts := strings.SplitN(remoteURL, \"://\", 2)\n\t\tif len(urlParts) < 2 {\n\t\t\treturn \"\"\n\t\t}\n\t\thostPart := urlParts[1]\n\t\tif strings.Contains(hostPart, \"/\") {\n\t\t\thostPart = strings.SplitN(hostPart, \"/\", 2)[0]\n\t\t}\n\t\treturn strings.ToLower(hostPart)\n\t}\n\treturn \"\""
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 5055559333,
+  "load_duration": 179803625,
+  "prompt_eval_count": 141,
+  "prompt_eval_duration": 712347000,
+  "eval_count": 92,
+  "eval_duration": 4150742000,
+  "_wall_ms": 5092,
+  "_prefix": "package vcs\n\nimport (\n\t\"strings\"\n)\n\n// HostFromRemote extracts just the host portion of a git remote URL (the\n// same host RemoteIdentity embeds as the first segment of its returned\n// key), lowercased. A URL that names no resolvable host returns \"\".\nfunc HostFromRemote(remoteURL string) string {\n",
+  "_suffix": "\n}\n"
+}

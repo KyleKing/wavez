@@ -1,0 +1,4 @@
+{
+  "prefix": "package models\n\n// SumNoteFileSizes returns the total SizeBytes across files.\nfunc SumNoteFileSizes(files []NoteFile) int64 {\n",
+  "suffix": "\n}\n"
+}

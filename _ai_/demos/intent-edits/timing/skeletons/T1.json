@@ -1,0 +1,4 @@
+{
+  "prefix": "package vcs\n\nimport (\n\t\"strings\"\n)\n\n// HostFromRemote extracts just the host portion of a git remote URL (the\n// same host RemoteIdentity embeds as the first segment of its returned\n// key), lowercased. A URL that names no resolvable host returns \"\".\nfunc HostFromRemote(remoteURL string) string {\n",
+  "suffix": "\n}\n"
+}
