@@ -1,0 +1,10 @@
+data: {"choices":[{"finish_reason":null,"delta":{"tool_calls":[{"function":{"name":"str_replace","arguments":""},"id":"call_1","index":0}]}}]}
+
+data: {"choices":[{"finish_reason":null,"delta":{"tool_calls":[{"function":{"arguments":"{\"path\":"},"index":0}]}}]}
+
+data: {"choices":[{"finish_reason":null,"delta":{"tool_calls":[{"function":{"arguments":"\"a.go\","},"index":0}]}}]}
+
+data: {"usage":{"prompt_tokens":50,"completion_tokens":20},"choices":[{"finish_reason":"tool_calls","delta":{"tool_calls":[{"function":{"arguments":"\"old\":\"x\",\"new\":\"y\"}"},"index":0}]}}]}
+
+data: [DONE]
+
