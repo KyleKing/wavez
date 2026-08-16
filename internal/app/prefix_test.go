@@ -1,0 +1,122 @@
+package app_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kyleking/wavez/internal/app"
+)
+
+const agentsMD = `# AGENTS
+
+Top-level instructions.
+
+## Architecture
+
+The store owns SQLite. Gates trigger on change events.
+
+## Testing
+
+Table-driven tests everywhere.
+`
+
+func TestBuildPrefix(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "AGENTS.md"), agentsMD)
+	writeFile(t, filepath.Join(root, "NOTES.md"), "just notes")
+
+	tests := []struct {
+		name    string
+		want    string
+		entries []string
+		wantErr bool
+	}{
+		{
+			name:    "whole file",
+			entries: []string{"NOTES.md"},
+			want:    "just notes",
+		},
+		{
+			name:    "headed section stops before the next heading",
+			entries: []string{"AGENTS.md#Architecture"},
+			want:    "The store owns SQLite. Gates trigger on change events.",
+		},
+		{
+			name:    "multiple entries join with a blank line",
+			entries: []string{"NOTES.md", "AGENTS.md#Testing"},
+			want:    "just notes\n\nTable-driven tests everywhere.",
+		},
+		{
+			name:    "missing heading errors",
+			entries: []string{"AGENTS.md#NoSuchHeading"},
+			wantErr: true,
+		},
+		{
+			name:    "missing file errors",
+			entries: []string{"MISSING.md"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := app.BuildPrefix(root, tt.entries)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("BuildPrefix() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if got != tt.want {
+				t.Errorf("BuildPrefix() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBuildPrefix_UnlistedFileNeverEntersPrefix is the anti-auto-load
+// property DESIGN.md's "Project instructions" section requires: an
+// AGENTS.md present on disk but absent from the context list must not
+// enter the prefix, even though the tool set could otherwise read it freely.
+func TestBuildPrefix_UnlistedFileNeverEntersPrefix(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "AGENTS.md"), agentsMD)
+	writeFile(t, filepath.Join(root, "CLAUDE.md"), "claude-only instructions")
+
+	got, err := app.BuildPrefix(root, nil)
+	if err != nil {
+		t.Fatalf("BuildPrefix() error = %v", err)
+	}
+	if got != "" {
+		t.Fatalf("BuildPrefix() = %q, want empty for an empty context list", got)
+	}
+
+	writeFile(t, filepath.Join(root, "OTHER.md"), "explicitly listed")
+
+	got, err = app.BuildPrefix(root, []string{"OTHER.md"})
+	if err != nil {
+		t.Fatalf("BuildPrefix() error = %v", err)
+	}
+	if got != "explicitly listed" {
+		t.Fatalf("BuildPrefix() = %q, want only the listed file's content", got)
+	}
+	if strings.Contains(got, "AGENTS") || strings.Contains(got, "CLAUDE") {
+		t.Fatalf("BuildPrefix() = %q, must not contain unlisted AGENTS.md or CLAUDE.md content", got)
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
