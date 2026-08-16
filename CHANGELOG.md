@@ -1,3 +1,24 @@
+## v0.3.0 (2026-08-16)
+
+### Feat
+
+- **app**: give every thread a base system prompt
+- **agent**: verify the final turn against gates instead of trusting done
+- **rules**: add the first ast-grep convention rule
+- **daemon**: serve the socket API with lag-aware fan-out and a pending-prompt registry
+- **cli**: headless -p entry point wired through the composition root
+- **app**: one composition root for the headless runner and the daemon
+- **config**: load .wavez.pkl with explicit context, never auto-loading agent files
+- **runtime**: manage llama-server as a child process with n-gram speculation
+- **astgrep**: convention-rule gate that reports unavailable rather than passing
+- **api**: define the unix-socket protocol every client speaks
+
+### Fix
+
+- **tools**: let read take start_line without end_line
+- **edit**: bound the near-match echoed back on a failed anchor
+- **tools**: say that new_string replaces old_string entirely
+
 ## v0.2.0 (2026-08-16)
 
 ### Feat
