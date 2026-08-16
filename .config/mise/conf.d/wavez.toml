@@ -1,4 +1,7 @@
 # Pins that override the template's "latest". An unpinned formatter drifts
 # between a laptop and a CI runner, and the check then fails only in CI.
 [tools]
+# The gate's Go format pre-pass shells out to goimports, so it has to be on
+# PATH wherever wavez runs, not just where a developer happens to have it.
+"go:golang.org/x/tools/cmd/goimports" = "0.42.0"
 tombi = "1.4.0"
