@@ -1,6 +1,6 @@
 # Wavez design
 
-High-level design: what each piece does, requirements per feature, decisions as y-statements, and phases. Not an implementation plan. Research and prior art live in `_ai_/`, especially [`_ai_/research/2026-08-design-proposal.md`](_ai_/research/2026-08-design-proposal.md) and [`_ai_/research/2026-08-synthesis.md`](_ai_/research/2026-08-synthesis.md), which this supersedes. [`_ai_/README.md`](_ai_/README.md) is the index.
+High-level design: what each piece does, requirements per feature, decisions as y-statements, and milestones. Not an implementation plan. Research and prior art live in `_ai_/`, especially [`_ai_/research/2026-08-design-proposal.md`](_ai_/research/2026-08-design-proposal.md) and [`_ai_/research/2026-08-synthesis.md`](_ai_/research/2026-08-synthesis.md), which this supersedes. [`_ai_/README.md`](_ai_/README.md) is the index.
 
 ## Problem
 
@@ -24,7 +24,7 @@ flowchart LR
     subgraph clients [Clients]
         TUI[TUI Bubble Tea v2]
         CLI[CLI -p prompt]
-        PWA[Mobile PWA v0.4]
+        PWA[Mobile PWA M4]
     end
     subgraph core [wavezd, one process per laptop]
         API[Local API unix socket]
@@ -65,7 +65,7 @@ flowchart LR
 
 | Component | Responsibility |
 |---|---|
-| Local API | JSON over a unix socket. Every client (TUI, `-p`, phone) uses the same events and commands, which is what makes v0.4 mobile a client and not a rewrite |
+| Local API | JSON over a unix socket. Every client (TUI, `-p`, phone) uses the same events and commands, which is what makes M4 mobile a client and not a rewrite |
 | Thread manager | One thread per work stream: its own history, compaction state, and directory set |
 | Scheduler and locks | Directory-subtree leases (from `_ai_/notes/agent-lock-coordination.md`), edit and execute phases, memory-aware admission so the local model and a test run do not fight for RAM |
 | Agent loop | Streaming tool-use loop, bounded retries, loop detection, permission gate |
@@ -111,7 +111,7 @@ State glyphs carry meaning without color and have ASCII fallbacks: `●` working
 
 Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then the enclosing VCS root, then cwd. Inside a repo, Home shows that repo's threads. Above several repos, Home shows a fleet grouped by directory. `w` widens or narrows the scope without restarting, and the palette can jump to any thread in the fleet from either scope. `wavez -p "…"` skips the TUI. `wavez` with one active thread in scope opens Home with it selected, never straight into it, so the list stays the anchor.
 
-### Home (v0.1 single repo, v0.2 fleet)
+### Home (M1 single repo, M2 fleet)
 
 ```
 ┌ wavez · ~/dev · 4 threads · ▲ 1 needs input · mem 9.8/16G ───────────┐
@@ -136,7 +136,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - Sort defaults to needs-input first, then most recent. `/` filters by name or directory
 - `n` opens a new-thread form: prompt, directory set (defaults to the scope), model override, parent thread (optional)
 
-### Thread view (v0.1)
+### Thread view (M1)
 
 ```
 ┌ calcipy · fix-lock-timeout · gemma4-12b 3.1k/32k · $0.00 · ▲1 ───────┐
@@ -163,7 +163,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - Diff pane shows the thread's change set. `d` jumps to it, `a` on a diff line opens Ask-a-line scoped to the anchor, hunk, and enclosing symbol
 - `/` searches the transcript, `n`/`N` step matches, hits highlight in reverse video. Below 100 columns the diff pane stacks under the transcript
 
-### Inbox (v0.1)
+### Inbox (M1)
 
 ```
 ┌ inbox · 2 waiting ──────────────────────────────────────────────────┐
@@ -175,7 +175,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - Every permission prompt and question across the fleet, oldest first. Answering here is the same as answering in the thread
 - Sits behind `i` from any screen and is the default landing view for the mobile client
 
-### Schedule (v0.2)
+### Schedule (M2)
 
 ```
 ┌ schedule · phase: edit · mem 9.8/16G · local model loaded ──────────┐
@@ -193,7 +193,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - The selected thread's active routine renders one line per branch. A DAG with more branches than rows drills in with `Enter` to a tree view (one node per line, `├──` guides)
 - Lease list behind `l`: subtree, holder, state (active, committed, expired)
 
-### Diagnostics (v0.1 strip, v0.2 panel)
+### Diagnostics (M1 strip, M2 panel)
 
 Wavez is a dashboard over agents, and a dashboard shows the machine, not just the transcript. A one-line strip is always in the header (model, context used, spend, memory headroom). `D` opens the full panel from any screen.
 
@@ -224,7 +224,7 @@ Vim-shaped, layered so the floor is discoverable and the ceiling is fast, in the
 - L3, palette verbs and counts (`3]` jumps three threads, `:kill flaky-ci`, `:scope ..`)
 - Footer hints drop lowest priority first as the terminal narrows, and every screen keeps `?` for the full map. Mouse works for click and scroll, never required. `Shift`-click leaves selection to the terminal
 
-### Routines and Recordings panels (v0.2)
+### Routines and Recordings panels (M2)
 
 - Routines: from `.wavez.pkl`, with triggers, last run, duration sparkline. `r` runs, `e` edits in `$EDITOR`, `h` history
 - Recordings: per thread. `p` replays and diffs, `t` promotes to a test, `x` discards
@@ -235,7 +235,7 @@ Vim-shaped, layered so the floor is discoverable and the ceiling is fast, in the
 
 ## Features
 
-### Chat loop (v0.1)
+### Chat loop (M1)
 
 - Streaming tool-use loop with typed tools: read, edit, shell, grep, symbol lookup, question, and modifiers
 - Bounded retries. A malformed tool call or an identical repeated call is a failure, not a retry
@@ -243,18 +243,18 @@ Vim-shaped, layered so the floor is discoverable and the ceiling is fast, in the
 - Read-once cache keyed by content hash. Unchanged files are not re-read into context
 - `-p "…"` runs one prompt headless and prints the result
 
-### Edits (v0.1)
+### Edits (M1)
 
 Decode speed is the local bottleneck (qwen3:8b at ~18 tok/s), so the edit path that emits the fewest output tokens wins on latency, and the model's training exposure decides which format it gets right.
 
-- v0.1 ships `str_replace` (old and new string, exact match with a fuzzy fallback on whitespace and indentation, uniqueness enforced) as the general edit tool for local and hosted models alike. Measured in a real tool loop on qwen3:8b (`_ai_/demos/edit-loop`, 5 tasks, 20 runs): `str_replace` succeeded 2/10 by strict spec reading, hashline 1/10, at a third of the tokens (190 vs 605) and wall time (12.5 s vs 37.7 s). Every hashline failure was the model failing the `N#hh` anchor syntax, so its hash rejection never had a stale edit to catch. It stays a candidate for a stronger local model, not the default
+- M1 ships `str_replace` (old and new string, exact match with a fuzzy fallback on whitespace and indentation, uniqueness enforced) as the general edit tool for local and hosted models alike. Measured in a real tool loop on qwen3:8b (`_ai_/demos/edit-loop`, 5 tasks, 20 runs): `str_replace` succeeded 2/10 by strict spec reading, hashline 1/10, at a third of the tokens (190 vs 605) and wall time (12.5 s vs 37.7 s). Every hashline failure was the model failing the `N#hh` anchor syntax, so its hash rejection never had a stale edit to catch. It stays a candidate for a stronger local model, not the default
 - Two `str_replace` failure modes shape the tool: hallucinated indentation in `old_string` after a read (the fuzzy fallback normalizes leading whitespace and offers the closest match), and non-unique matches when the task is itself about a repeated expression (the error returns line numbers of each match so the model can widen the anchor)
-- Both formats are weak on an 8B model (2/10 and 1/10), so v0.1 keeps local edits small, always re-verifies with a gate rather than trusting `done`, escalates to hosted after one failed edit, and pushes as much as possible to Modifiers and intent edits where the model emits a name or an intent instead of text
+- Both formats are weak on an 8B model (2/10 and 1/10), so M1 keeps local edits small, always re-verifies with a gate rather than trusting `done`, escalates to hosted after one failed edit, and pushes as much as possible to Modifiers and intent edits where the model emits a name or an intent instead of text
 - Hosted models use their native format through the same tool surface: `apply_patch` (V4A) for GPT-family, `str_replace` for Claude-family
 - Runtime, not tool: n-gram prompt-lookup speculation in llama.cpp for edit-shaped output where most tokens copy the prompt (measured in `_ai_/demos/local-runtime`)
 - Not built: a hosted fast-apply model (Morph, Replace). Extra latency and a paid dependency, and no open-weight small apply model exists to run locally
 
-### Intent edits (exploration, target v0.3 after Modifiers)
+### Intent edits (exploration, target M3 after Modifiers)
 
 The direction past line ops and named refactors: the model (or a human) states an intent in a few tokens and a resolver produces the code. The resolver is mostly deterministic and store-driven, with a small local model filling only the holes that structure cannot decide. The same resolver is a completion source for Neovim, so it doubles as tab completion over the whole repo.
 
@@ -301,7 +301,7 @@ like Foo: add Bar            # mirror an existing symbol's shape
 
 The bet holds on the numbers: the resolver removes most of the tokens and most of the time. What is left is choosing the model per hole and retrying against gates.
 
-### Structural rules (v0.1 gate, v0.2 routine, v0.3 mining)
+### Structural rules (M1 gate, M2 routine, M3 mining)
 
 Rules over syntax trees are the deterministic half of "code quality" and a second engine for editing. Two tools, two roles, both shelled out (neither has a Go binding).
 
@@ -316,15 +316,15 @@ Roles beyond linting:
 - Rule violation becomes a Modifier call: an autofix from `ast-grep` or `fix:` is applied through the Modifier path (reviewable, revertible), and only rule id, message, `file:line`, and the fix hunk reach the model
 - Conventions replace prose: a rule the agent must obey is written once as YAML and enforced, instead of stated in an instructions file the model may or may not follow
 - Matches land in the code-intelligence store as annotations keyed to symbol ids, so gates and the risk score ask "does this symbol touch a flagged pattern" without rescanning
-- Convention mining (v0.3, exploration): derive a rule from a corrected diff or from what sibling code does, propose it, the user accepts. No tool does this today
+- Convention mining (M3, exploration): derive a rule from a corrected diff or from what sibling code does, propose it, the user accepts. No tool does this today
 
-### Gates (v0.1)
+### Gates (M1)
 
 - Triggered by change events from the edit tool and from a file watcher, never by the model deciding to test
 - Changed-file detection stores its own last-known-good marker (SHA or op ID), not a session ID
 - Test selection reads the code-intelligence store (see that section): symbols, edges, coverage. Adapters feed it, gates query it, and every other consumer reads the same store
 - Coverage adapters (`codegraph` and tree-sitter feed symbols and edges, see Code intelligence): coverage.py `--cov-context=test` for Python line-to-test (+8% over plain coverage, works under xdist), a per-test `go test -run` coverprofile loop for Go. `vitest --changed` or `testpick` for JS later. Demos: `_ai_/demos/code-store-go`, `_ai_/demos/code-store-python`
-- Selection order: line-to-test where the map covers the changed lines, transitive importers of changed files otherwise, whole package as the last fallback. Measured on gh-repo-dashboard: line-level cuts a 522-test suite to 3-5 tests for a one-function change, importer-level returns 383 for a widely imported file, so the coverage map ships in v0.1
+- Selection order: line-to-test where the map covers the changed lines, transitive importers of changed files otherwise, whole package as the last fallback. Measured on gh-repo-dashboard: line-level cuts a 522-test suite to 3-5 tests for a one-function change, importer-level returns 383 for a widely imported file, so the coverage map ships in M1
 - The coverage map is built once per clone (249 s for 522 Go tests with 8 workers, 27x a plain run) and updated incrementally: only tests whose covered files changed by content hash re-run
 - Full run on a cadence: after N selective passes, after a time threshold, or when the map flags an untracked file
 - Debounce and coalesce edits into one run. Gates sharing a resource serialize, others run in parallel
@@ -332,7 +332,7 @@ Roles beyond linting:
 - Formatter, native linter autofix, and `ast-grep` convention rules run as pre-passes before the model sees the diff (see Structural rules). LSP diagnostics after the edit are a gate too
 - Config discovered from `package.json`, `Makefile`, `pyproject.toml`, `mise.toml`, with a one-time prompt to confirm
 
-### Routines (v0.2)
+### Routines (M2)
 
 - Defined in `.wavez.pkl` per project, amending a Wavez schema. Gates are shipped as built-in routines the user can override or disable there
 - `hk.pkl` can `import ".wavez.pkl"` so a git hook runs the same routine the agent does (verified in `_ai_/demos/pkl-routines`, needs `HK_PKL_BACKEND=pkl` until hk's `pklr` backend fixes list indexing across imports). Wavez does not depend on hk
@@ -342,7 +342,7 @@ Roles beyond linting:
 - Run history and trimmed outputs stored per routine. Failure output uses the same trimming as gates
 - Compiled DAG is a disposable artifact keyed by the pkl content hash. Drift means recompile, not patch
 
-### Modifiers (v0.3)
+### Modifiers (M3)
 
 - Tools the model calls with a symbol and a target: rename, move, extract, inline, add import, organize imports, stub from signature or interface, fill struct, add struct tag, structural rewrite by pattern
 - Backends: `gopls` CLI and LSP for Go, `ts-morph` and tsserver for TypeScript, `rope` and `ty` LSP for Python, `ast-grep` for cross-language pattern rewrites. One generic LSP client (`go.lsp.dev/protocol`) covers rename and code actions
@@ -351,7 +351,7 @@ Roles beyond linting:
 - `apply-fix` applies an `ast-grep` or Semgrep autofix as a modifier, and `rewrite` runs an `ast-grep` pattern with metavariables for structural changes LSP does not offer
 - Serena's symbol tools are the reference for the token argument
 
-### Threads and scheduling (v0.2)
+### Threads and scheduling (M2)
 
 - A thread is a directory set plus a history plus a compaction state. Threads across directories are the norm, worktrees optional
 - Event log per thread with a retention policy from day one: a ring buffer in memory and overflow to disk on both daemon and client. The spike (`_ai_/demos/daemon-tui`) held 105k events fine at 30 MB daemon RSS but showed the client's heap-driven CPU creep and the daemon's unbounded slice growth. Fan-out to subscribers blocks on backlog replay and sheds only on live streams, and per-connection channels are never closed by a producer
@@ -361,7 +361,7 @@ Roles beyond linting:
 - Threads can spawn sub-threads (one level) and fork from a transcript row, inheriting the compacted history up to that point
 - The schedule view shows one lane per thread with the active routine's DAG inline
 
-### Compaction (v0.3, minimal version in v0.1)
+### Compaction (M3, minimal version in M1)
 
 - Deterministic first: truncate stdout by rule (first and last lines, frames touching changed files), drop tool results older than N turns, downscale images, replace repeated file reads with a hash reference
 - Append-only. Earlier turns are never mutated, so the prompt-cache prefix survives. Trimming happens by writing shorter replacements forward. Measured: a mid-context edit costs 5-7x an append on the local runtime (`_ai_/demos/local-runtime`)
@@ -369,9 +369,9 @@ Roles beyond linting:
 - Session ledger: one line per thread end, structural facts extracted from logs, a model handoff note only where structure cannot capture it
 - Context manifest tags every item entering a prompt with source, id, and reason so "why did it write this" is a lookup, not a question
 
-### Model routing (v0.1)
+### Model routing (M1)
 
-- Local first. Measured on this laptop (`_ai_/demos/local-models`): qwen3:8b decodes at 18 tok/s, made 3/3 well-formed and correct tool calls, and leaves ~5 GB free. gemma4:12b decodes at 14 tok/s, hallucinated a tool name once, and thrashes to 2 tok/s under memory pressure. qwen3:8b is the v0.1 local model for edits, compaction, and line questions
+- Local first. Measured on this laptop (`_ai_/demos/local-models`): qwen3:8b decodes at 18 tok/s, made 3/3 well-formed and correct tool calls, and leaves ~5 GB free. gemma4:12b decodes at 14 tok/s, hallucinated a tool name once, and thrashes to 2 tok/s under memory pressure. qwen3:8b is the M1 local model for edits, compaction, and line questions
 - Runtime: `llama-server` (llama.cpp) through its OpenAI-compatible endpoint, with `--spec-type ngram-simple`, `--cache-reuse`, `--jinja`, and `json_schema` constrained output. Ollama stays for pulling and listing models only. Measured in `_ai_/demos/local-runtime` on the same GGUF: load and decode are identical (Ollama runs llama-server underneath), n-gram speculation gives 4.3x decode on a copy-heavy edit (85 vs 20 tok/s, 88% draft acceptance, no draft model, no extra memory), and Ollama exposes neither flag
 - Prefix cache reuse is real on both: appending a suffix to a cached 3k-token prefix costs ~0.2 s of prompt eval, editing the middle costs 5-7x more. That is the measured reason compaction appends and never mutates. Served context is a tuned number (8k in the spike), since raising it multiplies KV memory on 16 GB
 - Only one model fits at a time. Two servers on the same 6 GB model OOM'd Metal, which is the concrete case for the scheduler's memory-aware admission
@@ -380,7 +380,7 @@ Roles beyond linting:
 - Explicit override per turn. Cost and token counters per thread in the header
 - Anthropic caching through OpenRouter requires the native Anthropic wire format and a pinned provider. The harness keeps a stable prefix (system, tools, ledger) and appends after it
 
-### Local model management (v0.2)
+### Local model management (M2)
 
 Ollama already pulls and lists models, and `llama-server` already serves them, so this is a view and a set of deliberate actions over what is on disk rather than a package manager of its own.
 
@@ -390,21 +390,21 @@ Ollama already pulls and lists models, and `llama-server` already serves them, s
 - Runtime settings per model ship tuned for this laptop (served context, `--spec-type ngram-simple`, `--cache-reuse`, thread and batch counts from `_ai_/demos/local-runtime`). Each is editable, and each edit shows the shipped default beside it with one key to restore it
 - Total disk used by models sits in the diagnostics panel next to memory headroom, since both bound what the router may choose
 
-### Safety (v0.1)
+### Safety (M1)
 
 - macOS Seatbelt profile per project (`_ai_/demos/sandbox`, 9 probes pass on macOS 26): writes scoped to the project root and a session temp dir, reads of `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/Library/Keychains`, and `~/.claude` denied, `GOCACHE`, `GOMODCACHE`, and `GOTMPDIR` redirected into the session dir, `/dev/null` and `/dev/tty` allowed explicitly, every path realpath'd before it enters the profile (`/tmp` and `/var` are symlinks and `subpath` is a literal prefix match). Network is loopback-only in the profile, and a host allowlist lives in a local proxy on a loopback port because Seatbelt filters by IP and port, never hostname. `sandbox-exec` is deprecated but runs clean, and Claude Code and Codex depend on it too
 - Destructive-command guard in front of shell, modeled on `dcg`, deterministic and fail-closed
 - Permission prompt only for what escapes both. `y`, `n`, `a` for the thread
 - Model output never becomes a policy input. Approval comes from the deterministic checker or the user
 
-### VCS (v0.4)
+### VCS (M4)
 
 - One `Operations` interface with `git` and `jj` backends shelled out, factory by detection, copied from `../gh-repo-dashboard/internal/vcs`
 - Agent-facing primitives: changed files since marker, diff for a set of files, commit or new change with a message derived from the thread's task, undo through `jj op log` where available
 - Commit messages and PR bodies are produced by Wavez logic (like `ai-gh-pr.py`), not by the model composing a shell command
 - Merge-forward stacking and review state that survives force-pushes are candidates, not commitments
 
-### Mobile (v0.4)
+### Mobile (M4)
 
 The bar is Claude Code Mobile: open the phone, see what the agent needs, answer, and see the result. The gap is that Wavez runs on a laptop that has to be reachable and awake.
 
@@ -415,7 +415,7 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 - Limits to state up front: the Mac must stay awake (`caffeinate` while threads run), no offline mode, no terminal streaming (structured events only), and the phone cannot open the sandbox wider than the thread already had
 - Alternatives considered: native SwiftUI app (later, if push action buttons prove insufficient), SSH via Wish (rejected on the 2026 CVEs), a hosted relay (rejected, one user does not need infrastructure)
 
-### Recordings (v0.2 PTY, v0.5 browser)
+### Recordings (M2 PTY, M5 browser)
 
 - Every PTY session and browser step the agent drives is logged as an action, selector or command, and result
 - Replay runs the same steps and diffs the observed result. Steps carry confirm and falsify expectations from `_ai_/notes/code-in-the-loop-adrs.md` ADR 0006 rather than raw sleeps
@@ -423,7 +423,7 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 - One `browser.Session` interface (click, read accessibility tree, screenshot, record) with two backends. Default is `go-rod` on a fresh profile, so an injected page finds no ambient credentials and deny-by-default mutation and the egress allowlist live in Wavez's process. `browser-control` (extension plus local WebSocket relay on the real profile) is a per-thread opt-in for tasks that need a logged-in session, never the default. Kitesurf runs only inside Workers and is out
 - Vision calls only for visual judgments. Chrome 136+ refuses `--remote-debugging-port` on the default profile, so those two backends are the only routes
 
-### Neovim (v0.3)
+### Neovim (M3)
 
 Minimal on purpose. The daily loop is send, open, review, jump. Nothing else until those four are worn in.
 
@@ -434,7 +434,7 @@ Minimal on purpose. The daily loop is send, open, review, jump. Nothing else unt
 - Ask-a-line from a hunk in diff mode is the same call the TUI makes
 - Existing plugins (sidekick, codecompanion, avante, claudecode.nvim) mostly wrap a CLI in a terminal buffer, so the socket-backed shape is already the smaller design
 
-### Code intelligence (v0.1 core, v0.2 semantic, v0.3 cross-stack)
+### Code intelligence (M1 core, M2 semantic, M3 cross-stack)
 
 One store per project, several indexes, one query surface. Every subsystem that needs to know the code reads it: gates (test selection), Modifiers (symbol lookup), intent edits (siblings and conventions), similarity notes, context collection, the scheduler (contention by dependency), risk scoring, and the Neovim pickers.
 
@@ -443,21 +443,21 @@ One store per project, several indexes, one query surface. Every subsystem that 
 **Indexers, all incremental by content hash.**
 
 - Symbols and text: tree-sitter through the Go bindings, reparse only changed files, FTS rows per symbol and file
-- Graph edges: `codegraph` as an adapter in v0.1 (763 ms to index a 10k LOC Go repo, call and reference edges across 20 languages, rows copied into `edges`), because writing a resolver per language is the expensive part. Its cross-language linking is by name only (its issue #765), so bridge edges come from the cross-stack detectors, not from it. An own resolver on tree-sitter (import table plus local scope) replaces it per language only where its edges prove wrong. SCIP indexers are the escalation for compiler-grade resolution if ever needed
+- Graph edges: `codegraph` as an adapter in M1 (763 ms to index a 10k LOC Go repo, call and reference edges across 20 languages, rows copied into `edges`), because writing a resolver per language is the expensive part. Its cross-language linking is by name only (its issue #765), so bridge edges come from the cross-stack detectors, not from it. An own resolver on tree-sitter (import table plus local scope) replaces it per language only where its edges prove wrong. SCIP indexers are the escalation for compiler-grade resolution if ever needed
 - Coverage: the per-test loop and coverage.py contexts from the Gates section
-- Vectors (v0.2): `qwen3-embedding:0.6b` through Ollama (639 MB, fits beside the 8B generator), one chunk per tree-sitter symbol so signature, doc, and body stay together, re-embed only symbols whose hash changed. Brute force is fine into the tens of thousands of vectors, sqlite-vec after that
+- Vectors (M2): `qwen3-embedding:0.6b` through Ollama (639 MB, fits beside the 8B generator), one chunk per tree-sitter symbol so signature, doc, and body stay together, re-embed only symbols whose hash changed. Brute force is fine into the tens of thousands of vectors, sqlite-vec after that
 
 **Query surface.** One `search` tool with a `mode` (fuzzy, semantic, graph, hybrid) and one `context` call that returns a ranked bundle for the model's first turn: a repo map (PageRank over the symbol graph, Aider style, under 1k tokens by default), the touched symbols with their callers and callees one hop out, and the tests that cover them. A small model plans better against one tool with a mode than four tools it has to choose between, and it cannot afford five search turns to recover from a bad first retrieval.
 
 **Roles by index.** Fuzzy and graph are primary retrieval, since agentic grep-and-read plus graph traversal is competitive with embedding RAG in 2026 measurements and cheaper on a small context. Semantic search is for what lexical cannot do: "find code like this", near-miss duplicates, docs and comments, and natural-language questions from Neovim. A local cross-encoder reranker is deferred until hybrid results are measurably worse than they should be.
 
-**Similarity ("squinting", v0.2).** pylint and jscpd catch type-1 and type-2 clones. Wavez looks for near misses with signals the store already has and surfaces "possibly similar to `pkg.Foo`" only when two independent signals agree: normalized token fingerprint (identifiers and literals abstracted, winnowed or MinHashed, after MOSS and SourcererCC), structural vector per function (node-type counts, depth, branches, after Deckard), callee-set overlap from the call edges (catches zero-token-overlap duplicates), nesting-depth sequence, embedding neighbours, and coverage overlap as corroboration. Advisory to the model and a row in the thread, never an auto-refactor. `dupl` (Go) and jscpd stay as exact-clone gates.
+**Similarity ("squinting", M2).** pylint and jscpd catch type-1 and type-2 clones. Wavez looks for near misses with signals the store already has and surfaces "possibly similar to `pkg.Foo`" only when two independent signals agree: normalized token fingerprint (identifiers and literals abstracted, winnowed or MinHashed, after MOSS and SourcererCC), structural vector per function (node-type counts, depth, branches, after Deckard), callee-set overlap from the call edges (catches zero-token-overlap duplicates), nesting-depth sequence, embedding neighbours, and coverage overlap as corroboration. Advisory to the model and a row in the thread, never an auto-refactor. `dupl` (Go) and jscpd stay as exact-clone gates.
 
 **Neovim.** [codanna.nvim](https://github.com/KyleKing/codanna.nvim) already gives semantic search, symbols, callers, and impact pickers against Codanna's index. `wavez.nvim` reuses that picker layer (Telescope, mini.pick, snacks) pointed at the Wavez store, so one set of keymaps works whether the index is Codanna's or Wavez's. Codanna itself stays a reference and an alternative indexer, not a dependency.
 
 **Not chosen.** Zoekt (Go trigram search) unless regex and boolean queries over a large repo become the need, since FTS5 trigram covers a 10k-500k LOC repo. universal-ctags (GPL-2.0, symbols only). Standing language servers as the store (Serena's shape) because N servers are too heavy for an always-on daemon on 16 GB, though LSP stays the Modifiers' execution engine. Sliding-window chunking, since AST chunks keep a symbol whole. A vector database process of any kind.
 
-### Cross-stack graph (v0.3)
+### Cross-stack graph (M3)
 
 The store has to cut across a polyglot monorepo, so a change to a Python or Go route selects the TypeScript code and tests that depend on it and back. Nothing off the shelf does this reliably: `codegraph` links across languages by name only (its issue #765), SCIP crosses only through generated code, Nx and Bazel stop at the package.
 
@@ -468,18 +468,18 @@ The store has to cut across a polyglot monorepo, so a change to a Python or Go r
 - Route-to-test edges from E2E: run Playwright with network logging (HAR) and record which routes each test hit, the same shape as line-to-test coverage. That is the only ground-truth crossing of the seam
 - Selection across the seam uses bridge edges above a confidence threshold, then falls back to package level. Whole-program cross-language type resolution (Kythe, Glean) is out of scope
 
-### Table stakes (v0.1 unless noted)
+### Table stakes (M1 unless noted)
 
-Features nobody praises and everybody misses. Copied from Claude Code, Codex, OpenCode, Crush, and Aider, in the phase they are needed.
+Features nobody praises and everybody misses. Copied from Claude Code, Codex, OpenCode, Crush, and Aider, in the milestone they are needed.
 
 - Resume and continue a thread, `@file` and `@symbol` mentions, `-p` with JSON output
-- Checkpoint and undo of file changes per turn (own snapshots in v0.1, `jj op log` in v0.4)
+- Checkpoint and undo of file changes per turn (own snapshots in M1, `jj op log` in M4)
 - LSP diagnostics fed back after an edit as a gate, the way Crush wires LSP into its loop
 - Two hooks, pre-tool-use and post-tool-use, as external commands
 - Model switch and thinking toggle mid-thread, cost and token counters in the header
-- Image and screenshot input (v0.2), notifications on needs-input and done (v0.2)
-- Repo map from the store as cheap default context, after Aider (v0.2)
-- MCP client, connected per thread on demand from an allowlist in `.wavez.pkl`, never all up front (v0.3)
+- Image and screenshot input (M2), notifications on needs-input and done (M2)
+- Repo map from the store as cheap default context, after Aider (M2)
+- MCP client, connected per thread on demand from an allowlist in `.wavez.pkl`, never all up front (M3)
 - Plan mode is a thread whose tools are read-only, not a separate mode
 
 ### Project instructions
@@ -491,15 +491,15 @@ Wavez does not auto-load `AGENTS.md`, `CLAUDE.md`, `.agents/`, or `.claude/`. Mo
 - `--with AGENTS.md` on one thread covers the one-off case without changing the persisted config
 - Skills in `~/.claude/skills` are not inherited. The user maps what they want into `context` or routines
 
-### Web search (v0.3)
+### Web search (M3)
 
 - One search tool, one fetch tool. Results and pages pre-trimmed to text before the model sees them
 - Version pinning: queries carry the detected package version so results match the software in use
 - Dash docsets as a local first hop where they exist
 
-### Benchmark (harness v0.3, comparison v0.5)
+### Benchmark (harness M3, comparison M5)
 
-The thesis is "fewer tokens, faster, same or better code", so it needs a harness early enough to measure v0.3 against v0.1, and a comparison against Claude Code and OpenCode once the agent is whole. opencode-bench is the reference shape (a task set, per-agent adapters, a scoring rubric). Harbor and Terminal-Bench are the reference for sandboxed task execution and scoring.
+The thesis is "fewer tokens, faster, same or better code", so it needs a harness early enough to measure M3 against M1, and a comparison against Claude Code and OpenCode once the agent is whole. opencode-bench is the reference shape (a task set, per-agent adapters, a scoring rubric). Harbor and Terminal-Bench are the reference for sandboxed task execution and scoring.
 
 - Tasks come from real commits in the user's repos, replayed from the parent tree with the commit message as the prompt and the real diff plus the repo's own tests as the oracle, the same method as `_ai_/demos/intent-edits/corpus`. Twenty to thirty tasks stratified by size and kind (add, change, fix, refactor, cross-file). Public tasks (Terminal-Bench, SWE-bench-style) come later for external comparison
 - Metrics per run: pass rate against tests, output tokens, input tokens, cache hit share, wall time, hosted cost, turns, tool calls, malformed calls, gate failures, and the share of the final diff produced by resolvers and Modifiers versus model text. The last one is the number that proves or refutes the design
@@ -523,7 +523,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of a 16 GB M2 Pro, facing local-only vs hosted-only vs router, we run local first with escalation to OpenRouter after one failure or on task shape, to keep routine edits offline and cheap, accepting that multi-file work will mostly go hosted
 - In the context of coordination between threads, facing worktrees vs directories, we key locks and identity on directory subtrees, to match how agents actually write (6.8% of writes leave the cwd), accepting that isolation of dependencies is the project's job
 - In the context of safety, facing prompts-only vs sandbox, we run Seatbelt plus a deterministic destructive-command guard with prompts for the remainder, to make catastrophic actions unreachable rather than discouraged, accepting some setup per project
-- In the context of VCS, facing git-only vs jj-only vs both, we build the abstraction in v0.4 with git and jj backends and colocated repos as the norm, to get change IDs and op-log undo without losing GitHub tooling, accepting the extra backend
+- In the context of VCS, facing git-only vs jj-only vs both, we build the abstraction in M4 with git and jj backends and colocated repos as the norm, to get change IDs and op-log undo without losing GitHub tooling, accepting the extra backend
 - In the context of remote access, facing native app vs PWA vs SSH, we chose Tailscale plus a PWA plus push, to ship in days with no App Store or server, accepting that the laptop must stay awake
 - In the context of extensibility, facing plugins vs built-in tools, we ship no plugin system, to keep the tool surface auditable and small, accepting that new tools mean code changes
 - In the context of edits on a slow local decoder, facing search-and-replace, unified diff, whole-file, or hashed line ops, we ship `str_replace` with a fuzzy fallback and escalate after one failed edit, to use the format the model already knows and keep output tokens low, accepting weak local edit success until Modifiers and intent edits carry most changes (hashline measured worse on qwen3:8b)
@@ -534,27 +534,31 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of shipping a binary, facing pure-Go portability vs tree-sitter's cgo bindings, we build darwin-only with cgo enabled, to keep tree-sitter and take the Seatbelt sandbox that is macOS-only anyway, accepting that a Windows or Linux port needs a second sandbox and a pure-Go parser behind the same interfaces
 - In the context of compaction, facing client-side rewriting vs append-only trimming, we trim append-only and summarize residue with a local model, to keep prompt caches valid, accepting more tokens per turn than aggressive rewriting
 
-## Phases
+## Milestones
 
-| Version | Done when | Ships |
+Milestones, not version numbers: the released binary's version tracks whatever
+has shipped, and tying it to this table made the two disagree. Each milestone is
+done when its condition holds, and nothing here promises a release number.
+
+| Milestone | Done when | Ships |
 |---|---|---|
-| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
-| v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta, local model management |
-| v0.3 | The same task costs measurably fewer tokens than v0.1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
-| v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
-| v0.5 | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
+| M1 Loop | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
+| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta, local model management |
+| M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
+| M4 Away | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
+| M5 Proof | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
 
 ## Considered and deferred
 
-Grouped by rough priority. Each stays out until the phase that would use it, with the reason recorded so it is not re-argued.
+Grouped by rough priority. Each stays out until the milestone that would use it, with the reason recorded so it is not re-argued.
 
 Likely later:
 
-- Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-intelligence store exists (v0.3)
+- Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-intelligence store exists (M3)
 - Churn and bug-correlation per file or function. code-maat (Clojure CLI, CSV hotspots and coupling) and PyDriller (Python library for commit mining and SZZ pipelines) exist today, no maintained bare CLI for defect prediction does. Feeds the same risk score once the code-intelligence store exists
 - Merge-then-monitor: join merges against Sentry or health metrics after the fact to label outcomes. Separate tool, not a pre-merge gate
-- Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the v0.4 VCS layer
-- Ask-a-line threads persisted like review comments. Depends on diff anchors (v0.3)
+- Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the M4 VCS layer
+- Ask-a-line threads persisted like review comments. Depends on diff anchors (M3)
 
 Maybe:
 
@@ -587,7 +591,7 @@ No:
 
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
 - Intent edits: hole-fill correctness with retry-against-gates and hosted escalation, and whether `qwen2.5-coder` infill beats chat-style fill on qwen3:8b
-- Monorepo per-package test commands in v0.1 or later
+- Monorepo per-package test commands in M1 or later
 - How the scheduler surfaces a deep DAG without a graph widget (current answer: one row per thread, drill in)
 - Whether Ask-a-line threads persist across sessions as review comments do
 - Web search API and version-pinning strategy

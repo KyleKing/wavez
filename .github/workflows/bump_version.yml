@@ -1,9 +1,9 @@
 ---
 name: Bump Version
 
+# Manual only: a release per push made the version race ahead of the
+# milestones the docs describe. Cut one when a milestone actually lands.
 "on":
-  push:
-    branches: ['main']
   workflow_dispatch:
     inputs:
       prerelease:
@@ -15,8 +15,6 @@ name: Bump Version
 
 jobs:
   bump-version:
-    # Ignore the commits from this action
-    if: "!startsWith(github.event.head_commit.message, 'bump:')"
     runs-on: ubuntu-latest
     name: Bump version and make release with commitizen
     # Fix 403 error (https://github.com/softprops/action-gh-release/issues/400)
