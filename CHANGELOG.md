@@ -1,3 +1,15 @@
+## v0.7.0 (2026-08-16)
+
+### Feat
+
+- **agent**: bound a run by deadline, spend, and stagnation instead of turns
+- **stakes**: score a change deterministically as evidence for the user
+
+### Fix
+
+- **release**: ship both binaries in one archive so the cask installs a working pair
+- **config**: track the pkl schema so the project config can be evaluated
+
 ## v0.6.0 (2026-08-16)
 
 ### Feat
