@@ -58,6 +58,8 @@ func (*Read) Name() string { return "read" }
 // Description implements tool.Tool.
 func (*Read) Description() string {
 	return "Read a file, or a 1-indexed inclusive line range of one, from the project. " +
+		"Prefer search to locate code and read only the range it names; reading whole files " +
+		"to find something spends the context window on lines you will not use. " +
 		"Refuses paths outside the project root. Re-reading an unchanged file returns a short " +
 		"reference instead of the content, so do not re-read a file you have not edited."
 }

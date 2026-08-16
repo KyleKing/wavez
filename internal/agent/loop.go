@@ -491,6 +491,10 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	}
 
 	if stopReason == llm.StopEndTurn {
+		if len(calls) == 0 && looksLikeToolCallText(text, r.toolNames()) {
+			return r.handleToolCallAsText(ctx)
+		}
+
 		return r.finishOrVerify(ctx)
 	}
 
@@ -589,6 +593,45 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 		if done, out, err := r.checkStagnation(ctx, call.Name, result.IsError); done {
 			return true, out, err
 		}
+	}
+
+	return false, Outcome{}, nil
+}
+
+func (r *run) toolNames() []string {
+	out := make([]string, len(r.tools))
+	for i, t := range r.tools {
+		out[i] = t.Name
+	}
+
+	return out
+}
+
+// handleToolCallAsText is the branch for a turn that ended with no tool
+// calls while its text renders one as markup. Completing here would report
+// a run that changed nothing as a success, which is the worst outcome
+// available: the model believes it acted, the user believes it acted, and
+// the gates have nothing to check.
+//
+// It follows the same escalate-then-stop rule as a repeated call, since
+// both are evidence the tier cannot drive this tool surface: the first
+// occurrence hands the model a critique and lets the next turn run hosted,
+// and a second stops the run as StopMalformedTool. The critique never
+// quotes the markup back, because repeating the malformed form is what the
+// model would then imitate.
+func (r *run) handleToolCallAsText(ctx context.Context) (bool, Outcome, error) {
+	if r.localFailed {
+		out, err := r.stopBound(ctx, StopMalformedTool,
+			"the model wrote a tool call as text again after escalating")
+
+		return true, out, err
+	}
+
+	r.localFailed = true
+	if err := r.thread.AppendUser(ctx,
+		"That turn made no tool call. Text describing a call does nothing, whatever markup "+
+			"it uses. Make the call itself, and write no prose before it."); err != nil {
+		return true, Outcome{}, fmt.Errorf("appending tool-call-as-text critique: %w", err)
 	}
 
 	return false, Outcome{}, nil

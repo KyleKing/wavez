@@ -20,7 +20,8 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 		Type: schemaTypeString,
 		Description: "Exact text to replace. Must match exactly one location, or the call " +
 			"fails with the matching line numbers. Copy it verbatim from a prior read rather " +
-			"than retyping it.",
+			"than retyping it, and anchor on the shortest snippet that appears exactly once: " +
+			"a long anchor fails more often than a short one.",
 	},
 	"new_string": {
 		Type: schemaTypeString,

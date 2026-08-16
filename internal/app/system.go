@@ -7,6 +7,15 @@ import "strings"
 // window is small, and it states only what the harness does differently from
 // what a model assumes: gates decide when work is done, and the deterministic
 // layer owns imports and formatting.
+//
+// How to use a tool belongs in that tool's own schema description, never
+// here. Prose about tools in the system prompt measurably pushes a model
+// into writing calls as prose: against `qwen3-coder-30b-a3b-instruct`
+// through OpenRouter (August 2026, 15 samples per condition), a system
+// prompt whose bullets described str_replace and search yielded a native
+// tool call 0-4 times out of 15 while 3.5 KB of project documentation
+// yielded 15 of 15, and the same request with no system prompt yielded 15
+// of 15. What remains is caught by looksLikeToolCallText in internal/agent.
 const BaseSystem = `You are wavez, a coding agent working in one repository.
 
 How this harness works, which differs from what you may expect:
@@ -15,12 +24,7 @@ How this harness works, which differs from what you may expect:
   import block and never adjust indentation to make code look right.
 - Your work is checked by a build and by tests when you finish. Saying you are
   done does not end the task; passing those checks does. Do not claim success.
-- str_replace replaces old_string entirely. To insert code, repeat the
-  surrounding line inside new_string, or it is deleted.
-- Anchor str_replace on the shortest snippet that appears exactly once. A long
-  anchor fails more often than a short one.
-- Repeating a failed call unchanged ends the task. Change the anchor instead.
-- Use search to find code rather than reading whole files.
+- Repeating a failed call unchanged ends the task. Change the arguments instead.
 - Never silence a check to make it pass. Do not add a suppression comment, skip a
   test, or widen a timeout. Fix the cause, or report that you could not.`
 
