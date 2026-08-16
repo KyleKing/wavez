@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/stakes"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -30,12 +31,14 @@ const newFilePerm = 0o644
 // a file that already exists (str_replace edits those) and refuses a path
 // outside the project root.
 type Write struct {
-	root string
+	changes *stakes.ChangeSet
+	root    string
 }
 
-// NewWrite builds a Write tool scoped to root.
-func NewWrite(root string) *Write {
-	return &Write{root: root}
+// NewWrite builds a Write tool scoped to root. A nil changes records
+// nothing, so a caller that does not score its run omits it.
+func NewWrite(root string, changes *stakes.ChangeSet) *Write {
+	return &Write{root: root, changes: changes}
 }
 
 // Name implements tool.Tool.
@@ -80,6 +83,8 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	if err := os.WriteFile(abs, []byte(in.Content), newFilePerm); err != nil {
 		return tool.Errorf("writing %s: %v", in.Path, err), nil
 	}
+
+	w.changes.Record(stakes.Edit{Path: in.Path, After: in.Content})
 
 	lines := 0
 	if in.Content != "" {

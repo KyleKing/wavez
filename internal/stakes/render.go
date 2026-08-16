@@ -20,6 +20,7 @@ func (s Score) Render() string {
 	parts := []string{
 		strings.ToUpper(string(s.Band)),
 		"caps:" + renderCapabilities(s.Capabilities, s.CapsChecked),
+		"files:" + renderEditedFiles(s.EditedFiles, s.CapsChecked),
 		"guard:" + renderGuardVerdict(s.Guard),
 		"revert:" + renderReversibility(s.Reversibility),
 		"blast:" + renderBlastRadius(s.BlastKnown, s.BlastRadius),
@@ -53,6 +54,14 @@ func joinCapabilities(caps []Capability) string {
 	}
 
 	return strings.Join(strs, ",")
+}
+
+func renderEditedFiles(count int, checked bool) string {
+	if !checked {
+		return renderUnknown
+	}
+
+	return strconv.Itoa(count)
 }
 
 func renderGuardVerdict(v *guard.Verdict) string {

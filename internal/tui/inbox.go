@@ -151,10 +151,15 @@ func (m Model) renderInbox() string {
 			glyph(event.StateNeedsIn, m.ascii), truncate(r.Thread, inboxThreadColWidth), r.Tool,
 			truncate(r.Action, inboxActionColWidth), answers)
 
-		if i == m.cappedInboxCursor(len(rows)) {
-			body = append(body, m.th.accent.Render("> "+line))
-		} else {
+		if i != m.cappedInboxCursor(len(rows)) {
 			body = append(body, m.th.fgDefault.Render("  "+line))
+
+			continue
+		}
+
+		body = append(body, m.th.accent.Render("> "+line))
+		if s := stakesLine(r, "    ", m.width-boxPad, m.th); s != "" {
+			body = append(body, s)
 		}
 	}
 

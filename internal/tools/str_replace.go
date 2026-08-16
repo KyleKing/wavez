@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/kyleking/wavez/internal/edit"
+	"github.com/kyleking/wavez/internal/stakes"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -37,12 +38,14 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 // straight through, since a model corrects a bad anchor from that message
 // alone.
 type StrReplace struct {
-	root string
+	changes *stakes.ChangeSet
+	root    string
 }
 
-// NewStrReplace builds a StrReplace tool scoped to root.
-func NewStrReplace(root string) *StrReplace {
-	return &StrReplace{root: root}
+// NewStrReplace builds a StrReplace tool scoped to root. A nil changes
+// records nothing, so a caller that does not score its run omits it.
+func NewStrReplace(root string, changes *stakes.ChangeSet) *StrReplace {
+	return &StrReplace{root: root, changes: changes}
 }
 
 // Name implements tool.Tool.
@@ -87,6 +90,8 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	}
 
 	change.Path = in.Path
+
+	s.changes.Record(stakes.Edit{Path: in.Path, Before: in.OldString, After: in.NewString})
 
 	content := fmt.Sprintf("%s: +%d -%d lines", in.Path, change.Added, change.Removed)
 	if len(change.Ranges) > 0 {

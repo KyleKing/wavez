@@ -36,6 +36,7 @@ const (
 // nothing runs before both checks have cleared it.
 type Shell struct {
 	gate       permission.Gate
+	changes    *stakes.ChangeSet
 	root       string
 	sessionTmp string
 	threadID   string
@@ -43,9 +44,12 @@ type Shell struct {
 
 // NewShell builds a Shell tool scoped to root and sessionTmp, gating
 // approval-worthy commands through gate. The threadID identifies the
-// thread in permission.Request.
-func NewShell(root, sessionTmp, threadID string, gate permission.Gate) *Shell {
-	return &Shell{root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate}
+// thread in permission.Request. The changes set is what the run has edited
+// so far, scored into each prompt so approving a command blind costs the
+// user the whole run's evidence rather than the command's alone; a nil one
+// renders every edit-derived signal as unknown.
+func NewShell(root, sessionTmp, threadID string, gate permission.Gate, changes *stakes.ChangeSet) *Shell {
+	return &Shell{root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate, changes: changes}
 }
 
 // Name implements tool.Tool.
@@ -82,7 +86,11 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	case guard.Refuse:
 		return tool.Errorf("refused: %s (%q)", verdict.Reason, verdict.Fragment), nil
 	case guard.NeedsApproval:
-		score := stakes.Compute(stakes.Input{ProjectRoot: s.root, Guard: &verdict.Verdict})
+		score := stakes.Compute(stakes.Input{
+			ProjectRoot: s.root,
+			Guard:       &verdict.Verdict,
+			Edits:       s.changes.Edits(),
+		})
 		decision, err := s.gate.Ask(ctx, permission.Request{
 			ThreadID: s.threadID,
 			Tool:     s.Name(),

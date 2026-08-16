@@ -21,6 +21,7 @@ import (
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/openaic"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/stakes"
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
@@ -172,7 +173,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		return nil, fmt.Errorf("building system prefix: %w", err)
 	}
 
-	registry := buildRegistry(root, sandboxDir, store, permGate, options.Asker)
+	changes := stakes.NewChangeSet()
+	registry := buildRegistry(root, sandboxDir, store, permGate, options.Asker, changes)
 
 	local, hosted := options.Local, options.Hosted
 	if local == nil {
@@ -248,12 +250,13 @@ func newSessionDir(stateDir string) (string, error) {
 
 func buildRegistry(
 	root, sandboxDir string, store *codeintel.Store, permGate permission.Gate, asker tools.Asker,
+	changes *stakes.ChangeSet,
 ) *tool.Registry {
 	return tool.NewRegistry(
 		tools.NewRead(root),
-		tools.NewStrReplace(root),
-		tools.NewWrite(root),
-		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate),
+		tools.NewStrReplace(root, changes),
+		tools.NewWrite(root, changes),
+		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate, changes),
 		tools.NewSearch(store),
 		tools.NewQuestion(asker),
 	)

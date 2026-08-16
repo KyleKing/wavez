@@ -75,6 +75,7 @@ func (g PermissionGate) Ask(ctx context.Context, req permission.Request) (permis
 		Tool:   req.Tool,
 		Action: req.Action,
 		Detail: req.Detail,
+		Stakes: req.Stakes,
 	})
 	if err != nil {
 		g.b.denied.Add(1)

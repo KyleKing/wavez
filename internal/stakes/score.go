@@ -66,8 +66,12 @@ type Score struct {
 	Reversibility Reversibility  `json:"reversibility"`
 	Capabilities  []Capability   `json:"capabilities,omitempty"`
 	BlastRadius   int            `json:"blast_radius,omitempty"`
-	CapsChecked   bool           `json:"caps_checked"`
-	BlastKnown    bool           `json:"blast_known"`
+	// EditedFiles is how many distinct files the scored change set touches,
+	// which is the scope Capabilities was computed over: "no new capability"
+	// reads very differently across one file than across forty.
+	EditedFiles int  `json:"edited_files,omitempty"`
+	CapsChecked bool `json:"caps_checked"`
+	BlastKnown  bool `json:"blast_known"`
 }
 
 // Compute scores in from its inputs alone: same Input, same Score, every
@@ -79,6 +83,7 @@ func Compute(in Input) Score {
 	score := Score{
 		Capabilities:  caps,
 		CapsChecked:   checked,
+		EditedFiles:   distinctPaths(in.Edits),
 		Reversibility: reversibilityOf(in.ProjectRoot, in.Paths),
 		Guard:         in.Guard,
 		// BlastRadius is a declared seam: internal/codeintel's edges table
@@ -90,6 +95,15 @@ func Compute(in Input) Score {
 	score.Band = bandFor(score)
 
 	return score
+}
+
+func distinctPaths(edits []Edit) int {
+	seen := make(map[string]struct{}, len(edits))
+	for _, e := range edits {
+		seen[e.Path] = struct{}{}
+	}
+
+	return len(seen)
 }
 
 func bandFor(s Score) Band {
