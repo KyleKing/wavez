@@ -13,8 +13,10 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/app"
@@ -41,6 +43,7 @@ type options struct {
 	dir      string
 	model    string
 	with     string
+	resume   string
 	allowAll bool
 	maxTurns int
 }
@@ -64,6 +67,7 @@ func run(args []string) error {
 	fs.StringVar(&opt.dir, "dir", "", "project root (defaults to the enclosing repo, then cwd)")
 	fs.StringVar(&opt.model, "model", "", "force a tier for every turn: local or hosted")
 	fs.StringVar(&opt.with, "with", "", "add one file to the stable prefix for this run only")
+	fs.StringVar(&opt.resume, "resume", "", "continue an existing thread by id instead of starting a new one")
 	fs.BoolVar(&opt.allowAll, "allow-all", false, "approve every permission prompt without asking")
 	fs.IntVar(&opt.maxTurns, "max-turns", 0, "cap model turns (0 uses the loop default)")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
@@ -109,10 +113,11 @@ func headless(ctx context.Context, opt options) error {
 		}
 	}()
 
-	th, err := a.OpenThread(app.DefaultThreadID, append([]string{root}, cfg.ExtraDirs...))
+	th, err := a.OpenThread(threadID(opt.resume), append([]string{root}, cfg.ExtraDirs...))
 	if err != nil {
 		return fmt.Errorf("opening thread: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "thread %s\n", th.ID())
 
 	hint, err := routerHint(opt.model)
 	if err != nil {
@@ -137,6 +142,17 @@ func headless(ctx context.Context, opt options) error {
 	}
 
 	return nil
+}
+
+// threadID starts a fresh thread unless the caller resumes one by name. A
+// shared id would carry an unrelated run's history into this one's prefix,
+// which costs tokens on every turn and contaminates the answer.
+func threadID(resume string) thread.ID {
+	if resume != "" {
+		return thread.ID(resume)
+	}
+
+	return thread.ID("p-" + strconv.FormatInt(time.Now().UnixNano(), 36))
 }
 
 func prefix(a *app.App) agent.Prefix {
@@ -274,6 +290,7 @@ Flags:
   -dir <path>     project root (defaults to the enclosing repo, then cwd)
   -model <tier>   force local or hosted for every turn
   -with <file>    add one file to the stable prefix for this run only
+  -resume <id>    continue an existing thread instead of starting a new one
   -allow-all      approve every permission prompt without asking
   -max-turns <n>  cap model turns
   -v              print version information
