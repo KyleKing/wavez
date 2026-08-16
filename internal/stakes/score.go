@@ -46,12 +46,20 @@ type Edit struct {
 	After  string
 }
 
+// BlastCounter reports how many units transitively depend on the units
+// declaring paths. It returns false when the count could not be computed,
+// which Compute records as unknown rather than as zero.
+type BlastCounter interface {
+	BlastRadius(paths []string) (int, bool)
+}
+
 // Input is what Compute needs to score one pending action. Every field is
 // optional; a caller that cannot supply one degrades the corresponding
 // signal to unknown rather than to safe. Guard is nil when the action is
 // not a shell command guard.Classify already ran on.
 type Input struct {
 	Guard       *guard.Verdict
+	Blast       BlastCounter
 	ProjectRoot string
 	Paths       []string
 	Edits       []Edit
@@ -79,31 +87,45 @@ type Score struct {
 // model.
 func Compute(in Input) Score {
 	caps, checked := capabilityDelta(in.Edits)
+	paths, blast, blastKnown := editedPaths(in.Edits), 0, false
+
+	if in.Blast != nil {
+		blast, blastKnown = in.Blast.BlastRadius(paths)
+	}
 
 	score := Score{
 		Capabilities:  caps,
 		CapsChecked:   checked,
-		EditedFiles:   distinctPaths(in.Edits),
+		EditedFiles:   len(paths),
 		Reversibility: reversibilityOf(in.ProjectRoot, in.Paths),
 		Guard:         in.Guard,
-		// BlastRadius is a declared seam: internal/codeintel's edges table
-		// (DESIGN.md "Code intelligence") has no writer yet, so transitive
-		// importer counts are not available. BlastKnown stays false until
-		// that adapter lands, and Render must say "unknown", never "0".
-		BlastKnown: false,
+		BlastRadius:   blast,
+		BlastKnown:    blastKnown,
 	}
 	score.Band = bandFor(score)
 
 	return score
 }
 
-func distinctPaths(edits []Edit) int {
+// editedPaths returns each distinct edited path in the order first
+// touched, which is both the scope Capabilities covers and what a
+// BlastCounter is asked about.
+func editedPaths(edits []Edit) []string {
 	seen := make(map[string]struct{}, len(edits))
+
+	var out []string
+
 	for _, e := range edits {
+		if _, ok := seen[e.Path]; ok {
+			continue
+		}
+
 		seen[e.Path] = struct{}{}
+
+		out = append(out, e.Path)
 	}
 
-	return len(seen)
+	return out
 }
 
 func bandFor(s Score) Band {

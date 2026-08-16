@@ -37,19 +37,40 @@ const (
 type Shell struct {
 	gate       permission.Gate
 	changes    *stakes.ChangeSet
+	blast      stakes.BlastCounter
 	root       string
 	sessionTmp string
 	threadID   string
 }
 
+// ShellOption configures the evidence a Shell attaches to a permission
+// prompt. Each is optional: an omitted one renders its signal as unknown,
+// never as the safe value.
+type ShellOption func(*Shell)
+
+// WithChangeSet gives Shell the edits the run has applied so far, so
+// approving a command blind costs the user the whole run's evidence rather
+// than the command's alone.
+func WithChangeSet(changes *stakes.ChangeSet) ShellOption {
+	return func(s *Shell) { s.changes = changes }
+}
+
+// WithBlastCounter gives Shell a way to count how far the change set
+// reaches through the dependency graph.
+func WithBlastCounter(blast stakes.BlastCounter) ShellOption {
+	return func(s *Shell) { s.blast = blast }
+}
+
 // NewShell builds a Shell tool scoped to root and sessionTmp, gating
 // approval-worthy commands through gate. The threadID identifies the
-// thread in permission.Request. The changes set is what the run has edited
-// so far, scored into each prompt so approving a command blind costs the
-// user the whole run's evidence rather than the command's alone; a nil one
-// renders every edit-derived signal as unknown.
-func NewShell(root, sessionTmp, threadID string, gate permission.Gate, changes *stakes.ChangeSet) *Shell {
-	return &Shell{root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate, changes: changes}
+// thread in permission.Request.
+func NewShell(root, sessionTmp, threadID string, gate permission.Gate, opts ...ShellOption) *Shell {
+	s := &Shell{root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate}
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
 }
 
 // Name implements tool.Tool.
@@ -90,6 +111,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 			ProjectRoot: s.root,
 			Guard:       &verdict.Verdict,
 			Edits:       s.changes.Edits(),
+			Blast:       s.blast,
 		})
 		decision, err := s.gate.Ask(ctx, permission.Request{
 			ThreadID: s.threadID,

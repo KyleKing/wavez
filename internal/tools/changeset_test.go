@@ -11,6 +11,16 @@ import (
 	"github.com/kyleking/wavez/internal/tools"
 )
 
+// fakeBlast stands in for gate.ImportGraph, which needs a real Go module on
+// disk to build. The counting itself is covered in internal/gate; this test
+// covers that whatever it answers reaches the prompt.
+type fakeBlast struct {
+	count int
+	known bool
+}
+
+func (f fakeBlast) BlastRadius([]string) (int, bool) { return f.count, f.known }
+
 // TestChangeSet_EditsScoreTheNextPermissionPrompt is the wiring this
 // package exists to prove: a capability an edit introduced reaches the
 // permission prompt for a later command, so approving that command blind
@@ -60,7 +70,8 @@ func TestChangeSet_EditsScoreTheNextPermissionPrompt(t *testing.T) {
 		}
 	}
 
-	sh := tools.NewShell(root, root, "thread-1", gate, changes)
+	sh := tools.NewShell(root, root, "thread-1", gate,
+		tools.WithChangeSet(changes), tools.WithBlastCounter(fakeBlast{count: 11, known: true}))
 	if _, err := sh.Run(context.Background(),
 		mustJSON(t, map[string]any{"command": "git push --force"})); err != nil {
 		t.Fatalf("shell Run: %v", err)
@@ -75,6 +86,9 @@ func TestChangeSet_EditsScoreTheNextPermissionPrompt(t *testing.T) {
 	}
 	if score.EditedFiles != 2 {
 		t.Errorf("EditedFiles = %d, want 2", score.EditedFiles)
+	}
+	if !score.BlastKnown || score.BlastRadius != 11 {
+		t.Errorf("BlastRadius = %d (known %v), want 11 known", score.BlastRadius, score.BlastKnown)
 	}
 	if score.Band != stakes.BandHigh {
 		t.Errorf("Band = %q, want %q once an edit introduced a capability", score.Band, stakes.BandHigh)
@@ -110,7 +124,7 @@ func TestChangeSet_NilRecorderLeavesTheSignalUnknown(t *testing.T) {
 		return permission.Deny, nil
 	})
 
-	sh := tools.NewShell(root, root, "thread-1", gate, nil)
+	sh := tools.NewShell(root, root, "thread-1", gate)
 	if _, err := sh.Run(context.Background(),
 		mustJSON(t, map[string]any{"command": "git push --force"})); err != nil {
 		t.Fatalf("shell Run: %v", err)
@@ -121,5 +135,8 @@ func TestChangeSet_NilRecorderLeavesTheSignalUnknown(t *testing.T) {
 	}
 	if captured.Stakes.CapsChecked {
 		t.Error("CapsChecked = true with no recorder wired, want false")
+	}
+	if captured.Stakes.BlastKnown {
+		t.Error("BlastKnown = true with no counter wired, want false")
 	}
 }

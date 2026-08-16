@@ -38,7 +38,7 @@ func TestShell_GuardRefusalNeverReachesGateOrExec(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "does-not-exist")
 	gate, consulted := recordingGate(t, permission.Allow)
 
-	sh := tools.NewShell(root, root, "thread-1", gate, nil)
+	sh := tools.NewShell(root, root, "thread-1", gate)
 	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": "rm -rf /"}))
 	if err != nil {
 		t.Fatalf("Run returned an error (exec was reached): %v", err)
@@ -60,7 +60,7 @@ func TestShell_NeedsApprovalConsultsGateAndDenyBlocksExec(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "does-not-exist")
 	gate, consulted := recordingGate(t, permission.Deny)
 
-	sh := tools.NewShell(root, root, "thread-1", gate, nil)
+	sh := tools.NewShell(root, root, "thread-1", gate)
 	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": "git push --force"}))
 	if err != nil {
 		t.Fatalf("Run returned an error (exec was reached): %v", err)
@@ -83,7 +83,7 @@ func TestShell_AllowRunsWithoutConsultingGate(t *testing.T) {
 	sessionTmp := t.TempDir()
 	gate, consulted := recordingGate(t, permission.Allow)
 
-	sh := tools.NewShell(root, sessionTmp, "thread-1", gate, nil)
+	sh := tools.NewShell(root, sessionTmp, "thread-1", gate)
 	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": "echo hello"}))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -109,7 +109,7 @@ func TestShell_ReportsNonzeroExitCode(t *testing.T) {
 	sessionTmp := t.TempDir()
 	gate, _ := recordingGate(t, permission.Allow)
 
-	sh := tools.NewShell(root, sessionTmp, "thread-1", gate, nil)
+	sh := tools.NewShell(root, sessionTmp, "thread-1", gate)
 	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": "exit 7"}))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -126,7 +126,7 @@ func TestShell_TrimsLongOutput(t *testing.T) {
 	sessionTmp := t.TempDir()
 	gate, _ := recordingGate(t, permission.Allow)
 
-	sh := tools.NewShell(root, sessionTmp, "thread-1", gate, nil)
+	sh := tools.NewShell(root, sessionTmp, "thread-1", gate)
 	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": "seq 1 200"}))
 	if err != nil {
 		t.Fatalf("Run: %v", err)

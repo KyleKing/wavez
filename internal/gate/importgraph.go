@@ -6,9 +6,10 @@ import (
 )
 
 // ImportGraph is a Go package import graph built from `go list`, used for
-// the importer-level selection tier. Nothing in this package writes it to
-// codeintel's edges table (v0.1 ships no edges writer at all); it lives
-// only for the duration of one Select call or Runner's cache of it.
+// the importer-level selection tier and for blast radius. Nothing in this
+// package writes it to codeintel's edges table (v0.1 ships no edges writer
+// at all); it lives only for the duration of one Select call or Runner's
+// cache of it.
 type ImportGraph struct {
 	// FilePackage maps a repo-relative file path to the import path of the
 	// package that declares it.
@@ -61,6 +62,43 @@ func (g *ImportGraph) addPackage(repoRoot string, pkg *goPackage) {
 	for _, imp := range pkg.Imports {
 		g.importers[imp] = append(g.importers[imp], pkg.ImportPath)
 	}
+}
+
+// BlastRadius counts the distinct packages that transitively import the
+// packages declaring paths, excluding those packages themselves. The second
+// result is false when the count could not be computed at all: a nil graph,
+// no paths, or no path this graph knows a package for (a non-Go file, or a
+// file added since `go list` ran). A caller must render that as unknown
+// rather than as zero, since "nothing depends on this" and "we did not
+// look" are opposite conclusions.
+func (g *ImportGraph) BlastRadius(paths []string) (int, bool) {
+	if g == nil || len(paths) == 0 {
+		return 0, false
+	}
+
+	changed := make(map[string]struct{})
+
+	for _, p := range paths {
+		if pkg, ok := g.FilePackage[filepath.ToSlash(p)]; ok {
+			changed[pkg] = struct{}{}
+		}
+	}
+
+	if len(changed) == 0 {
+		return 0, false
+	}
+
+	importers := make(map[string]struct{})
+
+	for pkg := range changed {
+		for _, imp := range g.transitiveImporters(pkg) {
+			if _, self := changed[imp]; !self {
+				importers[imp] = struct{}{}
+			}
+		}
+	}
+
+	return len(importers), true
 }
 
 // transitiveImporters returns every package that transitively imports pkg,

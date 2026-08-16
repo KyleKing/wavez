@@ -560,7 +560,7 @@ Grouped by rough priority. Each stays out until the milestone that would use it,
 
 Likely later:
 
-- Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-intelligence store exists (M3)
+- Risk scoring beyond what M1 already renders on a permission prompt (guard verdict, reversibility, regex capability delta over the change set, blast radius from the Go import graph). The deferred half is the signals that need more than one language or a parser: capability delta via `semgrep --baseline-commit` or `ast-grep` instead of regexes, blast radius from codeintel's `edges` table instead of `go list`, and signature change from tree-sitter. Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the edges table has a writer (M3)
 - Churn and bug-correlation per file or function. code-maat (Clojure CLI, CSV hotspots and coupling) and PyDriller (Python library for commit mining and SZZ pipelines) exist today, no maintained bare CLI for defect prediction does. Feeds the same risk score once the code-intelligence store exists
 - Merge-then-monitor: join merges against Sentry or health metrics after the fact to label outcomes. Separate tool, not a pre-merge gate
 - Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the M4 VCS layer

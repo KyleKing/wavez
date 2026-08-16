@@ -173,8 +173,16 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		return nil, fmt.Errorf("building system prefix: %w", err)
 	}
 
+	// One `go list` per App, shared by test selection and by the blast-radius
+	// signal on every permission prompt. A nil graph drops selection to
+	// LevelPackage and renders blast as unknown.
+	graph, err := gate.BuildImportGraph(ctx, root)
+	if err != nil {
+		graph = nil
+	}
+
 	changes := stakes.NewChangeSet()
-	registry := buildRegistry(root, sandboxDir, store, permGate, options.Asker, changes)
+	registry := buildRegistry(root, sandboxDir, store, permGate, options.Asker, changes, graph)
 
 	local, hosted := options.Local, options.Hosted
 	if local == nil {
@@ -191,7 +199,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 			openaic.WithAPIKeyFunc(keyFn))
 	}
 
-	runner, adapter, verifier := buildGateRunner(ctx, root, store, gateLog, cfg)
+	runner, adapter, verifier := buildGateRunner(root, store, gateLog, cfg, graph)
 
 	loopOpts := []agent.Option{
 		agent.WithLocalModel(cfg.LocalModel),
@@ -250,26 +258,22 @@ func newSessionDir(stateDir string) (string, error) {
 
 func buildRegistry(
 	root, sandboxDir string, store *codeintel.Store, permGate permission.Gate, asker tools.Asker,
-	changes *stakes.ChangeSet,
+	changes *stakes.ChangeSet, blast stakes.BlastCounter,
 ) *tool.Registry {
 	return tool.NewRegistry(
 		tools.NewRead(root),
 		tools.NewStrReplace(root, changes),
 		tools.NewWrite(root, changes),
-		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate, changes),
+		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate,
+			tools.WithChangeSet(changes), tools.WithBlastCounter(blast)),
 		tools.NewSearch(store),
 		tools.NewQuestion(asker),
 	)
 }
 
 func buildGateRunner(
-	ctx context.Context, root string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config,
+	root string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config, graph *gate.ImportGraph,
 ) (*gate.Runner, *gate.CoverageAdapter, *GateVerifier) {
-	graph, err := gate.BuildImportGraph(ctx, root)
-	if err != nil {
-		graph = nil
-	}
-
 	gates := []gate.Gate{gate.NewFormatGate(root), gate.NewGoTestGate(root)}
 	runFunc := gate.BuildRunFunc(gate.RealClock{}, store, graph, gates, gateLog, root)
 	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce, runFunc)
