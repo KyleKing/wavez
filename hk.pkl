@@ -14,7 +14,9 @@ min_hk_version = "1.53.0"
 // trailing newline. Any whitespace fixer that rewrites them breaks the tests.
 // Module-level so it covers newlines, trailing-whitespace, and mixed-line-ending
 // at once, none of which take a glob.
-exclude = List("**/*.golden")
+// `_ai_/` holds captured model output and demo transcripts. Rewriting their
+// whitespace edits the evidence a measurement was drawn from.
+exclude = List("**/*.golden", "_ai_/**")
 
 // Builtins carry a `check_diff`, so a clean file is never rewritten and hk
 // stages exactly the files each step touched (`stage = "<JOB_FILES>"` default).
