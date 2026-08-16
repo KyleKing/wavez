@@ -61,3 +61,6 @@ Desktop.ini
 
 # wavez runtime state: index, thread logs, sandbox sessions
 /.wavez/
+
+# goreleaser output
+/dist/

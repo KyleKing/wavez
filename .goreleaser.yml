@@ -26,10 +26,29 @@ builds:
       - arm64
     binary: wavez
 
+  # The TUI attaches to a running daemon, so a release without wavezd ships a
+  # client with nothing to connect to.
+  - main: ./cmd/wavezd
+    id: wavezd
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    binary: wavezd
+
 archives:
   - id: wavez
+    ids: [wavez, wavezd]
     formats: [binary]
-    name_template: "wavez-{{ .Os }}-{{ .Arch }}"
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
