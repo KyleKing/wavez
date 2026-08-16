@@ -6,3 +6,4 @@ wavez-bench
 **/run.log
 pull-*.log
 ollama-serve.log
+intentgo

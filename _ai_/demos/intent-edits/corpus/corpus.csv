@@ -1,0 +1,21 @@
+repo,sha,subject,files_changed,lines_added,lines_removed,change_kinds,det_lines,conv_lines,hole_lines,judgment_lines,intent_tokens_approx
+gh-repo-dashboard,cd69133,feat(stash): render the full patch through the configured diff viewer,12,193,11,"add-fn;add-field;change-signature;add-type;add-test;wiring;config;docs",78,37,55,23,95
+gh-repo-dashboard,44588fd,fix(cli): persist the per-branch PR and default-branch CI like the PR list,12,162,32,"add-fn;change-signature;wiring;add-test;refactor;config;docs",108,43,6,5,85
+gh-repo-dashboard,5a22239,feat(script): fail on rejected commands and list :commands headlessly,5,169,79,"add-field;add-fn;add-type;change-signature;refactor;add-test;wiring",70,35,40,24,100
+gh-repo-dashboard,5249714,fix(cli): reject a scan path that is not an existing directory,2,76,4,"add-fn;add-type;wiring;add-test;docs",43,3,25,5,55
+gh-repo-dashboard,884fbcf,fix(list): stop the fleet map from discarding the expanded region's cache,5,57,10,"delete;add-fn;refactor;wiring;add-test",33,0,6,18,80
+gh-repo-dashboard,a5bbb28,refactor(list): collapse the breakpoint enum now that wide renders like standard,4,32,59,"refactor;delete;docs;add-test",16,12,0,4,62
+gh-repo-dashboard,7be9b61,feat(vcs): serve branch lists and commit logs while the stamp holds,4,70,0,"add-fn;wiring;docs",36,24,0,10,68
+gh-repo-dashboard,0c5f099,feat(vcs): derive a host-qualified upstream identity for each remote,6,97,3,"add-fn;add-field;add-test;wiring;docs",25,16,45,11,60
+gh-repo-dashboard,d069317,feat(panels): name the failing checks in the PR detail pane,5,244,3,"add-fn;add-test;refactor;wiring;other",47,55,107,35,108
+gh-repo-dashboard,afdfbbe,feat(panels): let a stash verb swap the diffstat for its full diff,9,164,13,"add-fn;add-field;add-route/command;add-test;wiring;refactor",66,54,30,14,118
+gh-repo-dashboard,a01befc,fix(panels): carry j/k across panel boundaries so a one-row panel can't swallow them,2,92,21,"change-signature;add-fn;add-test;refactor",30,12,40,10,55
+gh-repo-dashboard,c61e6a4,fix(list): keep the notes key on offer and say when the terminal is too short,3,31,9,"add-fn;refactor;config;docs",6,8,15,2,45
+gh-repo-dashboard,df88120,feat(list): close the notes preview with a divider that captions it,7,115,25,"add-fn;change-signature;refactor;docs;add-test",20,15,55,25,70
+gh-repo-dashboard,c497fd6,feat(list): dismiss the notes panel then the search then the filters on esc,3,105,0,"add-fn;add-test;wiring",15,10,60,20,50
+calcipy,f55353fc,feat(vale): add vale for prose linting,12,351,3,"add-fn;config;docs;add-test;wiring",35,25,40,251,65
+calcipy,ef745676,feat: support jj repos,9,68,23,"wiring;add-test;config;docs;other",15,53,0,0,42
+calcipy,b63beb01,feat: support djot in markdown writer,6,45,36,"refactor;change-signature;add-type;wiring;docs",17,8,0,20,62
+calcipy,a72a9cd6,feat: implement new CLI_OUTPUT markdown tool,3,161,0,"add-fn;wiring;add-test;docs",83,49,19,10,44
+calcipy,89fac604,fix: use git root to create exactly one code tag summary,4,146,8,"change-signature;config;add-test;docs;other",19,75,42,10,55
+calcipy,e479edce,test: add tests for jj repos,3,90,5,"add-test;refactor",8,64,18,0,47
