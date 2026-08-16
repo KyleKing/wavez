@@ -2,7 +2,7 @@
 
 A personal AI coding agent built for one user, one laptop, and repeated narrow work. It spends fewer tokens by doing the predictable parts of coding deterministically (which tests to run, how to rename a symbol, what to strip from context) and reserves the model for the parts that need judgment.
 
-Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, per-feature requirements, decisions, and phases. `_ai_/` holds the half-finished projects and research this consolidates.
+Status: v0.1 in progress. [DESIGN.md](DESIGN.md) holds the architecture, screens, per-feature requirements, decisions, and phases. `_ai_/` holds the half-finished projects and research this consolidates.
 
 ## What it does differently
 
@@ -16,18 +16,21 @@ Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, pe
 - **Threads** replace the single god session. Each work stream has its own compacted history. A scheduler coordinates threads that touch the same directories, alternates edit and execute phases, and respects the laptop's memory
 - **Code intelligence** is one SQLite store per project (symbols, call and import edges, trigram FTS, embeddings, line-to-test coverage, cross-stack contracts) fed incrementally by tree-sitter, `codegraph`, coverage adapters, and a small local embedder. One `search` tool with fuzzy, semantic, graph, and hybrid modes, and one `context` bundle (repo map plus one-hop neighbourhood plus covering tests) for a small model's first turn. Everything else reads it: gates, modifiers, intent edits, similarity notes, the scheduler, Neovim pickers
 - **Compaction** is deterministic first (append-only trimming that keeps the prompt-cache prefix stable, rule-based stdout truncation, tool results dropped after N turns) and model-based only for the residue
+- **Local model management** (v0.2) lists what Ollama has pulled, what each one costs in disk and RAM, and whether a newer version exists, and ships runtime settings already tuned for this laptop that you can edit and reset. It installs and uninstalls on request and never removes a model on its own, because Ollama serves other tools on the same machine
 - **Recordings** capture PTY and browser step sequences as they happen so a fix can be replayed for regression, then promoted to a test or discarded
 
 Also: local models first (qwen3:8b on `llama-server` with n-gram speculation, chosen by measurement on this laptop), hosted models through OpenRouter when a task needs more, works across directories rather than worktrees, one pane of glass across concurrent agents, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
 
 TLDR: fewer tokens, faster builds, higher quality, low RAM.
 
+macOS only for now. The sandbox is a Seatbelt profile and the symbol indexer is cgo tree-sitter, so neither cross-compiles nor has a Windows or Linux equivalent yet. Both sit behind interfaces, so a port is a contribution the design already has room for rather than a rewrite. Contributions welcome.
+
 ## Phases
 
 | Version | Usable for | Adds |
 |---|---|---|
 | v0.1 | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox, diagnostics strip, vim controls), chat loop, code-intelligence store with `search` and `context`, Gates, sandbox + permission gate, local model + OpenRouter escalation |
-| v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings, semantic index, similarity notes, repo map |
+| v0.2 | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings, semantic index, similarity notes, repo map, local model management |
 | v0.3 | Cheaper and faster on the same work, from Neovim too | Benchmark harness on replayed commits and extreme-ends performance, Modifiers, intent edits, deterministic compaction, cross-stack contract nodes, `wavez.nvim`, web search |
 | v0.4 | Away from the laptop | jj/git integration layer, mobile client (Tailscale + PWA + push) |
 | v0.5 | Proving it | Browser recordings, benchmark comparison against Claude Code and OpenCode in local and hosted lanes |

@@ -127,7 +127,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 │ ○ └ jj-op-log-undo    waiting lock internal/vcs   5m    $0.00       │
 │ yak-shears/                                                         │
 │ ✖ flaky-ci            go test ✖ 2 failed          12m   $0.31       │
-└ [Enter]open [v]peek [i]nbox [n]ew [s]chedule [:]palette [?]help ────┘
+└ [Enter]open [v]peek [i]nbox [n]ew [s]schedule [:]palette [?]help ────┘
 ```
 
 - One row per thread: glyph, name, current step in words (what it is doing or waiting on), age since last event, spend. Sub-threads indent under their parent with `└`
@@ -252,7 +252,7 @@ Decode speed is the local bottleneck (qwen3:8b at ~18 tok/s), so the edit path t
 - Both formats are weak on an 8B model (2/10 and 1/10), so v0.1 keeps local edits small, always re-verifies with a gate rather than trusting `done`, escalates to hosted after one failed edit, and pushes as much as possible to Modifiers and intent edits where the model emits a name or an intent instead of text
 - Hosted models use their native format through the same tool surface: `apply_patch` (V4A) for GPT-family, `str_replace` for Claude-family
 - Runtime, not tool: n-gram prompt-lookup speculation in llama.cpp for edit-shaped output where most tokens copy the prompt (measured in `_ai_/demos/local-runtime`)
-- Not built: a hosted fast-apply model (Morph, Relace). Extra latency and a paid dependency, and no open-weight small apply model exists to run locally
+- Not built: a hosted fast-apply model (Morph, Replace). Extra latency and a paid dependency, and no open-weight small apply model exists to run locally
 
 ### Intent edits (exploration, target v0.3 after Modifiers)
 
@@ -379,6 +379,16 @@ Roles beyond linting:
 - Holes from intent edits route by size: bodies under a few lines local with retry against gates, judgment-sized holes hosted. Either way the hosted model writes tens of tokens, not files
 - Explicit override per turn. Cost and token counters per thread in the header
 - Anthropic caching through OpenRouter requires the native Anthropic wire format and a pinned provider. The harness keeps a stable prefix (system, tools, ledger) and appends after it
+
+### Local model management (v0.2)
+
+Ollama already pulls and lists models, and `llama-server` already serves them, so this is a view and a set of deliberate actions over what is on disk rather than a package manager of its own.
+
+- One screen listing every model Ollama has: name, tag, quant, size on disk, and what it leaves free against the 16 GB ceiling, so the cost of loading one is visible before the scheduler has to refuse it
+- Update check per model against the registry, reported as "a newer tag exists", never applied on its own
+- Install and uninstall on request, with the disk delta shown first. Wavez never removes a model it thinks is unused. Ollama serves other tools on this machine and Wavez cannot see their usage, so a prune would delete someone else's working set
+- Runtime settings per model ship tuned for this laptop (served context, `--spec-type ngram-simple`, `--cache-reuse`, thread and batch counts from `_ai_/demos/local-runtime`). Each is editable, and each edit shows the shipped default beside it with one key to restore it
+- Total disk used by models sits in the diagnostics panel next to memory headroom, since both bound what the router may choose
 
 ### Safety (v0.1)
 
@@ -521,6 +531,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of structural rules, facing Semgrep vs `ast-grep` vs native linters only, we embed `ast-grep` for gates, codemods, and convention rules and keep Semgrep CE as an opt-in routine for taint and diff-aware risk, to get a fast MIT engine on every edit and avoid the registry license, accepting that cross-file taint needs Semgrep Pro
 - In the context of project instructions, facing auto-loading `AGENTS.md` and `CLAUDE.md` vs explicit opt-in, we list context files and sections in `.wavez.pkl`, to keep token cost and prompt-injection surface fixed and to avoid re-stating what gates already do, accepting a one-time mapping step for repos with a mature `CLAUDE.md`
 - In the context of editor integration, facing ACP vs the daemon's own socket API, we ship a small `wavez.nvim` over the socket API first, to keep one API for every client, accepting an ACP adapter later if Neovim gains native support
+- In the context of shipping a binary, facing pure-Go portability vs tree-sitter's cgo bindings, we build darwin-only with cgo enabled, to keep tree-sitter and take the Seatbelt sandbox that is macOS-only anyway, accepting that a Windows or Linux port needs a second sandbox and a pure-Go parser behind the same interfaces
 - In the context of compaction, facing client-side rewriting vs append-only trimming, we trim append-only and summarize residue with a local model, to keep prompt caches valid, accepting more tokens per turn than aggressive rewriting
 
 ## Phases
@@ -528,7 +539,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 | Version | Done when | Ships |
 |---|---|---|
 | v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
-| v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta |
+| v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta, local model management |
 | v0.3 | The same task costs measurably fewer tokens than v0.1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | v0.5 | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
