@@ -34,7 +34,7 @@ For a single legitimate user reaching their own machine, the auth question split
 
 ## 3. Mobile app delivery options
 
-Full comparison and effort estimates were researched separately and are captured in [`_wave1-mobile-delivery.md`](_wave1-mobile-delivery.md) in this directory; the summary:
+Full comparison and effort estimates were researched separately and are captured in [`mobile-delivery.md`](mobile-delivery.md) in this directory; the summary:
 
 | Path | Basic app effort | Key constraint |
 |---|---|---|
@@ -129,4 +129,4 @@ Estimated effort: **15-25 developer-days**, dominated by the native app build-ou
 - [GitHub Codespaces overview](https://docs.github.com/en/codespaces/overview)
 - [Devin pricing](https://devin.ai/pricing)
 - [Wake-on-LAN, Wikipedia](https://en.wikipedia.org/wiki/Wake-on-LAN)
-- [Mobile delivery deep-dive (this directory)](_wave1-mobile-delivery.md)
+- [Mobile delivery deep-dive (this directory)](mobile-delivery.md)
