@@ -6,6 +6,7 @@ Status: design phase. [DESIGN.md](DESIGN.md) holds the architecture, screens, pe
 
 ## What it does differently
 
+- **Structural rules** (`ast-grep` embedded, Semgrep CE opt-in) enforce project conventions as YAML instead of prose, gate every edit, drive codemods and autofix as Modifier calls, and flag new capabilities in a change set
 - **Gates** run checks in response to what changed. The model never decides what to test. Coverage map plus changed lines selects the test subset. Format and lint run as pre-passes. Passing gates return nothing to the model. Failures return only the failing test names and the frames that touch changed files
 - **Routines** are user-defined workflows in pkl with workflow-engine semantics (DAG steps, concurrency keys, cancel-in-progress, multiple triggers) that run locally with resource locks. Gates are the built-in routines
 - **Edits** are line-anchored ops (replace, insert, delete by content-hashed line id) so the model emits an address and new lines, never the old text, and stale edits are rejected before writing. Hosted models keep their native formats

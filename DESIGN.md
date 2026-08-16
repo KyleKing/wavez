@@ -267,7 +267,24 @@ like Foo: add Bar            # mirror an existing symbol's shape
 
 **Prior art.** Zed's Zeta2 and Cursor's Tab feed diff history and LSP context to a model, Copilot NES splits location and generation, Aider's architect mode has a strong model describe and a weak one edit (30-50% cheaper reported), Serena inserts after symbols instead of round-tripping files, ast-grep and Comby rewrite with metavariables, Hazel and program sketching separate skeleton from holes, llama.cpp grammars and FIM tokens constrain what a small model may write. Nothing found combines a repo graph, deterministic resolvers, and grammar-constrained hole filling into one edit tool.
 
-**Demo before committing.** Take twenty real commits from calcipy and gh-repo-dashboard, express each as one or two intent lines, and measure how many lines the resolver reproduces without a model, how many need a hole, and how many are out of reach.
+**Measured (`_ai_/demos/intent-edits`).** Twenty commits from gh-repo-dashboard and calcipy, added lines sorted by hand: 31% deterministic, 24% convention (right from siblings), 24% hole, 20% judgment. Resolver alone covers 55%, resolver plus a hole fill 80%. Intent cost averaged 68 tokens for 123 added lines, so the compression is real but linear in the number of additions, not the number of lines. The corpus demanded five grammar extensions: a `change`/`rename` verb (6 of 20 commits), a `like` chain that mirrors a cluster of symbols, hole-sizing fields (`wraps=`, `env=`, `returns=`, `enum=`) that bound what the model writes, a `fix: <diagnosis>` verb, and non-code verbs (`add const`, `add hook`, `bump dep`). A Go prototype (`intentgo`, ~1k lines on `go/ast` and `x/tools/imports`) reproduced placement, signature, doc style, and imports exactly on real commits in 60-110 ms with the body as one hole line. Field placement defaults to end of struct where humans group mid-struct, and `like` needs its own signature slot or it silently carries the sibling's parameters. Nothing it writes fails `gofmt`. Batching several intents into one model turn is the open question the timing demo addresses.
+
+### Structural rules (v0.1 gate, v0.2 routine, v0.3 mining)
+
+Rules over syntax trees are the deterministic half of "code quality" and a second engine for editing. Two tools, two roles, both shelled out (neither has a Go binding).
+
+- `ast-grep` is the embedded structural engine: MIT, tree-sitter, YAML rules with `rule`, `constraints`, `fix`, an LSP with quick fixes, fast enough to gate on every edit. Project convention rules live as YAML files in the repo and `.wavez.pkl` points at them by glob. Examples: no `fmt.Println`, use the project logger, wrap errors with `%w`, no raw SQL outside `db/`
+- Semgrep Community Edition is an optional routine, not a gate: LGPL engine, single-file taint, `--baseline-commit` for diff-aware findings, `fix:` autofix, JSON and SARIF. Its registry rules carry a non-commercial license, so only own rules ship by default. Pro (cross-file taint) is the user's call per project
+- Layering per language, in gate order: formatter (`gofmt`/`gofumpt`, `ruff format`, Biome), native linter with autofix (`golangci-lint --fix --new-from-rev`, `ruff --fix`, Biome or Oxlint), `ast-grep` convention rules, then the type checker. Only the first three fit a sub-2 s per-edit gate. Semgrep and full type checks run on the commit routine
+
+Roles beyond linting:
+
+- Capability-delta risk: `semgrep --baseline-commit` or a diff of `ast-grep` matches flags new subprocess, eval, network, raw SQL, or auth changes in the change set. Feeds the deferred risk score and the permission gate
+- Codemods: `ast-grep` rewrite with metavariables is the engine behind the intent grammar's `change` and `rename` verbs and behind Modifiers that are not LSP operations
+- Rule violation becomes a Modifier call: an autofix from `ast-grep` or `fix:` is applied through the Modifier path (reviewable, revertible), and only rule id, message, `file:line`, and the fix hunk reach the model
+- Conventions replace prose: a rule the agent must obey is written once as YAML and enforced, instead of stated in an instructions file the model may or may not follow
+- Matches land in the code-intelligence store as annotations keyed to symbol ids, so gates and the risk score ask "does this symbol touch a flagged pattern" without rescanning
+- Convention mining (v0.3, exploration): derive a rule from a corrected diff or from what sibling code does, propose it, the user accepts. No tool does this today
 
 ### Gates (v0.1)
 
@@ -280,7 +297,7 @@ like Foo: add Bar            # mirror an existing symbol's shape
 - Full run on a cadence: after N selective passes, after a time threshold, or when the map flags an untracked file
 - Debounce and coalesce edits into one run. Gates sharing a resource serialize, others run in parallel
 - On pass: a boolean and timestamp in the gate log, nothing to the model. On fail: failing test names and frames that touch changed files, parsed from `go test -json`, JUnit XML, or pytest's machine output
-- Formatter and auto-fixable lint run as pre-passes before the model sees the diff
+- Formatter, native linter autofix, and `ast-grep` convention rules run as pre-passes before the model sees the diff (see Structural rules). LSP diagnostics after the edit are a gate too
 - Config discovered from `package.json`, `Makefile`, `pyproject.toml`, `mise.toml`, with a one-time prompt to confirm
 
 ### Routines (v0.2)
@@ -299,6 +316,7 @@ like Foo: add Bar            # mirror an existing symbol's shape
 - Backends: `gopls` CLI and LSP for Go, `ts-morph` and tsserver for TypeScript, `rope` and `ty` LSP for Python, `ast-grep` for cross-language pattern rewrites. One generic LSP client (`go.lsp.dev/protocol`) covers rename and code actions
 - Result returned to the model is the file list and line counts, not the diff, unless a gate fails
 - Each modifier is one deterministic operation. A modifier that partially applies rolls back
+- `apply-fix` applies an `ast-grep` or Semgrep autofix as a modifier, and `rewrite` runs an `ast-grep` pattern with metavariables for structural changes LSP does not offer
 - Serena's symbol tools are the reference for the token argument
 
 ### Threads and scheduling (v0.2)
@@ -455,6 +473,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of extensibility, facing plugins vs built-in tools, we ship no plugin system, to keep the tool surface auditable and small, accepting that new tools mean code changes
 - In the context of edits on a slow local decoder, facing search-and-replace, unified diff, whole-file, or hashed line ops, we build a line-anchored op tool with fuzzy fallback and native formats for hosted models, to keep output tokens near the address-plus-new-lines minimum and reject stale edits before writing, accepting that the format is unproven on an 8B model until the demo runs
 - In the context of a polyglot monorepo, facing name-matched cross-language edges vs contract nodes, we add contract nodes and confidence-tiered bridge edges with generated clients and E2E network logs as ground truth, to select tests across the frontend and backend seam, accepting that hand-written fetch calls stay low-confidence
+- In the context of structural rules, facing Semgrep vs `ast-grep` vs native linters only, we embed `ast-grep` for gates, codemods, and convention rules and keep Semgrep CE as an opt-in routine for taint and diff-aware risk, to get a fast MIT engine on every edit and avoid the registry license, accepting that cross-file taint needs Semgrep Pro
 - In the context of project instructions, facing auto-loading `AGENTS.md` and `CLAUDE.md` vs explicit opt-in, we list context files and sections in `.wavez.pkl`, to keep token cost and prompt-injection surface fixed and to avoid re-stating what gates already do, accepting a one-time mapping step for repos with a mature `CLAUDE.md`
 - In the context of editor integration, facing ACP vs the daemon's own socket API, we ship a small `wavez.nvim` over the socket API first, to keep one API for every client, accepting an ACP adapter later if Neovim gains native support
 - In the context of compaction, facing client-side rewriting vs append-only trimming, we trim append-only and summarize residue with a local model, to keep prompt caches valid, accepting more tokens per turn than aggressive rewriting
@@ -463,8 +482,8 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 
 | Version | Done when | Ships |
 |---|---|---|
-| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, line-anchored edit tool, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
-| v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map |
+| v0.1 | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, loop, line-anchored edit tool, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `-p`, minimal compaction, ledger |
+| v0.2 | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta |
 | v0.3 | The same task costs measurably fewer tokens than v0.1, and the daily loop runs from Neovim | Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | v0.4 | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | v0.5 | A benchmark table against Claude Code on 20 tasks | Browser recordings, benchmark harness |
@@ -511,7 +530,7 @@ No:
 ## Open questions
 
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
-- Intent edits: how much of a real commit a deterministic resolver reproduces (the twenty-commit demo)
+- Intent edits: whether batching several intents per model turn keeps the pipeline ahead of a hosted model on medium and large changes
 - Hashline ops vs `str_replace` on qwen3:8b: malformed rate, output tokens, and wall time per edit (next demo)
 - Monorepo per-package test commands in v0.1 or later
 - How the scheduler surfaces a deep DAG without a graph widget (current answer: one row per thread, drill in)

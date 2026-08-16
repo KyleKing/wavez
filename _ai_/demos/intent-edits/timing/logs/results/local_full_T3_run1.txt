@@ -1,0 +1,273 @@
+=== models/notes.go ===
+```go
+package models
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// notesFilenames lists candidate per-repo notes files, checked in this order.
+var notesFilenames = []string{".doing", "doing.md", "doing.txt", "TODO.md"}
+
+// SetNotesFilenames replaces the candidate notes filename list. Intended for
+// startup config application only; not safe to call concurrently with
+// DetectNotes.
+func SetNotesFilenames(names []string) {
+	if len(names) > 0 {
+		notesFilenames = names
+	}
+}
+
+const notesContentReadLimit = 64 * 1024
+
+// NoteFile identifies one notes file found at a repo's root, along with its
+// first non-empty line for a quick preview without reading the full content,
+// and its size in bytes.
+type NoteFile struct {
+	Name      string `json:"name"`
+	FirstLine string `json:"first_line,omitempty"`
+	SizeBytes int64 `json:"size_bytes,omitempty"`
+}
+
+// DetectNotes finds every candidate notes file present at repoPath's root and
+// returns one NoteFile per match, in notesFilenames order. A repo with none
+// returns nil; a read failure yields an empty first line, not an error, since
+// notes detection is best-effort.
+func DetectNotes(repoPath string) []NoteFile {
+	var found []NoteFile
+
+	for _, name := range notesFilenames {
+		path := filepath.Join(repoPath, name)
+
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		content := readCapped(path)
+		firstLine := firstNonEmptyLine(content)
+		size := info.Size()
+
+		found = append(found, NoteFile{
+			Name:      name,
+			FirstLine: firstLine,
+			SizeBytes: size,
+		})
+	}
+
+	return found
+}
+
+// ReadNotesFile reads the full content of a notes file previously identified
+// by DetectNotes, capped at a modest size. A read failure yields "".
+func ReadNotesFile(repoPath, notesFile string) string {
+	if notesFile == "" {
+		return ""
+	}
+
+	return readCapped(filepath.Join(repoPath, notesFile))
+}
+
+// NoteFileContent pairs a notes file's name with its full content.
+type NoteFileContent struct {
+	Name    string
+	Content string
+}
+
+// ReadNotesFiles reads the full content of each file DetectNotes found, in
+// the same order.
+func ReadNotesFiles(repoPath string, files []NoteFile) []NoteFileContent {
+	contents := make([]NoteFileContent, len(files))
+	for i, f := range files {
+		contents[i] = NoteFileContent{Name: f.Name, Content: ReadNotesFile(repoPath, f.Name)}
+	}
+
+	return contents
+}
+
+func readCapped(path string) string {
+	data, err := os.ReadFile(path) //nolint:gosec // repo root + fixed filename
+	if err != nil {
+		return ""
+	}
+
+	if len(data) > notesContentReadLimit {
+		data = data[:notesContentReadLimit]
+	}
+
+	return string(data)
+}
+
+func firstNonEmptyLine(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return ""
+}
+```
+
+=== models/notes_test.go ===
+```go
+package models_test
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"t3notes/models"
+)
+
+func TestDetectNotes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  []models.NoteFile
+	}{
+		{name: "no notes file", files: nil, want: nil},
+		{
+			name:  "doing.md only",
+			files: map[string]string{"doing.md": "Working on M8\nmore detail\n"},
+			want:  []models.NoteFile{{Name: "doing.md", FirstLine: "Working on M8", SizeBytes: 24}},
+		},
+		{
+			name:  "TODO.md only",
+			files: map[string]string{"TODO.md": "Fix the bug\n"},
+			want:  []models.NoteFile{{Name: "TODO.md", FirstLine: "Fix the bug", SizeBytes: 12}},
+		},
+		{
+			name: "multiple matches are all returned, in configured order",
+			files: map[string]string{
+				".doing":   "from dotfile",
+				"doing.md": "from markdown",
+			},
+			want: []models.NoteFile{
+				{Name: ".doing", FirstLine: "from dotfile", SizeBytes: 12},
+				{Name: "doing.md", FirstLine: "from markdown", SizeBytes: 15},
+			},
+		},
+		{
+			name: "doing.md and doing.txt are both returned",
+			files: map[string]string{
+				"doing.md":  "from markdown",
+				"doing.txt": "from txt",
+			},
+			want: []models.NoteFile{
+				{Name: "doing.md", FirstLine: "from markdown", SizeBytes: 15},
+				{Name: "doing.txt", FirstLine: "from txt", SizeBytes: 9},
+			},
+		},
+		{
+			name:  "skips leading blank lines",
+			files: map[string]string{"doing.md": "\n\n  \nActual first line\nsecond\n"},
+			want:  []models.NoteFile{{Name: "doing.md", FirstLine: "Actual first line", SizeBytes: 35}},
+		},
+		{
+			name:  "empty file yields empty first line",
+			files: map[string]string{"doing.md": ""},
+			want:  []models.NoteFile{{Name: "doing.md", FirstLine: "", SizeBytes: 0}},
+		},
+		{
+			name: "test size bytes calculation",
+			files: map[string]string{
+				"testfile.txt": "This is a test file with known content.",
+			},
+			want: []models.NoteFile{
+				{
+					Name:      "testfile.txt",
+					FirstLine: "This is a test file with known content.",
+					SizeBytes: 44,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+					t.Fatalf("writing fixture file: %v", err)
+				}
+			}
+
+			got := models.DetectNotes(dir)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("DetectNotes() = %+v; want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadNotesFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	content := "line one\nline two\n"
+	if err := os.WriteFile(filepath.Join(dir, "doing.md"), []byte(content), 0o600); err != nil {
+		t.Fatalf("writing fixture file: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		notesFile string
+		want      string
+	}{
+		{name: "no notes file", notesFile: "", want: ""},
+		{name: "missing file", notesFile: "doing.txt", want: ""},
+		{name: "existing file", notesFile: "doing.md", want: content},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := models.ReadNotesFile(dir, tt.notesFile); got != tt.want {
+				t.Errorf("ReadNotesFile() = %q; want %q", got, tt.want)
+			}
+		})
+	}
+}
+```
+
+=== cli/cli.go ===
+```go
+// Package cli is a minimal stand-in for gh-repo-dashboard's internal/cli
+// package, scoped to the one caller that renders models.NoteFile into the
+// --cli JSON output.
+package cli
+
+import "t3notes/models"
+
+// Repo is the stable JSON shape of one repo summary, mirroring the columns of
+// the TUI's repo list view.
+type Repo struct {
+	Path       string            `json:"path"`
+	NotesFiles []models.NoteFile `json:"notes_files,omitempty"`
+	NotesSize  int64             `json:"notes_size,omitempty"`
+}
+
+// newRepo builds the JSON-facing Repo from a repo's detected notes files.
+func newRepo(path string, notes []models.NoteFile) Repo {
+	var notesSize int64
+	for _, note := range notes {
+		notesSize += note.SizeBytes
+	}
+
+	return Repo{
+		Path:       path,
+		NotesFiles: notes,
+		NotesSize:  notesSize,
+	}
+}
+```
