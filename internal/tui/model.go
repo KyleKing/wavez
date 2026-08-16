@@ -1,0 +1,342 @@
+// Package tui is the wavez terminal client: a flat Bubble Tea v2 model over
+// api.Client, rendering Home, Thread, Inbox, Diagnostics, and the palette in
+// the lazygit-shaped persistent multi-panel layout DESIGN.md specifies.
+package tui
+
+import (
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/kyleking/wavez/internal/api"
+	"github.com/kyleking/wavez/internal/event"
+)
+
+// screenKind names one full-frame view in the navigation stack.
+type screenKind int
+
+// Screens the stack may hold. The stack's root is always screenHome.
+const (
+	screenHome screenKind = iota
+	screenThread
+	screenInbox
+	screenDiagnostics
+)
+
+const (
+	minWidth  = 80
+	minHeight = 24
+)
+
+// Options configures a new Model.
+type Options struct {
+	Now     func() time.Time
+	Dir     string
+	NoColor bool
+}
+
+// Model is wavez's single top-level Bubble Tea model. Every screen is a
+// field on it and every render is a method in that screen's file; there are
+// no nested tea.Model sub-programs.
+type Model struct {
+	th          theme
+	client      daemonClient
+	transcripts map[string]*transcript
+	now         func() time.Time
+	status      string
+	dir         string
+	threads     []api.ThreadInfo
+	stack       []screenKind
+	pending     []api.PendingInfo
+	thread      threadState
+	palette     paletteState
+	inbox       inboxState
+	home        homeState
+	diag        api.Diagnostics
+	width       int
+	focus       int
+	height      int
+	quitting    bool
+	ready       bool
+	ascii       bool
+	noColor     bool
+	help        bool
+}
+
+// New builds a Model ready to run, before the first WindowSizeMsg arrives.
+func New(opts Options) Model {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+
+	return Model{
+		stack:       []screenKind{screenHome},
+		th:          newTheme(opts.NoColor),
+		noColor:     opts.NoColor,
+		ascii:       opts.NoColor,
+		dir:         opts.Dir,
+		now:         now,
+		transcripts: map[string]*transcript{},
+		home:        newHomeState(),
+		thread:      newThreadState(),
+		inbox:       newInboxState(),
+		palette:     newPaletteState(),
+	}
+}
+
+// Init satisfies tea.Model. Connecting to the daemon happens outside the
+// model, in the bridge Run wires up, so there is nothing to kick off here.
+func (Model) Init() tea.Cmd { return nil }
+
+func (m Model) top() screenKind { return m.stack[len(m.stack)-1] }
+
+func (m *Model) push(s screenKind) {
+	if m.top() == s {
+		return
+	}
+
+	m.stack = append(m.stack, s)
+	m.focus = 0
+}
+
+// popOrClose implements Esc: close an overlay first, then go up one level
+// in the screen stack, and do nothing at the root. Esc never quits.
+func (m *Model) popOrClose() {
+	if m.help {
+		m.help = false
+
+		return
+	}
+	if m.palette.open {
+		m.palette.open = false
+
+		return
+	}
+	if m.top() == screenHome && m.home.filtering {
+		m.home.filtering = false
+		m.home.filterInput.Blur()
+		m.home.filterInput.Reset()
+
+		return
+	}
+	if len(m.stack) > 1 {
+		m.stack = m.stack[:len(m.stack)-1]
+		m.focus = 0
+	}
+}
+
+func (m Model) panelCount() int {
+	if m.top() == screenThread {
+		return focusInput + 1
+	}
+
+	return 1
+}
+
+// Update satisfies tea.Model.
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		m.ready = true
+		m.thread.input.SetWidth(max(msg.Width-boxPad, 1))
+		m.home.filterInput.SetWidth(max(msg.Width-boxPad, 1))
+		m.palette.input.SetWidth(max(msg.Width-boxPad, 1))
+
+		return m, nil
+
+	case tea.KeyPressMsg:
+		return m.handleKey(msg)
+
+	case api.Reply:
+		m.applyReply(msg)
+
+		return m, nil
+
+	case batchMsg:
+		for i := range msg {
+			m.applyReply(msg[i])
+		}
+
+		return m, nil
+
+	case clientReadyMsg:
+		m.client = msg.c
+
+		return m, nil
+
+	case connErrMsg:
+		if msg.err != nil {
+			m.status = "connection error: " + msg.err.Error()
+		} else {
+			m.status = "daemon closed the connection"
+		}
+
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	s := msg.String()
+
+	if mm, cmd, handled := m.handleGlobalKey(s); handled {
+		return mm, cmd
+	}
+
+	if m.help {
+		return m, nil
+	}
+	if m.palette.open {
+		return m.updatePaletteKey(msg, s)
+	}
+
+	return m.dispatchScreenKey(msg, s)
+}
+
+// capturingText reports whether a text field currently owns keystrokes, so
+// handleGlobalKey does not steal a letter the user meant to type (an "i" in
+// the palette search, a "D" in the filter box) as a screen shortcut.
+func (m Model) capturingText() bool {
+	switch {
+	case m.palette.open:
+		return true
+	case m.top() == screenHome && (m.home.filtering || m.home.answerActive):
+		return true
+	case m.top() == screenInbox && m.inbox.answering:
+		return true
+	case m.top() == screenThread && m.focus == focusInput:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m Model) handleGlobalKey(s string) (Model, tea.Cmd, bool) {
+	switch s {
+	case "ctrl+c":
+		m.quitting = true
+
+		return m, tea.Quit, true
+	case keyEsc:
+		m.popOrClose()
+
+		return m, nil, true
+	case "tab":
+		m.focus = (m.focus + 1) % m.panelCount()
+
+		return m, nil, true
+	case "shift+tab":
+		m.focus = (m.focus - 1 + m.panelCount()) % m.panelCount()
+
+		return m, nil, true
+	}
+
+	if m.capturingText() {
+		return m, nil, false
+	}
+
+	return m.handleGlobalShortcut(s)
+}
+
+func (m Model) handleGlobalShortcut(s string) (Model, tea.Cmd, bool) {
+	switch s {
+	case "q":
+		if m.top() != screenHome {
+			return m, nil, false
+		}
+
+		m.quitting = true
+
+		return m, tea.Quit, true
+	case "?":
+		m.help = !m.help
+
+		return m, nil, true
+	case ":":
+		m.palette.open = true
+
+		return m, m.palette.input.Focus(), true
+	case "D":
+		m.push(screenDiagnostics)
+
+		return m, nil, true
+	case "i":
+		m.push(screenInbox)
+
+		return m, nil, true
+	default:
+		return m, nil, false
+	}
+}
+
+func (m Model) dispatchScreenKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
+	switch m.top() {
+	case screenHome:
+		return m.updateHomeKey(msg, s)
+	case screenThread:
+		return m.updateThreadKey(msg, s)
+	case screenInbox:
+		return m.updateInboxKey(msg, s)
+	case screenDiagnostics:
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+// batchMsg is a coalesced burst of daemon replies, delivered at most once
+// per flush window so a stream of token events costs one redraw.
+type batchMsg []api.Reply
+
+// connErrMsg reports the client connection ending, with a nil err for a
+// clean daemon-initiated close.
+type connErrMsg struct{ err error }
+
+func (m *Model) applyReply(r api.Reply) {
+	switch r.Kind {
+	case api.RepThreads:
+		m.threads = r.Threads
+	case api.RepThread:
+		if r.Thread != nil {
+			m.upsertThread(*r.Thread)
+		}
+	case api.RepPending:
+		m.pending = r.Pending
+	case api.RepDiag:
+		if r.Diag != nil {
+			m.diag = *r.Diag
+		}
+	case api.RepEvent:
+		if r.Event != nil {
+			m.appendEvent(*r.Event)
+		}
+	case api.RepError, api.RepHello, api.RepLagged:
+		// Hello is consumed by Dial; a lagged subscription resubscribes in
+		// the bridge, not here; errors surface via connErrMsg.
+	}
+}
+
+func (m *Model) upsertThread(info api.ThreadInfo) {
+	for i := range m.threads {
+		if m.threads[i].ID == info.ID {
+			m.threads[i] = info
+
+			return
+		}
+	}
+
+	m.threads = append(m.threads, info)
+}
+
+func (m *Model) appendEvent(e event.Event) {
+	tr := m.transcripts[e.ThreadID]
+	if tr == nil {
+		tr = &transcript{}
+		m.transcripts[e.ThreadID] = tr
+	}
+
+	tr.append(e)
+}

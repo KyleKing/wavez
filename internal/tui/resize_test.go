@@ -1,0 +1,44 @@
+package tui_test
+
+import (
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/kyleking/wavez/internal/tui"
+)
+
+func TestMinimumSize_RendersAt80x24(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{}, 80, 24)
+	out := m.View().Content
+
+	assert.NotContains(t, out, "needs at least 80x24")
+}
+
+func TestMinimumSize_BelowMinimumShowsMessage(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{}, 79, 23)
+	out := m.View().Content
+
+	assert.Contains(t, out, "needs at least 80x24")
+	assert.Contains(t, out, "79x23")
+}
+
+func TestResize_MidSessionReflowsWidth(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{}, 80, 24)
+	narrow := m.View().Content
+
+	m = apply(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	wide := m.View().Content
+
+	assert.NotEqual(t, len(narrow), len(wide))
+
+	m = apply(t, m, tea.WindowSizeMsg{Width: 79, Height: 23})
+	assert.Contains(t, m.View().Content, "needs at least 80x24")
+}
