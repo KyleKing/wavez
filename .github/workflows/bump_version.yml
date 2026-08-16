@@ -54,15 +54,38 @@ jobs:
           fi
           echo "version=$REVISION" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.bump.outputs.released == 'true'
+        with:
+          name: release-notes
+          path: body.md
+
+  # Split from the bump job because goreleaser cross-compiles nothing here:
+  # tree-sitter's Go bindings are cgo-only, so the darwin binaries must be built
+  # on a darwin runner. commitizen-action is a Docker action and only runs on
+  # Linux, which is why the two cannot share a job.
+  release:
+    needs: bump-version
+    if: needs.bump-version.outputs.released == 'true'
+    runs-on: macos-latest
+    name: Build and publish the release binaries
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-notes
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
-      # Runs in the same workflow because tags pushed with GITHUB_TOKEN do not
-      # trigger other workflows, so a separate on-tag release workflow never fires.
       - name: Build release binaries and publish release
-        if: steps.bump.outputs.released == 'true'
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser

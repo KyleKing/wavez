@@ -9,30 +9,20 @@ before:
 builds:
   - main: ./cmd/wavez
     id: wavez
-    # A cgo-only dependency makes this matrix build cleanly and emit nothing
-    # usable, because cgo cannot cross-compile. See "Releasing a project that
-    # needs cgo" in the template README for the rework that path needs.
+    # tree-sitter's Go bindings are cgo-only and cgo cannot cross-compile, so
+    # the matrix is darwin-native. The Seatbelt sandbox is macOS-only anyway.
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
     goos:
-      - linux
       - darwin
-      - windows
-      - freebsd
     goarch:
       - amd64
       - arm64
-      - "386"
-    ignore:
-      - goos: darwin
-        goarch: "386"
-      - goos: windows
-        goarch: arm64
     binary: wavez
 
 archives:
