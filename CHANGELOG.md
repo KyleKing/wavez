@@ -1,3 +1,19 @@
+## v0.5.0 (2026-08-16)
+
+### Feat
+
+- **sysinfo**: report real memory in the diagnostics strip
+- **cli**: open the interface when no prompt is given
+- **tui**: home, thread, inbox, diagnostics, palette, and layered controls
+- **config**: resolve the hosted key from a command instead of the environment
+- **daemon**: add the wavezd binary and render thread steps as words
+- **api**: add the socket client and fail fast on an overlong socket path
+
+### Fix
+
+- **codeintel**: quote FTS5 terms so a path in a query is not syntax
+- **daemon**: name a thread from its prompt so lists are scannable
+
 ## v0.4.0 (2026-08-16)
 
 ### Feat
