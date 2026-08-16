@@ -1,3 +1,0 @@
-{"type":"user","message":{"role":"user","content":"do something"},"timestamp":"2026-01-01T10:00:00.000Z","cwd":"/repo","sessionId":"test-session-2"}
-{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Sure, doing it now."}]},"timestamp":"2026-01-01T10:00:01.000Z","sessionId":"test-session-2"}
-{"type":"assistant","message":{"role":"assistant","content":[{"typ
