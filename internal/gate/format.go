@@ -11,9 +11,11 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
-// FormatGate runs gofmt, and golangci-lint --fix when the binary is on
-// PATH, over changed Go files. DESIGN.md's Gates section puts this before
-// the model ever sees a diff.
+// FormatGate runs gofmt, goimports, and golangci-lint --fix when the
+// binary is on PATH, over changed Go files. DESIGN.md's Gates section puts
+// this before the model ever sees a diff: the missing import and the
+// indentation failures in _ai_/bench/dogfood.md were both deterministic,
+// so they belong here rather than in a retry against the model.
 type FormatGate struct {
 	repoRoot string
 }
@@ -42,6 +44,10 @@ func (g *FormatGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 		return Result{Gate: g.Name(), Level: rc.Selection.Level}, err
 	}
 
+	if err := g.goimports(ctx, files); err != nil {
+		return Result{Gate: g.Name(), Level: rc.Selection.Level}, err
+	}
+
 	if lintPath, err := exec.LookPath("golangci-lint"); err == nil {
 		if err := g.golangciFix(ctx, lintPath, files); err != nil {
 			return Result{Gate: g.Name(), Level: rc.Selection.Level}, err
@@ -58,6 +64,26 @@ func (g *FormatGate) gofmt(ctx context.Context, files []string) error {
 
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("gofmt -w: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	return nil
+}
+
+// goimports fixes import blocks (adding, removing, and ordering them) over
+// files. It reports an error rather than skipping when the binary is
+// absent from PATH: a check that cannot run has not passed.
+func (g *FormatGate) goimports(ctx context.Context, files []string) error {
+	binPath, err := exec.LookPath("goimports")
+	if err != nil {
+		return fmt.Errorf("goimports not found on PATH: %w", err)
+	}
+
+	//nolint:gosec // files are this gate's own changed-file list
+	cmd := exec.CommandContext(ctx, binPath, append([]string{"-w"}, files...)...)
+	cmd.Dir = g.repoRoot
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("goimports -w: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
 	return nil

@@ -24,6 +24,9 @@ const (
 	DefaultMaxTurns = 20
 	// DefaultMaxToolCalls is the default bound on tool executions within one Run.
 	DefaultMaxToolCalls = 50
+	// DefaultMaxVerifyRounds is the default bound on verification rounds
+	// once the model reports it is done.
+	DefaultMaxVerifyRounds = 2
 )
 
 // Stop names why Run returned.
@@ -49,6 +52,9 @@ const (
 	// (hosted itself failed, or local failed on a turn already routed
 	// hosted).
 	StopFailed Stop = "provider_failed"
+	// StopVerifyFailed means the model's changes still failed verification
+	// after MaxVerifyRounds rounds.
+	StopVerifyFailed Stop = "verify_failed"
 )
 
 // ErrScriptedFailure is a sentinel a test provider may wrap to model a
@@ -72,12 +78,23 @@ type Outcome struct {
 	ToolCalls int
 }
 
+// Verifier gates a run once the model reports it is done, per DESIGN.md's
+// decision to verify once on the final turn rather than on every turn.
+// Verify reports ok=true when changes accumulated across the run pass, and
+// on failure returns feedback already trimmed to what the model may see
+// (the gate.Result.ForModel / gate.TrimFailure asymmetry).
+type Verifier interface {
+	Verify(ctx context.Context, changes []tool.Change) (feedback string, ok bool)
+}
+
 // Options bounds and configures a Loop.
 type Options struct {
-	LocalModel   string
-	HostedModel  string
-	MaxTurns     int
-	MaxToolCalls int
+	Verifier        Verifier
+	LocalModel      string
+	HostedModel     string
+	MaxTurns        int
+	MaxToolCalls    int
+	MaxVerifyRounds int
 }
 
 // Option configures a Loop.
@@ -95,6 +112,15 @@ func WithLocalModel(name string) Option { return func(o *Options) { o.LocalModel
 // WithHostedModel sets the model name sent in a request routed hosted.
 func WithHostedModel(name string) Option { return func(o *Options) { o.HostedModel = name } }
 
+// WithVerifier configures Run to gate once the model reports it is done,
+// feeding a failing verification back as a new turn instead of trusting
+// the model's own claim of completion. With no verifier configured, Run's
+// behavior on model completion is unchanged.
+func WithVerifier(v Verifier) Option { return func(o *Options) { o.Verifier = v } }
+
+// WithMaxVerifyRounds overrides DefaultMaxVerifyRounds.
+func WithMaxVerifyRounds(n int) Option { return func(o *Options) { o.MaxVerifyRounds = n } }
+
 // Loop drives one thread's tool-use turns against a local and a hosted
 // llm.Provider, chosen per turn by internal/router.
 type Loop struct {
@@ -108,7 +134,9 @@ type Loop struct {
 // New builds a Loop. Gate is consulted for any tool call whose Tool
 // implements PermissionRequester and reports the call needs approval.
 func New(local, hosted llm.Provider, tools *tool.Registry, gate permission.Gate, opts ...Option) *Loop {
-	options := Options{MaxTurns: DefaultMaxTurns, MaxToolCalls: DefaultMaxToolCalls}
+	options := Options{
+		MaxTurns: DefaultMaxTurns, MaxToolCalls: DefaultMaxToolCalls, MaxVerifyRounds: DefaultMaxVerifyRounds,
+	}
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -149,15 +177,17 @@ func (l *Loop) Run(
 
 // run holds the mutable state of one Loop.Run call.
 type run struct {
-	loop        *Loop
-	thread      *thread.Thread
-	gk          *gateKeeper
-	lastCall    *llm.ToolCall
-	system      string
-	tools       []llm.ToolSpec
-	outcome     Outcome
-	hint        router.Input
-	localFailed bool
+	loop         *Loop
+	thread       *thread.Thread
+	gk           *gateKeeper
+	lastCall     *llm.ToolCall
+	system       string
+	tools        []llm.ToolSpec
+	changes      []tool.Change
+	outcome      Outcome
+	hint         router.Input
+	verifyRounds int
+	localFailed  bool
 }
 
 func (r *run) drive(ctx context.Context) (Outcome, error) {
@@ -224,15 +254,69 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	}
 
 	if stopReason == llm.StopEndTurn {
-		r.outcome.Stop = StopComplete
-		if err := r.thread.SetState(ctx, event.StateDone); err != nil {
-			return true, Outcome{}, fmt.Errorf("setting state: %w", err)
-		}
-
-		return true, r.outcome, nil
+		return r.finishOrVerify(ctx)
 	}
 
 	return r.runTools(ctx, calls)
+}
+
+// finishOrVerify runs once the model ends its turn with no pending tool
+// call. With no verifier configured it completes exactly as before. With
+// one configured, it verifies the changes accumulated across the run: a
+// pass completes the run, a failure appends trimmed feedback as a new turn
+// so the model must fix it, and MaxVerifyRounds bounds how many times that
+// can happen before the run stops as StopVerifyFailed instead of looping
+// forever.
+func (r *run) finishOrVerify(ctx context.Context) (bool, Outcome, error) {
+	if r.loop.options.Verifier == nil {
+		return r.complete(ctx)
+	}
+
+	feedback, ok := r.loop.options.Verifier.Verify(ctx, r.changes)
+	r.verifyRounds++
+
+	if err := r.logVerify(ok); err != nil {
+		return true, Outcome{}, err
+	}
+
+	if ok {
+		return r.complete(ctx)
+	}
+
+	if r.verifyRounds >= r.loop.options.MaxVerifyRounds {
+		reason := fmt.Sprintf("verification failed after %d round(s)", r.verifyRounds)
+		out, err := r.stopBound(ctx, StopVerifyFailed, reason)
+
+		return true, out, err
+	}
+
+	if err := r.thread.AppendUser(ctx, feedback); err != nil {
+		return true, Outcome{}, fmt.Errorf("appending verification feedback: %w", err)
+	}
+
+	return false, Outcome{}, nil
+}
+
+func (r *run) complete(ctx context.Context) (bool, Outcome, error) {
+	r.outcome.Stop = StopComplete
+	if err := r.thread.SetState(ctx, event.StateDone); err != nil {
+		return true, Outcome{}, fmt.Errorf("setting state: %w", err)
+	}
+
+	return true, r.outcome, nil
+}
+
+func (r *run) logVerify(ok bool) error {
+	ev := event.Event{
+		Kind:   event.KindGate,
+		Text:   fmt.Sprintf("verification round %d", r.verifyRounds),
+		Detail: map[string]any{"round": r.verifyRounds, "pass": ok},
+	}
+	if _, err := r.thread.Log().Append(ev); err != nil {
+		return fmt.Errorf("logging verification round: %w", err)
+	}
+
+	return nil
 }
 
 func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome, error) {
@@ -289,6 +373,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) error {
 	if err != nil {
 		result = tool.Errorf("%s: %v", call.Name, err)
 	}
+	r.changes = append(r.changes, result.Changes...)
 
 	return r.appendToolResult(ctx, call, result)
 }

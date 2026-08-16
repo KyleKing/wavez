@@ -150,10 +150,10 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 			openaic.WithAPIKey(os.Getenv(HostedAPIKeyEnv)))
 	}
 
-	loop := agent.New(local, hosted, registry, permGate,
-		agent.WithLocalModel(cfg.LocalModel), agent.WithHostedModel(cfg.HostedModel))
+	runner, adapter, verifier := buildGateRunner(ctx, root, store, gateLog, cfg)
 
-	runner, adapter := buildGateRunner(ctx, root, store, gateLog, cfg)
+	loop := agent.New(local, hosted, registry, permGate,
+		agent.WithLocalModel(cfg.LocalModel), agent.WithHostedModel(cfg.HostedModel), agent.WithVerifier(verifier))
 
 	return &App{
 		Root:            root,
@@ -202,7 +202,7 @@ func buildRegistry(
 
 func buildGateRunner(
 	ctx context.Context, root string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config,
-) (*gate.Runner, *gate.CoverageAdapter) {
+) (*gate.Runner, *gate.CoverageAdapter, *GateVerifier) {
 	graph, err := gate.BuildImportGraph(ctx, root)
 	if err != nil {
 		graph = nil
@@ -215,7 +215,10 @@ func buildGateRunner(
 	manifestPath := filepath.Join(root, wavezDirName, coverageManifestFileName)
 	adapter := gate.NewCoverageAdapter(store, manifestPath, runtime.NumCPU())
 
-	return runner, adapter
+	verifyGates := []gate.Gate{gate.NewFormatGate(root), gate.NewBuildGate(root), gate.NewGoTestGate(root)}
+	verifier := NewGateVerifier(root, store, graph, gateLog, gate.RealClock{}, verifyGates)
+
+	return runner, adapter, verifier
 }
 
 // OpenThread opens or resumes a thread under this App's thread log

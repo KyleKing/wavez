@@ -61,6 +61,10 @@ type GoTestSummary struct {
 const (
 	scannerInitialBuf = 64 * 1024
 	scannerMaxBuf     = 4 * 1024 * 1024
+
+	// The go-test resource key names both GoTestGate's gate name and the
+	// build-cache resource key it shares with BuildGate.
+	goTestResource = "go-test"
 )
 
 // ParseGoTestJSON reads a `go test -json` event stream and summarizes it.
@@ -166,10 +170,10 @@ func NewGoTestGate(repoRoot string) *GoTestGate {
 }
 
 // Name identifies this gate in the gate log.
-func (*GoTestGate) Name() string { return "go-test" }
+func (*GoTestGate) Name() string { return goTestResource }
 
 // Resources reports the exclusive resource this gate holds while running.
-func (*GoTestGate) Resources() []string { return []string{"go-test"} }
+func (*GoTestGate) Resources() []string { return []string{goTestResource} }
 
 // Run executes the tests or packages rc.Selection names.
 func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
