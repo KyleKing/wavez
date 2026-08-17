@@ -108,6 +108,9 @@ const (
 	// StopVerifyFailed means the model's changes still failed verification
 	// after MaxVerifyRounds rounds.
 	StopVerifyFailed Stop = "verify_failed"
+	// StopAskedInProse means the model ended a turn offering to do the work
+	// rather than doing it, twice, having been told once to act instead.
+	StopAskedInProse Stop = "asked_in_prose"
 )
 
 // ErrScriptedFailure is a sentinel a test provider may wrap to model a
@@ -495,6 +498,10 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 			return r.handleToolCallAsText(ctx)
 		}
 
+		if len(calls) == 0 && looksLikeQuestionToUser(text) {
+			return r.handleAskedInProse(ctx)
+		}
+
 		return r.finishOrVerify(ctx)
 	}
 
@@ -650,6 +657,35 @@ func (r *run) handleToolCallAsText(ctx context.Context) (bool, Outcome, error) {
 		"That turn made no tool call. Text describing a call does nothing, whatever markup "+
 			"it uses. Make the call itself, and write no prose before it."); err != nil {
 		return true, Outcome{}, fmt.Errorf("appending tool-call-as-text critique: %w", err)
+	}
+
+	return false, Outcome{}, nil
+}
+
+// handleAskedInProse is the branch for a turn that ends by offering the
+// user more work instead of doing it. Completing here labels the run
+// complete on the model's own account of itself, which is the claim the
+// harness exists to refuse: an offer to run the tests is not a test run,
+// and the user reads `complete` as the work being finished.
+//
+// It follows the same escalate-then-stop rule as a tool call written as
+// text, since both are a turn that ended having changed nothing it said it
+// would. The critique names the question tool, because a model that
+// genuinely needs a decision has a way to get one.
+func (r *run) handleAskedInProse(ctx context.Context) (bool, Outcome, error) {
+	if r.localFailed {
+		out, err := r.stopBound(ctx, StopAskedInProse,
+			"the model offered to act instead of acting again after escalating")
+
+		return true, out, err
+	}
+
+	r.localFailed = true
+	if err := r.thread.AppendUser(ctx,
+		"Do not offer to do work; do it. If you genuinely need a decision only the user can "+
+			"make, call the question tool. Otherwise finish the task and report what you "+
+			"changed."); err != nil {
+		return true, Outcome{}, fmt.Errorf("appending asked-in-prose critique: %w", err)
 	}
 
 	return false, Outcome{}, nil
