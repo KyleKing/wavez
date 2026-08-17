@@ -54,6 +54,7 @@ type options struct {
 	maxHostedSpendUSD   float64
 	allowAll            bool
 	strictScope         bool
+	mutate              bool
 }
 
 func main() {
@@ -88,6 +89,8 @@ func run(args []string) error {
 	fs.DurationVar(&opt.maxWallClock, "max-wall-clock", 0, "cap one run's wall time (0 uses the loop default)")
 	fs.Float64Var(&opt.maxHostedSpendUSD, "max-hosted-spend", 0,
 		"cap one run's hosted-tier spend in dollars (0 uses the loop default)")
+	fs.BoolVar(&opt.mutate, "mutate", false,
+		"mutate the working copy's changed lines and report the mutants the tests missed")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -100,6 +103,15 @@ func run(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if opt.mutate {
+		root, err := resolveRoot(ctx, opt.dir)
+		if err != nil {
+			return err
+		}
+
+		return mutationCheck(ctx, root)
+	}
 
 	if opt.prompt == "" {
 		return launchTUI(ctx, opt)
@@ -360,6 +372,7 @@ Flags:
   -socket <path>  daemon socket path (defaults to <root>/.wavez/d.sock)
   -allow-all      approve every permission prompt without asking
   -strict-scope   refuse an edit to a file this run never read or created
+  -mutate         mutate the working copy's changed lines and report what the tests missed
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn
   -max-stagnant-errors <n>      cap consecutive erroring tool-call results

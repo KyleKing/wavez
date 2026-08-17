@@ -23,6 +23,10 @@ type LineCoverage interface {
 // once the tier above it could not decide for the whole batch, so a run
 // never mixes a line-level answer for one file with an importer-level
 // answer for another. The model is never consulted.
+//
+// A nil cov or graph means that tier has nothing to say, not that it
+// decided: selection drops to the next tier down, ending at the changed
+// files' own packages.
 func Select(ctx context.Context, cov LineCoverage, graph *ImportGraph, changes []tool.Change) (Selection, error) {
 	tests, ok, err := selectByLine(ctx, cov, changes)
 	if err != nil {
@@ -48,7 +52,7 @@ func Select(ctx context.Context, cov LineCoverage, graph *ImportGraph, changes [
 //
 //nolint:gocritic // named returns here would trip nonamedreturns instead; the doc comment above carries the meaning
 func selectByLine(ctx context.Context, cov LineCoverage, changes []tool.Change) ([]string, bool, error) {
-	if len(changes) == 0 {
+	if cov == nil || len(changes) == 0 {
 		return nil, false, nil
 	}
 

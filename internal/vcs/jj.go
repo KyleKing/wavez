@@ -61,6 +61,20 @@ func (*Jj) Diff(ctx context.Context, repoRoot, marker string, files []string) (s
 	return out, nil
 }
 
+// WorkingCopyDiff returns the unified git-format diff of the working-copy
+// commit against its parent: what has changed but not yet been committed.
+// This is a different question from Diff's, which compares against an
+// operation id, and an empty marker there means the repository's root
+// commit rather than the last commit.
+func (*Jj) WorkingCopyDiff(ctx context.Context, repoRoot string) (string, error) {
+	out, err := runJJ(ctx, repoRoot, "diff", "--from", "@-", "--to", "@", "--git")
+	if err != nil {
+		return "", fmt.Errorf("diffing the working copy of %s: %w", repoRoot, err)
+	}
+
+	return out, nil
+}
+
 // Capture returns the operation id of repoRoot's current state: cheap
 // enough to call before every turn, since jj snapshots the working copy as
 // a side effect of running any command, so this read alone is a restore
@@ -87,6 +101,37 @@ func (*Jj) Capture(ctx context.Context, repoRoot string) (string, error) {
 func (*Jj) Restore(ctx context.Context, repoRoot, checkpoint string) error {
 	if _, err := runJJ(ctx, repoRoot, "op", "restore", checkpoint); err != nil {
 		return fmt.Errorf("restoring %s to operation %s: %w", repoRoot, checkpoint, err)
+	}
+
+	return nil
+}
+
+// AddWorkspace creates a second working copy of repoRoot at dir, holding
+// the same content as repoRoot's working copy, uncommitted changes
+// included. A caller mutating files needs somewhere the live tree is not,
+// and this is cheaper than a copy: measured on this repo, 0.31 s for 628
+// files, and the Go build cache is shared with the main tree so the first
+// test run in a fresh workspace costs roughly a second.
+//
+// The -r @ is what makes that true. Without it jj gives the new workspace
+// the *parent* of the current working-copy commit, so every uncommitted
+// change is missing and a caller checking uncommitted work would silently
+// examine a tree without it.
+//
+// Dir must not exist. Pair every call with ForgetWorkspace.
+func (*Jj) AddWorkspace(ctx context.Context, repoRoot, name, dir string) error {
+	if _, err := runJJ(ctx, repoRoot, "workspace", "add", "-r", "@", "--name", name, dir); err != nil {
+		return fmt.Errorf("adding workspace %s at %s: %w", name, dir, err)
+	}
+
+	return nil
+}
+
+// ForgetWorkspace drops the repository's record of a workspace. It does not
+// delete dir, so a caller removes the directory itself.
+func (*Jj) ForgetWorkspace(ctx context.Context, repoRoot, name string) error {
+	if _, err := runJJ(ctx, repoRoot, "workspace", "forget", name); err != nil {
+		return fmt.Errorf("forgetting workspace %s: %w", name, err)
 	}
 
 	return nil

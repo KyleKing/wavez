@@ -102,3 +102,20 @@ func equalStrings(a, b []string) bool {
 
 	return true
 }
+
+// A caller with no coverage map at all (a one-off check outside the daemon)
+// must get the next tier down, not a panic.
+func TestSelectWithoutCoverageFallsThrough(t *testing.T) {
+	t.Parallel()
+
+	sel, err := gate.Select(context.Background(), nil, nil, []tool.Change{
+		{Path: "internal/gate/select.go", Ranges: []tool.LineRange{{Start: 1, End: 2}}},
+	})
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+
+	if sel.Level != gate.LevelPackage {
+		t.Errorf("Level = %q, want %q", sel.Level, gate.LevelPackage)
+	}
+}
