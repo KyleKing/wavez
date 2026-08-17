@@ -184,10 +184,12 @@ type Options struct {
 	Reviewer            Reviewer
 	Checkpointer        Checkpointer
 	Clock               gate.Clock
+	Hooks               Hooks
 	Pricing             map[string]ModelPricing
 	LocalModel          string
 	HostedModel         string
 	RepoRoot            string
+	Compact             thread.CompactOptions
 	MaxTurns            int
 	MaxToolCallsPerTurn int
 	MaxVerifyRounds     int
@@ -196,7 +198,6 @@ type Options struct {
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
 	CompactTrigger      float64
-	Compact             thread.CompactOptions
 	CompactEnabled      bool
 }
 
@@ -834,11 +835,25 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 		return denied, r.appendToolResult(ctx, call, denied)
 	}
 
+	proceed, err := r.preToolUse(ctx, t, call)
+	if err != nil {
+		return tool.Result{}, err
+	}
+	if !proceed {
+		refused := tool.Errorf("pre-tool-use hook refused %q", call.Name)
+
+		return refused, r.appendToolResult(ctx, call, refused)
+	}
+
 	result, err := t.Run(ctx, call.Input)
 	if err != nil {
 		result = tool.Errorf("%s: %v", call.Name, err)
 	}
 	r.changes = append(r.changes, result.Changes...)
+
+	if err := r.postToolUse(ctx, t, call, result); err != nil {
+		return tool.Result{}, err
+	}
 
 	return result, r.appendToolResult(ctx, call, result)
 }

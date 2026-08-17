@@ -37,9 +37,12 @@ type pklConfig struct {
 	Context          []string `pkl:"context"`
 	ExtraDirs        []string `pkl:"extraDirs"`
 	AstGrepRules     []string `pkl:"astGrepRules"`
+	PreToolUseHook   []string `pkl:"preToolUseHook"`
+	PostToolUseHook  []string `pkl:"postToolUseHook"`
 	ContextWindow    int      `pkl:"contextWindow"`
 	DebounceMs       int      `pkl:"debounceMs"`
 	FullRunCadence   int      `pkl:"fullRunCadence"`
+	HookTimeoutMs    int      `pkl:"hookTimeoutMs"`
 	LocalPort        int      `pkl:"localPort"`
 	LocalStartSecs   int      `pkl:"localStartTimeoutSeconds"`
 }
@@ -174,6 +177,10 @@ func fromPkl(root string, p pklConfig) Config {
 		cfg.FullRunCadence = p.FullRunCadence
 	}
 
+	if p.HookTimeoutMs != 0 {
+		cfg.HookTimeout = time.Duration(p.HookTimeoutMs) * time.Millisecond
+	}
+
 	if p.LocalPort != 0 {
 		cfg.LocalPort = p.LocalPort
 	}
@@ -185,6 +192,8 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.Context = p.Context
 	cfg.ExtraDirs = p.ExtraDirs
 	cfg.AstGrepRules = p.AstGrepRules
+	cfg.PreToolUseHook = p.PreToolUseHook
+	cfg.PostToolUseHook = p.PostToolUseHook
 
 	return cfg
 }

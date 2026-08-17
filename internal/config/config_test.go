@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,11 @@ localModel = "custom-local"
 debounceMs = 750
 localPort = 8123
 localStartTimeoutSeconds = 120
+preToolUseHook {
+  ".wavez/hooks/pre.sh"
+  "--strict"
+}
+hookTimeoutMs = 250
 `)
 
 	loader, err := config.NewLoader(context.Background())
@@ -97,6 +103,15 @@ localStartTimeoutSeconds = 120
 	}
 	if len(cfg.Context) != 1 || cfg.Context[0] != "AGENTS.md" {
 		t.Errorf("Context = %v, want [AGENTS.md]", cfg.Context)
+	}
+	if strings.Join(cfg.PreToolUseHook, " ") != ".wavez/hooks/pre.sh --strict" {
+		t.Errorf("PreToolUseHook = %v, want the argv from the config", cfg.PreToolUseHook)
+	}
+	if len(cfg.PostToolUseHook) != 0 {
+		t.Errorf("PostToolUseHook = %v, want empty when unset", cfg.PostToolUseHook)
+	}
+	if cfg.HookTimeout != 250*time.Millisecond {
+		t.Errorf("HookTimeout = %v, want 250ms", cfg.HookTimeout)
 	}
 }
 

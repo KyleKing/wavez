@@ -534,7 +534,8 @@ Features nobody praises and everybody misses. Copied from Claude Code, Codex, Op
 - Resume and continue a thread, `@file` and `@symbol` mentions, `-p` with JSON output
 - Checkpoint and undo of file changes per turn, from `jj op log` rather than snapshots wavez writes itself
 - LSP diagnostics fed back after an edit as a gate, the way Crush wires LSP into its loop
-- Two hooks, pre-tool-use and post-tool-use, as external commands
+- Two hooks, pre-tool-use and post-tool-use, as external commands named in `.wavez.pkl` as an argv and run without a shell. The payload is JSON on stdin (event, thread, tool, input, paths, and the result for post) because tool input is arbitrary and unbounded where the environment is neither, and the exit status alone carries the verdict so a stray `echo` in a hook cannot change its own answer. Pre-tool-use fails closed: a timeout, a missing program, or any nonzero exit refuses, since a hook that an attacker or a typo can disable by breaking it protects nothing
+- A hook runs after the guard and the permission gate, never instead of them, so it may object to a call they allowed and can never admit one they withheld. Its output goes to the thread log and not to the model: a refusal reaches the model as a fixed string, because a hook's own text steering the next turn would be the policy-input channel the Safety section rules out
 - Model switch and thinking toggle mid-thread, cost and token counters in the header
 - Image and screenshot input (M2), notifications on needs-input and done (M2)
 - Repo map from the store as cheap default context, after Aider (M2)

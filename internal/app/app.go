@@ -20,6 +20,7 @@ import (
 	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/gate"
+	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/openaic"
 	"github.com/kyleking/wavez/internal/permission"
@@ -287,6 +288,10 @@ func loopOptions(
 		agent.WithVerifier(verifier),
 		agent.WithReviewer(reviewer),
 		agent.WithCheckpointer(vcs.NewJj(), root),
+		agent.WithHooks(hook.New(root,
+			hook.WithPreToolUse(cfg.PreToolUseHook...),
+			hook.WithPostToolUse(cfg.PostToolUseHook...),
+			hook.WithTimeout(cfg.HookTimeout))),
 		agent.WithCompaction(thread.CompactOptions{
 			KeepLines:   compactKeepLines,
 			MaxToolAge:  compactMaxToolAge,

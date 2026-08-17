@@ -37,6 +37,10 @@ const DefaultGateDebounce = 500 * time.Millisecond
 // before a full run is forced.
 const DefaultFullRunCadence = 20
 
+// DefaultHookTimeout bounds one pre- or post-tool-use hook process, matching
+// internal/hook.DefaultTimeout.
+const DefaultHookTimeout = 5 * time.Second
+
 // Config is one project's Wavez configuration: what DESIGN.md's "Project
 // instructions" and "Gates (v0.1)" sections say v0.1 reads, and no more.
 type Config struct {
@@ -49,9 +53,17 @@ type Config struct {
 	Context          []string
 	ExtraDirs        []string
 	AstGrepRules     []string
-	ContextWindow    int
-	GateDebounce     time.Duration
-	FullRunCadence   int
+	// PreToolUseHook and PostToolUseHook are argv slices, program first,
+	// executed directly rather than through a shell. Empty means no hook, and
+	// no hook process.
+	PreToolUseHook  []string
+	PostToolUseHook []string
+	ContextWindow   int
+	GateDebounce    time.Duration
+	FullRunCadence  int
+	// HookTimeout bounds one hook process. A pre-tool-use hook that exceeds
+	// it refuses the call.
+	HookTimeout time.Duration
 	// LocalPort is the loopback port llama-server serves LocalModel on.
 	// Wavez reuses a server already answering there rather than starting a
 	// second one.
@@ -70,6 +82,7 @@ func Defaults(root string) Config {
 		ContextWindow:     DefaultContextWindow,
 		GateDebounce:      DefaultGateDebounce,
 		FullRunCadence:    DefaultFullRunCadence,
+		HookTimeout:       DefaultHookTimeout,
 		LocalPort:         DefaultLocalPort,
 		LocalStartTimeout: DefaultLocalStartTimeout,
 	}

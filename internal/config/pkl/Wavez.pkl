@@ -47,3 +47,23 @@ fullRunCadence: Int = 20
 
 /// Glob patterns for ast-grep convention rule files.
 astGrepRules: Listing<String> = new Listing {}
+
+/// Command run before every tool call, as an argv with the program first. It
+/// is executed directly, never through a shell. It reads a JSON payload on
+/// stdin (event, tool, input, paths) and answers with its exit status: 0
+/// allows, 2 refuses, and every other status refuses as a failed hook. A hook
+/// that times out, cannot start, or is killed refuses too, so breaking the
+/// hook is never a way to widen what the agent may do. Its stdout and stderr
+/// go to the thread's event log and never to the model. Empty means no hook
+/// and no hook process.
+/// Example: new Listing { ".wavez/hooks/pre-tool-use.sh" }
+preToolUseHook: Listing<String> = new Listing {}
+
+/// Command run after every tool call, as an argv with the program first. The
+/// payload adds the tool's result and whether it errored. The tool has already
+/// run, so this hook reports and cannot refuse: a nonzero exit or a timeout is
+/// logged and the run continues.
+postToolUseHook: Listing<String> = new Listing {}
+
+/// Milliseconds one hook process may run before it is killed.
+hookTimeoutMs: Int = 5000
