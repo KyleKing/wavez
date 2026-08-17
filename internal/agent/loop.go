@@ -111,6 +111,9 @@ const (
 	// StopAskedInProse means the model ended a turn offering to do the work
 	// rather than doing it, twice, having been told once to act instead.
 	StopAskedInProse Stop = "asked_in_prose"
+	// StopAnnouncedNotDone means the model ended a turn announcing its next
+	// step and taking none, twice, having been told once to act instead.
+	StopAnnouncedNotDone Stop = "announced_not_done"
 )
 
 // ErrScriptedFailure is a sentinel a test provider may wrap to model a
@@ -511,12 +514,8 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	}
 
 	if stopReason == llm.StopEndTurn {
-		if len(calls) == 0 && looksLikeToolCallText(text, r.toolNames()) {
-			return r.handleToolCallAsText(ctx)
-		}
-
-		if len(calls) == 0 && looksLikeQuestionToUser(text) {
-			return r.handleAskedInProse(ctx)
+		if len(calls) == 0 {
+			return r.endTurnWithoutCalls(ctx, text)
 		}
 
 		return r.finishOrVerify(ctx)
@@ -679,30 +678,50 @@ func (r *run) handleToolCallAsText(ctx context.Context) (bool, Outcome, error) {
 	return false, Outcome{}, nil
 }
 
-// handleAskedInProse is the branch for a turn that ends by offering the
-// user more work instead of doing it. Completing here labels the run
-// complete on the model's own account of itself, which is the claim the
-// harness exists to refuse: an offer to run the tests is not a test run,
-// and the user reads `complete` as the work being finished.
+// endTurnWithoutCalls handles a turn that ended with no tool call. Most
+// such turns are the model reporting it is done; the three checks here are
+// the ones that are not, each a turn that changed nothing it said it would.
+func (r *run) endTurnWithoutCalls(ctx context.Context, text string) (bool, Outcome, error) {
+	switch {
+	case looksLikeToolCallText(text, r.toolNames()):
+		return r.handleToolCallAsText(ctx)
+	case looksLikeQuestionToUser(text):
+		return r.handleTalkedNotActed(ctx, StopAskedInProse,
+			"the model offered to act instead of acting again after escalating",
+			"Do not offer to do work; do it. If you genuinely need a decision only the user "+
+				"can make, call the question tool. Otherwise finish the task and report what "+
+				"you changed.")
+	case looksLikeAnnouncedAction(text):
+		return r.handleTalkedNotActed(ctx, StopAnnouncedNotDone,
+			"the model announced a next step and took none again after escalating",
+			"That turn ended by announcing a step and taking none. Make the call you just "+
+				"described, in this turn, with no prose before it.")
+	default:
+		return r.finishOrVerify(ctx)
+	}
+}
+
+// handleTalkedNotActed is the branch for a turn that ends describing work
+// instead of doing it, whether by offering it or by announcing it.
+// Completing here labels the run complete on the model's own account of
+// itself, which is the claim the harness exists to refuse: an offer to run
+// the tests is not a test run, and the user reads `complete` as the work
+// being finished.
 //
 // It follows the same escalate-then-stop rule as a tool call written as
-// text, since both are a turn that ended having changed nothing it said it
-// would. The critique names the question tool, because a model that
-// genuinely needs a decision has a way to get one.
-func (r *run) handleAskedInProse(ctx context.Context) (bool, Outcome, error) {
+// text, since all three are a turn that ended having changed nothing it
+// said it would: the first occurrence hands the model a critique and lets
+// the next turn run hosted, and a second stops the run.
+func (r *run) handleTalkedNotActed(ctx context.Context, stop Stop, reason, critique string) (bool, Outcome, error) {
 	if r.localFailed {
-		out, err := r.stopBound(ctx, StopAskedInProse,
-			"the model offered to act instead of acting again after escalating")
+		out, err := r.stopBound(ctx, stop, reason)
 
 		return true, out, err
 	}
 
 	r.localFailed = true
-	if err := r.thread.AppendUser(ctx,
-		"Do not offer to do work; do it. If you genuinely need a decision only the user can "+
-			"make, call the question tool. Otherwise finish the task and report what you "+
-			"changed."); err != nil {
-		return true, Outcome{}, fmt.Errorf("appending asked-in-prose critique: %w", err)
+	if err := r.thread.AppendUser(ctx, critique); err != nil {
+		return true, Outcome{}, fmt.Errorf("appending %s critique: %w", stop, err)
 	}
 
 	return false, Outcome{}, nil

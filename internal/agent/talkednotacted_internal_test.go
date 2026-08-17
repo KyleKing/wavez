@@ -34,3 +34,38 @@ func TestLooksLikeQuestionToUser(t *testing.T) {
 		})
 	}
 }
+
+func TestLooksLikeAnnouncedAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{
+			name: "the closing announcement a real run produced",
+			text: "The error indicates a permission issue.\n\nI'll start by running the `hk check --all` command.",
+			want: true,
+		},
+		{name: "let me", text: "Let me check the test output first.", want: true},
+		{
+			name: "an announcement that does not open the closing line",
+			text: "Fixed in lease.go, and I'll stop there.",
+			want: false,
+		},
+		{name: "a closing question is the other detector's job", text: "Shall I run the tests?", want: false},
+		{name: "an ordinary report", text: "Renamed DefaultTTL to TTL across 3 files.", want: false},
+		{name: "empty", text: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := looksLikeAnnouncedAction(tt.text); got != tt.want {
+				t.Errorf("looksLikeAnnouncedAction(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}

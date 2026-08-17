@@ -24,6 +24,38 @@ func offerTurn() fake.Turn {
 	}
 }
 
+// announceTurn is the turn shape observed from qwen3:8b on this repo: the
+// model narrates a plan and ends the turn without making the call.
+func announceTurn() fake.Turn {
+	return fake.Turn{
+		Text: []string{
+			"The error indicates a permission issue.\n\n",
+			"I'll start by running the `hk check --all` command to see what is failing.",
+		},
+		StopReason: llm.StopEndTurn,
+	}
+}
+
+// TestRun_AnnouncingAnActionIsNotTakingIt pins the second half of the same
+// failure: a run whose closing turn announced a command and ran none still
+// reported StopComplete.
+func TestRun_AnnouncingAnActionIsNotTakingIt(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local", announceTurn())
+	hosted := fake.New("hosted", announceTurn())
+	loop := agent.New(local, hosted, tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll())
+
+	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if out.Stop != agent.StopAnnouncedNotDone {
+		t.Errorf("Stop = %q, want %q", out.Stop, agent.StopAnnouncedNotDone)
+	}
+}
+
 // TestRun_OfferingToActIsNotSuccess pins the outcome a real run produced:
 // the model edited two files wrongly, closed by offering to run the tests,
 // and the run reported StopComplete, so an unverified offer read as
