@@ -345,6 +345,41 @@ Roles beyond linting:
 - Run history and trimmed outputs stored per routine. Failure output uses the same trimming as gates
 - Compiled DAG is a disposable artifact keyed by the pkl content hash. Drift means recompile, not patch
 
+### Cycles (M2)
+
+A Cycle is a named, reusable, phased way of working on a class of problem, defined in `.wavez.pkl` beside routines. Routines are deterministic DAGs with no model in them; a Cycle is the opposite arrangement, model work in each phase with a deterministic check between. The fix cycle is the first one: reproduce, fix, generalize. Others are expected (red-green-refactor for a feature, inventory-transform-verify for a migration), which is why the concept is named rather than the one process being hard-coded.
+
+The distinction from a prompt that describes the same steps, or from a Skill that packages such a prompt, is one property: **a phase advances on a Condition the harness evaluates, never on the model reporting it is done.** That is the same rule the agent loop already follows at turn granularity, so `Condition` is shared between a Loop's stop reasons and a phase's exit gate. [docs/glossary.md](docs/glossary.md) has the lifecycle diagrams.
+
+**The fix cycle's phases and their exit conditions.**
+
+| Phase | Exits when |
+|---|---|
+| Reproduce | An artifact demonstrably fails on the current tree: a failing test, a captured log line, or an experiment whose output flips |
+| Fix | That artifact passes and the normal gates are green |
+| Generalize | A recorded sweep for the same cause has every hit either fixed or dismissed with a reason, or the sweep is shown not to discriminate and a durable artifact is named instead |
+
+Measured in `_ai_/demos/fail-to-pass`: the reproduce and fix conditions are checkable today by reverting a change's non-test hunks in a throwaway worktree and re-running its tests. Over 30 commits, 16 of the 19 that touched Go code were fail-to-pass, 3 shipped untested code, and none shipped a test that survives its own fix being undone. At ~7 s per commit this is cheap enough to gate on. Read another way it is mutation testing with one maximally relevant mutant, undo the fix, which is why the same machinery serves the Cycles exit gate and the mutation gate below.
+
+**Tool narrowing is a routing lever, not a fence.** A phase declares which tools it may use, and the reason is efficiency rather than safety: a narrow phase with a narrow tool surface is a job a small local model can drive, which is where the token and latency argument lives. It is explicitly not a guarantee. A model that cannot edit source can still reach a green gate through a suppression comment, a mock, or a hardcoded return, so the exit conditions have to be strong enough that cheating them is harder than doing the work. That is the argument for the mutation gate, not for tighter fences.
+
+**Concurrency comes from independence, not from fan-out.** Hypotheses that mutate the working tree cannot run beside each other, so most sequences stay sequential. The opportunity is detecting genuinely independent streams (read-only experiments, and mutating ones isolated in their own jj workspace) and running those concurrently, keyed on what each touches, which is the same subtree-lease question the scheduler already answers for threads. Blanket fan-out over hypotheses is not the design.
+
+**What crosses a phase boundary.** Measured in `_ai_/demos/context-shape` over 11 real transcripts (318 KB, ~79.5k tokens): 74.6% is model prose, 21.2% tool output, 1.8% bookkeeping, and only 2.4% is content no tool can produce again. The session's largest investigation distils to a hypothesis ledger of 360 tokens: candidate cause, experiment, observation, verdict, one row each. That ledger, the standing goal, and the change set are what a phase carries; everything else is re-read on demand, which also cannot go stale the way a carried summary can.
+
+Attempts themselves need no storage, since jj snapshots the working copy on every command and history rewriting does not touch the operation log (measured: after squashing a commit away, `jj --at-op` still reads its content and the op log grew rather than shrank). That makes the op log good working memory and useless as institutional memory: it is local, and a fresh clone of a squash-merged branch has neither the commits nor the log. Only a tracked file survives, which is the real argument for the generalize phase, since its output is the only one that does.
+
+**Where the sweep works.** Measured in `_ai_/demos/pattern-sweep` on two real causes: a local syntactic cause (a gate returning pass after examining nothing) resolved to an `ast-grep` pattern that found all four sibling sites across three files with no false positives, while a dataflow cause spanning functions returned 100 hits of noise. So the generalize phase is seedable, not automatic, and its exit condition must accept "the sweep does not discriminate here, and the durable artifact is a helper or a boundary test instead".
+
+### Mutation testing as a verification gate (M3)
+
+Coverage says a line ran, not that anything checked it, and this project has already shipped a gate that reported green having run zero tests. Mutation testing is the general form of that question, so it belongs in the verification round rather than in a cadence job.
+
+- Scope it to the change, not the module: mutate only the changed line ranges and run only the tests the coverage map says cover those lines, which is a handful of tests per mutant rather than a suite. The store already holds both halves
+- Operators worth having first: conditional boundary, negated condition, removed statement, flipped bool literal, zero-valued return. Five cover most of the value
+- A surviving mutant on a changed line is reported like a failing test, with the mutant and the tests that ignored it
+- `gremlins` is the maintained Go tool (v0.6.0, December 2025) and already skips uncovered mutants and gates on a score, but it runs a whole module and gathers full coverage first, which is minutes here, and it has no diff mode. It stays a candidate for a cadence backstop, not for the per-run gate
+
 ### Modifiers (M3)
 
 - Tools the model calls with a symbol and a target: rename, move, extract, inline, add import, organize imports, stub from signature or interface, fill struct, add struct tag, structural rewrite by pattern
@@ -526,6 +561,9 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of code intelligence, facing one external index (codegraph, Codanna, Serena) vs an own store, we own the SQLite schema and the tree-sitter, FTS, vector, and coverage indexers in Go and take `codegraph` as an edge adapter, to keep the central store under Wavez's control and let every subsystem query one file, accepting that call-edge resolution depends on an external binary until an own resolver replaces it per language
 - In the context of retrieval for a small local model, facing embedding RAG vs graph and lexical first, we make fuzzy plus graph the primary path with a repo map and one-hop neighbourhood on the first turn and semantic search a secondary mode, to fit a 4-32k window in one or two turns, accepting weaker recall on natural-language questions until the semantic mode is measured
 - In the context of workflow semantics, facing embedding a Go workflow library vs writing a scheduler, we write a small in-process DAG runner, to keep it single-process and testable, accepting that we own it
+- In the context of repeatable ways of working (fix a bug, add a feature, run a migration), facing a Skill-style prompt bundle vs a phased process the harness can refuse to advance, we ship Cycles whose phases exit on a Condition the harness evaluates, to make "did the step actually happen" a check rather than a claim, accepting that we own a second scheduling concept beside Routines and that a determined model can still satisfy a weak Condition dishonestly
+- In the context of what a phase carries forward, facing a compacted narrative vs a typed ledger plus re-derivation, we carry the standing goal, the change set, and a ledger of falsified hypotheses and re-read everything else on demand, to keep a multi-phase run's context flat rather than growing, accepting that the model's reasoning prose is discarded and that some of it was worth more than the ledger row it collapsed to. Measured at 2.4% of a real transcript being content no tool can reproduce
+- In the context of proving a check checks anything, facing coverage thresholds vs mutation testing, we gate the verification round on mutants of the changed lines run against their covering tests, to answer the question coverage cannot, accepting the cost of owning AST mutation operators because no Go tool offers a diff-scoped mode
 - In the context of the local runtime, facing Ollama vs llama-server on the same engine, we serve through `llama-server` and keep Ollama for model management, to get n-gram speculation, tunable prefix reuse, and grammar-constrained output, accepting that Wavez manages the server process and GGUF path itself
 - In the context of a 16 GB M2 Pro, facing local-only vs hosted-only vs router, we run local first with escalation to OpenRouter after one failure or on task shape, to keep routine edits offline and cheap, accepting that multi-file work will mostly go hosted
 - In the context of picking the hosted model, facing the cheapest coder model vs a reliably tool-calling one, we rank native tool-call reliability above price and default to `openai/gpt-5-mini`, to make the escalation tier actually able to act, accepting roughly 4x the input price of the cheapest option and a closed-weight default. A turn that writes its tool call as prose is caught and failed rather than reported complete, since a model that changes nothing must never look like one that succeeded
@@ -551,8 +589,8 @@ done when its condition holds, and nothing here promises a release number.
 | Milestone | Done when | Ships |
 |---|---|---|
 | M1 Loop | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
-| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule | pkl routines, DAG runner, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta, local model management |
-| M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
+| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold | pkl routines, DAG runner, Cycles with the fix cycle, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta, local model management |
+| M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, change-scoped mutation gate, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim`, MCP on demand, web search, context manifest and Ask-a-line |
 | M4 Away | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | M5 Proof | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
 
@@ -596,6 +634,9 @@ No:
 - Bubble Tea v2 broke imports and APIs in February 2026 (`charm.land/...` paths, `View() tea.View`, `tea.KeyPressMsg`, FPS-capped cell-diff renderer), so Crush-era snippets need translation. The spike found no scroll stall at 100 events/s and rolled its own virtualized transcript because `bubbles/v2` viewport and list do not fit a live-growing log
 
 ## Open questions
+
+- Cycles: whether a phase carrying a 360-token ledger instead of the full transcript produces equally good work, which `_ai_/demos/context-shape` bounds but does not answer
+- Cycles: how to detect that two experiments are independent enough to run concurrently, beyond "neither writes the tree"
 
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
 - Intent edits: hole-fill correctness with retry-against-gates and hosted escalation, and whether `qwen2.5-coder` infill beats chat-style fill on qwen3:8b

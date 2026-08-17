@@ -2,7 +2,7 @@
 
 A personal AI coding agent built for one user, one laptop, and repeated narrow work. It spends fewer tokens by doing the predictable parts of coding deterministically (which tests to run, how to rename a symbol, what to strip from context) and reserves the model for the parts that need judgment.
 
-Status: M1 in progress. [DESIGN.md](DESIGN.md) holds the architecture, screens, per-feature requirements, decisions, and milestones. `_ai_/` holds the half-finished projects and research this consolidates.
+Status: M1 in progress. [docs/glossary.md](docs/glossary.md) is the map: the vocabulary, how a turn and a cycle run, and the decisions worth knowing before reading code. [DESIGN.md](DESIGN.md) holds the architecture, screens, per-feature requirements, decisions, and milestones. `_ai_/` holds the half-finished projects and research this consolidates.
 
 ## What it does differently
 

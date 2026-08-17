@@ -22,6 +22,14 @@ Research, notes, and demos behind [DESIGN.md](../DESIGN.md). Nothing here is sou
 | `merge-based-stacking.md`, `stacked-pr-review-skill.md` | Deferred VCS work: merge-forward stacks and review state that survives force-pushes |
 | `hunk-review-ideas.md` | Deferred VCS work: hunk-style review from Neovim over jj |
 
+## Demos feeding Cycles
+
+| Demo | Establishes |
+|---|---|
+| `demos/fail-to-pass/` | A fix's exit condition is checkable by reverting its non-test hunks: 16 of 19 Go-touching commits over 30 are fail-to-pass, ~7 s each |
+| `demos/pattern-sweep/` | The generalize phase is seedable for a local syntactic cause (4 sites, no false positives) and noise for a dataflow one (100 hits) |
+| `demos/context-shape/` | 97.6% of a real transcript is re-derivable; the session's largest investigation distils to a 360-token hypothesis ledger |
+
 ## Relocated projects
 
 | Now at | Was | Keeps in Wavez |
