@@ -1,3 +1,9 @@
+## v0.8.1 (2026-08-17)
+
+### Fix
+
+- **agent**: bound the stream by the run deadline and stop retrying a pinned tier
+
 ## v0.8.0 (2026-08-17)
 
 ### Feat
