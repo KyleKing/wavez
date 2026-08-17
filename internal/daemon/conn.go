@@ -172,6 +172,10 @@ func (c *conn) handle(cmd api.Command) {
 		c.handleDiff(cmd)
 	case api.CmdRestore:
 		c.handleRestore(cmd)
+	case api.CmdRoute:
+		c.handleRoute(cmd)
+	case api.CmdThink:
+		c.handleThink(cmd)
 	case api.CmdDiag:
 		diag := c.srv.diagnostics()
 		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
@@ -220,6 +224,34 @@ func (c *conn) handleRestore(cmd api.Command) {
 	}
 
 	c.reply(cmd.ID, api.Reply{Kind: api.RepRestore, Restore: &res})
+}
+
+func (c *conn) handleRoute(cmd api.Command) {
+	if err := c.srv.mgr.setOverride(cmd.ThreadID, cmd.Override); err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	mt, ok := c.srv.mgr.get(cmd.ThreadID)
+	if !ok {
+		return
+	}
+	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
+}
+
+func (c *conn) handleThink(cmd api.Command) {
+	if err := c.srv.mgr.setThinking(cmd.ThreadID, cmd.Thinking); err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	mt, ok := c.srv.mgr.get(cmd.ThreadID)
+	if !ok {
+		return
+	}
+	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
 }
 
 func (c *conn) handleSend(cmd api.Command) {

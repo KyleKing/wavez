@@ -504,6 +504,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		System:   r.system,
 		Tools:    r.tools,
 		Messages: messages,
+		Thinking: r.hint.Thinking,
 	}
 
 	text, calls, usage, stopReason, err := r.stream(ctx, provider, req)

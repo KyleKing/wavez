@@ -12,6 +12,13 @@ const (
 	ChoiceHosted Choice = "hosted"
 )
 
+// Valid reports whether c names a tier Route can serve a turn from. The
+// empty Choice is not valid: as an Input.Override it means no override at
+// all, which is a caller's decision to make rather than a tier.
+func (c Choice) Valid() bool {
+	return c == ChoiceLocal || c == ChoiceHosted
+}
+
 // LocalContextBudget is the token budget above which a turn escalates to
 // hosted, matching the served context of the v0.1 llama-server runtime
 // (DESIGN.md "Model routing").
@@ -20,6 +27,11 @@ const LocalContextBudget = 8000
 // Input describes one turn's task shape for routing. It carries no live
 // provider state, so Route stays a pure function of it.
 type Input struct {
+	// Thinking turns a hybrid model's reasoning trace on or off for this
+	// turn. Nil leaves the served model's own default, since the runtime
+	// flag is meaningful in both states and a request that omits the field
+	// must not silently flip it.
+	Thinking        *bool
 	Override        Choice
 	FileCount       int
 	EstimatedTokens int

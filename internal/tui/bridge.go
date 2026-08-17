@@ -8,6 +8,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/router"
 )
 
 // daemonClient is the subset of api.Client the model drives commands
@@ -20,6 +21,8 @@ type daemonClient interface {
 	answer(promptID, text string, decision permission.Decision) tea.Cmd
 	diff(threadID string) tea.Cmd
 	restore(threadID string, confirm bool) tea.Cmd
+	route(threadID string, override router.Choice) tea.Cmd
+	think(threadID string, thinking *bool) tea.Cmd
 	newThread(prompt, model, parent string, dirs []string) tea.Cmd
 }
 
@@ -141,6 +144,34 @@ func (b *bridge) restore(threadID string, confirm bool) tea.Cmd {
 		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdRestore, ThreadID: threadID, Confirm: confirm})
 		if err != nil {
 			return restoreErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+func (b *bridge) think(threadID string, thinking *bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdThink, ThreadID: threadID, Thinking: thinking})
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+func (b *bridge) route(threadID string, override router.Choice) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdRoute, ThreadID: threadID, Override: override})
+		if err != nil {
+			return connErrMsg{err: err}
 		}
 
 		return reply

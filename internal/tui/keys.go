@@ -30,6 +30,9 @@ const (
 	labelOpen   = "open"
 	labelQuit   = "quit"
 	labelUndo   = "undo"
+
+	kindVerb    = "verb"
+	msgNoThread = "no thread selected"
 )
 
 // boxPad is the horizontal space a frame's border and inner padding consume,

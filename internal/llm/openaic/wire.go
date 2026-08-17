@@ -9,12 +9,17 @@ import (
 type wireRequest struct {
 	StreamOptions  *wireStreamOptions  `json:"stream_options,omitempty"`
 	ResponseFormat *wireResponseFormat `json:"response_format,omitempty"`
-	Model          string              `json:"model"`
-	Messages       []wireMessage       `json:"messages"`
-	Tools          []wireTool          `json:"tools,omitempty"`
-	MaxTokens      int                 `json:"max_tokens,omitempty"`
-	Temperature    float64             `json:"temperature,omitempty"`
-	Stream         bool                `json:"stream"`
+	// ChatTemplateKwargs is llama.cpp's per-request hook into the chat
+	// template. It overrides the server's own --chat-template-kwargs in both
+	// directions, which is what makes a reasoning toggle cost a request
+	// rather than a model reload.
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+	Model              string         `json:"model"`
+	Messages           []wireMessage  `json:"messages"`
+	Tools              []wireTool     `json:"tools,omitempty"`
+	MaxTokens          int            `json:"max_tokens,omitempty"`
+	Temperature        float64        `json:"temperature,omitempty"`
+	Stream             bool           `json:"stream"`
 }
 
 type wireStreamOptions struct {
@@ -94,7 +99,17 @@ func toWireRequest(model string, req llm.Request) wireRequest {
 		Stream:         true,
 		StreamOptions:  &wireStreamOptions{IncludeUsage: true},
 		ResponseFormat: toWireResponseFormat(req.ResponseFormat),
+
+		ChatTemplateKwargs: toChatTemplateKwargs(req.Thinking),
 	}
+}
+
+func toChatTemplateKwargs(thinking *bool) map[string]any {
+	if thinking == nil {
+		return nil
+	}
+
+	return map[string]any{"enable_thinking": *thinking}
 }
 
 func toWireResponseFormat(rf *llm.ResponseFormat) *wireResponseFormat {

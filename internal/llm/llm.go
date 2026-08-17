@@ -55,12 +55,18 @@ type ResponseFormat struct {
 // so they form a cacheable prefix.
 type Request struct {
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
-	Model          string          `json:"model"`
-	System         string          `json:"system,omitempty"`
-	Messages       []Message       `json:"messages"`
-	Tools          []ToolSpec      `json:"tools,omitempty"`
-	MaxTokens      int             `json:"max_tokens,omitempty"`
-	Temperature    float64         `json:"temperature,omitempty"`
+	// Thinking turns a hybrid model's reasoning trace on or off for this one
+	// call. Nil leaves the served model's own default alone, which is the
+	// only way to say "do not care": the flag is meaningful in both states.
+	// Measured on qwen3:8b, replying "OK" costs 79 completion tokens with it
+	// on and 2 with it off.
+	Thinking    *bool      `json:"thinking,omitempty"`
+	Model       string     `json:"model"`
+	System      string     `json:"system,omitempty"`
+	Messages    []Message  `json:"messages"`
+	Tools       []ToolSpec `json:"tools,omitempty"`
+	MaxTokens   int        `json:"max_tokens,omitempty"`
+	Temperature float64    `json:"temperature,omitempty"`
 }
 
 // Usage counts tokens for one model call.

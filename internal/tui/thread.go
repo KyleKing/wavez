@@ -10,6 +10,7 @@ import (
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/router"
 )
 
 // Focus indices within Thread view's three panels, cycled by Tab.
@@ -86,10 +87,15 @@ func (m Model) updateThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 }
 
 // threadNavKey handles the keys that move between threads and panels. Each
-// letter key is inert while the user is typing, so a message can contain the
-// word "diff" without opening one.
+// letter key is inert whenever the input panel holds focus, so a message
+// may start with any letter. Focus, not the input's contents, is the test:
+// keying off a non-empty value ate the first character of every message.
 func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
-	typing := m.focus == focusInput && m.thread.input.Value() != ""
+	typing := m.focus == focusInput
+
+	if mm, cmd, handled := m.threadPinKey(s, typing); handled {
+		return mm, cmd, true
+	}
 
 	switch s {
 	case "[":
@@ -128,6 +134,28 @@ func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
 		}
 
 		mm, cmd := m.requestRestore()
+
+		return mm, cmd, true
+	default:
+		return m, nil, false
+	}
+}
+
+// threadPinKey handles the two keys that pin how the next turn runs. They
+// are inert while a message is being typed, like every other letter verb on
+// this screen.
+func (m Model) threadPinKey(s string, typing bool) (Model, tea.Cmd, bool) {
+	if typing {
+		return m, nil, false
+	}
+
+	switch s {
+	case "t":
+		mm, cmd := m.cycleThinking()
+
+		return mm, cmd, true
+	case "m":
+		mm, cmd := m.cycleRoute()
 
 		return mm, cmd, true
 	default:
@@ -269,8 +297,21 @@ func (m Model) renderThread() string {
 
 // activeModel names the model serving this thread. ThreadInfo.Model carries
 // only an override, so a thread without one is served by the daemon's local
-// model rather than by nothing.
+// model rather than by nothing. A pinned tier is named instead of the model,
+// since the daemon reports no name for the hosted one and a pin is what
+// decides the tier either way.
 func (m Model) activeModel(info api.ThreadInfo) string {
+	switch info.Override {
+	case router.ChoiceHosted:
+		return "hosted·pinned"
+	case router.ChoiceLocal:
+		return m.servingModel(info) + "·pinned"
+	default:
+		return m.servingModel(info)
+	}
+}
+
+func (m Model) servingModel(info api.ThreadInfo) string {
 	if info.Model != "" {
 		return info.Model
 	}
@@ -437,7 +478,7 @@ func changeSummary(tr *transcript, width int) []string {
 }
 
 // threadHintTail is the count of hints threadHints appends after its head.
-const threadHintTail = 8
+const threadHintTail = 9
 
 func threadHints(search searchState) []hint {
 	if search.editing {
@@ -470,6 +511,8 @@ func threadHints(search searchState) []hint {
 		hint{"]", "next"},
 		hint{"i", labelInbox},
 		hint{"u", "undo"},
+		hint{"m", "route"},
+		hint{"t", "think"},
 	)
 	hints = append(hints, back...)
 

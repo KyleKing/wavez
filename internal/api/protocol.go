@@ -9,6 +9,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/router"
 )
 
 // Protocol is the wire version. A client refuses a server that does not match.
@@ -29,6 +30,10 @@ const (
 	CmdDiag      CommandKind = "diag"
 	CmdDiff      CommandKind = "diff"
 	CmdRestore   CommandKind = "restore"
+	CmdRoute     CommandKind = "route"
+	// CmdThink turns a hybrid model's reasoning trace on or off for a
+	// thread's next turn.
+	CmdThink CommandKind = "think"
 )
 
 // Command is one request. ID correlates the Reply and is chosen by the client.
@@ -42,6 +47,14 @@ type Command struct {
 	Prompt string `json:"prompt,omitempty"`
 	// Model overrides the router for this thread.
 	Model string `json:"model,omitempty"`
+	// Override pins ThreadID to one routing tier for every turn it runs
+	// from now on. Empty clears the pin back to automatic routing, which is
+	// why route carries no separate clear command.
+	Override router.Choice `json:"override,omitempty"`
+	// Thinking turns a hybrid model's reasoning trace on or off. Nil
+	// restores the served model's own default, which the flag sets in both
+	// directions, so absent and false are not the same thing.
+	Thinking *bool `json:"thinking,omitempty"`
 	// Parent makes this a sub-thread.
 	Parent string `json:"parent,omitempty"`
 	// Answer carries a permission decision or a question's text.
@@ -104,6 +117,13 @@ type ThreadInfo struct {
 	Dir       string    `json:"dir"`
 	Parent    string    `json:"parent,omitempty"`
 	Model     string    `json:"model,omitempty"`
+	// Override is the routing tier this thread is pinned to, empty when it
+	// routes automatically. A client renders it because a pinned tier is not
+	// recoverable from the model name alone.
+	Override router.Choice `json:"override,omitempty"`
+	// Thinking is the thread's reasoning-trace pin, nil when the thread
+	// follows the served model's own default.
+	Thinking *bool `json:"thinking,omitempty"`
 	// Checkpoint is the operation id captured before the thread's first
 	// turn, empty until it has run one. A client offers undo only for a
 	// thread that has one.

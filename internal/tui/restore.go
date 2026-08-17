@@ -27,7 +27,7 @@ type restoreErrMsg struct{ err error }
 func (m Model) requestRestore() (Model, tea.Cmd) {
 	info, ok := m.activeThread()
 	if !ok {
-		m.status = "no thread selected"
+		m.status = msgNoThread
 
 		return m, nil
 	}

@@ -73,7 +73,7 @@ func (m Model) updateSearchKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 func (m Model) threadSearchKey(s string) (Model, tea.Cmd, bool) {
 	switch s {
 	case "/":
-		if m.focus == focusInput && m.thread.input.Value() != "" {
+		if m.focus == focusInput {
 			return m, nil, false
 		}
 

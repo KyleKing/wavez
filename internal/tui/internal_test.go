@@ -13,6 +13,7 @@ import (
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/router"
 )
 
 func TestTranscript_CoalescesAgentText(t *testing.T) {
@@ -66,6 +67,18 @@ type fakeClient struct {
 	diffed   []string
 	created  []created
 	restores []restoreCall
+	routes   []routeCall
+	thinks   []thinkCall
+}
+
+type routeCall struct {
+	threadID string
+	override router.Choice
+}
+
+type thinkCall struct {
+	thinking *bool
+	threadID string
 }
 
 type restoreCall struct {
@@ -91,6 +104,18 @@ func (*fakeClient) send(string, string) tea.Cmd { return nil }
 
 func (f *fakeClient) restore(threadID string, confirm bool) tea.Cmd {
 	f.restores = append(f.restores, restoreCall{threadID: threadID, confirm: confirm})
+
+	return nil
+}
+
+func (f *fakeClient) think(threadID string, thinking *bool) tea.Cmd {
+	f.thinks = append(f.thinks, thinkCall{threadID: threadID, thinking: thinking})
+
+	return nil
+}
+
+func (f *fakeClient) route(threadID string, override router.Choice) tea.Cmd {
+	f.routes = append(f.routes, routeCall{threadID: threadID, override: override})
 
 	return nil
 }

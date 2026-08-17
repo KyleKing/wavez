@@ -11,6 +11,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tui"
 )
@@ -274,4 +275,34 @@ func TestThread_UndoConfirmationShowsWhatItDiscards(t *testing.T) {
 	assert.Contains(t, out, "internal/lease/lease.go")
 	assert.Contains(t, out, "1 files changed")
 	assert.Contains(t, out, "[y]es")
+}
+
+// The header is the only standing surface that says which tier a thread is
+// pinned to, so a pin that does not reach it is invisible between turns.
+func TestThread_HeaderNamesThePinnedTier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		override router.Choice
+		want     string
+	}{
+		{name: "unpinned shows the local model", override: "", want: "qwen3:8b "},
+		{name: "pinned local", override: router.ChoiceLocal, want: "qwen3:8b·pinned"},
+		{name: "pinned hosted", override: router.ChoiceHosted, want: "hosted·pinned"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := newSized(t, tui.Options{NoColor: true}, 120, 24)
+			m = apply(t, m, api.Reply{Kind: api.RepDiag, Diag: &api.Diagnostics{LocalModel: "qwen3:8b"}})
+			m = openThread(t, m, []api.ThreadInfo{
+				{ID: "t1", Name: "fix-lock", Dir: "wavez", State: event.StateWorking, Override: tc.override},
+			})
+
+			assert.Contains(t, m.View().Content, tc.want)
+		})
+	}
 }

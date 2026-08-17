@@ -229,6 +229,26 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 // capturingText reports whether a text field currently owns keystrokes, so
 // handleGlobalKey does not steal a letter the user meant to type (an "i" in
 // the palette search, a "D" in the filter box) as a screen shortcut.
+// Focus follows the panel: the thread's message input takes keyboard focus whenever
+// the input panel is the focused one. Bubbles' textinput drops every key
+// while blurred, so moving the focus index alone left the input dead and
+// its letters falling through to the screen's verb keys.
+func (m Model) syncInputFocus() Model {
+	if m.top() != screenThread {
+		return m
+	}
+
+	if m.focus == focusInput {
+		m.thread.input.Focus()
+
+		return m
+	}
+
+	m.thread.input.Blur()
+
+	return m
+}
+
 func (m Model) capturingText() bool {
 	switch {
 	case m.palette.open, m.restore.open:
@@ -259,11 +279,11 @@ func (m Model) handleGlobalKey(s string) (Model, tea.Cmd, bool) {
 	case keyTab:
 		m.focus = (m.focus + 1) % m.panelCount()
 
-		return m, nil, true
+		return m.syncInputFocus(), nil, true
 	case "shift+tab":
 		m.focus = (m.focus - 1 + m.panelCount()) % m.panelCount()
 
-		return m, nil, true
+		return m.syncInputFocus(), nil, true
 	}
 
 	if m.capturingText() {
@@ -332,7 +352,7 @@ type connErrMsg struct{ err error }
 func (m *Model) applyReply(r api.Reply) {
 	switch r.Kind {
 	case api.RepThreads:
-		m.threads = r.Threads
+		m.replaceThreads(r.Threads)
 	case api.RepThread:
 		if r.Thread != nil {
 			m.upsertThread(*r.Thread)
@@ -363,9 +383,33 @@ func (m *Model) applyReply(r api.Reply) {
 	}
 }
 
+// replaceThreads takes Home's polled list. It is the only path that sees
+// most threads at all, so the failure notice has to run here too and not
+// only on a reply about one thread.
+func (m *Model) replaceThreads(next []api.ThreadInfo) {
+	for i := range next {
+		if prev, ok := m.threadByID(next[i].ID); ok {
+			m.notePinnedFailure(prev, next[i])
+		}
+	}
+
+	m.threads = next
+}
+
+func (m *Model) threadByID(id string) (api.ThreadInfo, bool) {
+	for i := range m.threads {
+		if m.threads[i].ID == id {
+			return m.threads[i], true
+		}
+	}
+
+	return api.ThreadInfo{}, false
+}
+
 func (m *Model) upsertThread(info api.ThreadInfo) {
 	for i := range m.threads {
 		if m.threads[i].ID == info.ID {
+			m.notePinnedFailure(m.threads[i], info)
 			m.threads[i] = info
 
 			return
@@ -373,6 +417,24 @@ func (m *Model) upsertThread(info api.ThreadInfo) {
 	}
 
 	m.threads = append(m.threads, info)
+}
+
+// notePinnedFailure says how to get off a broken tier the moment one fails.
+// A pin wins over the router's own escalation, so a run pinned to a tier
+// that cannot stream stops instead of trying the other one, and nothing else
+// in the frame explains why.
+func (m *Model) notePinnedFailure(prev, next api.ThreadInfo) {
+	if next.Override == "" || next.State != event.StateFailed {
+		return
+	}
+	// Seq, not the state alone: a thread that failed, ran again, and failed
+	// again may never be polled while it is working, so the state never
+	// leaves failed between two distinct failures.
+	if prev.State == event.StateFailed && prev.Seq == next.Seq {
+		return
+	}
+
+	m.status = next.Name + " failed while pinned to " + routeLabel(next.Override) + "; press m to reroute"
 }
 
 func (m *Model) appendEvent(e event.Event) {

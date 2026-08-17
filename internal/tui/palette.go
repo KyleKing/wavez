@@ -6,6 +6,8 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/kyleking/wavez/internal/router"
 )
 
 // paletteEntry is one selectable row: a thread jump, a directory scope
@@ -28,7 +30,10 @@ func newPaletteState(th theme) paletteState {
 	return paletteState{input: th.newInput("jump to a thread, directory, prompt, or verb")}
 }
 
-var paletteVerbs = []string{"diagnostics", labelInbox, labelQuit, labelUndo}
+var paletteVerbs = []string{
+	"diagnostics", labelInbox, labelQuit, verbRouteAuto, verbRouteHosted, verbRouteLocal,
+	verbThinkAuto, verbThinkOn, verbThinkOff, labelUndo,
+}
 
 // paletteEntries builds the fuzzy-filterable list: threads, directories,
 // pending prompts, and verbs, matched by substring against every word in
@@ -54,7 +59,7 @@ func (m Model) paletteEntries() []paletteEntry {
 	}
 
 	for _, v := range paletteVerbs {
-		entries = append(entries, paletteEntry{label: v, kind: "verb", target: v})
+		entries = append(entries, paletteEntry{label: v, kind: kindVerb, target: v})
 	}
 
 	return filterEntries(entries, m.palette.input.Value())
@@ -129,7 +134,7 @@ func (m Model) runPaletteEntry(e paletteEntry) (Model, tea.Cmd) {
 		m.dir = e.target
 
 		return m, nil
-	case "verb":
+	case kindVerb:
 		return m.runPaletteVerb(e.target)
 	}
 
@@ -148,6 +153,22 @@ func (m Model) runPaletteVerb(verb string) (Model, tea.Cmd) {
 		return m, tea.Quit
 	case labelUndo:
 		return m.requestRestore()
+	case verbRouteAuto:
+		return m.setRoute("")
+	case verbRouteHosted:
+		return m.setRoute(router.ChoiceHosted)
+	case verbRouteLocal:
+		return m.setRoute(router.ChoiceLocal)
+	case verbThinkAuto:
+		return m.setThinking(nil)
+	case verbThinkOn:
+		on := true
+
+		return m.setThinking(&on)
+	case verbThinkOff:
+		off := false
+
+		return m.setThinking(&off)
 	}
 
 	return m, nil

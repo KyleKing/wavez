@@ -423,3 +423,78 @@ func TestClient_Stream_SendsResponseFormat(t *testing.T) {
 		t.Errorf("json_schema.schema = %s", got.ResponseFormat.JSONSchema.Schema)
 	}
 }
+
+// llama.cpp reads chat_template_kwargs per request and it overrides the
+// server's own --chat-template-kwargs in both directions, so an unset
+// Thinking must send no key at all rather than a false one.
+func TestClient_Stream_SendsThinkingAsChatTemplateKwargs(t *testing.T) {
+	t.Parallel()
+
+	on, off := true, false
+	tests := []struct {
+		thinking *bool
+		want     *bool
+		name     string
+	}{
+		{name: "unset sends nothing", thinking: nil, want: nil},
+		{name: "off", thinking: &off, want: &off},
+		{name: "on", thinking: &on, want: &on},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodies := make(chan []byte, 1)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Errorf("reading request body: %v", err)
+				}
+				bodies <- body
+				w.Header().Set("Content-Type", "text/event-stream")
+				if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+					t.Logf("writing SSE body: %v", err)
+				}
+			}))
+			t.Cleanup(srv.Close)
+
+			client := newClient(t, srv)
+			req := llm.Request{
+				Model:    "m",
+				Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+				Thinking: tc.thinking,
+			}
+
+			if _, err := collectAll(client, req); err != nil {
+				t.Fatalf("Stream: %v", err)
+			}
+
+			assertEnableThinking(t, <-bodies, tc.want)
+		})
+	}
+}
+
+func assertEnableThinking(t *testing.T, body []byte, want *bool) {
+	t.Helper()
+
+	var got struct {
+		Kwargs *struct {
+			EnableThinking *bool `json:"enable_thinking"`
+		} `json:"chat_template_kwargs"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+
+	if want == nil {
+		if got.Kwargs != nil {
+			t.Fatalf("chat_template_kwargs = %+v, want it absent", got.Kwargs)
+		}
+
+		return
+	}
+	if got.Kwargs == nil || got.Kwargs.EnableThinking == nil || *got.Kwargs.EnableThinking != *want {
+		t.Fatalf("chat_template_kwargs = %+v, want enable_thinking %v", got.Kwargs, *want)
+	}
+}

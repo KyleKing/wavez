@@ -29,6 +29,7 @@ var (
 	// is a refusal rather than a successful no-op.
 	ErrNothingToRestore  = errors.New("daemon: nothing has changed since the checkpoint")
 	ErrRestoreIncomplete = errors.New("daemon: restore left the working copy changed")
+	ErrUnknownTier       = errors.New("daemon: unknown routing tier")
 )
 
 // manager holds every live thread for the lifetime of the Server, so a
@@ -344,6 +345,44 @@ func (m *manager) appendState(threadID string, state event.State) error {
 	return nil
 }
 
+// setOverride pins threadID to one routing tier, or clears the pin when
+// override is empty. It applies from the next turn: a turn already in
+// flight has routed itself.
+func (m *manager) setOverride(threadID string, override router.Choice) error {
+	if override != "" && !override.Valid() {
+		return fmt.Errorf("%w: %q", ErrUnknownTier, override)
+	}
+
+	mt, ok := m.get(threadID)
+	if !ok {
+		return ErrThreadNotFound
+	}
+
+	mt.mu.Lock()
+	mt.override = override
+	mt.mu.Unlock()
+
+	return nil
+}
+
+// setThinking turns a hybrid model's reasoning trace on or off for
+// threadID's next turn, or restores the served model's own default when
+// thinking is nil. Measured on qwen3:8b through llama-server: replying "OK"
+// costs 79 completion tokens with the trace on and 2 with it off, and
+// decode is the local bottleneck.
+func (m *manager) setThinking(threadID string, thinking *bool) error {
+	mt, ok := m.get(threadID)
+	if !ok {
+		return ErrThreadNotFound
+	}
+
+	mt.mu.Lock()
+	mt.thinking = thinking
+	mt.mu.Unlock()
+
+	return nil
+}
+
 // send starts a turn against threadID's thread, running against m.ctx (not a
 // caller's context) so the turn keeps going after any connection that
 // started it disconnects.
@@ -374,8 +413,13 @@ func (m *manager) send(threadID, prompt string) error {
 func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan struct{}, prompt string) {
 	defer close(done)
 
+	mt.mu.Lock()
+	override, thinking := mt.override, mt.thinking
+	mt.mu.Unlock()
+
 	runCtx := withThreadID(ctx, mt.id)
-	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, m.expand(runCtx, mt, prompt), router.Input{})
+	route := router.Input{Override: override, Thinking: thinking}
+	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, m.expand(runCtx, mt, prompt), route)
 
 	m.toolCalls.Add(int64(outcome.ToolCalls))
 	if outcome.Stop == agent.StopMalformedTool {

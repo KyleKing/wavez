@@ -32,6 +32,10 @@ type managedThread struct {
 	// turn, so a diff covers everything the thread did rather than only
 	// its most recent turn.
 	baseline string
+	// override pins every turn to one routing tier, empty for automatic
+	// routing.
+	override router.Choice
+	thinking *bool
 	state    event.State
 	dirs     []string
 	usage    usage
@@ -58,6 +62,8 @@ func (mt *managedThread) info() api.ThreadInfo {
 		Dirs:       append([]string(nil), mt.dirs...),
 		Parent:     mt.parent,
 		Model:      mt.model,
+		Thinking:   mt.thinking,
+		Override:   mt.override,
 		Step:       mt.step,
 		State:      mt.state,
 		Checkpoint: mt.baseline,
