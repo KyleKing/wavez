@@ -177,8 +177,16 @@ func (*GoTestGate) Resources() []string { return []string{goTestResource} }
 
 // Run executes the tests or packages rc.Selection names.
 func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
+	changedGo := len(goFiles(rc.Changes))
+
 	args := buildTestArgs(rc.Selection)
 	if len(args) == 0 {
+		if changedGo > 0 {
+			return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
+				"selection produced no tests or packages for %d changed Go file(s), so nothing was run",
+				changedGo)), nil
+		}
+
 		return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil
 	}
 
@@ -195,11 +203,24 @@ func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 		return Result{}, fmt.Errorf("go test gate: %w", err)
 	}
 
+	ran := len(summary.PassedTests) + len(summary.FailedTests)
+
+	// `go test -run <pattern>` exits 0 when the pattern matches nothing, so
+	// a selection whose regex has drifted from the test names reports a
+	// clean pass having executed no test at all. That is the whole reason
+	// Examined exists: a green gate that ran zero tests is the failure this
+	// catches, and it is invisible from Pass alone.
+	if ran == 0 && changedGo > 0 {
+		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
+			"go test ran 0 tests for %d changed Go file(s) at %s level; the selection matched no test",
+			changedGo, rc.Selection.Level)), nil
+	}
+
 	result := Result{
-		Gate:      g.Name(),
-		Level:     rc.Selection.Level,
-		TestCount: len(summary.PassedTests) + len(summary.FailedTests),
-		Pass:      summary.Pass,
+		Gate:     g.Name(),
+		Level:    rc.Selection.Level,
+		Examined: ran,
+		Pass:     summary.Pass,
 	}
 
 	changed := changedPaths(rc.Changes)

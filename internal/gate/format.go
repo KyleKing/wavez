@@ -47,6 +47,8 @@ func (*FormatGate) Resources() []string { return []string{"worktree"} }
 
 // Run formats and fixes every changed Go file.
 func (g *FormatGate) Run(ctx context.Context, rc RunContext) (Result, error) {
+	// No Go files is a real abstention, not a pass with work done: the
+	// Examined count in the log is what keeps the two distinguishable.
 	files := goFiles(rc.Changes)
 	if len(files) == 0 {
 		return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil
@@ -70,7 +72,7 @@ func (g *FormatGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 		}
 	}
 
-	return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil
+	return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: len(files), Pass: true}, nil
 }
 
 // containedPath resolves f against root and refuses anything that escapes it.

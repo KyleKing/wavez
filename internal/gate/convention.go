@@ -66,12 +66,13 @@ func (g *ConventionGate) Run(ctx context.Context, rc RunContext) (Result, error)
 	}
 
 	if len(report.Findings) == 0 {
-		return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil
+		return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: len(targets), Pass: true}, nil
 	}
 
 	return Result{
 		Gate:     g.Name(),
 		Level:    rc.Selection.Level,
+		Examined: len(targets),
 		Failures: groupByRule(report.Findings),
 	}, nil
 }

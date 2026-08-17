@@ -36,9 +36,11 @@ func (g *BuildGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	cmd := exec.CommandContext(ctx, "go", "build", "./...")
 	cmd.Dir = g.repoRoot
 
+	// The unit here is the module: this gate never narrows, so it examines
+	// exactly one thing every run and can never abstain.
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil
+		return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: 1, Pass: true}, nil
 	}
 
 	var exitErr *exec.ExitError
@@ -49,5 +51,5 @@ func (g *BuildGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	failure := TrimFailure(FailedTest{Name: "build", Output: lines}, changedPaths(rc.Changes))
 
-	return Result{Gate: g.Name(), Level: rc.Selection.Level, Failures: []TrimmedFailure{failure}}, nil
+	return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: 1, Failures: []TrimmedFailure{failure}}, nil
 }

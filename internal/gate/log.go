@@ -15,15 +15,17 @@ type LogEntry struct {
 	Gate      string        `json:"gate"`
 	Level     Level         `json:"level"`
 	Duration  time.Duration `json:"duration"`
-	TestCount int           `json:"test_count"`
+	Examined  int           `json:"examined"`
 	Pass      bool          `json:"pass"`
 }
 
 const logFilePerm = 0o600
 
 // Log is a per-project, append-only JSON-lines record of gate outcomes:
-// pass/fail, timestamp, duration, selection level, and test count, exactly
-// what DESIGN.md's Gates section says a gate log holds.
+// pass/fail, timestamp, duration, selection level, and how many units the
+// gate examined, exactly what DESIGN.md's Gates section says a gate log
+// holds. The examined count is what makes an abstention auditable after the
+// fact rather than indistinguishable from a clean run.
 type Log struct {
 	path string
 	mu   sync.Mutex

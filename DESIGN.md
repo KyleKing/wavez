@@ -331,6 +331,7 @@ Roles beyond linting:
 - Full run on a cadence: after N selective passes, after a time threshold, or when the map flags an untracked file
 - Debounce and coalesce edits into one run. Gates sharing a resource serialize, others run in parallel
 - On pass: a boolean and timestamp in the gate log, nothing to the model. On fail: failing test names and frames that touch changed files, parsed from `go test -json`, JUnit XML, or pytest's machine output
+- Every gate records how many units it examined, and a gate that examined nothing has abstained rather than passed. Abstaining is fine when the change set held no work for it (no Go files to format) and is a failure when it did (`go test -run` exits 0 when its pattern matches no test, so a drifted selection reports green having run nothing). Without the count, the two are the same line in the log
 - Formatter, native linter autofix, and `ast-grep` convention rules run as pre-passes before the model sees the diff (see Structural rules). LSP diagnostics after the edit are a gate too
 - Config discovered from `package.json`, `Makefile`, `pyproject.toml`, `mise.toml`, with a one-time prompt to confirm
 

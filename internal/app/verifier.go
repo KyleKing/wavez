@@ -78,7 +78,7 @@ func (v *GateVerifier) runStep(ctx context.Context, g gate.Gate, rc gate.RunCont
 		Gate:      result.Gate,
 		Level:     result.Level,
 		Duration:  result.Duration,
-		TestCount: result.TestCount,
+		Examined:  result.Examined,
 		Pass:      result.Pass,
 	}
 	if logErr := v.log.Append(entry); logErr != nil {

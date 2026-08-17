@@ -54,8 +54,33 @@ type Result struct {
 	Level     Level
 	Failures  []TrimmedFailure
 	Duration  time.Duration
-	TestCount int
-	Pass      bool
+	// Examined is how many units this Gate actually checked: files
+	// formatted, files scanned, tests run, modules built. A gate that
+	// examined nothing has abstained rather than passed, and Pass alone
+	// cannot tell those apart, which is how a `go test -run` pattern that
+	// matched no tests came to be recorded as a green gate. Every gate sets
+	// it, and a gate whose change set demanded work it did not do reports
+	// ExaminedNothing rather than passing.
+	Examined int
+	Pass     bool
+}
+
+// ExaminedNothingTest is the failure name a gate uses when it examined no
+// units despite a change set that required it to. It is a fixed string so
+// the condition is greppable in the gate log and distinguishable in a
+// client from an ordinary failing check.
+const ExaminedNothingTest = "examined-nothing"
+
+// ExaminedNothing builds the Result for a gate that ran, examined nothing,
+// and should have. Every gate that scopes itself to a subset of a change
+// set can reach this state, so the shape of saying so lives here once.
+func ExaminedNothing(gate string, level Level, reason string) Result {
+	return Result{
+		Gate:     gate,
+		Level:    level,
+		Examined: 0,
+		Failures: []TrimmedFailure{{Test: ExaminedNothingTest, Frames: []string{reason}}},
+	}
 }
 
 // ModelView is the asymmetric, trimmed view of a Result a model

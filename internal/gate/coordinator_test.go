@@ -33,7 +33,7 @@ func TestBuildRunFuncLogsEachResult(t *testing.T) {
 
 	gates := []gate.Gate{
 		&stubGate{name: "format", result: gate.Result{Gate: "format", Pass: true}},
-		&stubGate{name: "go-test", result: gate.Result{Gate: "go-test", Pass: false, TestCount: 3}},
+		&stubGate{name: "go-test", result: gate.Result{Gate: "go-test", Pass: false, Examined: 3}},
 	}
 
 	runFn := gate.BuildRunFunc(gate.RealClock{}, fakeLineCoverage{}, nil, gates, l, "/repo")
@@ -53,7 +53,7 @@ func TestBuildRunFuncLogsEachResult(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("logged %d entries, want 2", len(entries))
 	}
-	if entries[1].Gate != "go-test" || entries[1].Pass || entries[1].TestCount != 3 {
+	if entries[1].Gate != "go-test" || entries[1].Pass || entries[1].Examined != 3 {
 		t.Errorf("second entry = %+v, want the go-test failure", entries[1])
 	}
 }

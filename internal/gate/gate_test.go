@@ -16,7 +16,7 @@ func TestResultForModel(t *testing.T) {
 		Gate:      "go-test",
 		Pass:      true,
 		Timestamp: ts,
-		TestCount: 42,
+		Examined:  42,
 		Failures:  nil,
 	}
 
