@@ -103,7 +103,7 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithPrefix(prefix(a)),
 		daemon.WithStatsSource(machineStats{ctx: ctx}),
 		daemon.WithDiffer(vcs.NewJj()),
-		daemon.WithRestorer(vcs.NewJj()),
+		daemon.WithRestorer(vcs.NewJj()), daemon.WithExpander(a.Mentions),
 		daemon.WithRoot(root),
 	)
 	if err != nil {

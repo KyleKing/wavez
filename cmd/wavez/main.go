@@ -245,7 +245,12 @@ func headless(ctx context.Context, opt options) error {
 		loop, tools, system = a.PlanLoop, a.PlanTools, a.PlanSystem
 	}
 
-	outcome, err := loop.Run(ctx, th, prefix(system, tools), opt.prompt, hint)
+	prompt, err := expandMentions(ctx, a, opt.prompt)
+	if err != nil {
+		return err
+	}
+
+	outcome, err := loop.Run(ctx, th, prefix(system, tools), prompt, hint)
 	if err != nil {
 		return fmt.Errorf("running thread: %w", err)
 	}
@@ -468,6 +473,24 @@ Flags:
 
 With no -p, wavez attaches to a running wavezd and opens the interface.
 `)
+}
+
+// expandMentions resolves @file and @symbol references before the prompt
+// reaches the model. An unresolved mention stays literal in the prompt and
+// is named on stderr, since silently dropping a reference leaves both the
+// user and the model to guess why nothing arrived. The notice goes to
+// stderr so -json keeps stdout to one object.
+func expandMentions(ctx context.Context, a *app.App, prompt string) (string, error) {
+	res, err := a.Mentions.Expand(ctx, prompt)
+	if err != nil {
+		return "", fmt.Errorf("expanding mentions: %w", err)
+	}
+
+	for _, m := range res.Unresolved() {
+		fmt.Fprintf(os.Stderr, "wavez: @%s did not resolve: %s\n", m.Ref, m.Detail)
+	}
+
+	return res.Prompt, nil
 }
 
 // reportRun prints one run's outcome, as a JSON object on stdout under

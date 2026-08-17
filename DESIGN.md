@@ -531,7 +531,8 @@ The store has to cut across a polyglot monorepo, so a change to a Python or Go r
 
 Features nobody praises and everybody misses. Copied from Claude Code, Codex, OpenCode, Crush, and Aider, in the milestone they are needed.
 
-- Resume and continue a thread, `@file` and `@symbol` mentions, `-p` with JSON output
+- Resume and continue a thread, and `-p` with JSON output carrying the numbers the benchmark harness scores on
+- `@file` and `@symbol` mentions resolved from the code-intelligence store before the prompt reaches the model, so a named symbol costs no retrieval turn: measured on qwen3:8b, `@looksLikeQuestionToUser` answered in one turn with no tool call where search-then-read would have taken three. A symbol expands to its kind, location, signature, and first doc line rather than its body, since that is what lets a small model decide whether reading further is worth a turn. A reference that resolves to nothing stays literal in the prompt and is reported, because silently dropping it leaves both the user and the model guessing why nothing arrived, and an ambiguous name lists its candidates rather than picking one
 - Checkpoint and undo of file changes per turn, from `jj op log` rather than snapshots wavez writes itself
 - LSP diagnostics fed back after an edit as a gate, the way Crush wires LSP into its loop
 - Two hooks, pre-tool-use and post-tool-use, as external commands named in `.wavez.pkl` as an argv and run without a shell. The payload is JSON on stdin (event, thread, tool, input, paths, and the result for post) because tool input is arbitrary and unbounded where the environment is neither, and the exit status alone carries the verdict so a stray `echo` in a hook cannot change its own answer. Pre-tool-use fails closed: a timeout, a missing program, or any nonzero exit refuses, since a hook that an attacker or a typo can disable by breaking it protects nothing

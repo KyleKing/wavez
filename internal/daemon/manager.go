@@ -13,6 +13,7 @@ import (
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
@@ -35,6 +36,7 @@ var (
 type manager struct {
 	ctx       context.Context //nolint:containedctx // scopes every thread's lifetime to the manager
 	loop      *agent.Loop
+	mentions  Expander
 	cancelAll context.CancelFunc
 	spend     *spendLedger
 	threads   map[string]*managedThread
@@ -47,6 +49,13 @@ type manager struct {
 	toolCalls   atomic.Int64
 	malformed   atomic.Int64
 	mu          sync.Mutex
+}
+
+// Expander resolves @file and @symbol references in a prompt.
+// *mention.Expander satisfies it; a manager without one sends the prompt
+// through unchanged.
+type Expander interface {
+	Expand(ctx context.Context, prompt string) (mention.Result, error)
 }
 
 func newManager(logDir string, loop *agent.Loop, prefix agent.Prefix) *manager {
@@ -366,7 +375,7 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	defer close(done)
 
 	runCtx := withThreadID(ctx, mt.id)
-	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, prompt, router.Input{})
+	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, m.expand(runCtx, mt, prompt), router.Input{})
 
 	m.toolCalls.Add(int64(outcome.ToolCalls))
 	if outcome.Stop == agent.StopMalformedTool {
@@ -385,6 +394,29 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	}
 
 	mt.mu.Unlock()
+}
+
+// expand resolves the prompt's mentions, logging each that did not so the
+// user sees the reference went nowhere. An expansion that fails leaves the
+// prompt as typed rather than losing the turn.
+func (m *manager) expand(ctx context.Context, mt *managedThread, prompt string) string {
+	if m.mentions == nil {
+		return prompt
+	}
+
+	res, err := m.mentions.Expand(ctx, prompt)
+	if err != nil {
+		return prompt
+	}
+
+	for _, um := range res.Unresolved() {
+		ev := event.Event{Kind: event.KindError, Text: "@" + um.Ref + " did not resolve: " + um.Detail}
+		if _, logErr := mt.th.Log().Append(ev); logErr != nil {
+			return res.Prompt
+		}
+	}
+
+	return res.Prompt
 }
 
 // Differ produces a thread's change set as unified diff text. The jj

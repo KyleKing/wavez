@@ -23,6 +23,7 @@ import (
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/openaic"
+	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/runtime"
 	"github.com/kyleking/wavez/internal/thread"
@@ -86,6 +87,7 @@ type App struct {
 	CoverageAdapter *gate.CoverageAdapter
 	Store           *codeintel.Store
 	Indexer         *codeintel.Indexer
+	Mentions        *mention.Expander
 	Loop            *agent.Loop
 	PlanLoop        *agent.Loop
 	GateLog         *gate.Log
@@ -257,6 +259,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		Config:          cfg,
 		Store:           store,
 		Indexer:         indexer,
+		Mentions:        mention.New(root, indexer),
 		Scope:           scope,
 		supervisor:      supervisor,
 		bgCancel:        bgCancel,

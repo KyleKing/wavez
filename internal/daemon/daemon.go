@@ -63,6 +63,7 @@ type config struct {
 	stats         StatsSource
 	differ        Differ
 	restorer      Restorer
+	expander      Expander
 	logDir        string
 	root          string
 	prefix        agent.Prefix
@@ -118,6 +119,13 @@ func WithRestorer(r Restorer) Option {
 	return func(c *config) { c.restorer = r }
 }
 
+// WithExpander sets the @file and @symbol resolver applied to every prompt
+// before it reaches the model. A Server without one passes prompts through
+// unchanged.
+func WithExpander(e Expander) Option {
+	return func(c *config) { c.expander = e }
+}
+
 // WithStatsSource injects the memory and model numbers Diagnostics reports.
 func WithStatsSource(s StatsSource) Option {
 	return func(c *config) { c.stats = s }
@@ -166,6 +174,7 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 	}
 
 	mgr := newManager(c.logDir, c.loop, c.prefix)
+	mgr.mentions = c.expander
 	mgr.defaultDirs = defaultDirs(c.root)
 	s := &Server{
 		mgr:      mgr,
