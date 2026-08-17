@@ -59,6 +59,7 @@ type options struct {
 	allowAll            bool
 	strictScope         bool
 	mutate              bool
+	jsonOut             bool
 }
 
 func main() {
@@ -95,6 +96,8 @@ func run(args []string) error {
 	fs.DurationVar(&opt.maxWallClock, "max-wall-clock", 0, "cap one run's wall time (0 uses the loop default)")
 	fs.Float64Var(&opt.maxHostedSpendUSD, "max-hosted-spend", 0,
 		"cap one run's hosted-tier spend in dollars (0 uses the loop default)")
+	fs.BoolVar(&opt.jsonOut, "json", false,
+		"with -p, print one JSON object on stdout instead of the result text")
 	fs.BoolVar(&opt.mutate, "mutate", false,
 		"mutate the working copy's changed lines and report the mutants the tests missed")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
@@ -165,6 +168,38 @@ func launchTUI(ctx context.Context, opt options) error {
 	return nil
 }
 
+// appOptions maps the flags a headless run was given to app.Option values.
+// A zero bound means "leave the default", never "no bound".
+func appOptions(opt options) []app.Option {
+	out := []app.Option{app.WithAsker(stdinAsker{}), app.WithManagedLocalServer()}
+
+	if opt.maxTurns > 0 {
+		out = append(out, app.WithMaxTurns(opt.maxTurns))
+	}
+
+	if opt.maxToolCallsPerTurn > 0 {
+		out = append(out, app.WithMaxToolCallsPerTurn(opt.maxToolCallsPerTurn))
+	}
+
+	if opt.maxStagnantErrors > 0 {
+		out = append(out, app.WithMaxStagnantErrors(opt.maxStagnantErrors))
+	}
+
+	if opt.maxWallClock > 0 {
+		out = append(out, app.WithMaxWallClock(opt.maxWallClock))
+	}
+
+	if opt.maxHostedSpendUSD > 0 {
+		out = append(out, app.WithMaxHostedSpendUSD(opt.maxHostedSpendUSD))
+	}
+
+	if opt.strictScope {
+		out = append(out, app.WithStrictScope())
+	}
+
+	return out
+}
+
 func headless(ctx context.Context, opt options) error {
 	root, err := resolveRoot(ctx, opt.dir)
 	if err != nil {
@@ -176,29 +211,7 @@ func headless(ctx context.Context, opt options) error {
 		return err
 	}
 
-	appOpts := []app.Option{app.WithAsker(stdinAsker{})}
-	if opt.maxTurns > 0 {
-		appOpts = append(appOpts, app.WithMaxTurns(opt.maxTurns))
-	}
-	if opt.maxToolCallsPerTurn > 0 {
-		appOpts = append(appOpts, app.WithMaxToolCallsPerTurn(opt.maxToolCallsPerTurn))
-	}
-	if opt.maxStagnantErrors > 0 {
-		appOpts = append(appOpts, app.WithMaxStagnantErrors(opt.maxStagnantErrors))
-	}
-	if opt.maxWallClock > 0 {
-		appOpts = append(appOpts, app.WithMaxWallClock(opt.maxWallClock))
-	}
-	if opt.maxHostedSpendUSD > 0 {
-		appOpts = append(appOpts, app.WithMaxHostedSpendUSD(opt.maxHostedSpendUSD))
-	}
-	if opt.strictScope {
-		appOpts = append(appOpts, app.WithStrictScope())
-	}
-
-	appOpts = append(appOpts, app.WithManagedLocalServer())
-
-	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), appOpts...)
+	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), appOptions(opt)...)
 	if err != nil {
 		return fmt.Errorf("building project: %w", err)
 	}
@@ -228,11 +241,9 @@ func headless(ctx context.Context, opt options) error {
 		return fmt.Errorf("running thread: %w", err)
 	}
 
-	fmt.Println(finalText(th))
-	fmt.Fprintf(os.Stderr, "\nstop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f checkpoint=%s\n",
-		outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls, outcome.HostedSpendUSD,
-		outcome.Checkpoint)
-	reportStrayedEdits(a.Scope.Strayed(), root, opt.strictScope)
+	if err := reportRun(th, a, outcome, opt, root); err != nil {
+		return err
+	}
 
 	if outcome.Stop != agent.StopComplete {
 		return fmt.Errorf("%w: %s", errStoppedEarly, outcome.Stop)
@@ -428,6 +439,7 @@ Usage:
 
 Flags:
   -p <prompt>     run one prompt headless and print the result
+  -json           with -p, print one JSON object on stdout instead of the text
   -dir <path>     project root (defaults to the enclosing repo, then cwd)
   -model <tier>   force local or hosted for every turn
   -with <file>    add one file to the stable prefix for this run only
@@ -446,6 +458,41 @@ Flags:
 
 With no -p, wavez attaches to a running wavezd and opens the interface.
 `)
+}
+
+// reportRun prints one run's outcome, as a JSON object on stdout under
+// -json and as the result text plus a human summary on stderr otherwise.
+func reportRun(th *thread.Thread, a *app.App, outcome agent.Outcome, opt options, root string) error {
+	if opt.jsonOut {
+		return writeJSON(os.Stdout, newRunResult(th.ID(), finalText(th), outcome,
+			relStrayed(a.Scope.Strayed(), root)))
+	}
+
+	fmt.Println(finalText(th))
+	fmt.Fprintf(os.Stderr, "\nstop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f checkpoint=%s\n",
+		outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls,
+		outcome.HostedSpendUSD, outcome.Checkpoint)
+	reportStrayedEdits(a.Scope.Strayed(), root, opt.strictScope)
+
+	return nil
+}
+
+// Strayed paths are absolute; a report shows them relative to root, leaving
+// any path outside it absolute.
+func relStrayed(strayed []string, root string) []string {
+	if len(strayed) == 0 {
+		return nil
+	}
+
+	out := make([]string, len(strayed))
+	for i, abs := range strayed {
+		out[i] = abs
+		if rel, err := filepath.Rel(root, abs); err == nil {
+			out[i] = rel
+		}
+	}
+
+	return out
 }
 
 // reportStrayedEdits names the files a run reached for without ever reading
