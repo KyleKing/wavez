@@ -30,7 +30,7 @@ func allTools(t *testing.T) []tool.Tool {
 		tools.NewStrReplace(dir),
 		tools.NewWrite(dir),
 		tools.NewShell(dir, dir, "thread-1", permission.AllowAll()),
-		tools.NewSearch(openTestStore(t)),
+		tools.NewSearch(openTestIndex(t, nil)),
 		tools.NewQuestion(fakeAsker{}),
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/astgrep"
 	"github.com/kyleking/wavez/internal/codeintel"
+	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/llm"
@@ -65,9 +66,11 @@ type App struct {
 	GateRunner      *gate.Runner
 	CoverageAdapter *gate.CoverageAdapter
 	Store           *codeintel.Store
+	Indexer         *codeintel.Indexer
 	Loop            *agent.Loop
 	GateLog         *gate.Log
 	Tools           *tool.Registry
+	bgCancel        context.CancelFunc
 	threadLogDir    string
 	SandboxDir      string
 	SystemPrefix    string
@@ -181,7 +184,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		graph = nil
 	}
 
-	registry := buildRegistry(root, sandboxDir, store, permGate, options.Asker)
+	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
+	registry := buildRegistry(root, sandboxDir, indexer, permGate, options.Asker)
 
 	local, hosted := options.Local, options.Hosted
 	if local == nil {
@@ -206,10 +210,17 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	loop := agent.New(local, hosted, registry, permGate, loopOptions(root, cfg, options, verifier)...)
 
+	// Detached from ctx on purpose: the first index outlives whatever
+	// request built the App, and Close is what ends it.
+	bgCtx, bgCancel := context.WithCancel(context.WithoutCancel(ctx))
+	indexer.Start(bgCtx)
+
 	return &App{
 		Root:            root,
 		Config:          cfg,
 		Store:           store,
+		Indexer:         indexer,
+		bgCancel:        bgCancel,
 		Tools:           registry,
 		Local:           local,
 		Hosted:          hosted,
@@ -272,14 +283,14 @@ func newSessionDir(stateDir string) (string, error) {
 }
 
 func buildRegistry(
-	root, sandboxDir string, store *codeintel.Store, permGate permission.Gate, asker tools.Asker,
+	root, sandboxDir string, indexer *codeintel.Indexer, permGate permission.Gate, asker tools.Asker,
 ) *tool.Registry {
 	return tool.NewRegistry(
 		tools.NewRead(root),
 		tools.NewStrReplace(root),
 		tools.NewWrite(root),
 		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate),
-		tools.NewSearch(store),
+		tools.NewSearch(indexer),
 		tools.NewQuestion(asker),
 	)
 }
@@ -378,6 +389,8 @@ func (a *App) Close() error {
 	}
 
 	a.closed = true
+
+	a.bgCancel()
 
 	var errs []error
 

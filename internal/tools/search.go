@@ -29,17 +29,24 @@ var searchSchema = buildSchema(map[string]schemaProperty{
 	},
 }, "mode", "query")
 
-// Search is the one query tool over codeintel.Store.Search, selecting a
-// retrieval strategy with mode rather than exposing one tool per strategy:
-// a small model plans better against one tool with a mode than several it
-// must choose between.
-type Search struct {
-	store *codeintel.Store
+// Index is the code index Search queries. Search refreshes as a side effect
+// of querying, so a caller can never read an index that has drifted from
+// the tree.
+type Index interface {
+	Search(ctx context.Context, q codeintel.SearchQuery) ([]codeintel.SearchResult, codeintel.IndexStats, error)
 }
 
-// NewSearch builds a Search tool over store.
-func NewSearch(store *codeintel.Store) *Search {
-	return &Search{store: store}
+// Search is the one query tool over the code index, selecting a retrieval
+// strategy with mode rather than exposing one tool per strategy: a small
+// model plans better against one tool with a mode than several it must
+// choose between.
+type Search struct {
+	index Index
+}
+
+// NewSearch builds a Search tool over index.
+func NewSearch(index Index) *Search {
+	return &Search{index: index}
 }
 
 // Name implements tool.Tool.
@@ -76,7 +83,7 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Errorf("query is required"), nil
 	}
 
-	results, err := s.store.Search(ctx, codeintel.SearchQuery{
+	results, stats, err := s.index.Search(ctx, codeintel.SearchQuery{
 		Mode:  codeintel.SearchMode(in.Mode),
 		Text:  in.Query,
 		Limit: in.Limit,
@@ -85,12 +92,21 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Errorf("%v", err), nil
 	}
 
-	return tool.Result{Content: formatSearchResults(results)}, nil
+	return tool.Result{Content: formatSearchResults(results, stats, in.Query)}, nil
 }
 
-func formatSearchResults(results []codeintel.SearchResult) string {
+// formatSearchResults distinguishes an empty result from an index that
+// covers nothing. Reporting both as "no results" told a model to narrow a
+// query that could not have matched anything, and it spent four turns
+// retrying.
+func formatSearchResults(results []codeintel.SearchResult, stats codeintel.IndexStats, query string) string {
 	if len(results) == 0 {
-		return "no results"
+		if stats.FilesScanned == 0 {
+			return "no matches: the code index covers no files in this project, " +
+				"so search cannot answer here. Use shell with rg, or read, instead"
+		}
+
+		return fmt.Sprintf("no matches for %q across %d indexed files", query, stats.FilesScanned)
 	}
 
 	var b strings.Builder
