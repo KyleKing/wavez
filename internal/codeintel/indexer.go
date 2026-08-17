@@ -30,6 +30,9 @@ type Indexer struct {
 	lastEdges EdgeStats
 	copied    bool
 	mu        sync.Mutex
+	// edgesMu is held across `codegraph init`, so it must never be taken
+	// with mu or a build would block every query the tree scan serves.
+	edgesMu sync.Mutex
 }
 
 // IndexerOption configures an Indexer.
@@ -106,14 +109,38 @@ func (ix *Indexer) Search(ctx context.Context, q SearchQuery) ([]SearchResult, I
 // EdgeStats comes back with Reused set. A copy that never succeeded leaves
 // the gate open, so installing or initializing codegraph mid-session takes
 // effect on the next call instead of waiting for an edit.
+//
+// It never builds a missing index, since that writes into the project and
+// takes long enough that no query should wait on it. While InitEdges is
+// building one, this reports that through EdgeStats.Unavailable instead of
+// blocking behind it.
 func (ix *Indexer) RefreshEdges(ctx context.Context) (EdgeStats, error) {
+	if reason := ix.edges.buildingReason(); reason != "" {
+		return EdgeStats{Unavailable: reason}, nil
+	}
+
+	return ix.refreshAndCopy(ctx, ix.edges.Refresh)
+}
+
+// InitEdges is RefreshEdges plus the one call that writes into the project:
+// it builds the codegraph index when there is none and adds `.codegraph/`
+// to the project's .gitignore. Start is where it belongs, because a query
+// cannot afford the build.
+func (ix *Indexer) InitEdges(ctx context.Context) (EdgeStats, error) {
+	return ix.refreshAndCopy(ctx, ix.edges.InitAndRefresh)
+}
+
+func (ix *Indexer) refreshAndCopy(
+	ctx context.Context,
+	copyEdges func(context.Context, *Store) (EdgeStats, error),
+) (EdgeStats, error) {
 	stats, err := ix.Refresh(ctx)
 	if err != nil {
 		return EdgeStats{}, err
 	}
 
-	ix.mu.Lock()
-	defer ix.mu.Unlock()
+	ix.edgesMu.Lock()
+	defer ix.edgesMu.Unlock()
 
 	if ix.copied && stats.FilesIndexed == 0 && stats.FilesRemoved == 0 {
 		reused := ix.lastEdges
@@ -122,7 +149,7 @@ func (ix *Indexer) RefreshEdges(ctx context.Context) (EdgeStats, error) {
 		return reused, nil
 	}
 
-	edgeStats, err := ix.edges.Refresh(ctx, ix.store)
+	edgeStats, err := copyEdges(ctx, ix.store)
 	if err != nil {
 		return EdgeStats{}, err
 	}
@@ -134,10 +161,14 @@ func (ix *Indexer) RefreshEdges(ctx context.Context) (EdgeStats, error) {
 
 // Start indexes and copies edges in the background and returns immediately,
 // so neither cold cost is charged to whichever query happens to run first.
+// This is the path that builds a missing codegraph index, so starting an
+// Indexer over a project that has none writes `.codegraph/` and a
+// `.gitignore` entry for it.
+//
 // It drops its error because the next Refresh reports the same failure to a
 // caller who can act on it.
 func (ix *Indexer) Start(ctx context.Context) {
 	go func() {
-		_, _ = ix.RefreshEdges(ctx) //nolint:errcheck // see doc comment: the next Refresh reports the same failure
+		_, _ = ix.InitEdges(ctx) //nolint:errcheck // see doc comment: the next Refresh reports the same failure
 	}()
 }

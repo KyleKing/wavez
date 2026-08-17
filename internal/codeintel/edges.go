@@ -5,16 +5,27 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync/atomic"
 )
 
 // codegraphDBPath is where `codegraph init` writes its index, relative to
 // the project root.
 const codegraphDBPath = ".codegraph/codegraph.db"
+
+// gitignorePerm is the mode ignoreCodegraphIndex creates a .gitignore
+// with when the project has none.
+const gitignorePerm = 0o600
+
+// codegraphIgnoreEntry keeps the index InitAndRefresh creates out of the
+// project's history.
+const codegraphIgnoreEntry = ".codegraph/"
 
 // defaultCodegraphBinary is the executable NewEdgeAdapter looks up on PATH.
 const defaultCodegraphBinary = "codegraph"
@@ -40,9 +51,14 @@ type EdgeStats struct {
 // store's edges table. The codegraph install is optional: a missing binary,
 // a project that was never initialized, or a failing sync leaves the stored
 // edges untouched and reports the reason through EdgeStats.Unavailable.
+//
+// InitAndRefresh is the one call that writes into the project it reads:
+// it creates `.codegraph/` and adds that entry to the project's
+// `.gitignore`. Refresh and Copy only read.
 type EdgeAdapter struct {
-	root   string
-	binary string
+	root         string
+	binary       string
+	initializing atomic.Bool
 }
 
 // EdgeAdapterOption configures an EdgeAdapter.
@@ -76,6 +92,29 @@ func (a *EdgeAdapter) Refresh(ctx context.Context, store *Store) (EdgeStats, err
 	return a.Copy(ctx, store)
 }
 
+// InitAndRefresh builds the codegraph index when the project has none and
+// then refreshes as Refresh does. It writes into the project being indexed:
+// `codegraph init` creates `.codegraph/`, and the entry is appended to the
+// project's `.gitignore` (created when absent) first, so the index is never
+// left tracked. A project that already has an index is only refreshed, and
+// its `.gitignore` is left alone.
+//
+// Init runs long enough to matter, so this belongs on a background path.
+// A query wanting edges meanwhile should call Refresh, which reports the
+// build through EdgeStats.Unavailable rather than waiting for it.
+//
+// Failures degrade exactly as Refresh's do: the reason comes back through
+// EdgeStats.Unavailable with a nil error, and nothing records that init
+// failed, so the next call tries again.
+func (a *EdgeAdapter) InitAndRefresh(ctx context.Context, store *Store) (EdgeStats, error) {
+	if err := a.init(ctx); err != nil {
+		//nolint:nilerr // see doc comment: codegraph failures are reported, not raised
+		return EdgeStats{Unavailable: err.Error()}, nil
+	}
+
+	return a.Refresh(ctx, store)
+}
+
 // Copy replaces store's edges with those of the codegraph index already on
 // disk under the adapter's root. It never runs codegraph, so the edges are
 // only as fresh as that index.
@@ -105,8 +144,93 @@ func (a *EdgeAdapter) dbPath() string {
 	return filepath.Join(a.root, codegraphDBPath)
 }
 
+// buildingReason names the in-flight init when one is running, and is
+// empty otherwise.
+func (a *EdgeAdapter) buildingReason() string {
+	if !a.initializing.Load() {
+		return ""
+	}
+
+	return fmt.Sprintf("codegraph index at %s is being built", a.dbPath())
+}
+
+func (a *EdgeAdapter) init(ctx context.Context) error {
+	if _, err := os.Stat(a.dbPath()); err == nil {
+		return nil
+	}
+
+	binary, err := exec.LookPath(a.binary)
+	if err != nil {
+		return fmt.Errorf("locating %s: %w", a.binary, err)
+	}
+
+	a.initializing.Store(true)
+	defer a.initializing.Store(false)
+
+	if err := ignoreCodegraphIndex(a.root); err != nil {
+		return err
+	}
+
+	//nolint:gosec // binary comes from LookPath on a configured name, root is the project root
+	out, err := exec.CommandContext(ctx, binary, "init", a.root).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("codegraph init: %w: %s", err, bytes.TrimSpace(out))
+	}
+
+	return nil
+}
+
+// ignoreCodegraphIndex appends codegraphIgnoreEntry to root's .gitignore
+// unless an entry already covers it, creating the file when absent. The
+// existing content is never rewritten or reordered.
+func ignoreCodegraphIndex(root string) error {
+	path := filepath.Join(root, ".gitignore")
+	existing, err := os.ReadFile(path) //nolint:gosec // path is the project root's own .gitignore
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	if ignoresCodegraph(string(existing)) {
+		return nil
+	}
+
+	addition := codegraphIgnoreEntry + "\n"
+	if len(existing) > 0 && !bytes.HasSuffix(existing, []byte("\n")) {
+		addition = "\n" + addition
+	}
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, gitignorePerm) //nolint:gosec // as above
+	if err != nil {
+		return fmt.Errorf("opening %s: %w", path, err)
+	}
+	if _, err := file.WriteString(addition); err != nil {
+		_ = file.Close() //nolint:errcheck // the write error is the one worth reporting
+
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("closing %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func ignoresCodegraph(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		switch strings.TrimSpace(line) {
+		case codegraphIgnoreEntry, strings.TrimSuffix(codegraphIgnoreEntry, "/"):
+			return true
+		}
+	}
+
+	return false
+}
+
 func (a *EdgeAdapter) sync(ctx context.Context) error {
 	if _, err := os.Stat(a.dbPath()); err != nil {
+		if reason := a.buildingReason(); reason != "" {
+			return fmt.Errorf("%s: %w", reason, err)
+		}
+
 		return fmt.Errorf("no codegraph index at %s, run `codegraph init`: %w", a.dbPath(), err)
 	}
 

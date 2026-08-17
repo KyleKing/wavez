@@ -3,12 +3,14 @@ package codeintel_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/codeintel/lang"
@@ -47,16 +49,25 @@ func codegraphTree(t *testing.T) string {
 func codegraphFixture(t *testing.T) string {
 	t.Helper()
 	root := codegraphTree(t)
+	if err := os.MkdirAll(filepath.Join(root, ".codegraph"), 0o750); err != nil {
+		t.Fatalf("creating .codegraph: %v", err)
+	}
+	recordedCodegraphDB(t, filepath.Join(root, ".codegraph"))
 
+	return root
+}
+
+// recordedCodegraphDB writes testdata/codegraph/graph.sql into dir as a
+// codegraph.db and returns its path.
+func recordedCodegraphDB(t *testing.T, dir string) string {
+	t.Helper()
 	dump, err := os.ReadFile(filepath.Join("testdata", "codegraph", "graph.sql"))
 	if err != nil {
 		t.Fatalf("reading recorded graph: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".codegraph"), 0o750); err != nil {
-		t.Fatalf("creating .codegraph: %v", err)
-	}
 
-	db, err := sql.Open("sqlite", filepath.Join(root, ".codegraph", "codegraph.db"))
+	path := filepath.Join(dir, "codegraph.db")
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatalf("creating recorded index: %v", err)
 	}
@@ -65,7 +76,48 @@ func codegraphFixture(t *testing.T) string {
 		t.Fatalf("loading recorded graph: %v", err)
 	}
 
-	return root
+	return path
+}
+
+// fakeCodegraph writes an executable standing in for the codegraph binary,
+// so init and sync are exercised without the real tool. Its `init` runs
+// body (with $1 the target root) and its `sync` succeeds silently.
+func fakeCodegraph(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-codegraph")
+	script := "#!/bin/sh\nset -eu\ncmd=\"$1\"\nshift\ncase \"$cmd\" in\ninit)\n" + body + "\n;;\nsync) ;;\n" +
+		"*) echo \"unexpected: $cmd\" >&2; exit 1 ;;\nesac\n"
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Fatalf("writing fake codegraph: %v", err)
+	}
+	//nolint:gosec // a stand-in binary this test's own code executes
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("making fake codegraph executable: %v", err)
+	}
+
+	return path
+}
+
+// initCopyingRecordedGraph is a fake `codegraph init` that leaves the
+// recorded index where a real one would land.
+func initCopyingRecordedGraph(t *testing.T) string {
+	t.Helper()
+	db := recordedCodegraphDB(t, t.TempDir())
+
+	return fakeCodegraph(t, "mkdir -p \"$1/.codegraph\"\ncp \""+db+"\" \"$1/.codegraph/codegraph.db\"")
+}
+
+func readGitignore(t *testing.T, root string) (string, bool) {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(root, ".gitignore")) //nolint:gosec // root is t.TempDir()
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatalf("reading .gitignore: %v", err)
+	}
+
+	return string(content), true
 }
 
 func indexedStore(t *testing.T, root string) (*codeintel.Store, context.Context) {
@@ -277,5 +329,211 @@ func TestIndexerRefreshEdges_ReusesUntilTheTreeMoves(t *testing.T) {
 	}
 	if third.Copied <= first.Copied {
 		t.Fatalf("Copied = %d after adding a caller, want more than %d", third.Copied, first.Copied)
+	}
+}
+
+// reinit drops the index so the next InitAndRefresh runs `codegraph init`
+// again over a project whose .gitignore already carries the entry.
+func reinit(ctx context.Context, t *testing.T, adapter *codeintel.EdgeAdapter, store *codeintel.Store, root string) {
+	t.Helper()
+	if err := os.RemoveAll(filepath.Join(root, ".codegraph")); err != nil {
+		t.Fatalf("removing the index: %v", err)
+	}
+	if _, err := adapter.InitAndRefresh(ctx, store); err != nil {
+		t.Fatalf("second InitAndRefresh: %v", err)
+	}
+}
+
+// gitignoreCase is one starting state of a project's .gitignore, and what
+// initializing codegraph in it must leave behind. An empty want means the
+// file must come out byte-identical to existing.
+type gitignoreCase struct {
+	name     string
+	existing string
+	want     string
+	absent   bool
+}
+
+func (tc gitignoreCase) run(t *testing.T) {
+	t.Helper()
+	want := tc.want
+	if want == "" {
+		want = tc.existing
+	}
+
+	root := codegraphTree(t)
+	if !tc.absent {
+		if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(tc.existing), 0o600); err != nil {
+			t.Fatalf("seeding .gitignore: %v", err)
+		}
+	}
+	store, ctx := indexedStore(t, root)
+	adapter := codeintel.NewEdgeAdapter(root, codeintel.WithCodegraphBinary(initCopyingRecordedGraph(t)))
+
+	stats, err := adapter.InitAndRefresh(ctx, store)
+	if err != nil {
+		t.Fatalf("InitAndRefresh: %v", err)
+	}
+	if stats.Unavailable != "" || stats.Copied != 3 {
+		t.Fatalf("stats = %+v, want no reason and 3 edges copied", stats)
+	}
+
+	got, ok := readGitignore(t, root)
+	if !ok {
+		t.Fatal("no .gitignore written")
+	}
+	if got != want {
+		t.Fatalf(".gitignore = %q, want %q", got, want)
+	}
+
+	reinit(ctx, t, adapter, store, root)
+	if again, _ := readGitignore(t, root); again != want {
+		t.Fatalf(".gitignore = %q after a second init, want it unchanged at %q", again, want)
+	}
+}
+
+func TestEdgeAdapterInitAndRefresh_WritesGitignoreEntry(t *testing.T) {
+	t.Parallel()
+
+	tests := []gitignoreCase{
+		{name: "created when the project has none", absent: true, want: ".codegraph/\n"},
+		{name: "appended after existing entries", existing: "build/\n*.tmp\n", want: "build/\n*.tmp\n.codegraph/\n"},
+		{name: "separated when the file lacks a trailing newline", existing: "build/", want: "build/\n.codegraph/\n"},
+		{name: "left alone when the entry is present", existing: "a/\n.codegraph/\nb/\n"},
+		{name: "left alone when a slashless entry covers it", existing: "# n\n.codegraph\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.run(t)
+		})
+	}
+}
+
+func TestEdgeAdapterInitAndRefresh_LeavesGitignoreAloneWhenAlreadyIndexed(t *testing.T) {
+	t.Parallel()
+	root := codegraphFixture(t)
+	store, ctx := indexedStore(t, root)
+	adapter := codeintel.NewEdgeAdapter(root, codeintel.WithCodegraphBinary(initCopyingRecordedGraph(t)))
+
+	stats, err := adapter.InitAndRefresh(ctx, store)
+	if err != nil {
+		t.Fatalf("InitAndRefresh: %v", err)
+	}
+	if stats.Copied != 3 {
+		t.Fatalf("Copied = %d, want 3", stats.Copied)
+	}
+	if _, ok := readGitignore(t, root); ok {
+		t.Fatal("a project that already had an index must keep its .gitignore untouched")
+	}
+}
+
+func TestEdgeAdapterInitAndRefresh_Degrades(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		binary        func(t *testing.T) string
+		wantPart      string
+		wantGitignore bool
+	}{
+		{
+			name:     "binary missing from PATH",
+			binary:   func(t *testing.T) string { t.Helper(); return "wavez-no-such-codegraph" },
+			wantPart: "locating wavez-no-such-codegraph",
+		},
+		{
+			name:          "init exits non-zero",
+			binary:        func(t *testing.T) string { t.Helper(); return fakeCodegraph(t, "echo broken >&2; exit 3") },
+			wantPart:      "codegraph init:",
+			wantGitignore: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := codegraphTree(t)
+			store, ctx := indexedStore(t, root)
+			adapter := codeintel.NewEdgeAdapter(root, codeintel.WithCodegraphBinary(tc.binary(t)))
+
+			stats, err := adapter.InitAndRefresh(ctx, store)
+			if err != nil {
+				t.Fatalf("InitAndRefresh must not fail when codegraph is unusable: %v", err)
+			}
+			if !strings.Contains(stats.Unavailable, tc.wantPart) {
+				t.Fatalf("Unavailable = %q, want it to mention %q", stats.Unavailable, tc.wantPart)
+			}
+			if stats.Copied != 0 {
+				t.Fatalf("Copied = %d, want 0", stats.Copied)
+			}
+
+			retry, err := adapter.InitAndRefresh(ctx, store)
+			if err != nil || retry.Unavailable != stats.Unavailable {
+				t.Fatalf("retry = %+v, %v, want the same reason rather than a latched failure", retry, err)
+			}
+
+			if _, ok := readGitignore(t, root); ok != tc.wantGitignore {
+				t.Fatalf(".gitignore present = %v, want %v", ok, tc.wantGitignore)
+			}
+		})
+	}
+}
+
+func TestIndexerRefreshEdges_ReportsAnIndexBeingBuilt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ready, gate := filepath.Join(dir, "ready"), filepath.Join(dir, "gate")
+	for _, fifo := range []string{ready, gate} {
+		//nolint:gosec // fifo is a path under this test's own t.TempDir()
+		if out, err := exec.CommandContext(t.Context(), "mkfifo", fifo).CombinedOutput(); err != nil {
+			t.Skipf("mkfifo unavailable: %v: %s", err, out)
+		}
+	}
+
+	root := codegraphTree(t)
+	db := recordedCodegraphDB(t, t.TempDir())
+	binary := fakeCodegraph(t, "echo ready > \""+ready+"\"\ncat < \""+gate+"\" > /dev/null\n"+
+		"mkdir -p \"$1/.codegraph\"\ncp \""+db+"\" \"$1/.codegraph/codegraph.db\"")
+	store, ctx := openStore(t)
+	ix := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry(),
+		codeintel.WithEdgeAdapter(codeintel.NewEdgeAdapter(root, codeintel.WithCodegraphBinary(binary))))
+
+	built := make(chan codeintel.EdgeStats, 1)
+	go func() {
+		stats, err := ix.InitEdges(ctx)
+		if err != nil {
+			t.Errorf("InitEdges: %v", err)
+		}
+		built <- stats
+	}()
+
+	opened := make(chan error, 1)
+	//nolint:gosec // ready is a fifo under this test's own t.TempDir()
+	go func() { _, err := os.ReadFile(ready); opened <- err }()
+	select {
+	case err := <-opened:
+		if err != nil {
+			t.Fatalf("waiting for the fake init to start: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the fake `codegraph init` never started")
+	}
+
+	during, err := ix.RefreshEdges(ctx)
+	if err != nil {
+		t.Fatalf("RefreshEdges during a build: %v", err)
+	}
+	if !strings.Contains(during.Unavailable, "is being built") {
+		t.Fatalf("Unavailable = %q, want a query during the build to say an index is on the way", during.Unavailable)
+	}
+
+	if err := os.WriteFile(gate, []byte("go\n"), 0o600); err != nil {
+		t.Fatalf("releasing the fake init: %v", err)
+	}
+	stats := <-built
+	if stats.Unavailable != "" || stats.Copied != 3 {
+		t.Fatalf("InitEdges = %+v, want no reason and 3 edges copied", stats)
 	}
 }
