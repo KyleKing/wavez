@@ -68,6 +68,13 @@ const (
 	compactMaxToolAge = 4
 )
 
+// ReadOnlyTools names the tools a plan thread may call: the ones that
+// answer questions about the tree without changing it. Shell is absent
+// because no deterministic check decides whether a command a model wrote
+// only reads, which is the same reason DESIGN.md puts shell behind the
+// permission gate.
+var ReadOnlyTools = []string{"read", "search", "context", "question"}
+
 // App is one project's assembled object graph. Construct it with New and
 // release it with Close; do not copy it after construction.
 type App struct {
@@ -79,14 +86,17 @@ type App struct {
 	Store           *codeintel.Store
 	Indexer         *codeintel.Indexer
 	Loop            *agent.Loop
+	PlanLoop        *agent.Loop
 	GateLog         *gate.Log
 	Tools           *tool.Registry
+	PlanTools       *tool.Registry
 	Scope           *tools.Scope
 	supervisor      *runtime.Supervisor
 	bgCancel        context.CancelFunc
 	threadLogDir    string
 	SandboxDir      string
 	SystemPrefix    string
+	PlanSystem      string
 	Root            string
 	threads         []*thread.Thread
 	Config          config.Config
@@ -217,29 +227,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	scope := tools.NewScope(options.StrictScope)
 	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker)
 
-	local, hosted := options.Local, options.Hosted
-
-	var supervisor *runtime.Supervisor
-
-	if local == nil {
-		server := localServer{baseURL: runtime.LocalBaseURL(cfg.LocalPort)}
-		if options.ManagedLocalServer {
-			server = ensureLocalServer(ctx, cfg)
-		}
-
-		supervisor = server.supervisor
-		local = openaic.New("local", openaic.WithBaseURL(server.baseURL), openaic.WithModel(cfg.LocalModel))
-	}
-
-	if hosted == nil {
-		// Resolved on first hosted request, not here: a local-only run must not
-		// require a credential it never uses.
-		keyFn := func() (string, error) { return hostedKey(context.WithoutCancel(ctx), cfg.HostedKeyCommand) }
-		hosted = openaic.New("hosted",
-			openaic.WithBaseURL(DefaultHostedBaseURL),
-			openaic.WithModel(cfg.HostedModel),
-			openaic.WithAPIKeyFunc(keyFn))
-	}
+	p := buildProviders(ctx, cfg, options)
+	local, hosted, supervisor := p.local, p.hosted, p.supervisor
 
 	runner, adapter, verifier, err := buildGates(root, store, gateLog, cfg, graph)
 	if err != nil {
@@ -248,7 +237,14 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	}
 
 	reviewer := NewModelReviewer(root, vcs.NewJj(), local, hosted, cfg.LocalModel, cfg.HostedModel)
-	loop := agent.New(local, hosted, registry, permGate, loopOptions(root, cfg, options, verifier, reviewer)...)
+	loopOpts := loopOptions(root, cfg, options, verifier, reviewer)
+	loop := agent.New(local, hosted, registry, permGate, loopOpts...)
+	// Plan mode is a thread whose tools are read-only rather than a mode the
+	// loop knows about, so it is the same loop over a narrower registry.
+	// Narrowing the registry and not just the advertised specs matters: a
+	// model that names an unadvertised tool would otherwise still reach it.
+	planRegistry := registry.Only(ReadOnlyTools...)
+	planLoop := agent.New(local, hosted, planRegistry, permGate, loopOpts...)
 
 	// Detached from ctx on purpose: the first index outlives whatever
 	// request built the App, and Close is what ends it.
@@ -267,12 +263,15 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		Local:           local,
 		Hosted:          hosted,
 		Loop:            loop,
+		PlanLoop:        planLoop,
+		PlanTools:       planRegistry,
 		GateLog:         gateLog,
 		GateRunner:      runner,
 		CoverageAdapter: adapter,
 		Permission:      permGate,
 		SandboxDir:      sandboxDir,
 		SystemPrefix:    systemPrefix(prefix),
+		PlanSystem:      planSystemPrefix(prefix),
 		threadLogDir:    filepath.Join(stateDir, threadLogDirName),
 	}, nil
 }
@@ -316,6 +315,46 @@ func loopOptions(
 	}
 
 	return out
+}
+
+// buildProviders resolves the two model tiers, starting a local server when
+// the caller asked App to manage one. It returns the supervisor only when
+// wavez started the server, since one it merely found belongs to someone
+// else.
+func buildProviders(ctx context.Context, cfg config.Config, options Options) providers {
+	local, hosted := options.Local, options.Hosted
+
+	var supervisor *runtime.Supervisor
+
+	if local == nil {
+		server := localServer{baseURL: runtime.LocalBaseURL(cfg.LocalPort)}
+		if options.ManagedLocalServer {
+			server = ensureLocalServer(ctx, cfg)
+		}
+
+		supervisor = server.supervisor
+		local = openaic.New("local", openaic.WithBaseURL(server.baseURL), openaic.WithModel(cfg.LocalModel))
+	}
+
+	if hosted == nil {
+		// Resolved on first hosted request, not here: a local-only run must not
+		// require a credential it never uses.
+		keyFn := func() (string, error) { return hostedKey(context.WithoutCancel(ctx), cfg.HostedKeyCommand) }
+		hosted = openaic.New("hosted",
+			openaic.WithBaseURL(DefaultHostedBaseURL),
+			openaic.WithModel(cfg.HostedModel),
+			openaic.WithAPIKeyFunc(keyFn))
+	}
+
+	return providers{local: local, hosted: hosted, supervisor: supervisor}
+}
+
+// providers is the two model tiers plus the supervisor to stop, non-nil
+// only when wavez started the local server itself.
+type providers struct {
+	local      llm.Provider
+	hosted     llm.Provider
+	supervisor *runtime.Supervisor
 }
 
 // ensureLocalServer starts llama-server for the configured local model, or

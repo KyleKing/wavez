@@ -539,7 +539,7 @@ Features nobody praises and everybody misses. Copied from Claude Code, Codex, Op
 - Image and screenshot input (M2), notifications on needs-input and done (M2)
 - Repo map from the store as cheap default context, after Aider (M2)
 - MCP client, connected per thread on demand from an allowlist in `.wavez.pkl`, never all up front (M3)
-- Plan mode is a thread whose tools are read-only, not a separate mode
+- Plan mode is a thread whose tools are read-only, not a separate mode. The registry is narrowed rather than the advertised tool list alone, so a model naming a tool it was not offered is refused instead of served. Shell is out, because no deterministic check decides whether a command a model wrote only reads. A plan thread also needs its own system block: with the ordinary one it has no finish line, and qwen3:8b asked to rename a constant made 30 searches and 25 reads across 57 turns, stopping only on the spend ceiling without ever attempting an edit or producing a plan. Told instead that it cannot edit and that the deliverable is the plan, the same task took 5 turns
 
 ### Project instructions
 

@@ -100,6 +100,35 @@ func (r *Registry) Specs() []Spec {
 	return out
 }
 
+// Only returns a registry holding just the named tools, keeping this
+// registry's order. Names this registry does not hold are skipped rather
+// than reported, so a caller's allowlist may safely name a tool that has
+// not shipped yet.
+//
+// It is an allowlist rather than a denylist because the failure modes are
+// not symmetric: a tool added later is excluded until someone says
+// otherwise, where a denylist would admit it silently into every narrowed
+// registry that exists.
+func (r *Registry) Only(names ...string) *Registry {
+	out := &Registry{byName: make(map[string]Tool, len(names))}
+
+	wanted := make(map[string]bool, len(names))
+	for _, n := range names {
+		wanted[n] = true
+	}
+
+	for _, name := range r.order {
+		if !wanted[name] {
+			continue
+		}
+
+		out.byName[name] = r.byName[name]
+		out.order = append(out.order, name)
+	}
+
+	return out
+}
+
 // Names lists registered tools in registration order.
 func (r *Registry) Names() []string {
 	out := make([]string, len(r.order))

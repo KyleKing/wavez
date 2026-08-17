@@ -40,6 +40,21 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 	if got, want := len(a.Tools.Names()), 7; got != want {
 		t.Errorf("len(Tools.Names()) = %d, want %d: %v", got, want, a.Tools.Names())
 	}
+
+	// A plan thread must be unable to reach an editing tool, not merely be
+	// told not to: the registry refuses what it dropped, so a model naming
+	// an unadvertised tool gets ErrNotFound rather than an edit.
+	for _, name := range []string{"str_replace", "write", "shell"} {
+		if _, err := a.PlanTools.Get(name); err == nil {
+			t.Errorf("PlanTools.Get(%q) succeeded; a plan thread could edit", name)
+		}
+	}
+
+	for _, name := range app.ReadOnlyTools {
+		if _, err := a.PlanTools.Get(name); err != nil {
+			t.Errorf("PlanTools.Get(%q) = %v, want the tool", name, err)
+		}
+	}
 	if _, err := os.Stat(a.SandboxDir); err != nil {
 		t.Errorf("SandboxDir %s does not exist: %v", a.SandboxDir, err)
 	}

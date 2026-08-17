@@ -26,6 +26,7 @@ import (
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tui"
 	"github.com/kyleking/wavez/internal/vcs"
 )
@@ -60,6 +61,7 @@ type options struct {
 	strictScope         bool
 	mutate              bool
 	jsonOut             bool
+	plan                bool
 }
 
 func main() {
@@ -96,6 +98,8 @@ func run(args []string) error {
 	fs.DurationVar(&opt.maxWallClock, "max-wall-clock", 0, "cap one run's wall time (0 uses the loop default)")
 	fs.Float64Var(&opt.maxHostedSpendUSD, "max-hosted-spend", 0,
 		"cap one run's hosted-tier spend in dollars (0 uses the loop default)")
+	fs.BoolVar(&opt.plan, "plan", false,
+		"run with read-only tools, so the thread can investigate but not edit")
 	fs.BoolVar(&opt.jsonOut, "json", false,
 		"with -p, print one JSON object on stdout instead of the result text")
 	fs.BoolVar(&opt.mutate, "mutate", false,
@@ -236,7 +240,12 @@ func headless(ctx context.Context, opt options) error {
 		return err
 	}
 
-	outcome, err := a.Loop.Run(ctx, th, prefix(a), opt.prompt, hint)
+	loop, tools, system := a.Loop, a.Tools, a.SystemPrefix
+	if opt.plan {
+		loop, tools, system = a.PlanLoop, a.PlanTools, a.PlanSystem
+	}
+
+	outcome, err := loop.Run(ctx, th, prefix(system, tools), opt.prompt, hint)
 	if err != nil {
 		return fmt.Errorf("running thread: %w", err)
 	}
@@ -304,14 +313,14 @@ func threadID(resume string) thread.ID {
 	return thread.ID("p-" + strconv.FormatInt(time.Now().UnixNano(), 36))
 }
 
-func prefix(a *app.App) agent.Prefix {
-	specs := a.Tools.Specs()
+func prefix(system string, tools *tool.Registry) agent.Prefix {
+	specs := tools.Specs()
 	out := make([]llm.ToolSpec, 0, len(specs))
 	for _, s := range specs {
 		out = append(out, llm.ToolSpec{Name: s.Name, Description: s.Description, Schema: s.Schema})
 	}
 
-	return agent.Prefix{System: a.SystemPrefix, Tools: out}
+	return agent.Prefix{System: system, Tools: out}
 }
 
 func loadConfig(ctx context.Context, root, with string) (config.Config, error) {
@@ -440,6 +449,7 @@ Usage:
 Flags:
   -p <prompt>     run one prompt headless and print the result
   -json           with -p, print one JSON object on stdout instead of the text
+  -plan           run with read-only tools: investigate without editing
   -dir <path>     project root (defaults to the enclosing repo, then cwd)
   -model <tier>   force local or hosted for every turn
   -with <file>    add one file to the stable prefix for this run only

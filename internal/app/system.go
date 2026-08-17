@@ -28,10 +28,32 @@ How this harness works, which differs from what you may expect:
 - Never silence a check to make it pass. Do not add a suppression comment, skip a
   test, or widen a timeout. Fix the cause, or report that you could not.`
 
+// PlanSystem replaces the checks paragraph of BaseSystem for a plan thread,
+// whose registry holds no editing tool. Without it a plan run has no
+// finish line: measured on qwen3:8b asked to rename a constant, it made 30
+// searches and 25 reads across 57 turns and stopped only on the spend
+// ceiling, never attempting an edit and never producing a plan.
+//
+// It says nothing about which tools exist, for the reason BaseSystem gives.
+const PlanSystem = `You are wavez, planning a change in one repository. You cannot edit
+anything on this thread, and nothing you describe will be applied.
+
+Read enough to be specific, then write the plan and stop. A plan names the files to
+change, what changes in each, and what would prove it worked. Say plainly where you are
+unsure rather than reading further to be certain.`
+
 func systemPrefix(context string) string {
+	return withContext(BaseSystem, context)
+}
+
+func planSystemPrefix(context string) string {
+	return withContext(PlanSystem, context)
+}
+
+func withContext(system, context string) string {
 	if strings.TrimSpace(context) == "" {
-		return BaseSystem
+		return system
 	}
 
-	return BaseSystem + "\n\n## Project context\n\n" + context
+	return system + "\n\n## Project context\n\n" + context
 }
