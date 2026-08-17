@@ -194,7 +194,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 	scope := tools.NewScope(options.StrictScope)
-	registry := buildRegistry(root, sandboxDir, indexer, scope, permGate, options.Asker)
+	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker)
 
 	local, hosted := options.Local, options.Hosted
 	if local == nil {
@@ -293,7 +293,7 @@ func newSessionDir(stateDir string) (string, error) {
 }
 
 func buildRegistry(
-	root, sandboxDir string, indexer *codeintel.Indexer, scope *tools.Scope,
+	root, sandboxDir string, indexer *codeintel.Indexer, store *codeintel.Store, scope *tools.Scope,
 	permGate permission.Gate, asker tools.Asker,
 ) *tool.Registry {
 	return tool.NewRegistry(
@@ -302,6 +302,7 @@ func buildRegistry(
 		tools.NewWrite(root, scope),
 		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate),
 		tools.NewSearch(indexer),
+		tools.NewContext(tools.StoreIndex{Indexer: indexer, Store: store}),
 		tools.NewQuestion(asker),
 	)
 }
