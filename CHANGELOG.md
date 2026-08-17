@@ -1,3 +1,18 @@
+## v0.9.0 (2026-08-17)
+
+### Feat
+
+- **tui**: switch a thread's tier and reasoning trace mid-thread
+- **gate**: run gates on change events instead of only at the end of a run
+- **gate**: check LSP diagnostics on every change set
+- **mention**: resolve @file and @symbol before a prompt reaches the model
+- **hook**: run external pre and post tool-use commands around every tool call
+- **agent**: add plan mode as a thread whose registry holds no editing tool
+
+### Fix
+
+- **tui**: drive every input from the theme so NO_COLOR reaches them too
+
 ## v0.8.1 (2026-08-17)
 
 ### Fix
