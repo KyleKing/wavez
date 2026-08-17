@@ -51,6 +51,10 @@ type MemStats struct {
 	UsedBytes  uint64
 	TotalBytes uint64
 	ModelBytes uint64
+	// ModelMeasured reports whether ModelBytes is a reading. A source with no
+	// way to size the local model's resident set leaves it false, and the
+	// panel then shows that row as unavailable instead of as zero bytes.
+	ModelMeasured bool
 }
 
 type config struct {

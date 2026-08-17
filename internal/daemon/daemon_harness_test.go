@@ -58,7 +58,7 @@ func newHarness(t *testing.T, local *fake.Provider, extraTools ...tool.Tool) *te
 	tools := append([]tool.Tool{echoTool{name: "echo"}}, extraTools...)
 	reg := tool.NewRegistry(tools...)
 	hosted := fake.New("hosted")
-	loop := agent.New(local, hosted, reg, broker.Gate())
+	loop := agent.New(local, hosted, reg, broker.Gate(), agent.WithLocalModel("qwen3:8b"))
 
 	sockPath := shortSockPath(t)
 	srv, err := daemon.New(sockPath,

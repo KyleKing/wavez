@@ -136,10 +136,30 @@ type Diff struct {
 	Unified string `json:"unified"`
 }
 
+// Gauge names one Diagnostics number, so a daemon that cannot measure it can
+// say so instead of sending a zero a client would render as a reading.
+type Gauge string
+
+// Gauges a daemon may report as unmeasured.
+const (
+	GaugeCacheRead Gauge = "cache_read"
+	// GaugeMemory covers MemUsedBytes and MemTotalBytes together, since the
+	// panel's memory row is unavailable or not as a whole.
+	GaugeMemory     Gauge = "memory"
+	GaugeModelBytes Gauge = "model_bytes"
+	GaugePrefixHit  Gauge = "prefix_hit"
+	//nolint:gosec // a gauge name, not a credential
+	GaugeTokensPerSec Gauge = "tokens_per_sec"
+)
+
 // Diagnostics is the strip in every header and the panel behind `D`. Every
 // number here is one the daemon already keeps for its own decisions.
 type Diagnostics struct {
-	LocalModel    string  `json:"local_model,omitempty"`
+	LocalModel string `json:"local_model,omitempty"`
+	// Unmeasured names the gauges whose value is absent rather than zero. A
+	// client must render each of these as unavailable, since the field itself
+	// carries the zero value either way.
+	Unmeasured    []Gauge `json:"unmeasured,omitempty"`
 	MemUsedBytes  uint64  `json:"mem_used_bytes"`
 	MemTotalBytes uint64  `json:"mem_total_bytes"`
 	ModelBytes    uint64  `json:"model_bytes"`
@@ -154,4 +174,15 @@ type Diagnostics struct {
 	NeedsInput    int     `json:"needs_input"`
 	ToolCalls     int     `json:"tool_calls"`
 	Malformed     int     `json:"malformed"`
+}
+
+// Measured reports whether g holds a real reading.
+func (d Diagnostics) Measured(g Gauge) bool {
+	for _, u := range d.Unmeasured {
+		if u == g {
+			return false
+		}
+	}
+
+	return true
 }

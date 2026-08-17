@@ -8,6 +8,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
 )
 
@@ -33,6 +34,8 @@ type managedThread struct {
 	baseline string
 	state    event.State
 	dirs     []string
+	usage    usage
+	spendUSD float64
 	mu       sync.Mutex
 	running  bool
 }
@@ -59,6 +62,12 @@ func (mt *managedThread) info() api.ThreadInfo {
 		State:     mt.state,
 		Seq:       mt.th.Log().Head(),
 		LastEvent: mt.lastAt,
+		Spend:     mt.spendUSD,
+		Tokens:    mt.usage.tokens(),
+		Context:   mt.usage.context,
+		// The served window is the budget the router admits a turn against,
+		// so a thread over it is one the router has already escalated.
+		Window: router.LocalContextBudget,
 	}
 }
 
@@ -81,6 +90,9 @@ func (mt *managedThread) watch(ctx context.Context) {
 		mt.lastAt = u.Event.At
 		if u.Event.Kind == event.KindState {
 			mt.state = u.Event.State
+		}
+		if v, ok := usageFromEvent(u.Event); ok {
+			mt.usage.add(v)
 		}
 		if step := stepText(u.Event); step != "" {
 			mt.step = step

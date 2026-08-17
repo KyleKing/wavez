@@ -30,6 +30,7 @@ type manager struct {
 	ctx       context.Context //nolint:containedctx // scopes every thread's lifetime to the manager
 	loop      *agent.Loop
 	cancelAll context.CancelFunc
+	spend     *spendLedger
 	threads   map[string]*managedThread
 	logDir    string
 	prefix    agent.Prefix
@@ -52,6 +53,7 @@ func newManager(logDir string, loop *agent.Loop, prefix agent.Prefix) *manager {
 		ctx:       ctx,
 		cancelAll: cancelAll,
 		threads:   make(map[string]*managedThread),
+		spend:     newSpendLedger(time.Now),
 	}
 }
 
@@ -276,6 +278,36 @@ func (m *manager) needsInputCount() int {
 	return n
 }
 
+// totalUsage sums every live thread's token counts. The context field is left
+// zero: an occupied window belongs to one thread and does not add up across
+// them.
+func (m *manager) totalUsage() usage {
+	var out usage
+
+	for _, mt := range m.snapshot() {
+		mt.mu.Lock()
+		u := mt.usage
+		mt.mu.Unlock()
+
+		out.input += u.input
+		out.output += u.output
+		out.cacheRead += u.cacheRead
+	}
+
+	return out
+}
+
+// localModel is the model the router serves local turns with, which is the
+// name the diagnostics panel shows. It is what the loop is configured with,
+// not a reading from a running llama-server.
+func (m *manager) localModel() string {
+	if m.loop == nil {
+		return ""
+	}
+
+	return m.loop.LocalModel()
+}
+
 func (m *manager) toolCallCount() int { return int(m.toolCalls.Load()) }
 
 func (m *manager) malformedCount() int { return int(m.malformed.Load()) }
@@ -334,11 +366,13 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	if outcome.Stop == agent.StopMalformedTool {
 		m.malformed.Add(1)
 	}
+	m.spend.add(outcome.HostedSpendUSD)
 
 	mt.mu.Lock()
 	mt.running = false
 	mt.cancel = nil
 	mt.lastErr = err
+	mt.spendUSD += outcome.HostedSpendUSD
 
 	if mt.baseline == "" {
 		mt.baseline = outcome.Checkpoint

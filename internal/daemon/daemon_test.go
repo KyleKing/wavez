@@ -394,7 +394,7 @@ func TestDiagnostics_ReflectsThreadCountsAndInjectedStats(t *testing.T) {
 	broker := daemon.NewBroker()
 	loop := agentLoopForTest(t, broker)
 	sockPath := shortSockPath(t)
-	stats := fakeStats{mem: daemon.MemStats{UsedBytes: 111, TotalBytes: 222, ModelBytes: 33}}
+	stats := fakeStats{mem: daemon.MemStats{UsedBytes: 111, TotalBytes: 222, ModelBytes: 33, ModelMeasured: true}}
 
 	srv, err := daemon.New(sockPath,
 		daemon.WithLoop(loop),
