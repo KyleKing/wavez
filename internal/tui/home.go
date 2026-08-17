@@ -266,7 +266,11 @@ func (m Model) renderHome() string {
 	}
 
 	if len(rows) == 0 {
-		body = append(body, m.th.fgMuted.Render("no threads match"))
+		if m.home.filtering {
+			body = append(body, m.th.fgMuted.Render("no threads match"))
+		} else {
+			body = append(body, m.th.fgMuted.Render("no threads yet · press n to start one"))
+		}
 	}
 
 	if m.home.filtering {

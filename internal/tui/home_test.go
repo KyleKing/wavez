@@ -82,7 +82,7 @@ func TestHome_EmptyState(t *testing.T) {
 	m := newSized(t, tui.Options{}, 80, 24)
 	out := m.View().Content
 
-	assert.Contains(t, out, "no threads match")
+	assert.Contains(t, out, "no threads yet · press n to start one")
 }
 
 func TestHome_SingleThread(t *testing.T) {
