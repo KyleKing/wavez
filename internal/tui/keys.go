@@ -33,6 +33,25 @@ const (
 // so a body line's usable width is the frame width minus this.
 const boxPad = 4
 
+// promptWidth is the width of the "> " an input line is rendered behind.
+const promptWidth = 2
+
+// inputCursorCell is the extra column bubbles/v2 textinput renders beyond
+// its configured width: SetWidth(n) measures n+1 columns, so sizing a field
+// to the space available overflows its frame by one.
+const inputCursorCell = 1
+
+// fitInput sizes an input to the columns actually available to it: the
+// frame's inner width less the prompt it sits behind and the cursor cell.
+func fitInput(width int, behindPrompt bool) int {
+	avail := width - boxPad - inputCursorCell
+	if behindPrompt {
+		avail -= promptWidth
+	}
+
+	return max(avail, 1)
+}
+
 // footerHints renders as many hints as fit in width, highest priority first.
 func footerHints(hints []hint, width int) string {
 	var b strings.Builder

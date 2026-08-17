@@ -159,8 +159,8 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - The ledger row sits above the transcript: one line of what this thread has done, derived from the gate log and change set. Compacted history is folded under it, `H` unfolds
 - Transcript rows are typed (user, agent, tool, modifier, gate, permission), collapsible with `Enter`. A permission row takes focus and answers with `y`, `n`, or `a`
 - `[` and `]` move to the previous or next thread in scope without going through Home. `Esc` returns to Home with this thread selected
-- `f` on a transcript row forks a new thread that inherits the compacted history up to that row, for trying a second approach without losing the first
-- Diff pane shows the thread's change set. `d` jumps to it, `a` on a diff line opens Ask-a-line scoped to the anchor, hunk, and enclosing symbol
+- `f` forks a new thread for trying a second approach without losing the first. The fork inherits the parent's change set and none of its transcript: `_ai_/demos/context-shape` measured 97.6% of a transcript as re-derivable from the tree and the tools, so carrying the prose buys staleness rather than context, while the list of files already touched is exactly what cannot be re-derived
+- Diff pane shows the thread's change set as real hunks, fetched on demand rather than streamed, because a diff is unbounded in a way an event stream should not be. Wavez's own `.wavez/` state is filtered out: its gate log changes on every run and is not work the thread did. `d` jumps to the pane, `a` on a diff line opens Ask-a-line anchored at that line, and a removed line anchors to its file since it has no line in the tree as it now stands
 - `/` searches the transcript, `n`/`N` step matches, hits highlight in reverse video. Below 100 columns the diff pane stacks under the transcript
 
 ### Inbox (M1)
@@ -399,7 +399,7 @@ Coverage says a line ran, not that anything checked it, and this project has alr
 - Scheduler phases: edit (threads write, gates queue) and execute (gates and routines run, edits pause for the touched subtrees)
 - Memory-aware admission: the local model and a large test run do not overlap when headroom is below a threshold (with qwen3:8b loaded ~31% is free, enough for a Go suite, while gemma4:12b leaves 14-18% and is not). Long-running services (compose stacks) stop when idle
 - Contention rules come from leases plus a dependency map, so two threads planning changes to the same feature serialize
-- Threads can spawn sub-threads (one level) and fork from a transcript row, inheriting the compacted history up to that point
+- Threads can spawn sub-threads (one level) and fork, the fork inheriting the parent's change set rather than its history
 - The schedule view shows one lane per thread with the active routine's DAG inline
 
 ### Compaction (M3, minimal version in M1)
@@ -643,6 +643,7 @@ No:
 - Mutation gate: what per-mutant cost line-level selection actually reaches, since 6.35 s at package level is what keeps it out of the verification round
 - Cycles: whether a phase carrying a 360-token ledger instead of the full transcript produces equally good work, which `_ai_/demos/context-shape` bounds but does not answer
 - Cycles: how to detect that two experiments are independent enough to run concurrently, beyond "neither writes the tree"
+- Transcript search (`/`, `n`/`N`) is the one Thread-view gap still open, and it needs a transcript row cursor that does not exist yet
 
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
 - Intent edits: hole-fill correctness with retry-against-gates and hosted escalation, and whether `qwen2.5-coder` infill beats chat-style fill on qwen3:8b

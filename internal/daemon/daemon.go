@@ -57,7 +57,9 @@ type config struct {
 	loop          *agent.Loop
 	broker        *Broker
 	stats         StatsSource
+	differ        Differ
 	logDir        string
+	root          string
 	prefix        agent.Prefix
 	shutdownGrace time.Duration
 }
@@ -90,6 +92,21 @@ func WithPrefix(prefix agent.Prefix) Option {
 	return func(c *config) { c.prefix = prefix }
 }
 
+// WithRoot sets the project a thread created without an explicit directory
+// set belongs to. The protocol documents Dirs as defaulting to the daemon's
+// scope, and without this a thread created from the new-thread form has no
+// directory at all.
+func WithRoot(root string) Option {
+	return func(c *config) { c.root = root }
+}
+
+// WithDiffer sets the source of a thread's unified diff. A Server without
+// one answers a diff request with an empty diff rather than an error, since
+// a project outside a repository legitimately has none.
+func WithDiffer(d Differ) Option {
+	return func(c *config) { c.differ = d }
+}
+
 // WithStatsSource injects the memory and model numbers Diagnostics reports.
 func WithStatsSource(s StatsSource) Option {
 	return func(c *config) { c.stats = s }
@@ -106,6 +123,7 @@ func WithShutdownGrace(d time.Duration) Option {
 // answers pending prompts from any connected client.
 type Server struct {
 	stats      StatsSource
+	differ     Differ
 	ln         net.Listener
 	mgr        *manager
 	broker     *Broker
@@ -136,10 +154,12 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 	}
 
 	mgr := newManager(c.logDir, c.loop, c.prefix)
+	mgr.defaultDirs = defaultDirs(c.root)
 	s := &Server{
 		mgr:      mgr,
 		broker:   c.broker,
 		stats:    c.stats,
+		differ:   c.differ,
 		sockPath: sockPath,
 		grace:    c.shutdownGrace,
 		conns:    make(map[*conn]struct{}),

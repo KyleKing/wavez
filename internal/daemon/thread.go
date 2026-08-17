@@ -27,10 +27,14 @@ type managedThread struct {
 	parent  string
 	step    string
 	id      string
-	state   event.State
-	dirs    []string
-	mu      sync.Mutex
-	running bool
+	// baseline is the operation id captured before this thread's first
+	// turn, so a diff covers everything the thread did rather than only
+	// its most recent turn.
+	baseline string
+	state    event.State
+	dirs     []string
+	mu       sync.Mutex
+	running  bool
 }
 
 func (mt *managedThread) currentState() event.State {

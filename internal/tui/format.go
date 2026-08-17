@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // age renders the elapsed time since t in the compact form Home and the
@@ -37,15 +38,15 @@ func spend(v float64) string {
 
 // truncate shortens s to at most n runes, marking the cut with an ellipsis.
 func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if n <= 1 {
-		return string(r[:n])
+	if n <= 0 {
+		return ""
 	}
 
-	return string(r[:n-1]) + "…"
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+
+	return ansi.Truncate(s, n, "…")
 }
 
 // padRight pads or truncates s to exactly width terminal cells, measuring
@@ -53,7 +54,7 @@ func truncate(s string, n int) string {
 // but two cells, and a rune-counted pad leaves box-drawing borders ragged.
 func padRight(s string, width int) string {
 	w := lipgloss.Width(s)
-	if w >= width {
+	if w > width {
 		return truncate(s, width)
 	}
 

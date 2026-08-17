@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"fmt"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -92,13 +92,24 @@ func (t *transcript) visible(height, offset int) []row {
 // typed-row shape in DESIGN.md.
 func renderRow(r row, width int, th theme) string {
 	label, style := rowLabel(r.kind, th)
-	text := truncate(r.text, width-len(label)-1)
 
+	text := flatten(r.text)
 	if r.tool != "" && r.kind == event.KindTool {
-		text = fmt.Sprintf("%s %s", r.tool, text)
+		text = r.tool + " " + text
 	}
 
-	return style.Render(label) + " " + text
+	return style.Render(label) + " " + truncate(text, width-len(label)-1)
+}
+
+// flatten collapses a row's text to one line. A transcript row is one line
+// by construction, so a tool result carrying a whole file would otherwise
+// print its newlines straight through the frame and destroy the layout.
+func flatten(s string) string {
+	if !strings.ContainsAny(s, "\n\r\t") {
+		return s
+	}
+
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func rowLabel(k event.Kind, th theme) (string, lipgloss.Style) {

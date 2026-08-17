@@ -21,6 +21,7 @@ import (
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/sysinfo"
+	"github.com/kyleking/wavez/internal/vcs"
 )
 
 var (
@@ -97,6 +98,8 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithLogDir(filepath.Join(root, ".wavez", "threads")),
 		daemon.WithPrefix(prefix(a)),
 		daemon.WithStatsSource(machineStats{ctx: ctx}),
+		daemon.WithDiffer(vcs.NewJj()),
+		daemon.WithRoot(root),
 	)
 	if err != nil {
 		return fmt.Errorf("starting daemon: %w", err)

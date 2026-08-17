@@ -138,11 +138,17 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 			return m.openThread(rows[m.cappedCursor(len(rows))].ID)
 		}
 	case "y", "n", "a":
+		// A pending prompt owns these letters while it is focused; with no
+		// prompt on the row, `n` means new thread.
 		if len(rows) > 0 {
 			row := rows[m.cappedCursor(len(rows))]
 			if m.pendingFor(row.ID) != nil {
 				return m.homeAnswer(msg, s, row)
 			}
+		}
+
+		if s == "n" {
+			return m.openNewThread("")
 		}
 	}
 
@@ -343,14 +349,18 @@ func homeHints(filtering bool) []hint {
 		return []hint{{keyEnter, "apply"}, {keyEsc, "cancel"}}
 	}
 
+	// Ordered by what a reader loses least when the footer is too narrow:
+	// footerHints drops from the end, and the palette is the one entry that
+	// is also reachable from help.
 	return []hint{
 		{keyEnter, labelOpen},
+		{"n", "new"},
 		{"v", "peek"},
 		{"i", labelInbox},
 		{"D", "diag"},
 		{"/", "filter"},
-		{":", "palette"},
 		{"q", labelQuit},
 		{"?", labelHelp},
+		{":", "palette"},
 	}
 }

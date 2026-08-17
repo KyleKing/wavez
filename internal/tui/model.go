@@ -21,6 +21,7 @@ const (
 	screenThread
 	screenInbox
 	screenDiagnostics
+	screenNewThread
 )
 
 const (
@@ -42,6 +43,7 @@ type Model struct {
 	th          theme
 	client      daemonClient
 	transcripts map[string]*transcript
+	diffs       map[string][]diffRow
 	now         func() time.Time
 	status      string
 	dir         string
@@ -49,6 +51,7 @@ type Model struct {
 	stack       []screenKind
 	pending     []api.PendingInfo
 	thread      threadState
+	form        threadForm
 	palette     paletteState
 	inbox       inboxState
 	home        homeState
@@ -78,8 +81,10 @@ func New(opts Options) Model {
 		dir:         opts.Dir,
 		now:         now,
 		transcripts: map[string]*transcript{},
+		diffs:       map[string][]diffRow{},
 		home:        newHomeState(),
 		thread:      newThreadState(),
+		form:        newThreadForm(),
 		inbox:       newInboxState(),
 		palette:     newPaletteState(),
 	}
@@ -140,9 +145,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.ready = true
-		m.thread.input.SetWidth(max(msg.Width-boxPad, 1))
-		m.home.filterInput.SetWidth(max(msg.Width-boxPad, 1))
-		m.palette.input.SetWidth(max(msg.Width-boxPad, 1))
+		m.thread.input.SetWidth(fitInput(msg.Width, true))
+		m.home.filterInput.SetWidth(fitInput(msg.Width, false))
+		m.palette.input.SetWidth(fitInput(msg.Width, false))
+		m.form.prompt.SetWidth(fitInput(msg.Width, true))
 
 		return m, nil
 
@@ -208,6 +214,8 @@ func (m Model) capturingText() bool {
 	case m.top() == screenInbox && m.inbox.answering:
 		return true
 	case m.top() == screenThread && m.focus == focusInput:
+		return true
+	case m.top() == screenNewThread:
 		return true
 	default:
 		return false
@@ -282,6 +290,8 @@ func (m Model) dispatchScreenKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd)
 		return m.updateInboxKey(msg, s)
 	case screenDiagnostics:
 		return m, nil
+	case screenNewThread:
+		return m.updateNewThreadKey(msg, s)
 	default:
 		return m, nil
 	}
@@ -312,6 +322,10 @@ func (m *Model) applyReply(r api.Reply) {
 	case api.RepEvent:
 		if r.Event != nil {
 			m.appendEvent(*r.Event)
+		}
+	case api.RepDiff:
+		if r.Diff != nil {
+			m.diffs[r.Diff.ThreadID] = parseDiff(r.Diff.Unified)
 		}
 	case api.RepError, api.RepHello, api.RepLagged:
 		// Hello is consumed by Dial; a lagged subscription resubscribes in

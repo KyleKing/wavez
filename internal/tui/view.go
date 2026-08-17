@@ -37,6 +37,8 @@ func (m Model) render() string {
 		return m.renderInbox()
 	case screenDiagnostics:
 		return m.renderDiagnostics()
+	case screenNewThread:
+		return m.renderNewThread()
 	default:
 		return ""
 	}

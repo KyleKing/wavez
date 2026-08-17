@@ -18,6 +18,8 @@ type daemonClient interface {
 	subscribe(threadID string) tea.Cmd
 	send(threadID, text string) tea.Cmd
 	answer(promptID, text string, decision permission.Decision) tea.Cmd
+	diff(threadID string) tea.Cmd
+	newThread(prompt, model, parent string, dirs []string) tea.Cmd
 }
 
 const flushInterval = 16 * time.Millisecond
@@ -103,6 +105,36 @@ func (b *bridge) answer(promptID, text string, decision permission.Decision) tea
 		defer cancel()
 
 		cmd := api.Command{Kind: api.CmdAnswer, PromptID: promptID, Answer: text, Decision: decision}
+
+		reply, err := b.client.Do(ctx, cmd)
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+func (b *bridge) diff(threadID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdDiff, ThreadID: threadID})
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+func (b *bridge) newThread(prompt, model, parent string, dirs []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		cmd := api.Command{Kind: api.CmdNew, Prompt: prompt, Model: model, Parent: parent, Dirs: dirs}
 
 		reply, err := b.client.Do(ctx, cmd)
 		if err != nil {

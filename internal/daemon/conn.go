@@ -168,6 +168,8 @@ func (c *conn) handle(cmd api.Command) {
 		c.handleAnswer(cmd)
 	case api.CmdCancel:
 		c.handleCancel(cmd)
+	case api.CmdDiff:
+		c.handleDiff(cmd)
 	case api.CmdDiag:
 		diag := c.srv.diagnostics()
 		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
@@ -191,6 +193,20 @@ func (c *conn) handleNew(cmd api.Command) {
 	if err := c.srv.mgr.send(mt.id, cmd.Prompt); err != nil {
 		c.reply("", errorReply(err.Error()))
 	}
+}
+
+func (c *conn) handleDiff(cmd api.Command) {
+	unified, err := c.srv.mgr.diff(context.Background(), c.srv.differ, cmd.ThreadID)
+	if err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	c.reply(cmd.ID, api.Reply{
+		Kind: api.RepDiff,
+		Diff: &api.Diff{ThreadID: cmd.ThreadID, Unified: unified},
+	})
 }
 
 func (c *conn) handleSend(cmd api.Command) {

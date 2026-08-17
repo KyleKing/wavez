@@ -27,6 +27,7 @@ const (
 	CmdAnswer    CommandKind = "answer"
 	CmdCancel    CommandKind = "cancel"
 	CmdDiag      CommandKind = "diag"
+	CmdDiff      CommandKind = "diff"
 )
 
 // Command is one request. ID correlates the Reply and is chosen by the client.
@@ -64,6 +65,7 @@ const (
 	RepEvent   ReplyKind = "event"
 	RepPending ReplyKind = "pending"
 	RepDiag    ReplyKind = "diag"
+	RepDiff    ReplyKind = "diff"
 	RepError   ReplyKind = "error"
 	// RepLagged reports that a subscription dropped events. The client must
 	// resubscribe from its last seen Seq rather than assume continuity.
@@ -80,6 +82,7 @@ type Reply struct {
 	Thread   *ThreadInfo   `json:"thread,omitempty"`
 	Event    *event.Event  `json:"event,omitempty"`
 	Diag     *Diagnostics  `json:"diag,omitempty"`
+	Diff     *Diff         `json:"diff,omitempty"`
 	Threads  []ThreadInfo  `json:"threads,omitempty"`
 	Pending  []PendingInfo `json:"pending,omitempty"`
 	Protocol int           `json:"protocol,omitempty"`
@@ -120,6 +123,17 @@ type PendingInfo struct {
 	// Question is set when this is a question rather than a permission prompt,
 	// so the client shows a text field instead of yes/no/always.
 	Question bool `json:"question,omitempty"`
+}
+
+// Diff is a thread's change set as text a client can render, rather than
+// the counts ThreadInfo carries. It is fetched on demand because a diff is
+// unbounded in a way an event stream should not be.
+type Diff struct {
+	ThreadID string `json:"thread_id"`
+	// Unified is git-format unified diff text covering every file the thread
+	// changed since its first turn started. Empty means the thread has
+	// changed nothing, which a client renders differently from an error.
+	Unified string `json:"unified"`
 }
 
 // Diagnostics is the strip in every header and the panel behind `D`. Every
