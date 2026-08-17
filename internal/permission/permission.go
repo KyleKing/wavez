@@ -2,11 +2,7 @@
 // cannot make unreachable by sandboxing alone.
 package permission
 
-import (
-	"context"
-
-	"github.com/kyleking/wavez/internal/stakes"
-)
+import "context"
 
 // Decision is the answer to one Request.
 type Decision string
@@ -23,14 +19,14 @@ const (
 
 // Request describes an action awaiting approval.
 type Request struct {
-	// Stakes is deterministic evidence about this action's cost to approve
-	// blind. It enriches what a client shows and may raise the model tier
-	// that handles the thread; it never decides Allow or Deny itself.
-	Stakes   *stakes.Score `json:"stakes,omitempty"`
-	ThreadID string        `json:"thread_id"`
-	Tool     string        `json:"tool"`
-	Action   string        `json:"action"`
-	Detail   string        `json:"detail,omitempty"`
+	ThreadID string `json:"thread_id"`
+	Tool     string `json:"tool"`
+	Action   string `json:"action"`
+	Detail   string `json:"detail,omitempty"`
+	// Reason is why approval is needed, from the deterministic checker that
+	// decided to ask. It says what the client cannot derive from Detail: a
+	// command reads as ordinary until something names the pattern in it.
+	Reason string `json:"reason,omitempty"`
 	// Key groups actions that one AllowAlways covers, such as a command name.
 	Key   string   `json:"key"`
 	Paths []string `json:"paths,omitempty"`

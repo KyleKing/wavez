@@ -27,8 +27,8 @@ func allTools(t *testing.T) []tool.Tool {
 
 	return []tool.Tool{
 		tools.NewRead(dir),
-		tools.NewStrReplace(dir, nil),
-		tools.NewWrite(dir, nil),
+		tools.NewStrReplace(dir),
+		tools.NewWrite(dir),
 		tools.NewShell(dir, dir, "thread-1", permission.AllowAll()),
 		tools.NewSearch(openTestStore(t)),
 		tools.NewQuestion(fakeAsker{}),

@@ -321,8 +321,8 @@ func (m Model) renderHomeExpanded(t api.ThreadInfo) []string {
 		}
 
 		out = append(out, "  │  ▸ "+pending.Tool+"  "+pending.Action+"  "+answers)
-		if s := stakesLine(pending, "  │    ", m.width-boxPad, m.th); s != "" {
-			out = append(out, s)
+		if pending.Reason != "" {
+			out = append(out, m.th.fgMuted.Render(truncate("  │    "+pending.Reason, m.width-boxPad)))
 		}
 	}
 

@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/kyleking/wavez/internal/api"
 )
 
 // age renders the elapsed time since t in the compact form Home and the
@@ -30,18 +28,6 @@ func age(t, now time.Time) string {
 	default:
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
-}
-
-// stakesLine renders p's deterministic evidence as one indented row under
-// the prompt it belongs to, or "" when there is none. It is shown only for
-// the row the cursor is on: the evidence is what answering that prompt
-// costs, so every row carrying it would bury the list it sits in.
-func stakesLine(p *api.PendingInfo, indent string, width int, th theme) string {
-	if p == nil || p.Stakes == nil {
-		return ""
-	}
-
-	return th.fgMuted.Render(indent + truncate(p.Stakes.Render(), width-len([]rune(indent))))
 }
 
 // spend renders a dollar amount to two decimal places.

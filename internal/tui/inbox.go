@@ -158,8 +158,8 @@ func (m Model) renderInbox() string {
 		}
 
 		body = append(body, m.th.accent.Render("> "+line))
-		if s := stakesLine(r, "    ", m.width-boxPad, m.th); s != "" {
-			body = append(body, s)
+		if r.Reason != "" {
+			body = append(body, m.th.fgMuted.Render(truncate("    "+r.Reason, m.width-boxPad)))
 		}
 	}
 

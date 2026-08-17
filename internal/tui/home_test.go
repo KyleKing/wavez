@@ -10,7 +10,6 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
-	"github.com/kyleking/wavez/internal/stakes"
 	"github.com/kyleking/wavez/internal/tui"
 )
 
@@ -125,37 +124,4 @@ func TestHome_PermissionRowAnsweredInline(t *testing.T) {
 
 	assert.Contains(t, out, "rm -rf .testmondata")
 	assert.Contains(t, out, "[y]es [n]o [a]lways")
-}
-
-// TestHome_PermissionRowShowsStakes proves the deterministic evidence
-// reaches the surface the user answers on. Without it the score is computed
-// and discarded, which is worse than not computing it.
-func TestHome_PermissionRowShowsStakes(t *testing.T) {
-	t.Parallel()
-
-	score := stakes.Compute(stakes.Input{
-		ProjectRoot: "/repo",
-		Paths:       []string{"internal/lease/lease.go"},
-		Edits: []stakes.Edit{
-			{Path: "internal/lease/lease.go", Before: "func run() {}", After: "func run() { exec.Command(\"ls\") }"},
-		},
-	})
-
-	m := newSized(t, tui.Options{NoColor: true}, 100, 30)
-	m = apply(t, m,
-		api.Reply{Kind: api.RepThreads, Threads: sampleThreads()},
-		api.Reply{Kind: api.RepPending, Pending: []api.PendingInfo{
-			{
-				ID: "p1", ThreadID: "t2", Thread: "docs-pass", Tool: "shell",
-				Action: "rm -rf .testmondata", Stakes: &score,
-			},
-		}},
-	)
-
-	out := apply(t, m, tea.KeyPressMsg{Code: 'v', Text: "v"}).View().Content
-
-	assert.Contains(t, out, "HIGH")
-	assert.Contains(t, out, "caps:subprocess")
-	assert.Contains(t, out, "files:1")
-	assert.Contains(t, out, "blast:unknown")
 }

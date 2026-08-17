@@ -19,7 +19,7 @@ func TestStrReplace_Success(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	s := tools.NewStrReplace(dir, nil)
+	s := tools.NewStrReplace(dir)
 	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
 		"path": "file.go", "old_string": "func a() {}", "new_string": "func b() {}",
 	}))
@@ -50,7 +50,7 @@ func TestStrReplace_NonUniqueErrorCarriesLineNumbers(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	s := tools.NewStrReplace(dir, nil)
+	s := tools.NewStrReplace(dir)
 	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
 		"path": "file.go", "old_string": "a := 1", "new_string": "a := 2",
 	}))
@@ -72,7 +72,7 @@ func TestStrReplace_RefusesPathOutsideRoot(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	s := tools.NewStrReplace(dir, nil)
+	s := tools.NewStrReplace(dir)
 
 	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
 		"path": "/etc/passwd", "old_string": "a", "new_string": "b",

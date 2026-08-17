@@ -270,8 +270,8 @@ func permissionGate(allowAll bool) permission.Gate {
 		if req.Detail != "" {
 			fmt.Fprintf(os.Stderr, "  %s\n", req.Detail)
 		}
-		if req.Stakes != nil {
-			fmt.Fprintf(os.Stderr, "  %s\n", req.Stakes.Render())
+		if req.Reason != "" {
+			fmt.Fprintf(os.Stderr, "  %s\n", req.Reason)
 		}
 		fmt.Fprint(os.Stderr, "  [y]es [n]o [a]lways: ")
 
