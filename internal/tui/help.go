@@ -27,7 +27,7 @@ func (m Model) currentHints() []hint {
 	case screenHome:
 		return homeHints(m.home.filtering)
 	case screenThread:
-		return threadHints()
+		return threadHints(m.thread.search)
 	case screenInbox:
 		return []hint{{keyEnter, "answer"}, {"o", labelOpen}, {keyEsc, labelBack}}
 	case screenDiagnostics:

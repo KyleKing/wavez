@@ -220,6 +220,40 @@ func TestThreadKeys_PendingPromptStillOwnsAnswers(t *testing.T) {
 	assert.Empty(t, fc.created)
 }
 
+// `n` denies a focused prompt, and a live search query takes it back:
+// stepping a match costs nothing, denying a prompt the user never read does.
+func TestThreadSearch_LiveQueryOwnsTheStepKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, query := range []string{"", "lease"} {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+
+			fc := &fakeClient{}
+			m := homeFixture(t, fc,
+				[]api.ThreadInfo{{ID: "t1", Name: "fix-lock", Dir: "wavez", State: event.StateNeedsIn}},
+				[]api.PendingInfo{{ID: "p1", ThreadID: "t1", Tool: "shell", Action: "rm -rf .testmondata"}})
+
+			m.thread.activeID = "t1"
+			m.stack = append(m.stack, screenThread)
+			m.focus = focusInput
+			m.thread.search.query = query
+			m.appendEvent(event.Event{ThreadID: "t1", Kind: event.KindTool, Text: "read lease.go"})
+
+			m = pressKey(t, m, 'n')
+
+			if query == "" {
+				require.Len(t, fc.answered, 1)
+				assert.Equal(t, permission.Deny, fc.answered[0].decision)
+
+				return
+			}
+
+			assert.Empty(t, fc.answered, "a live query must not let n deny a prompt")
+		})
+	}
+}
+
 // pressKey sends one key to the model and returns the updated Model. Pass a
 // rune for a letter, or zero plus a name for a named key.
 func pressKey(t *testing.T, m Model, r rune, name ...string) Model {

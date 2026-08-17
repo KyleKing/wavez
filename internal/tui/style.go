@@ -16,6 +16,9 @@ type theme struct {
 	statusInfo  lipgloss.Style
 	borderDim   lipgloss.Style
 	borderFocus lipgloss.Style
+	// searchHit is reverse video rather than a color so a search stays
+	// legible under NO_COLOR and on a monochrome terminal.
+	searchHit lipgloss.Style
 }
 
 func newTheme(noColor bool) theme {
@@ -31,6 +34,7 @@ func newTheme(noColor bool) theme {
 			statusInfo:  lipgloss.NewStyle(),
 			borderDim:   lipgloss.NewStyle().Faint(true),
 			borderFocus: lipgloss.NewStyle().Bold(true),
+			searchHit:   lipgloss.NewStyle().Reverse(true),
 		}
 	}
 
@@ -45,5 +49,6 @@ func newTheme(noColor bool) theme {
 		statusInfo:  lipgloss.NewStyle().Foreground(lipgloss.Color("111")),
 		borderDim:   lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
 		borderFocus: lipgloss.NewStyle().Foreground(lipgloss.Color("111")).Bold(true),
+		searchHit:   lipgloss.NewStyle().Reverse(true),
 	}
 }

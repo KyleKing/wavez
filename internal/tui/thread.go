@@ -24,6 +24,7 @@ const (
 type threadState struct {
 	activeID     string
 	input        textinput.Model
+	search       searchState
 	scrollOffset int
 	diffCursor   int
 }
@@ -33,7 +34,7 @@ func newThreadState() threadState {
 	ti.Placeholder = "type a message and press enter to send"
 	ti.Prompt = ""
 
-	return threadState{input: ti}
+	return threadState{input: ti, search: newSearchState()}
 }
 
 func (m Model) activeThread() (api.ThreadInfo, bool) {
@@ -47,6 +48,14 @@ func (m Model) activeThread() (api.ThreadInfo, bool) {
 }
 
 func (m Model) updateThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
+	if m.thread.search.editing {
+		return m.updateSearchKey(msg, s)
+	}
+
+	if mm, cmd, handled := m.threadSearchKey(s); handled {
+		return mm, cmd
+	}
+
 	pending := m.pendingFor(m.thread.activeID)
 
 	if m.focus == focusInput && m.thread.input.Value() == "" && pending != nil && !pending.Question {
@@ -186,6 +195,7 @@ func (m Model) switchThread(delta int) (Model, tea.Cmd) {
 	m.thread.activeID = m.threads[idx].ID
 	m.thread.scrollOffset = 0
 	m.thread.diffCursor = 0
+	m.clearSearch()
 
 	if m.client == nil {
 		return m, nil
@@ -252,10 +262,8 @@ func (m Model) renderThread() string {
 		lastSeg(info.Dir), info.Name, m.activeModel(info), tokensK(info.Context), tokensK(info.Window),
 		spend(info.Spend), otherPendingBadge(m.pending, info.ID, m.ascii))
 
-	stacked := m.width < stackedBelowWidth
-
-	body := m.threadBody(info, stacked)
-	footer := footerHints(threadHints(), m.width-boxPad)
+	body := m.threadBody(info)
+	footer := footerHints(threadHints(m.thread.search), m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
 }
@@ -313,25 +321,36 @@ const (
 	ledgerLabelWidth  = 8
 )
 
-func (m Model) threadBody(info api.ThreadInfo, stacked bool) []string {
-	inner := m.width - boxPad
-	transcriptHeight := m.height - chromeRows
-	if stacked {
+// transcriptHeight is the row budget the transcript window gets after the
+// frame's fixed chrome and whatever optional lines are showing.
+func (m Model) transcriptHeight() int {
+	height := m.height - chromeRows
+	if m.width < stackedBelowWidth {
 		const half = 2
-		transcriptHeight = (m.height - stackedChromeRows) / half
+		height = (m.height - stackedChromeRows) / half
 	}
 
 	if m.status != "" {
-		transcriptHeight--
+		height--
 	}
+
+	if m.thread.search.visible() {
+		height--
+	}
+
+	return max(height, 1)
+}
+
+func (m Model) threadBody(info api.ThreadInfo) []string {
+	inner := m.width - boxPad
 
 	var body []string
 	body = append(body, m.th.fgMuted.Render("ledger  "+truncate(ledgerLine(info), inner-ledgerLabelWidth)))
 
 	tr := m.transcripts[info.ID]
 	if tr != nil {
-		for _, r := range tr.visible(max(transcriptHeight, 1), m.thread.scrollOffset) {
-			body = append(body, renderRow(r, inner, m.th))
+		for _, r := range tr.visible(m.transcriptHeight(), m.thread.scrollOffset) {
+			body = append(body, renderRow(r, inner, m.th, m.thread.search.query))
 		}
 	}
 
@@ -340,6 +359,10 @@ func (m Model) threadBody(info api.ThreadInfo, stacked bool) []string {
 	body = append(body, m.diffPane(inner)...)
 	if m.status != "" {
 		body = append(body, m.th.statusWarn.Render(truncate(m.status, inner)))
+	}
+
+	if m.thread.search.visible() {
+		body = append(body, m.searchLine(inner))
 	}
 
 	body = append(body, sep, "> "+m.thread.input.View())
@@ -414,18 +437,42 @@ func changeSummary(tr *transcript, width int) []string {
 	return out
 }
 
-func threadHints() []hint {
-	return []hint{
-		{keyEnter, "send"},
-		{"tab", "panel"},
-		{"d", "diff"},
-		{"a", "ask-line"},
-		{"f", "fork"},
-		{"[", "prev"},
-		{"]", "next"},
-		{"i", labelInbox},
-		{"u", "undo"},
-		{keyEsc, "home"},
-		{"?", labelHelp},
+// threadHintTail is the count of hints threadHints appends after its head.
+const threadHintTail = 8
+
+func threadHints(search searchState) []hint {
+	if search.editing {
+		return []hint{{keyEnter, "apply"}, {keyEsc, labelCancel}}
 	}
+
+	head := []hint{{keyEnter, "send"}, {keyTab, "panel"}, {"/", "search"}}
+	back := []hint{{keyEsc, "home"}}
+
+	// A live query puts its keys first: footerHints drops from the tail, and
+	// Esc is the only way back out of the highlight.
+	if search.query != "" {
+		head = []hint{
+			{"n", "next match"},
+			{"N", "prev match"},
+			{keyEsc, "clear search"},
+			{keyEnter, "send"},
+			{keyTab, "panel"},
+		}
+		back = nil
+	}
+
+	hints := make([]hint, 0, len(head)+len(back)+threadHintTail)
+	hints = append(hints, head...)
+	hints = append(hints,
+		hint{"d", "diff"},
+		hint{"a", "ask-line"},
+		hint{"f", "fork"},
+		hint{"[", "prev"},
+		hint{"]", "next"},
+		hint{"i", labelInbox},
+		hint{"u", "undo"},
+	)
+	hints = append(hints, back...)
+
+	return append(hints, hint{"?", labelHelp})
 }

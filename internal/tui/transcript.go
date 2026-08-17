@@ -90,7 +90,7 @@ func (t *transcript) visible(height, offset int) []row {
 
 // renderRow formats one transcript row per its kind, matching Thread view's
 // typed-row shape in DESIGN.md.
-func renderRow(r row, width int, th theme) string {
+func renderRow(r row, width int, th theme, query string) string {
 	label, style := rowLabel(r.kind, th)
 
 	text := flatten(r.text)
@@ -98,7 +98,9 @@ func renderRow(r row, width int, th theme) string {
 		text = r.tool + " " + text
 	}
 
-	return style.Render(label) + " " + truncate(text, width-len(label)-1)
+	text = truncate(text, width-len(label)-1)
+
+	return style.Render(label) + " " + highlightMatches(text, query, th.searchHit)
 }
 
 // flatten collapses a row's text to one line. A transcript row is one line

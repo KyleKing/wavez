@@ -21,6 +21,7 @@ const (
 	keyUp    = "up"
 	keyJ     = "j"
 	keyK     = "k"
+	keyTab   = "tab"
 
 	labelBack   = "back"
 	labelCancel = "cancel"

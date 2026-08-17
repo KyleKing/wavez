@@ -125,6 +125,11 @@ func (m *Model) popOrClose() {
 
 		return
 	}
+	if m.top() == screenThread && m.thread.search.visible() {
+		m.clearSearch()
+
+		return
+	}
 	if m.top() == screenHome && m.home.filtering {
 		m.home.filtering = false
 		m.home.filterInput.Blur()
@@ -154,6 +159,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.thread.input.SetWidth(fitInput(msg.Width, true))
 		m.home.filterInput.SetWidth(fitInput(msg.Width, false))
+		m.thread.search.input.SetWidth(fitInput(msg.Width, false))
 		m.palette.input.SetWidth(fitInput(msg.Width, false))
 		m.form.prompt.SetWidth(fitInput(msg.Width, true))
 
@@ -229,7 +235,7 @@ func (m Model) capturingText() bool {
 		return true
 	case m.top() == screenInbox && m.inbox.answering:
 		return true
-	case m.top() == screenThread && m.focus == focusInput:
+	case m.top() == screenThread && (m.thread.search.editing || m.focus == focusInput):
 		return true
 	case m.top() == screenNewThread:
 		return true
@@ -248,7 +254,7 @@ func (m Model) handleGlobalKey(s string) (Model, tea.Cmd, bool) {
 		m.popOrClose()
 
 		return m, nil, true
-	case "tab":
+	case keyTab:
 		m.focus = (m.focus + 1) % m.panelCount()
 
 		return m, nil, true
