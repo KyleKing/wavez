@@ -491,7 +491,19 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 
 			return true, out, cerr
 		}
-		if route.Choice == router.ChoiceLocal {
+		// stream bounds itself by the deadline on its own context, so the
+		// caller's ctx is still live when a hung stream is cut off. Naming
+		// the bound that fired beats reporting it as a provider failure.
+		if r.pastDeadline() {
+			out, derr := r.stopBound(ctx, StopDeadline, r.deadlineReason())
+
+			return true, out, derr
+		}
+		// Local is never retried past one failure, which the router normally
+		// enforces through PriorFailures. An explicit override wins over
+		// that check, so a run pinned local would otherwise retry a failing
+		// provider until the turn bound, and this is what stops it.
+		if route.Choice == router.ChoiceLocal && !r.localFailed {
 			r.localFailed = true
 
 			return false, Outcome{}, nil
@@ -597,6 +609,16 @@ func (r *run) logVerify(ok bool) error {
 // Checked before every tool call as well as every turn, because one turn
 // may issue MaxToolCallsPerTurn edits and a bound that only holds between
 // turns does not bound those.
+// How much of the run's wall-clock budget is left, zero when no bound is
+// configured.
+func (r *run) remaining() time.Duration {
+	if r.deadline.IsZero() {
+		return 0
+	}
+
+	return r.deadline.Sub(r.loop.options.Clock.Now())
+}
+
 func (r *run) pastDeadline() bool {
 	return !r.deadline.IsZero() && !r.loop.options.Clock.Now().Before(r.deadline)
 }
@@ -829,6 +851,11 @@ func (r *run) appendToolResult(ctx context.Context, call llm.ToolCall, result to
 	return nil
 }
 
+// stream reads one model response, bounded by the run's wall-clock
+// deadline. Without that bound a provider that accepts the request and then
+// stops sending blocks here forever: the deadline is otherwise only checked
+// between turns and before tool calls, so a hung stream is exactly the case
+// it would miss.
 func (r *run) stream(
 	ctx context.Context, provider llm.Provider, req llm.Request,
 ) (string, []llm.ToolCall, *llm.Usage, llm.StopReason, error) {
@@ -838,6 +865,17 @@ func (r *run) stream(
 		usage   *llm.Usage
 		stopRsn llm.StopReason
 	)
+
+	// Bounded by the budget remaining rather than by the deadline instant,
+	// because a stream blocks in real time while the run's clock may be
+	// injected. A run already past its deadline never reaches here: drive
+	// checks that before every turn.
+	if remaining := r.remaining(); remaining > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, remaining)
+		defer cancel()
+	}
 
 	for chunk, err := range provider.Stream(ctx, req) {
 		if err != nil {
