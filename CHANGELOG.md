@@ -1,3 +1,44 @@
+## v0.8.0 (2026-08-17)
+
+### Feat
+
+- **agent**: have a model read the diff against the task and record its objection
+- **tui**: search the transcript and step matches
+- **cli**: add -json so a headless run reports machine-readable numbers
+- **vcs**: make the run checkpoint undoable from the thread view and the shell
+- **codeintel**: build a missing codegraph index in the background
+- **runtime**: start and stop llama-server for the configured local model
+- **gate**: fail a test the run wrote that survives reverting the run
+- **daemon**: report real spend, context, and cache numbers and name the unmeasured ones
+- **codeintel**: copy codegraph call edges into the store so graph search can answer
+- **agent**: compact history once a request nears the local context budget
+- **tools**: expose the code-intelligence context bundle as a tool
+- **mise**: add daemon task to run wavezd on demand
+- **tui**: show real diff hunks, ask a line, fork, and create threads
+- **gate**: add a change-scoped mutation gate
+- **tools**: record edits to files a run never opened
+- **gate**: run the ast-grep convention rules on every change set
+- **stakes**: count blast radius from the import graph so the signal stops reading unknown
+- **stakes**: score a permission prompt against the run's whole change set
+
+### Fix
+
+- **gate**: abstain quietly when a run wrote no test instead of demanding one
+- **tui**: show the model actually serving a thread, not just an override
+- **agent**: fail a turn that announces a step and takes none
+- **tui**: tell an empty Home that it is empty rather than that nothing matched
+- **tui**: render an unmeasured gauge as unavailable instead of zero
+- **agent**: refuse to report complete when the model only offered to act
+- **agent**: check the wall-clock bound before every tool call
+- **codeintel**: build the index so search can answer at all
+- **gate**: record what each gate examined so running nothing stops reading as a pass
+- **router**: default hosted to a model that calls tools reliably
+- **agent**: fail a turn that writes its tool call as text instead of reporting success
+
+### Refactor
+
+- **permission**: drop stakes and show the guard's reason on the prompt instead
+
 ## v0.7.0 (2026-08-16)
 
 ### Feat
