@@ -249,7 +249,7 @@ func (m Model) renderThread() string {
 	}
 
 	title := fmt.Sprintf("%s · %s · %s %s/%s · %s%s",
-		lastSeg(info.Dir), info.Name, orDash(info.Model), tokensK(info.Context), tokensK(info.Window),
+		lastSeg(info.Dir), info.Name, m.activeModel(info), tokensK(info.Context), tokensK(info.Window),
 		spend(info.Spend), otherPendingBadge(m.pending, info.ID, m.ascii))
 
 	stacked := m.width < stackedBelowWidth
@@ -258,6 +258,17 @@ func (m Model) renderThread() string {
 	footer := footerHints(threadHints(), m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
+}
+
+// activeModel names the model serving this thread. ThreadInfo.Model carries
+// only an override, so a thread without one is served by the daemon's local
+// model rather than by nothing.
+func (m Model) activeModel(info api.ThreadInfo) string {
+	if info.Model != "" {
+		return info.Model
+	}
+
+	return orDash(m.diag.LocalModel)
 }
 
 func otherPendingBadge(pending []api.PendingInfo, activeID string, ascii bool) string {
