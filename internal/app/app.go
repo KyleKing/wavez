@@ -55,6 +55,12 @@ const (
 	sessionsDirName          = "sessions"
 
 	dirPerm = 0o755
+
+	// Deterministic compaction is tuned for an 8k served window: keep enough
+	// of a tool result to read a stack frame or a test name, and hold a
+	// result in full only while the turn that asked for it is still recent.
+	compactKeepLines  = 20
+	compactMaxToolAge = 4
 )
 
 // App is one project's assembled object graph. Construct it with New and
@@ -253,6 +259,11 @@ func loopOptions(root string, cfg config.Config, options Options, verifier agent
 		agent.WithHostedModel(cfg.HostedModel),
 		agent.WithVerifier(verifier),
 		agent.WithCheckpointer(vcs.NewJj(), root),
+		agent.WithCompaction(thread.CompactOptions{
+			KeepLines:   compactKeepLines,
+			MaxToolAge:  compactMaxToolAge,
+			DedupeReads: true,
+		}, agent.DefaultCompactTrigger),
 	}
 
 	if options.MaxTurns > 0 {

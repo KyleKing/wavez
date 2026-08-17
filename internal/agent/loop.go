@@ -136,16 +136,19 @@ type Prefix struct {
 // hosted spend, and, for a stagnation stop, which tool failed and how many
 // times in a row.
 type Outcome struct {
-	Stop           Stop
-	Checkpoint     string
-	StagnantTool   string
-	Turns          int
-	ToolCalls      int
-	InputTokens    int
-	OutputTokens   int
-	Elapsed        time.Duration
-	HostedSpendUSD float64
-	StagnantCount  int
+	Stop         Stop
+	Checkpoint   string
+	StagnantTool string
+	Turns        int
+	ToolCalls    int
+	InputTokens  int
+	OutputTokens int
+	// TokensCompacted is the estimated saving deterministic compaction made
+	// across the run, zero when compaction never ran.
+	TokensCompacted int
+	Elapsed         time.Duration
+	HostedSpendUSD  float64
+	StagnantCount   int
 }
 
 // Verifier gates a run once the model reports it is done, per DESIGN.md's
@@ -183,6 +186,9 @@ type Options struct {
 	MaxStagnantErrors   int
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
+	CompactTrigger      float64
+	Compact             thread.CompactOptions
+	CompactEnabled      bool
 }
 
 // Option configures a Loop.
@@ -260,6 +266,9 @@ type Loop struct {
 	options Options
 }
 
+// LocalModel reports the model name the router serves a local turn with.
+func (l *Loop) LocalModel() string { return l.options.LocalModel }
+
 // New builds a Loop. PermGate is consulted for any tool call whose Tool
 // implements PermissionRequester and reports the call needs approval.
 func New(local, hosted llm.Provider, tools *tool.Registry, permGate permission.Gate, opts ...Option) *Loop {
@@ -270,6 +279,7 @@ func New(local, hosted llm.Provider, tools *tool.Registry, permGate permission.G
 		MaxWallClock:        DefaultMaxWallClock,
 		MaxHostedSpendUSD:   DefaultMaxHostedSpendUSD,
 		MaxStagnantErrors:   DefaultMaxStagnantErrors,
+		CompactTrigger:      DefaultCompactTrigger,
 		Clock:               gate.RealClock{},
 		Pricing:             DefaultPricing,
 	}
@@ -384,8 +394,10 @@ type run struct {
 	system            string
 	changes           []tool.Change
 	tools             []llm.ToolSpec
+	compacted         []thread.TurnMessage
 	hint              router.Input
 	outcome           Outcome
+	compactedThrough  int
 	verifyRounds      int
 	turnToolCalls     int
 	consecutiveErrors int
@@ -441,10 +453,15 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	r.outcome.Turns++
 	r.turnToolCalls = 0
 
+	if err := r.maybeCompact(estimateRequestTokens(r.system, r.messages())); err != nil {
+		return true, Outcome{}, err
+	}
+
+	messages := r.messages()
 	route := router.Route(router.Input{
 		Override:        r.hint.Override,
 		FileCount:       r.hint.FileCount,
-		EstimatedTokens: estimateRequestTokens(r.system, r.thread.History()),
+		EstimatedTokens: estimateRequestTokens(r.system, messages),
 		PriorFailures:   priorFailures(r.localFailed),
 	})
 	provider := router.Select(route, r.loop.local, r.loop.hosted)
@@ -452,7 +469,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		Model:    router.Select(route, r.loop.options.LocalModel, r.loop.options.HostedModel),
 		System:   r.system,
 		Tools:    r.tools,
-		Messages: r.thread.History(),
+		Messages: messages,
 	}
 
 	text, calls, usage, stopReason, err := r.stream(ctx, provider, req)
