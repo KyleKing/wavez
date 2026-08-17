@@ -27,6 +27,9 @@ func (m Model) render() string {
 	if m.palette.open {
 		return m.renderPalette()
 	}
+	if m.restore.open {
+		return m.renderRestore()
+	}
 
 	switch m.top() {
 	case screenHome:

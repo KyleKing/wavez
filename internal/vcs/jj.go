@@ -75,6 +75,19 @@ func (*Jj) WorkingCopyDiff(ctx context.Context, repoRoot string) (string, error)
 	return out, nil
 }
 
+// DiffStat summarizes the changes between marker and the working copy as
+// jj's per-file counts: what an undo of that checkpoint would discard. A
+// repository with nothing changed still reports a "0 files changed" line,
+// so emptiness is a question for ChangedFiles rather than for this text.
+func (*Jj) DiffStat(ctx context.Context, repoRoot, marker string) (string, error) {
+	out, err := runJJ(ctx, repoRoot, "diff", diffFromArg(marker), "--to", "@", "--stat")
+	if err != nil {
+		return "", fmt.Errorf("summarizing changes since %q: %w", marker, err)
+	}
+
+	return out, nil
+}
+
 // Capture returns the operation id of repoRoot's current state: cheap
 // enough to call before every turn, since jj snapshots the working copy as
 // a side effect of running any command, so this read alone is a restore

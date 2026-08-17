@@ -62,6 +62,7 @@ type config struct {
 	broker        *Broker
 	stats         StatsSource
 	differ        Differ
+	restorer      Restorer
 	logDir        string
 	root          string
 	prefix        agent.Prefix
@@ -111,6 +112,12 @@ func WithDiffer(d Differ) Option {
 	return func(c *config) { c.differ = d }
 }
 
+// WithRestorer sets the backend an undo runs through. A Server without one
+// refuses a restore rather than reporting an undo it never performed.
+func WithRestorer(r Restorer) Option {
+	return func(c *config) { c.restorer = r }
+}
+
 // WithStatsSource injects the memory and model numbers Diagnostics reports.
 func WithStatsSource(s StatsSource) Option {
 	return func(c *config) { c.stats = s }
@@ -128,6 +135,7 @@ func WithShutdownGrace(d time.Duration) Option {
 type Server struct {
 	stats      StatsSource
 	differ     Differ
+	restorer   Restorer
 	ln         net.Listener
 	mgr        *manager
 	broker     *Broker
@@ -164,6 +172,7 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 		broker:   c.broker,
 		stats:    c.stats,
 		differ:   c.differ,
+		restorer: c.restorer,
 		sockPath: sockPath,
 		grace:    c.shutdownGrace,
 		conns:    make(map[*conn]struct{}),

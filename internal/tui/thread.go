@@ -114,6 +114,14 @@ func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
 		mm, cmd := m.openNewThread(m.thread.activeID)
 
 		return mm, cmd, true
+	case "u":
+		if typing {
+			return m, nil, false
+		}
+
+		mm, cmd := m.requestRestore()
+
+		return mm, cmd, true
 	default:
 		return m, nil, false
 	}
@@ -302,6 +310,10 @@ func (m Model) threadBody(info api.ThreadInfo, stacked bool) []string {
 		transcriptHeight = (m.height - stackedChromeRows) / half
 	}
 
+	if m.status != "" {
+		transcriptHeight--
+	}
+
 	var body []string
 	body = append(body, m.th.fgMuted.Render("ledger  "+truncate(ledgerLine(info), inner-ledgerLabelWidth)))
 
@@ -315,6 +327,10 @@ func (m Model) threadBody(info api.ThreadInfo, stacked bool) []string {
 	sep := strings.Repeat("─", max(inner, 0))
 	body = append(body, sep)
 	body = append(body, m.diffPane(inner)...)
+	if m.status != "" {
+		body = append(body, m.th.statusWarn.Render(truncate(m.status, inner)))
+	}
+
 	body = append(body, sep, "> "+m.thread.input.View())
 
 	return body
@@ -397,6 +413,7 @@ func threadHints() []hint {
 		{"[", "prev"},
 		{"]", "next"},
 		{"i", labelInbox},
+		{"u", "undo"},
 		{keyEsc, "home"},
 		{"?", labelHelp},
 	}

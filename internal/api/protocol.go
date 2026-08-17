@@ -28,6 +28,7 @@ const (
 	CmdCancel    CommandKind = "cancel"
 	CmdDiag      CommandKind = "diag"
 	CmdDiff      CommandKind = "diff"
+	CmdRestore   CommandKind = "restore"
 )
 
 // Command is one request. ID correlates the Reply and is chosen by the client.
@@ -52,6 +53,10 @@ type Command struct {
 	Dirs []string `json:"dirs,omitempty"`
 	// From resumes a subscription after the client's last seen Seq.
 	From uint64 `json:"from,omitempty"`
+	// Confirm performs a restore instead of previewing what it would
+	// discard, since destroying uncommitted work without asking is worse
+	// than leaving it.
+	Confirm bool `json:"confirm,omitempty"`
 }
 
 // ReplyKind names a message from the daemon.
@@ -66,6 +71,7 @@ const (
 	RepPending ReplyKind = "pending"
 	RepDiag    ReplyKind = "diag"
 	RepDiff    ReplyKind = "diff"
+	RepRestore ReplyKind = "restore"
 	RepError   ReplyKind = "error"
 	// RepLagged reports that a subscription dropped events. The client must
 	// resubscribe from its last seen Seq rather than assume continuity.
@@ -83,6 +89,7 @@ type Reply struct {
 	Event    *event.Event  `json:"event,omitempty"`
 	Diag     *Diagnostics  `json:"diag,omitempty"`
 	Diff     *Diff         `json:"diff,omitempty"`
+	Restore  *Restore      `json:"restore,omitempty"`
 	Threads  []ThreadInfo  `json:"threads,omitempty"`
 	Pending  []PendingInfo `json:"pending,omitempty"`
 	Protocol int           `json:"protocol,omitempty"`
@@ -97,6 +104,10 @@ type ThreadInfo struct {
 	Dir       string    `json:"dir"`
 	Parent    string    `json:"parent,omitempty"`
 	Model     string    `json:"model,omitempty"`
+	// Checkpoint is the operation id captured before the thread's first
+	// turn, empty until it has run one. A client offers undo only for a
+	// thread that has one.
+	Checkpoint string `json:"checkpoint,omitempty"`
 	// Step is the current activity in words, which is what Home renders.
 	Step    string      `json:"step"`
 	State   event.State `json:"state"`
@@ -134,6 +145,18 @@ type Diff struct {
 	// changed since its first turn started. Empty means the thread has
 	// changed nothing, which a client renders differently from an error.
 	Unified string `json:"unified"`
+}
+
+// Restore is a thread's checkpoint and the work restoring it costs. A
+// preview reports Summary with Restored false; the confirming command
+// reports what it discarded with Restored true.
+type Restore struct {
+	ThreadID   string `json:"thread_id"`
+	Checkpoint string `json:"checkpoint"`
+	// Summary is the per-file diff stat between the checkpoint and the
+	// working copy, which is the uncommitted work a restore destroys.
+	Summary  string `json:"summary"`
+	Restored bool   `json:"restored"`
 }
 
 // Gauge names one Diagnostics number, so a daemon that cannot measure it can

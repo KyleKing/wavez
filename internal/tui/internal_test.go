@@ -65,6 +65,12 @@ type fakeClient struct {
 	answered []answered
 	diffed   []string
 	created  []created
+	restores []restoreCall
+}
+
+type restoreCall struct {
+	threadID string
+	confirm  bool
 }
 
 type created struct {
@@ -82,6 +88,12 @@ type answered struct {
 
 func (*fakeClient) subscribe(string) tea.Cmd    { return nil }
 func (*fakeClient) send(string, string) tea.Cmd { return nil }
+
+func (f *fakeClient) restore(threadID string, confirm bool) tea.Cmd {
+	f.restores = append(f.restores, restoreCall{threadID: threadID, confirm: confirm})
+
+	return nil
+}
 
 func (f *fakeClient) diff(threadID string) tea.Cmd {
 	f.diffed = append(f.diffed, threadID)

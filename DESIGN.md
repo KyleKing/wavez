@@ -152,13 +152,14 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 │ +func TTL(cfg Config) time.Duration { … }                          │
 ├─────────────────────────────────────────────────────────────────────┤
 │ > _                                                                 │
-└ [Enter]send [Tab]panel [a]sk-line [f]ork []]next [?]help ───────────┘
+└ [Enter]send [Tab]panel [a]sk-line [f]ork []]next [u]ndo [?]help ────┘
 ```
 
 - Header: directory, thread, active model with context used against its window, spend, and a badge for other threads needing input (`i` jumps to the inbox)
 - The ledger row sits above the transcript: one line of what this thread has done, derived from the gate log and change set. Compacted history is folded under it, `H` unfolds
 - Transcript rows are typed (user, agent, tool, modifier, gate, permission), collapsible with `Enter`. A permission row takes focus and answers with `y`, `n`, or `a`
 - `[` and `]` move to the previous or next thread in scope without going through Home. `Esc` returns to Home with this thread selected
+- `u` undoes the thread: it reports what the working copy would lose against the checkpoint captured before the thread's first turn and restores only after a confirmation, since destroying uncommitted work without asking is worse than leaving it. `wavez -undo <operation id>` does the same from the shell, where typing the flag is the confirmation
 - `f` forks a new thread for trying a second approach without losing the first. The fork inherits the parent's change set and none of its transcript: `_ai_/demos/context-shape` measured 97.6% of a transcript as re-derivable from the tree and the tools, so carrying the prose buys staleness rather than context, while the list of files already touched is exactly what cannot be re-derived
 - Diff pane shows the thread's change set as real hunks, fetched on demand rather than streamed, because a diff is unbounded in a way an event stream should not be. Wavez's own `.wavez/` state is filtered out: its gate log changes on every run and is not work the thread did. `d` jumps to the pane, `a` on a diff line opens Ask-a-line anchored at that line, and a removed line anchors to its file since it has no line in the tree as it now stands
 - `/` searches the transcript, `n`/`N` step matches, hits highlight in reverse video. Below 100 columns the diff pane stacks under the transcript

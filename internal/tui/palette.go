@@ -32,7 +32,7 @@ func newPaletteState() paletteState {
 	return paletteState{input: ti}
 }
 
-var paletteVerbs = []string{labelInbox, "diagnostics", labelQuit}
+var paletteVerbs = []string{"diagnostics", labelInbox, labelQuit, labelUndo}
 
 // paletteEntries builds the fuzzy-filterable list: threads, directories,
 // pending prompts, and verbs, matched by substring against every word in
@@ -150,6 +150,8 @@ func (m Model) runPaletteVerb(verb string) (Model, tea.Cmd) {
 		m.quitting = true
 
 		return m, tea.Quit
+	case labelUndo:
+		return m.requestRestore()
 	}
 
 	return m, nil

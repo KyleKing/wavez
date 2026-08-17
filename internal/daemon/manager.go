@@ -22,6 +22,12 @@ import (
 var (
 	ErrThreadNotFound = errors.New("daemon: thread not found")
 	ErrThreadBusy     = errors.New("daemon: thread is already running a turn")
+	ErrNoCheckpoint   = errors.New("daemon: thread has no checkpoint yet")
+	ErrNoRepository   = errors.New("daemon: no repository to restore")
+	// ErrNothingToRestore reports an undo that would discard nothing, which
+	// is a refusal rather than a successful no-op.
+	ErrNothingToRestore  = errors.New("daemon: nothing has changed since the checkpoint")
+	ErrRestoreIncomplete = errors.New("daemon: restore left the working copy changed")
 )
 
 // manager holds every live thread for the lifetime of the Server, so a
@@ -410,6 +416,86 @@ func (m *manager) diff(ctx context.Context, differ Differ, threadID string) (str
 	}
 
 	return out, nil
+}
+
+// Restorer reverts a directory to a captured operation and reports what
+// that costs. The jj backend satisfies it, and the daemon takes an
+// interface so a Server without a repository still runs.
+type Restorer interface {
+	ChangedFiles(ctx context.Context, repoRoot, marker string) ([]string, error)
+	DiffStat(ctx context.Context, repoRoot, marker string) (string, error)
+	Restore(ctx context.Context, repoRoot, checkpoint string) error
+}
+
+// restore previews or performs an undo of threadID back to the checkpoint
+// captured before its first turn. A preview reports the work the restore
+// would discard; only confirm actually destroys it.
+//
+// Nothing to discard is an error rather than a successful no-op, so a
+// client never reports an undo that undid nothing.
+func (m *manager) restore(ctx context.Context, r Restorer, threadID string, confirm bool) (api.Restore, error) {
+	mt, ok := m.get(threadID)
+	if !ok {
+		return api.Restore{}, ErrThreadNotFound
+	}
+
+	mt.mu.Lock()
+	baseline, dir, running := mt.baseline, firstDir(mt.dirs), mt.running
+	mt.mu.Unlock()
+
+	switch {
+	case running:
+		return api.Restore{}, ErrThreadBusy
+	case baseline == "":
+		return api.Restore{}, ErrNoCheckpoint
+	case r == nil || dir == "":
+		return api.Restore{}, ErrNoRepository
+	}
+
+	changed, err := r.ChangedFiles(ctx, dir, baseline)
+	if err != nil {
+		return api.Restore{}, fmt.Errorf("listing what thread %s would discard: %w", threadID, err)
+	}
+	if len(changed) == 0 {
+		return api.Restore{}, ErrNothingToRestore
+	}
+
+	summary, err := r.DiffStat(ctx, dir, baseline)
+	if err != nil {
+		return api.Restore{}, fmt.Errorf("summarizing what thread %s would discard: %w", threadID, err)
+	}
+
+	out := api.Restore{ThreadID: threadID, Checkpoint: baseline, Summary: summary}
+	if !confirm {
+		return out, nil
+	}
+
+	if err := performRestore(ctx, r, dir, baseline); err != nil {
+		return api.Restore{}, err
+	}
+
+	out.Restored = true
+
+	return out, nil
+}
+
+// performRestore reverts dir and proves it: jj reports "Nothing changed"
+// through a zero exit status, so a restore is only believable once the
+// working copy stops differing from the checkpoint.
+func performRestore(ctx context.Context, r Restorer, dir, checkpoint string) error {
+	if err := r.Restore(ctx, dir, checkpoint); err != nil {
+		return fmt.Errorf("restoring %s: %w", dir, err)
+	}
+
+	left, err := r.ChangedFiles(ctx, dir, checkpoint)
+	if err != nil {
+		return fmt.Errorf("verifying the restore of %s: %w", dir, err)
+	}
+	if len(left) > 0 {
+		return fmt.Errorf("%w: %d file(s) still differ", ErrRestoreIncomplete, len(left))
+	}
+
+	return nil
 }
 
 // cancel stops threadID's in-flight turn, if any. It is a no-op when the

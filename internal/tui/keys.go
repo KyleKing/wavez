@@ -22,11 +22,13 @@ const (
 	keyJ     = "j"
 	keyK     = "k"
 
-	labelBack  = "back"
-	labelHelp  = "help"
-	labelInbox = "inbox"
-	labelOpen  = "open"
-	labelQuit  = "quit"
+	labelBack   = "back"
+	labelCancel = "cancel"
+	labelHelp   = "help"
+	labelInbox  = "inbox"
+	labelOpen   = "open"
+	labelQuit   = "quit"
+	labelUndo   = "undo"
 )
 
 // boxPad is the horizontal space a frame's border and inner padding consume,

@@ -19,6 +19,7 @@ type daemonClient interface {
 	send(threadID, text string) tea.Cmd
 	answer(promptID, text string, decision permission.Decision) tea.Cmd
 	diff(threadID string) tea.Cmd
+	restore(threadID string, confirm bool) tea.Cmd
 	newThread(prompt, model, parent string, dirs []string) tea.Cmd
 }
 
@@ -123,6 +124,23 @@ func (b *bridge) diff(threadID string) tea.Cmd {
 		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdDiff, ThreadID: threadID})
 		if err != nil {
 			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+// restore previews an undo of threadID's checkpoint, or performs it when
+// confirm is set. A daemon refusal comes back as restoreErrMsg rather than
+// connErrMsg: the connection is fine, the undo is what failed.
+func (b *bridge) restore(threadID string, confirm bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdRestore, ThreadID: threadID, Confirm: confirm})
+		if err != nil {
+			return restoreErrMsg{err: err}
 		}
 
 		return reply

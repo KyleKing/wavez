@@ -170,6 +170,8 @@ func (c *conn) handle(cmd api.Command) {
 		c.handleCancel(cmd)
 	case api.CmdDiff:
 		c.handleDiff(cmd)
+	case api.CmdRestore:
+		c.handleRestore(cmd)
 	case api.CmdDiag:
 		diag := c.srv.diagnostics()
 		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
@@ -207,6 +209,17 @@ func (c *conn) handleDiff(cmd api.Command) {
 		Kind: api.RepDiff,
 		Diff: &api.Diff{ThreadID: cmd.ThreadID, Unified: unified},
 	})
+}
+
+func (c *conn) handleRestore(cmd api.Command) {
+	res, err := c.srv.mgr.restore(c.ctx, c.srv.restorer, cmd.ThreadID, cmd.Confirm)
+	if err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	c.reply(cmd.ID, api.Reply{Kind: api.RepRestore, Restore: &res})
 }
 
 func (c *conn) handleSend(cmd api.Command) {

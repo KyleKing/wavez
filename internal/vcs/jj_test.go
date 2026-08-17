@@ -246,3 +246,41 @@ func TestJjDiffIgnoresGitDiffExternal(t *testing.T) {
 		t.Fatalf("Diff is not unified git format, got:\n%s", got)
 	}
 }
+
+// DiffStat names the files an undo would discard, and reports an untouched
+// tree with a zero count rather than empty output, which is why callers ask
+// ChangedFiles whether there is anything to undo at all.
+func TestJjDiffStat(t *testing.T) {
+	t.Parallel()
+
+	dir := newFixtureRepo(t)
+	j := vcs.NewJj()
+	ctx := context.Background()
+
+	checkpoint, err := j.Capture(ctx, dir)
+	if err != nil {
+		t.Fatalf("Capture: %v", err)
+	}
+
+	clean, err := j.DiffStat(ctx, dir, checkpoint)
+	if err != nil {
+		t.Fatalf("DiffStat on a clean tree: %v", err)
+	}
+	if !strings.Contains(clean, "0 files changed") {
+		t.Fatalf("DiffStat on a clean tree = %q, want a zero count", clean)
+	}
+
+	writeFile(t, dir, "a.go", "package a\n\nvar X = 1\n")
+	writeFile(t, dir, "b.go", "package a\n")
+
+	dirty, err := j.DiffStat(ctx, dir, checkpoint)
+	if err != nil {
+		t.Fatalf("DiffStat: %v", err)
+	}
+
+	for _, want := range []string{"a.go", "b.go", "2 files changed"} {
+		if !strings.Contains(dirty, want) {
+			t.Fatalf("DiffStat = %q, want it to mention %q", dirty, want)
+		}
+	}
+}

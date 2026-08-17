@@ -53,6 +53,7 @@ type Model struct {
 	thread      threadState
 	form        threadForm
 	palette     paletteState
+	restore     restoreState
 	inbox       inboxState
 	home        homeState
 	diag        api.Diagnostics
@@ -118,6 +119,12 @@ func (m *Model) popOrClose() {
 
 		return
 	}
+	if m.restore.open {
+		m.restore = restoreState{}
+		m.status = "undo canceled"
+
+		return
+	}
 	if m.top() == screenHome && m.home.filtering {
 		m.home.filtering = false
 		m.home.filterInput.Blur()
@@ -172,6 +179,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case restoreErrMsg:
+		m.restore = restoreState{}
+		m.status = "undo failed: " + msg.err.Error()
+
+		return m, nil
+
 	case connErrMsg:
 		if msg.err != nil {
 			m.status = "connection error: " + msg.err.Error()
@@ -198,6 +211,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if m.palette.open {
 		return m.updatePaletteKey(msg, s)
 	}
+	if m.restore.open {
+		return m.updateRestoreKey(s)
+	}
 
 	return m.dispatchScreenKey(msg, s)
 }
@@ -207,7 +223,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 // the palette search, a "D" in the filter box) as a screen shortcut.
 func (m Model) capturingText() bool {
 	switch {
-	case m.palette.open:
+	case m.palette.open, m.restore.open:
 		return true
 	case m.top() == screenHome && (m.home.filtering || m.home.answerActive):
 		return true
@@ -327,9 +343,15 @@ func (m *Model) applyReply(r api.Reply) {
 		if r.Diff != nil {
 			m.diffs[r.Diff.ThreadID] = parseDiff(r.Diff.Unified)
 		}
-	case api.RepError, api.RepHello, api.RepLagged:
+	case api.RepRestore:
+		if r.Restore != nil {
+			m.applyRestore(*r.Restore)
+		}
+	case api.RepError:
+		m.status = r.Error
+	case api.RepHello, api.RepLagged:
 		// Hello is consumed by Dial; a lagged subscription resubscribes in
-		// the bridge, not here; errors surface via connErrMsg.
+		// the bridge, not here.
 	}
 }
 

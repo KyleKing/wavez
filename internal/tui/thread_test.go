@@ -83,3 +83,28 @@ func TestThread_HeaderShowsModelAndContext(t *testing.T) {
 	assert.Contains(t, out, "gemma4-12b")
 	assert.Contains(t, out, "3.1k/32.0k")
 }
+
+// The confirmation names the work it would destroy, and Thread view
+// advertises the key that reaches it.
+func TestThread_UndoConfirmationShowsWhatItDiscards(t *testing.T) {
+	t.Parallel()
+
+	threads := sampleThreads()[:1]
+	threads[0].Checkpoint = "op-abc"
+
+	m := newSized(t, tui.Options{NoColor: true}, 100, 30)
+	m = openThread(t, m, threads)
+
+	assert.Contains(t, m.View().Content, "[u]undo")
+
+	m = apply(t, m, api.Reply{Kind: api.RepRestore, Restore: &api.Restore{
+		ThreadID: "t1", Checkpoint: "op-abc",
+		Summary: "internal/lease/lease.go | 8 ++++----\n1 files changed, 4 insertions(+), 4 deletions(-)\n",
+	}})
+
+	out := m.View().Content
+	assert.Contains(t, out, "undo discards this uncommitted work")
+	assert.Contains(t, out, "internal/lease/lease.go")
+	assert.Contains(t, out, "1 files changed")
+	assert.Contains(t, out, "[y]es")
+}
