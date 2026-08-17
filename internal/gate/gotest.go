@@ -54,8 +54,12 @@ type FailedTest struct {
 type GoTestSummary struct {
 	FailedTests []FailedTest
 	PassedTests []string
-	BuildFailed bool
-	Pass        bool
+	// TestlessPackages are packages go test skipped whole because they hold
+	// no test file. They are why a run examining nothing is not always a
+	// drifted selection.
+	TestlessPackages []string
+	BuildFailed      bool
+	Pass             bool
 }
 
 const (
@@ -97,6 +101,10 @@ func ParseGoTestJSON(r io.Reader) (GoTestSummary, error) {
 			output[k] = append(output[k], ev.Output)
 		case "build-output":
 			buildOutput[ev.ImportPath] = append(buildOutput[ev.ImportPath], ev.Output)
+		case "skip":
+			if ev.Test == "" {
+				summary.TestlessPackages = append(summary.TestlessPackages, ev.Package)
+			}
 		case "pass":
 			if ev.Test != "" {
 				summary.PassedTests = append(summary.PassedTests, ev.Package+"."+ev.Test)
@@ -211,6 +219,16 @@ func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	// Examined exists: a green gate that ran zero tests is the failure this
 	// catches, and it is invisible from Pass alone.
 	if ran == 0 && changedGo > 0 {
+		// A package go test skipped whole holds no test file, which is a
+		// change set with no work for this gate rather than a selection that
+		// drifted off the tests that do exist. Reporting it as a failure
+		// tells a run in a test-less package to write a test on every turn,
+		// which is the demand the abstention rule exists to avoid.
+		if len(summary.TestlessPackages) > 0 && !summary.BuildFailed {
+			return Abstained(g.Name(), rc.Selection.Level, fmt.Sprintf(
+				"%d selected package(s) hold no test file", len(summary.TestlessPackages))), nil
+		}
+
 		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"go test ran 0 tests for %d changed Go file(s) at %s level; the selection matched no test",
 			changedGo, rc.Selection.Level)), nil

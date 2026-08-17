@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -23,6 +24,7 @@ import (
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/llm"
+	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
@@ -65,6 +67,8 @@ type options struct {
 }
 
 func main() {
+	slog.SetDefault(slog.New(lsp.Quiet(slog.NewTextHandler(os.Stderr, nil))))
+
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "wavez: %v\n", err)
 		os.Exit(1)

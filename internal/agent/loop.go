@@ -185,6 +185,7 @@ type Options struct {
 	Checkpointer        Checkpointer
 	Clock               gate.Clock
 	Hooks               Hooks
+	ChangeGate          ChangeGate
 	Pricing             map[string]ModelPricing
 	LocalModel          string
 	HostedModel         string
@@ -245,6 +246,22 @@ func WithLocalModel(name string) Option { return func(o *Options) { o.LocalModel
 
 // WithHostedModel sets the model name sent in a request routed hosted.
 func WithHostedModel(name string) Option { return func(o *Options) { o.HostedModel = name } }
+
+// ChangeGate receives every file change a tool makes and reports what the
+// gates it triggered found. It is declared here because the loop is what
+// consumes it: gates fire on change events rather than on the model
+// deciding to test, and their findings reach the model on its next turn.
+type ChangeGate interface {
+	Enqueue(c tool.Change)
+	TakeFeedback() string
+}
+
+// WithChangeGate configures Run to feed every change into a debounced gate
+// runner and to hand the model whatever those gates found before its next
+// turn. Without one, gates run only at the end of a run.
+func WithChangeGate(g ChangeGate) Option {
+	return func(o *Options) { o.ChangeGate = g }
+}
 
 // WithVerifier configures Run to gate once the model reports it is done,
 // feeding a failing verification back as a new turn instead of trusting
@@ -465,6 +482,10 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	r.thread.BeginTurn()
 	r.outcome.Turns++
 	r.turnToolCalls = 0
+
+	if err := r.collectGateFeedback(ctx); err != nil {
+		return true, Outcome{}, err
+	}
 
 	if err := r.maybeCompact(estimateRequestTokens(r.system, r.messages())); err != nil {
 		return true, Outcome{}, err
@@ -850,12 +871,46 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 		result = tool.Errorf("%s: %v", call.Name, err)
 	}
 	r.changes = append(r.changes, result.Changes...)
+	r.gateChanges(result.Changes)
 
 	if err := r.postToolUse(ctx, t, call, result); err != nil {
 		return tool.Result{}, err
 	}
 
 	return result, r.appendToolResult(ctx, call, result)
+}
+
+// gateChanges hands each change to the gate runner. It is fire-and-forget
+// on purpose: a gate run takes seconds and an edit must not wait on one, so
+// what the gates find arrives at the next turn instead.
+func (r *run) gateChanges(changes []tool.Change) {
+	if r.loop.options.ChangeGate == nil {
+		return
+	}
+
+	for _, c := range changes {
+		r.loop.options.ChangeGate.Enqueue(c)
+	}
+}
+
+// collectGateFeedback appends whatever the change-triggered gates found
+// since the last turn, so a failure reaches the model as its own turn
+// rather than being folded into a tool result it might not read.
+func (r *run) collectGateFeedback(ctx context.Context) error {
+	if r.loop.options.ChangeGate == nil {
+		return nil
+	}
+
+	feedback := r.loop.options.ChangeGate.TakeFeedback()
+	if feedback == "" {
+		return nil
+	}
+
+	if err := r.thread.AppendUser(ctx, feedback); err != nil {
+		return fmt.Errorf("appending gate feedback: %w", err)
+	}
+
+	return nil
 }
 
 func (r *run) appendToolResult(ctx context.Context, call llm.ToolCall, result tool.Result) error {

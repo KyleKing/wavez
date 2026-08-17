@@ -331,7 +331,10 @@ Roles beyond linting:
 
 ### Gates (M1)
 
-- Triggered by change events from the edit tool and from a file watcher, never by the model deciding to test
+- Triggered by change events from the edit tool and from a file watcher, never by the model deciding to test. Every change a tool makes is fed to the debounced runner and what its gates found reaches the model as its own turn before the next request, so an edit never waits on a gate and a gate never interrupts one. Until this was wired, gates ran only in the verification round at the end of a run, which is the whole per-edit feedback loop reduced to a final exam
+- A failing gate always says something. A build failure whose frames did not survive trimming reached the model as a bare gate name with nothing after it, and it spent 26 turns guessing; a gate that cannot describe its own failure now says that instead, which is at least a direction
+- `go test` on a package holding no test file abstains rather than failing. The abstention rule distinguishes a selection that drifted off tests that exist, which is a failure, from a change set with no work for the gate, which is not: reporting the second as a failure tells every run in a test-less package to write a test, on every turn
+- LSP diagnostics are a gate in the per-edit order, after the formatter and convention rules and before the tests, filtered to the changed files and to errors, since warnings and hints are what the formatter and linter pre-passes already own. Measured with gopls on this repo: 55 ms to start and initialize, 1.5-5 ms for a repeated single-file edit, and 1.18 s worst case across 37 files, which is what keeps it inside the per-edit budget. gopls absent from the machine is reported without failing the run, because the only fix available to a run told to install it is to weaken the check
 - Changed-file detection stores its own last-known-good marker (SHA or op ID), not a session ID
 - Test selection reads the code-intelligence store (see that section): symbols, edges, coverage. Adapters feed it, gates query it, and every other consumer reads the same store
 - Coverage adapters (`codegraph` and tree-sitter feed symbols and edges, see Code intelligence): coverage.py `--cov-context=test` for Python line-to-test (+8% over plain coverage, works under xdist), a per-test `go test -run` coverprofile loop for Go. `vitest --changed` or `testpick` for JS later. Demos: `_ai_/demos/code-store-go`, `_ai_/demos/code-store-python`
@@ -398,7 +401,7 @@ Coverage says a line ran, not that anything checked it, and this project has alr
 ### Modifiers (M3)
 
 - Tools the model calls with a symbol and a target: rename, move, extract, inline, add import, organize imports, stub from signature or interface, fill struct, add struct tag, structural rewrite by pattern
-- Backends: `gopls` CLI and LSP for Go, `ts-morph` and tsserver for TypeScript, `rope` and `ty` LSP for Python, `ast-grep` for cross-language pattern rewrites. One generic LSP client (`go.lsp.dev/protocol`) covers rename and code actions
+- Backends: `gopls` CLI and LSP for Go, `ts-morph` and tsserver for TypeScript, `rope` and `ty` LSP for Python, `ast-grep` for cross-language pattern rewrites. The LSP client the diagnostics gate already drives (`charmbracelet/x/powernap`, what Crush drives gopls with) covers rename and code actions too. `go.lsp.dev/protocol` was the earlier choice and is types-only with no process handling, and its 2026 regeneration requires a newer Go than this module targets
 - Result returned to the model is the file list and line counts, not the diff, unless a gate fails
 - Each modifier is one deterministic operation. A modifier that partially applies rolls back
 - `apply-fix` applies an `ast-grep` or Semgrep autofix as a modifier, and `rewrite` runs an `ast-grep` pattern with metavariables for structural changes LSP does not offer
