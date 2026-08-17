@@ -3,8 +3,11 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"iter"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -375,5 +378,61 @@ func TestRun_AllBoundsDisabledBehaviorUnchanged(t *testing.T) {
 	}
 	if out.Turns != 2 || out.ToolCalls != 1 {
 		t.Errorf("Turns=%d ToolCalls=%d, want 2 and 1", out.Turns, out.ToolCalls)
+	}
+}
+
+// advancingTool moves a fakeClock forward on every call and counts how many
+// times it ran, so a test can see where inside a turn a bound tripped.
+type advancingTool struct {
+	clock *fakeClock
+	echoTool
+	runs    atomic.Int64
+	advance time.Duration
+}
+
+func (t *advancingTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
+	t.clock.Advance(t.advance)
+	t.runs.Add(1)
+
+	return tool.Result{Content: "ok"}, nil
+}
+
+// A turn may issue up to MaxToolCallsPerTurn calls, so a deadline enforced
+// only between turns does not bound the edits inside one.
+func TestRun_DeadlineTripsWithinATurn(t *testing.T) {
+	t.Parallel()
+
+	calls := make([]llm.ToolCall, 0, 4)
+	for i := range 4 {
+		calls = append(calls, llm.ToolCall{
+			ID:    strconv.Itoa(i),
+			Name:  "echo",
+			Input: json.RawMessage(fmt.Sprintf(`{"a":%d}`, i)),
+		})
+	}
+
+	inner := fake.New("local",
+		fake.Turn{ToolCalls: calls, StopReason: llm.StopToolUse},
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+	)
+	hosted := fake.New("hosted")
+
+	clock := newFakeClock(time.Unix(0, 0))
+	local := &advancingProvider{inner: inner, clock: clock, advance: time.Second}
+	echo := &advancingTool{echoTool: echoTool{name: "echo"}, clock: clock, advance: 2 * time.Second}
+
+	th := newThread(t)
+	loop := agent.New(local, hosted, tool.NewRegistry(echo), permission.AllowAll(),
+		agent.WithClock(clock), agent.WithMaxWallClock(5*time.Second))
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Stop != agent.StopDeadline {
+		t.Fatalf("Stop = %q, want deadline", out.Stop)
+	}
+	if got := echo.runs.Load(); got != 2 {
+		t.Errorf("tool runs = %d, want 2: the deadline must trip mid-turn, not after all 4 calls", got)
 	}
 }

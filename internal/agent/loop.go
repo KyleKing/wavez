@@ -394,11 +394,8 @@ func (r *run) drive(ctx context.Context) (Outcome, error) {
 		if ctx.Err() != nil {
 			return r.stopCanceled(ctx)
 		}
-		if !r.deadline.IsZero() && !r.loop.options.Clock.Now().Before(r.deadline) {
-			reason := fmt.Sprintf("deadline reached: %s elapsed, %d file(s) changed",
-				r.elapsed().Round(time.Second), changedFileCount(r.changes))
-
-			return r.stopBound(ctx, StopDeadline, reason)
+		if r.pastDeadline() {
+			return r.stopBound(ctx, StopDeadline, r.deadlineReason())
 		}
 		if r.outcome.Turns >= r.loop.options.MaxTurns {
 			reason := fmt.Sprintf("max turns reached (dead-man's switch): %d, %s elapsed",
@@ -564,10 +561,28 @@ func (r *run) logVerify(ok bool) error {
 	return nil
 }
 
+// pastDeadline reports whether this run's wall-clock bound has elapsed.
+// Checked before every tool call as well as every turn, because one turn
+// may issue MaxToolCallsPerTurn edits and a bound that only holds between
+// turns does not bound those.
+func (r *run) pastDeadline() bool {
+	return !r.deadline.IsZero() && !r.loop.options.Clock.Now().Before(r.deadline)
+}
+
+func (r *run) deadlineReason() string {
+	return fmt.Sprintf("deadline reached: %s elapsed, %d file(s) changed",
+		r.elapsed().Round(time.Second), changedFileCount(r.changes))
+}
+
 func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome, error) {
 	for i := range calls {
 		call := calls[i]
 
+		if r.pastDeadline() {
+			out, err := r.stopBound(ctx, StopDeadline, r.deadlineReason())
+
+			return true, out, err
+		}
 		if r.turnToolCalls >= r.loop.options.MaxToolCallsPerTurn {
 			reason := fmt.Sprintf("per-turn tool-call flood guard tripped: %d calls in one turn",
 				r.loop.options.MaxToolCallsPerTurn)
