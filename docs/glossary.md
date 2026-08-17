@@ -21,6 +21,8 @@ file is the map you read first.
 | Change set | The files and line ranges a run has edited, accumulated across its turns |
 | Checkpoint | A jj operation id taken before a run, so the whole run can be undone with `jj op restore` |
 | Store | The per-project SQLite file holding symbols, edges, FTS, coverage, and contracts |
+| Mutant | One changed token in one file, used to ask whether the tests check a line or merely run it. A mutant that survives the tests is reported like a failing test |
+| Run scope | The files a run has read or created. An edit to anything else is recorded, and refused under `-strict-scope` |
 | Lease | An advisory TTL lock on a directory subtree, so two threads do not write the same place |
 
 ## How a turn runs
@@ -107,6 +109,7 @@ one kind of Condition.
 | Deterministic first | Anything a tool can decide is not a model's job. The model is for judgment |
 | Gates decide done | A model saying it finished changes nothing; passing checks does |
 | A check that examined nothing has not passed | Every gate records what it examined, so abstaining is visible |
+| Coverage is not verification | A line that ran is not a line anything checked, so the mutation gate asks the second question |
 | Append-only context | Trimming writes shorter replacements forward, so the prompt cache prefix survives |
 | Re-derive over remember | Anything the code can answer is re-read, not carried, because carried summaries go stale |
 | Local first | Escalate to hosted on task shape or after one local failure, never retry local twice |
