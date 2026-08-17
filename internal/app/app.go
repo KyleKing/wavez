@@ -378,8 +378,12 @@ func buildGates(
 	manifestPath := filepath.Join(root, wavezDirName, coverageManifestFileName)
 	adapter := gate.NewCoverageAdapter(store, manifestPath, runtime.NumCPU())
 
+	// fail-to-pass runs after go-test because it assumes the suite is green
+	// on the tree as written; without that a merely broken test reads as one
+	// the revert killed.
+	jj := vcs.NewJj()
 	verifyGates := append(conventionGates(gate.NewFormatGate(root), convention),
-		gate.NewBuildGate(root), gate.NewGoTestGate(root))
+		gate.NewBuildGate(root), gate.NewGoTestGate(root), gate.NewFailToPassGate(root, jj, jj))
 	verifier := NewGateVerifier(root, store, graph, gateLog, gate.RealClock{}, verifyGates)
 
 	return runner, adapter, verifier, nil
