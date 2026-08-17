@@ -163,8 +163,34 @@ func TestFailToPassGateVerdicts(t *testing.T) {
 	}
 }
 
-// A gate that could not run has not passed, so every abstention and every
-// error path has to be distinguishable from green.
+// assertAbstention checks the two halves of an abstention: a silent one
+// carries its reason to the log and nothing to the model, and a loud one
+// names itself so a client can tell it from an ordinary failing check.
+func assertAbstention(t *testing.T, result gate.Result, silent bool) {
+	t.Helper()
+
+	if silent {
+		if result.Reason == "" {
+			t.Error("an abstention with no reason is indistinguishable from a clean run")
+		}
+
+		if len(result.Failures) != 0 {
+			t.Errorf("Failures = %+v, want none; the model has nothing to act on", result.Failures)
+		}
+
+		return
+	}
+
+	if len(result.Failures) != 1 || result.Failures[0].Test != gate.ExaminedNothingTest {
+		t.Errorf("Failures = %+v, want %s", result.Failures, gate.ExaminedNothingTest)
+	}
+}
+
+// An abstention is auditable in the log and silent to the model, except
+// where the gate expected work it could not do. A run that changed only
+// source is told nothing: reporting "no test detects this change" as a
+// failure reads as "write a test", and a run that satisfies that by writing
+// any test at all has cheated the condition rather than met it.
 func TestFailToPassGateAbstainsRatherThanPassing(t *testing.T) {
 	t.Parallel()
 
@@ -175,17 +201,27 @@ func TestFailToPassGateAbstainsRatherThanPassing(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		changes []tool.Change
+		name     string
+		changes  []tool.Change
+		wantPass bool
 	}{
-		{name: "code changed with no test touched", changes: []tool.Change{{Path: "greet/greet.go"}}},
-		{name: "test-only change has nothing to revert", changes: []tool.Change{{Path: "greet/greet_test.go"}}},
+		{
+			name:     "code changed with no test touched",
+			changes:  []tool.Change{{Path: "greet/greet.go"}},
+			wantPass: true,
+		},
+		{
+			name:     "test-only change has nothing to revert",
+			changes:  []tool.Change{{Path: "greet/greet_test.go"}},
+			wantPass: true,
+		},
 		{
 			name: "the working copy holds no hunk for the changed file",
 			changes: []tool.Change{
 				{Path: "greet/greet.go"},
 				{Path: "greet/greet_test.go", Ranges: []tool.LineRange{{Start: 5, End: 9}}},
 			},
+			wantPass: false,
 		},
 	}
 
@@ -200,13 +236,15 @@ func TestFailToPassGateAbstainsRatherThanPassing(t *testing.T) {
 
 			result := runFailToPass(t, root, "", tt.changes)
 
-			if result.Pass {
-				t.Error("Pass = true after examining nothing")
+			if result.Pass != tt.wantPass {
+				t.Errorf("Pass = %v, want %v", result.Pass, tt.wantPass)
 			}
 
-			if len(result.Failures) != 1 || result.Failures[0].Test != gate.ExaminedNothingTest {
-				t.Errorf("Failures = %+v, want %s", result.Failures, gate.ExaminedNothingTest)
+			if result.Examined != 0 {
+				t.Errorf("Examined = %d, want 0", result.Examined)
 			}
+
+			assertAbstention(t, result, tt.wantPass)
 		})
 	}
 }

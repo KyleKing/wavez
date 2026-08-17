@@ -14,6 +14,7 @@ type LogEntry struct {
 	Timestamp time.Time     `json:"timestamp"`
 	Gate      string        `json:"gate"`
 	Level     Level         `json:"level"`
+	Reason    string        `json:"reason,omitempty"`
 	Duration  time.Duration `json:"duration"`
 	Examined  int           `json:"examined"`
 	Pass      bool          `json:"pass"`

@@ -82,13 +82,13 @@ func (g *FailToPassGate) Run(ctx context.Context, rc RunContext) (Result, error)
 	testChanges := goChangesMatching(rc.Changes, true)
 	codeChanges := goChangesMatching(rc.Changes, false)
 	if len(testChanges) == 0 {
-		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
-			"%d changed Go file(s) and no changed test file, so no test can be shown to detect them",
+		return Abstained(g.Name(), rc.Selection.Level, fmt.Sprintf(
+			"%d changed Go file(s) and no changed test file, so this run wrote no test to check",
 			len(goFiles(rc.Changes)))), nil
 	}
 
 	if len(codeChanges) == 0 {
-		return ExaminedNothing(g.Name(), rc.Selection.Level,
+		return Abstained(g.Name(), rc.Selection.Level,
 			"the change set is test-only, so there is no non-test hunk to revert"), nil
 	}
 
@@ -98,7 +98,7 @@ func (g *FailToPassGate) Run(ctx context.Context, rc RunContext) (Result, error)
 	}
 
 	if len(candidates) == 0 {
-		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
+		return Abstained(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"%d changed test file(s) declare no test function on their changed lines", len(testChanges))), nil
 	}
 

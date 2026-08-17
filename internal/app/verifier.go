@@ -78,6 +78,7 @@ func (v *GateVerifier) runStep(ctx context.Context, g gate.Gate, rc gate.RunCont
 		Gate:      result.Gate,
 		Level:     result.Level,
 		Duration:  result.Duration,
+		Reason:    result.Reason,
 		Examined:  result.Examined,
 		Pass:      result.Pass,
 	}

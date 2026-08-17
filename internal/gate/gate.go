@@ -52,8 +52,10 @@ type Result struct {
 	Timestamp time.Time
 	Gate      string
 	Level     Level
-	Failures  []TrimmedFailure
-	Duration  time.Duration
+	// Reason says why a gate abstained, empty when it examined something.
+	Reason   string
+	Failures []TrimmedFailure
+	Duration time.Duration
 	// Examined is how many units this Gate actually checked: files
 	// formatted, files scanned, tests run, modules built. A gate that
 	// examined nothing has abstained rather than passed, and Pass alone
@@ -70,6 +72,20 @@ type Result struct {
 // the condition is greppable in the gate log and distinguishable in a
 // client from an ordinary failing check.
 const ExaminedNothingTest = "examined-nothing"
+
+// Abstained builds the Result for a gate whose change set held no work for
+// it: nothing to check, so nothing to report to the model. The reason
+// reaches the gate log beside Examined: 0, which is what keeps an
+// abstention auditable rather than indistinguishable from a clean run.
+//
+// The line between this and ExaminedNothing is whether the model could act
+// on the reason. Telling a run that changed only source that no test
+// detects its change reads as "write a test", and a run that satisfies that
+// by writing any test at all has cheated a weak condition rather than done
+// the work.
+func Abstained(gate string, level Level, reason string) Result {
+	return Result{Gate: gate, Level: level, Examined: 0, Reason: reason, Pass: true}
+}
 
 // ExaminedNothing builds the Result for a gate that ran, examined nothing,
 // and should have. Every gate that scopes itself to a subset of a change

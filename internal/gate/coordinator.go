@@ -28,6 +28,7 @@ func BuildRunFunc(clock Clock, cov LineCoverage, graph *ImportGraph, gates []Gat
 				Gate:      r.Gate,
 				Level:     r.Level,
 				Duration:  r.Duration,
+				Reason:    r.Reason,
 				Examined:  r.Examined,
 				Pass:      r.Pass,
 			}); err != nil && logErr == nil {
