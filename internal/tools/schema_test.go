@@ -26,9 +26,9 @@ func allTools(t *testing.T) []tool.Tool {
 	dir := t.TempDir()
 
 	return []tool.Tool{
-		tools.NewRead(dir),
-		tools.NewStrReplace(dir),
-		tools.NewWrite(dir),
+		tools.NewRead(dir, nil),
+		tools.NewStrReplace(dir, nil),
+		tools.NewWrite(dir, nil),
 		tools.NewShell(dir, dir, "thread-1", permission.AllowAll()),
 		tools.NewSearch(openTestIndex(t, nil)),
 		tools.NewQuestion(fakeAsker{}),

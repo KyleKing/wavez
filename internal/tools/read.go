@@ -43,13 +43,15 @@ var readSchema = buildSchema(map[string]schemaProperty{
 // range read is a deliberate request for exactly those lines.
 type Read struct {
 	hashes map[string]string
+	scope  *Scope
 	root   string
 	mu     sync.Mutex
 }
 
-// NewRead builds a Read tool scoped to root.
-func NewRead(root string) *Read {
-	return &Read{root: root, hashes: make(map[string]string)}
+// NewRead builds a Read tool scoped to root, reporting each file it reads
+// to scope.
+func NewRead(root string, scope *Scope) *Read {
+	return &Read{root: root, scope: scope, hashes: make(map[string]string)}
 }
 
 // Name implements tool.Tool.
@@ -106,6 +108,8 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 	if err != nil {
 		return tool.Errorf("reading %s: %v", in.Path, err), nil
 	}
+
+	r.scope.Observe(abs)
 
 	if in.StartLine == 0 && in.EndLine == 0 {
 		return r.runWholeFile(in.Path, abs, data), nil

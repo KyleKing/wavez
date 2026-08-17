@@ -53,6 +53,7 @@ type options struct {
 	maxWallClock        time.Duration
 	maxHostedSpendUSD   float64
 	allowAll            bool
+	strictScope         bool
 }
 
 func main() {
@@ -77,6 +78,8 @@ func run(args []string) error {
 	fs.StringVar(&opt.socket, "socket", "", "daemon socket path (defaults to <root>/.wavez/d.sock)")
 	fs.StringVar(&opt.resume, "resume", "", "continue an existing thread by id instead of starting a new one")
 	fs.BoolVar(&opt.allowAll, "allow-all", false, "approve every permission prompt without asking")
+	fs.BoolVar(&opt.strictScope, "strict-scope", false,
+		"refuse an edit to a file this run never read or created")
 	fs.IntVar(&opt.maxTurns, "max-turns", 0, "cap model turns, a dead-man's switch (0 uses the loop default)")
 	fs.IntVar(&opt.maxToolCallsPerTurn, "max-tool-calls-per-turn", 0,
 		"cap tool calls within one model turn (0 uses the loop default)")
@@ -162,6 +165,9 @@ func headless(ctx context.Context, opt options) error {
 	if opt.maxHostedSpendUSD > 0 {
 		appOpts = append(appOpts, app.WithMaxHostedSpendUSD(opt.maxHostedSpendUSD))
 	}
+	if opt.strictScope {
+		appOpts = append(appOpts, app.WithStrictScope())
+	}
 
 	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), appOpts...)
 	if err != nil {
@@ -192,6 +198,7 @@ func headless(ctx context.Context, opt options) error {
 	fmt.Println(finalText(th))
 	fmt.Fprintf(os.Stderr, "\nstop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f\n",
 		outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls, outcome.HostedSpendUSD)
+	reportStrayedEdits(a.Scope.Strayed(), root, opt.strictScope)
 
 	if outcome.Stop != agent.StopComplete {
 		return fmt.Errorf("%w: %s", errStoppedEarly, outcome.Stop)
@@ -352,6 +359,7 @@ Flags:
   -resume <id>    continue an existing thread instead of starting a new one
   -socket <path>  daemon socket path (defaults to <root>/.wavez/d.sock)
   -allow-all      approve every permission prompt without asking
+  -strict-scope   refuse an edit to a file this run never read or created
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn
   -max-stagnant-errors <n>      cap consecutive erroring tool-call results
@@ -361,4 +369,29 @@ Flags:
 
 With no -p, wavez attaches to a running wavezd and opens the interface.
 `)
+}
+
+// reportStrayedEdits names the files a run reached for without ever reading
+// or creating them. It prints nothing on a clean run, so the line only
+// appears when it says something.
+func reportStrayedEdits(strayed []string, root string, strict bool) {
+	if len(strayed) == 0 {
+		return
+	}
+
+	verb := "edited without reading first"
+	if strict {
+		verb = "refused, never read by this run"
+	}
+
+	fmt.Fprintf(os.Stderr, "%s (%d):\n", verb, len(strayed))
+
+	for _, abs := range strayed {
+		path := abs
+		if rel, err := filepath.Rel(root, abs); err == nil {
+			path = rel
+		}
+
+		fmt.Fprintf(os.Stderr, "  %s\n", path)
+	}
 }

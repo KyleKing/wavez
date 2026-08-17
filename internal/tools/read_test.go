@@ -20,7 +20,7 @@ func TestRead_CacheReturnsReferenceThenFullContentAfterChange(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	r := tools.NewRead(dir)
+	r := tools.NewRead(dir, nil)
 	ctx := context.Background()
 
 	first, err := r.Run(ctx, mustJSON(t, map[string]any{"path": "file.go"}))
@@ -59,7 +59,7 @@ func TestRead_RefusesPathOutsideRoot(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	r := tools.NewRead(dir)
+	r := tools.NewRead(dir, nil)
 
 	result, err := r.Run(context.Background(), mustJSON(t, map[string]any{"path": "../outside.go"}))
 	if err != nil {
@@ -82,7 +82,7 @@ func TestRead_LineRange(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	r := tools.NewRead(dir)
+	r := tools.NewRead(dir, nil)
 	result, err := r.Run(context.Background(), mustJSON(t, map[string]any{
 		"path": "file.go", "start_line": 2, "end_line": 3,
 	}))
@@ -121,7 +121,7 @@ func TestRead_OmittedEndLineReadsToEndOfFile(t *testing.T) {
 		t.Fatalf("writing fixture: %v", err)
 	}
 
-	res, err := tools.NewRead(root).Run(t.Context(), json.RawMessage(`{"path":"a.txt","start_line":3}`))
+	res, err := tools.NewRead(root, nil).Run(t.Context(), json.RawMessage(`{"path":"a.txt","start_line":3}`))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

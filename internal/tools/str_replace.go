@@ -38,12 +38,14 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 // straight through, since a model corrects a bad anchor from that message
 // alone.
 type StrReplace struct {
-	root string
+	scope *Scope
+	root  string
 }
 
-// NewStrReplace builds a StrReplace tool scoped to root.
-func NewStrReplace(root string) *StrReplace {
-	return &StrReplace{root: root}
+// NewStrReplace builds a StrReplace tool scoped to root, checking each edit
+// against scope.
+func NewStrReplace(root string, scope *Scope) *StrReplace {
+	return &StrReplace{root: root, scope: scope}
 }
 
 // Name implements tool.Tool.
@@ -79,6 +81,10 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 	abs, err := resolvePath(s.root, in.Path)
 	if err != nil {
+		return tool.Errorf("%v", err), nil
+	}
+
+	if err := s.scope.Edit(abs); err != nil {
 		return tool.Errorf("%v", err), nil
 	}
 

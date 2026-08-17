@@ -70,6 +70,7 @@ type App struct {
 	Loop            *agent.Loop
 	GateLog         *gate.Log
 	Tools           *tool.Registry
+	Scope           *tools.Scope
 	bgCancel        context.CancelFunc
 	threadLogDir    string
 	SandboxDir      string
@@ -90,6 +91,7 @@ type Options struct {
 	MaxStagnantErrors   int
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
+	StrictScope         bool
 }
 
 // Option configures an Options.
@@ -129,6 +131,12 @@ func WithMaxHostedSpendUSD(v float64) Option {
 // every thread this App builds.
 func WithMaxStagnantErrors(n int) Option {
 	return func(o *Options) { o.MaxStagnantErrors = n }
+}
+
+// WithStrictScope refuses an edit to a file the run has neither read nor
+// created, instead of recording it and allowing it.
+func WithStrictScope() Option {
+	return func(o *Options) { o.StrictScope = true }
 }
 
 // WithAsker sets the Asker backing the question tool. A headless run and
@@ -185,7 +193,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	}
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
-	registry := buildRegistry(root, sandboxDir, indexer, permGate, options.Asker)
+	scope := tools.NewScope(options.StrictScope)
+	registry := buildRegistry(root, sandboxDir, indexer, scope, permGate, options.Asker)
 
 	local, hosted := options.Local, options.Hosted
 	if local == nil {
@@ -220,6 +229,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		Config:          cfg,
 		Store:           store,
 		Indexer:         indexer,
+		Scope:           scope,
 		bgCancel:        bgCancel,
 		Tools:           registry,
 		Local:           local,
@@ -283,12 +293,13 @@ func newSessionDir(stateDir string) (string, error) {
 }
 
 func buildRegistry(
-	root, sandboxDir string, indexer *codeintel.Indexer, permGate permission.Gate, asker tools.Asker,
+	root, sandboxDir string, indexer *codeintel.Indexer, scope *tools.Scope,
+	permGate permission.Gate, asker tools.Asker,
 ) *tool.Registry {
 	return tool.NewRegistry(
-		tools.NewRead(root),
-		tools.NewStrReplace(root),
-		tools.NewWrite(root),
+		tools.NewRead(root, scope),
+		tools.NewStrReplace(root, scope),
+		tools.NewWrite(root, scope),
 		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate),
 		tools.NewSearch(indexer),
 		tools.NewQuestion(asker),

@@ -13,7 +13,7 @@ func TestWrite_CreatesNewFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	w := tools.NewWrite(dir)
+	w := tools.NewWrite(dir, nil)
 
 	result, err := w.Run(context.Background(), mustJSON(t, map[string]any{
 		"path": "new.go", "content": "package foo\n",
@@ -43,7 +43,7 @@ func TestWrite_RefusesExistingFile(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	w := tools.NewWrite(dir)
+	w := tools.NewWrite(dir, nil)
 	result, err := w.Run(context.Background(), mustJSON(t, map[string]any{
 		"path": "existing.go", "content": "package bar\n",
 	}))
@@ -67,7 +67,7 @@ func TestWrite_RefusesPathOutsideRoot(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	w := tools.NewWrite(dir)
+	w := tools.NewWrite(dir, nil)
 
 	result, err := w.Run(context.Background(), mustJSON(t, map[string]any{
 		"path": "../escape.go", "content": "x",
