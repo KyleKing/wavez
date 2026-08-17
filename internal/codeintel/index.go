@@ -18,11 +18,16 @@ import (
 // construction, never written to: their content hash matched and no SQL
 // statement referenced their rows.
 type IndexStats struct {
-	FilesScanned   int
-	FilesIndexed   int
-	FilesUnchanged int
-	FilesRemoved   int
-	SymbolsIndexed int
+	// EdgesUnavailable carries why the edge copy could not run, empty when
+	// it did. A graph query over an empty edges table means something
+	// different depending on which it is, so the reason has to travel with
+	// the stats rather than be inferred from a zero count.
+	EdgesUnavailable string
+	FilesScanned     int
+	FilesIndexed     int
+	FilesUnchanged   int
+	FilesRemoved     int
+	SymbolsIndexed   int
 }
 
 // skipDirs never descends into these directory names while scanning.

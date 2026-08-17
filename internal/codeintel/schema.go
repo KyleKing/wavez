@@ -50,8 +50,7 @@ CREATE INDEX idx_symbols_name ON symbols(name);
 -- edges is a declared seam for the codegraph adapter (DESIGN.md "Code
 -- intelligence"): src/dst are symbol keys ("path:name:start_byte") rather
 -- than a foreign key to symbols.id, because the adapter's node identity is
--- its own and rows are copied in, not joined live. Nothing in this package
--- writes or reads this table yet.
+-- its own and rows are copied in, not joined live.
 CREATE TABLE edges (
 	id INTEGER PRIMARY KEY,
 	src TEXT NOT NULL,

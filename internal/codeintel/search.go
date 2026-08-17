@@ -17,9 +17,8 @@ const (
 	// trigram FTS index.
 	SearchFuzzy SearchMode = "fuzzy"
 	// SearchGraph walks the edges table one hop from a seed symbol key.
-	// No writer for edges ships in v0.1 (that is the codegraph adapter's
-	// job), so this mode runs against whatever rows exist, which is none
-	// until that adapter lands.
+	// EdgeAdapter fills that table from codegraph, so this mode returns
+	// nothing on a project codegraph has not indexed.
 	SearchGraph SearchMode = "graph"
 	// SearchSemantic is declared for v0.2 and returns ErrModeUnimplemented.
 	SearchSemantic SearchMode = "semantic"

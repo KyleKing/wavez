@@ -22,9 +22,8 @@ type ContextRequest struct {
 }
 
 // ContextBundle is the ranked first-turn context for a model: the touched
-// symbols, whatever one-hop edges reference them (empty until the
-// codegraph adapter populates edges), and the tests covering the touched
-// ranges.
+// symbols, whatever one-hop edges the codegraph adapter recorded for them,
+// and the tests covering the touched ranges.
 type ContextBundle struct {
 	Symbols    []Symbol
 	Neighbors  []Edge
@@ -109,17 +108,18 @@ func (s *Store) collectTouchedSymbols(ctx context.Context, r TouchedRange, byID 
 	return nil
 }
 
-// symbolKey is the edges.src/edges.dst convention a future codegraph
-// adapter must follow for its rows to resolve against this store's
-// symbols: file path, symbol name, and start byte, colon-joined.
-func symbolKey(sym *Symbol) string {
-	return fmt.Sprintf("%s:%s:%d", sym.FilePath, sym.Name, sym.StartByte)
+// symbolKey is the edges.src/edges.dst convention the codegraph adapter
+// follows for its rows to resolve against this store's symbols: file path,
+// symbol name, and start byte, colon-joined.
+func symbolKey(path, name string, startByte uint) string {
+	return fmt.Sprintf("%s:%s:%d", path, name, startByte)
 }
 
 func (s *Store) oneHopNeighbours(ctx context.Context, symbols []Symbol) ([]Edge, error) {
 	byID := make(map[int64]*Edge)
 	for i := range symbols {
-		if err := s.collectNeighbours(ctx, symbolKey(&symbols[i]), byID); err != nil {
+		key := symbolKey(symbols[i].FilePath, symbols[i].Name, symbols[i].StartByte)
+		if err := s.collectNeighbours(ctx, key, byID); err != nil {
 			return nil, err
 		}
 	}

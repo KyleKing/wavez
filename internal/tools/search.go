@@ -101,6 +101,11 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 // retrying.
 func formatSearchResults(results []codeintel.SearchResult, stats codeintel.IndexStats, query string) string {
 	if len(results) == 0 {
+		if stats.EdgesUnavailable != "" {
+			return fmt.Sprintf("no matches: the call graph is unavailable (%s), so graph mode "+
+				"cannot answer here. Use mode=fuzzy, or shell with rg, instead", stats.EdgesUnavailable)
+		}
+
 		if stats.FilesScanned == 0 {
 			return "no matches: the code index covers no files in this project, " +
 				"so search cannot answer here. Use shell with rg, or read, instead"
