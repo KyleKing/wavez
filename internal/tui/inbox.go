@@ -19,12 +19,8 @@ type inboxState struct {
 	answering   bool
 }
 
-func newInboxState() inboxState {
-	ti := textinput.New()
-	ti.Placeholder = "type an answer"
-	ti.Prompt = ""
-
-	return inboxState{answerInput: ti}
+func newInboxState(th theme) inboxState {
+	return inboxState{answerInput: th.newInput("type an answer")}
 }
 
 // inboxRows returns pending prompts oldest first, across every thread.

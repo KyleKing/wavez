@@ -1,6 +1,10 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
 
 // theme holds the semantic color slots the whole TUI renders through. It is
 // never referenced directly by hex value outside this file, so a NO_COLOR
@@ -19,6 +23,10 @@ type theme struct {
 	// searchHit is reverse video rather than a color so a search stays
 	// legible under NO_COLOR and on a monochrome terminal.
 	searchHit lipgloss.Style
+	// input carries the bubbles textinput styles, which default to hardcoded
+	// ANSI colors for the placeholder, blurred text, and cursor that no
+	// surrounding lipgloss style can suppress.
+	input textinput.Styles
 }
 
 func newTheme(noColor bool) theme {
@@ -35,6 +43,7 @@ func newTheme(noColor bool) theme {
 			borderDim:   lipgloss.NewStyle().Faint(true),
 			borderFocus: lipgloss.NewStyle().Bold(true),
 			searchHit:   lipgloss.NewStyle().Reverse(true),
+			input:       monoInputStyles(),
 		}
 	}
 
@@ -50,5 +59,34 @@ func newTheme(noColor bool) theme {
 		borderDim:   lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
 		borderFocus: lipgloss.NewStyle().Foreground(lipgloss.Color("111")).Bold(true),
 		searchHit:   lipgloss.NewStyle().Reverse(true),
+		input:       textinput.DefaultDarkStyles(),
 	}
+}
+
+func monoInputStyles() textinput.Styles {
+	plain := textinput.StyleState{
+		Text:        lipgloss.NewStyle(),
+		Placeholder: lipgloss.NewStyle().Faint(true),
+		Suggestion:  lipgloss.NewStyle().Faint(true),
+		Prompt:      lipgloss.NewStyle(),
+	}
+
+	return textinput.Styles{
+		Focused: plain,
+		Blurred: plain,
+		// A nil cursor color leaves the virtual cursor's reverse-video block,
+		// which is an attribute rather than a color.
+		Cursor: textinput.CursorStyle{Shape: tea.CursorBlock, Blink: true},
+	}
+}
+
+// newInput builds a textinput whose styles come from the theme rather than
+// from bubbles' color defaults.
+func (t theme) newInput(placeholder string) textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = placeholder
+	ti.Prompt = ""
+	ti.SetStyles(t.input)
+
+	return ti
 }

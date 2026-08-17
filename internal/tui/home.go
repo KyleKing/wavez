@@ -23,19 +23,11 @@ type homeState struct {
 	answerActive bool
 }
 
-func newHomeState() homeState {
-	filter := textinput.New()
-	filter.Placeholder = "filter by name or directory"
-	filter.Prompt = ""
-
-	answer := textinput.New()
-	answer.Placeholder = "type an answer, or y/n/a"
-	answer.Prompt = ""
-
+func newHomeState(th theme) homeState {
 	return homeState{
 		expanded:    map[string]bool{},
-		filterInput: filter,
-		answerInput: answer,
+		filterInput: th.newInput("filter by name or directory"),
+		answerInput: th.newInput("type an answer, or y/n/a"),
 	}
 }
 

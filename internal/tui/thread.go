@@ -29,12 +29,11 @@ type threadState struct {
 	diffCursor   int
 }
 
-func newThreadState() threadState {
-	ti := textinput.New()
-	ti.Placeholder = "type a message and press enter to send"
-	ti.Prompt = ""
-
-	return threadState{input: ti, search: newSearchState()}
+func newThreadState(th theme) threadState {
+	return threadState{
+		input:  th.newInput("type a message and press enter to send"),
+		search: newSearchState(th),
+	}
 }
 
 func (m Model) activeThread() (api.ThreadInfo, bool) {

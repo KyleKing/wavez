@@ -74,20 +74,22 @@ func New(opts Options) Model {
 		now = time.Now
 	}
 
+	th := newTheme(opts.NoColor)
+
 	return Model{
 		stack:       []screenKind{screenHome},
-		th:          newTheme(opts.NoColor),
+		th:          th,
 		noColor:     opts.NoColor,
 		ascii:       opts.NoColor,
 		dir:         opts.Dir,
 		now:         now,
 		transcripts: map[string]*transcript{},
 		diffs:       map[string][]diffRow{},
-		home:        newHomeState(),
-		thread:      newThreadState(),
-		form:        newThreadForm(),
-		inbox:       newInboxState(),
-		palette:     newPaletteState(),
+		home:        newHomeState(th),
+		thread:      newThreadState(th),
+		form:        newThreadForm(th),
+		inbox:       newInboxState(th),
+		palette:     newPaletteState(th),
 	}
 }
 

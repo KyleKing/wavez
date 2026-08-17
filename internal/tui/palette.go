@@ -24,12 +24,8 @@ type paletteState struct {
 	open   bool
 }
 
-func newPaletteState() paletteState {
-	ti := textinput.New()
-	ti.Placeholder = "jump to a thread, directory, prompt, or verb"
-	ti.Prompt = ""
-
-	return paletteState{input: ti}
+func newPaletteState(th theme) paletteState {
+	return paletteState{input: th.newInput("jump to a thread, directory, prompt, or verb")}
 }
 
 var paletteVerbs = []string{"diagnostics", labelInbox, labelQuit, labelUndo}

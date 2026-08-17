@@ -18,12 +18,8 @@ type searchState struct {
 	editing bool
 }
 
-func newSearchState() searchState {
-	ti := textinput.New()
-	ti.Placeholder = "search the transcript"
-	ti.Prompt = ""
-
-	return searchState{input: ti}
+func newSearchState(th theme) searchState {
+	return searchState{input: th.newInput("search the transcript")}
 }
 
 func (s searchState) visible() bool { return s.editing || s.query != "" }

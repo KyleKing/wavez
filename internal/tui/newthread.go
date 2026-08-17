@@ -14,18 +14,14 @@ type threadForm struct {
 	prompt textinput.Model
 }
 
-func newThreadForm() threadForm {
-	ti := textinput.New()
-	ti.Placeholder = "what should this thread do?"
-	ti.Prompt = ""
-
-	return threadForm{prompt: ti}
+func newThreadForm(th theme) threadForm {
+	return threadForm{prompt: th.newInput("what should this thread do?")}
 }
 
 // openNewThread pushes the form. A non-empty parent makes it a fork, which
 // carries the parent's change set and none of its transcript.
 func (m Model) openNewThread(parent string) (Model, tea.Cmd) {
-	m.form = newThreadForm()
+	m.form = newThreadForm(m.th)
 	m.form.parent = parent
 	// Sized here as well as on resize: the form is built after the last
 	// WindowSizeMsg, so it would otherwise render one column wide.
