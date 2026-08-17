@@ -367,3 +367,59 @@ func TestClient_Stream_ContextCancellationAbortsPromptly(t *testing.T) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
+
+func TestClient_Stream_SendsResponseFormat(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan []byte, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading request body: %v", err)
+		}
+		bodies <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+			t.Logf("writing SSE body: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client := newClient(t, srv)
+	req := llm.Request{
+		Model:    "m",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+		ResponseFormat: &llm.ResponseFormat{
+			Name:   "verdict",
+			Schema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`),
+		},
+	}
+
+	if _, err := collectAll(client, req); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	var got struct {
+		ResponseFormat struct {
+			Type       string `json:"type"`
+			JSONSchema struct {
+				Name   string          `json:"name"`
+				Schema json.RawMessage `json:"schema"`
+				Strict bool            `json:"strict"`
+			} `json:"json_schema"`
+		} `json:"response_format"`
+	}
+	if err := json.Unmarshal(<-bodies, &got); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+
+	if got.ResponseFormat.Type != "json_schema" || !got.ResponseFormat.JSONSchema.Strict {
+		t.Fatalf("response_format = %+v", got.ResponseFormat)
+	}
+	if got.ResponseFormat.JSONSchema.Name != "verdict" {
+		t.Errorf("json_schema.name = %q, want verdict", got.ResponseFormat.JSONSchema.Name)
+	}
+	if !strings.Contains(string(got.ResponseFormat.JSONSchema.Schema), `"ok"`) {
+		t.Errorf("json_schema.schema = %s", got.ResponseFormat.JSONSchema.Schema)
+	}
+}

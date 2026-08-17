@@ -247,7 +247,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		return nil, err
 	}
 
-	loop := agent.New(local, hosted, registry, permGate, loopOptions(root, cfg, options, verifier)...)
+	reviewer := NewModelReviewer(root, vcs.NewJj(), local, hosted, cfg.LocalModel, cfg.HostedModel)
+	loop := agent.New(local, hosted, registry, permGate, loopOptions(root, cfg, options, verifier, reviewer)...)
 
 	// Detached from ctx on purpose: the first index outlives whatever
 	// request built the App, and Close is what ends it.
@@ -278,11 +279,14 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 // loopOptions maps the Options a caller set to agent.Option values. A zero
 // bound means "leave the loop's own default", never "no bound".
-func loopOptions(root string, cfg config.Config, options Options, verifier agent.Verifier) []agent.Option {
+func loopOptions(
+	root string, cfg config.Config, options Options, verifier agent.Verifier, reviewer agent.Reviewer,
+) []agent.Option {
 	out := []agent.Option{
 		agent.WithLocalModel(cfg.LocalModel),
 		agent.WithHostedModel(cfg.HostedModel),
 		agent.WithVerifier(verifier),
+		agent.WithReviewer(reviewer),
 		agent.WithCheckpointer(vcs.NewJj(), root),
 		agent.WithCompaction(thread.CompactOptions{
 			KeepLines:   compactKeepLines,

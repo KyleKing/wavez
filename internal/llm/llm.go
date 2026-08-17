@@ -42,15 +42,25 @@ type ToolSpec struct {
 	Schema      json.RawMessage `json:"schema"`
 }
 
+// ResponseFormat constrains a model's output to a JSON Schema, which the
+// llama-server runtime enforces as a grammar so a served local model cannot
+// answer off-schema. A provider that does not support it ignores it, so a
+// caller must still parse defensively.
+type ResponseFormat struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+}
+
 // Request is one model call. System and Tools are held stable across a thread
 // so they form a cacheable prefix.
 type Request struct {
-	Model       string     `json:"model"`
-	System      string     `json:"system,omitempty"`
-	Messages    []Message  `json:"messages"`
-	Tools       []ToolSpec `json:"tools,omitempty"`
-	MaxTokens   int        `json:"max_tokens,omitempty"`
-	Temperature float64    `json:"temperature,omitempty"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+	Model          string          `json:"model"`
+	System         string          `json:"system,omitempty"`
+	Messages       []Message       `json:"messages"`
+	Tools          []ToolSpec      `json:"tools,omitempty"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	Temperature    float64         `json:"temperature,omitempty"`
 }
 
 // Usage counts tokens for one model call.

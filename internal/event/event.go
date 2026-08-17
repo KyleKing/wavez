@@ -22,6 +22,10 @@ const (
 	KindError      Kind = "error"
 	KindLedger     Kind = "ledger"
 	KindUsage      Kind = "usage"
+	// KindReview records a model's judgment of a run's diff against its task.
+	// It is deliberately not KindGate: a review objection never fails a run,
+	// and counting it as one would report it as a run that failed a check.
+	KindReview Kind = "review"
 )
 
 // State is a thread's lifecycle position, rendered as a glyph in every view.

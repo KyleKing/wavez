@@ -139,6 +139,10 @@ type Prefix struct {
 // hosted spend, and, for a stagnation stop, which tool failed and how many
 // times in a row.
 type Outcome struct {
+	// Review is the last verdict a configured Reviewer returned, zero when
+	// none ran. An objection here does not make the run a failure: the run
+	// completed and the objection stands unresolved for the user to settle.
+	Review       Verdict
 	Stop         Stop
 	Checkpoint   string
 	StagnantTool string
@@ -177,6 +181,7 @@ type Checkpointer interface {
 // Options bounds and configures a Loop.
 type Options struct {
 	Verifier            Verifier
+	Reviewer            Reviewer
 	Checkpointer        Checkpointer
 	Clock               gate.Clock
 	Pricing             map[string]ModelPricing
@@ -186,6 +191,7 @@ type Options struct {
 	MaxTurns            int
 	MaxToolCallsPerTurn int
 	MaxVerifyRounds     int
+	MaxReviewRounds     int
 	MaxStagnantErrors   int
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
@@ -279,6 +285,7 @@ func New(local, hosted llm.Provider, tools *tool.Registry, permGate permission.G
 		MaxTurns:            DefaultMaxTurns,
 		MaxToolCallsPerTurn: DefaultMaxToolCallsPerTurn,
 		MaxVerifyRounds:     DefaultMaxVerifyRounds,
+		MaxReviewRounds:     DefaultMaxReviewRounds,
 		MaxWallClock:        DefaultMaxWallClock,
 		MaxHostedSpendUSD:   DefaultMaxHostedSpendUSD,
 		MaxStagnantErrors:   DefaultMaxStagnantErrors,
@@ -333,7 +340,7 @@ func (l *Loop) Run(
 
 	r := &run{
 		loop: l, thread: th, system: system, tools: prefix.Tools, hint: hint, gk: newGateKeeper(l.gate),
-		startTime: start, deadline: deadline,
+		task: prompt, startTime: start, deadline: deadline,
 	}
 	r.outcome.Checkpoint = checkpoint
 
@@ -395,6 +402,7 @@ type run struct {
 	lastCall          *llm.ToolCall
 	loop              *Loop
 	system            string
+	task              string
 	changes           []tool.Change
 	tools             []llm.ToolSpec
 	compacted         []thread.TurnMessage
@@ -402,6 +410,7 @@ type run struct {
 	outcome           Outcome
 	compactedThrough  int
 	verifyRounds      int
+	reviewRounds      int
 	turnToolCalls     int
 	consecutiveErrors int
 	localFailed       bool
@@ -527,13 +536,13 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 // finishOrVerify runs once the model ends its turn with no pending tool
 // call. With no verifier configured it completes exactly as before. With
 // one configured, it verifies the changes accumulated across the run: a
-// pass completes the run, a failure appends trimmed feedback as a new turn
-// so the model must fix it, and MaxVerifyRounds bounds how many times that
-// can happen before the run stops as StopVerifyFailed instead of looping
-// forever.
+// pass hands off to the review step, a failure appends trimmed feedback as a
+// new turn so the model must fix it, and MaxVerifyRounds bounds how many
+// times that can happen before the run stops as StopVerifyFailed instead of
+// looping forever.
 func (r *run) finishOrVerify(ctx context.Context) (bool, Outcome, error) {
 	if r.loop.options.Verifier == nil {
-		return r.complete(ctx)
+		return r.reviewOrComplete(ctx)
 	}
 
 	feedback, ok := r.loop.options.Verifier.Verify(ctx, r.changes)
@@ -544,7 +553,7 @@ func (r *run) finishOrVerify(ctx context.Context) (bool, Outcome, error) {
 	}
 
 	if ok {
-		return r.complete(ctx)
+		return r.reviewOrComplete(ctx)
 	}
 
 	if r.verifyRounds >= r.loop.options.MaxVerifyRounds {

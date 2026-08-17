@@ -7,17 +7,29 @@ import (
 )
 
 type wireRequest struct {
-	StreamOptions *wireStreamOptions `json:"stream_options,omitempty"`
-	Model         string             `json:"model"`
-	Messages      []wireMessage      `json:"messages"`
-	Tools         []wireTool         `json:"tools,omitempty"`
-	MaxTokens     int                `json:"max_tokens,omitempty"`
-	Temperature   float64            `json:"temperature,omitempty"`
-	Stream        bool               `json:"stream"`
+	StreamOptions  *wireStreamOptions  `json:"stream_options,omitempty"`
+	ResponseFormat *wireResponseFormat `json:"response_format,omitempty"`
+	Model          string              `json:"model"`
+	Messages       []wireMessage       `json:"messages"`
+	Tools          []wireTool          `json:"tools,omitempty"`
+	MaxTokens      int                 `json:"max_tokens,omitempty"`
+	Temperature    float64             `json:"temperature,omitempty"`
+	Stream         bool                `json:"stream"`
 }
 
 type wireStreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
+}
+
+type wireResponseFormat struct {
+	Type       string         `json:"type"`
+	JSONSchema wireJSONSchema `json:"json_schema"`
+}
+
+type wireJSONSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 type wireMessage struct {
@@ -74,13 +86,25 @@ func toWireRequest(model string, req llm.Request) wireRequest {
 	}
 
 	return wireRequest{
-		Model:         model,
-		Messages:      messages,
-		Tools:         tools,
-		MaxTokens:     req.MaxTokens,
-		Temperature:   req.Temperature,
-		Stream:        true,
-		StreamOptions: &wireStreamOptions{IncludeUsage: true},
+		Model:          model,
+		Messages:       messages,
+		Tools:          tools,
+		MaxTokens:      req.MaxTokens,
+		Temperature:    req.Temperature,
+		Stream:         true,
+		StreamOptions:  &wireStreamOptions{IncludeUsage: true},
+		ResponseFormat: toWireResponseFormat(req.ResponseFormat),
+	}
+}
+
+func toWireResponseFormat(rf *llm.ResponseFormat) *wireResponseFormat {
+	if rf == nil {
+		return nil
+	}
+
+	return &wireResponseFormat{
+		Type:       "json_schema",
+		JSONSchema: wireJSONSchema{Name: rf.Name, Schema: rf.Schema, Strict: true},
 	}
 }
 

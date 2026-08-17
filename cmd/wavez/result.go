@@ -19,6 +19,8 @@ type runResult struct {
 	Stop            string   `json:"stop"`
 	Text            string   `json:"text"`
 	Checkpoint      string   `json:"checkpoint,omitempty"`
+	Review          string   `json:"review,omitempty"`
+	ReviewNote      string   `json:"review_note,omitempty"`
 	Strayed         []string `json:"strayed,omitempty"`
 	ElapsedSeconds  float64  `json:"elapsed_seconds"`
 	Turns           int      `json:"turns"`
@@ -37,6 +39,8 @@ func newRunResult(id thread.ID, text string, outcome agent.Outcome, strayed []st
 		Complete:        outcome.Stop == agent.StopComplete,
 		Text:            text,
 		Checkpoint:      outcome.Checkpoint,
+		Review:          string(outcome.Review.Result),
+		ReviewNote:      outcome.Review.Note,
 		Strayed:         strayed,
 		ElapsedSeconds:  outcome.Elapsed.Round(time.Millisecond).Seconds(),
 		Turns:           outcome.Turns,
