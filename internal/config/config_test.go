@@ -58,6 +58,8 @@ context {
 }
 localModel = "custom-local"
 debounceMs = 750
+localPort = 8123
+localStartTimeoutSeconds = 120
 `)
 
 	loader, err := config.NewLoader(context.Background())
@@ -86,6 +88,12 @@ debounceMs = 750
 	}
 	if cfg.GateDebounce != 750*time.Millisecond {
 		t.Errorf("GateDebounce = %v, want 750ms", cfg.GateDebounce)
+	}
+	if cfg.LocalPort != 8123 {
+		t.Errorf("LocalPort = %d, want 8123", cfg.LocalPort)
+	}
+	if cfg.LocalStartTimeout != 120*time.Second {
+		t.Errorf("LocalStartTimeout = %v, want 2m", cfg.LocalStartTimeout)
 	}
 	if len(cfg.Context) != 1 || cfg.Context[0] != "AGENTS.md" {
 		t.Errorf("Context = %v, want [AGENTS.md]", cfg.Context)

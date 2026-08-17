@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+	goruntime "runtime"
 	"sync"
 	"time"
 
@@ -23,6 +23,7 @@ import (
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/openaic"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/runtime"
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
@@ -56,6 +57,10 @@ const (
 
 	dirPerm = 0o755
 
+	// Close waits this long for llama-server to exit on SIGTERM before
+	// killing it, because a leaked server holds the model's memory.
+	serverStopTimeout = 10 * time.Second
+
 	// Deterministic compaction is tuned for an 8k served window: keep enough
 	// of a tool result to read a stack frame or a test name, and hold a
 	// result in full only while the turn that asked for it is still recent.
@@ -77,6 +82,7 @@ type App struct {
 	GateLog         *gate.Log
 	Tools           *tool.Registry
 	Scope           *tools.Scope
+	supervisor      *runtime.Supervisor
 	bgCancel        context.CancelFunc
 	threadLogDir    string
 	SandboxDir      string
@@ -98,6 +104,7 @@ type Options struct {
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
 	StrictScope         bool
+	ManagedLocalServer  bool
 }
 
 // Option configures an Options.
@@ -137,6 +144,14 @@ func WithMaxHostedSpendUSD(v float64) Option {
 // every thread this App builds.
 func WithMaxStagnantErrors(n int) Option {
 	return func(o *Options) { o.MaxStagnantErrors = n }
+}
+
+// WithManagedLocalServer lets App start llama-server for the configured
+// local model when nothing is already serving it, and stop it on Close.
+// Off by default because loading a model costs seconds and gigabytes, and
+// constructing an App is not on its own a reason to pay that.
+func WithManagedLocalServer() Option {
+	return func(o *Options) { o.ManagedLocalServer = true }
 }
 
 // WithStrictScope refuses an edit to a file the run has neither read nor
@@ -203,8 +218,17 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker)
 
 	local, hosted := options.Local, options.Hosted
+
+	var supervisor *runtime.Supervisor
+
 	if local == nil {
-		local = openaic.New("local", openaic.WithBaseURL(DefaultLocalBaseURL), openaic.WithModel(cfg.LocalModel))
+		server := localServer{baseURL: runtime.LocalBaseURL(cfg.LocalPort)}
+		if options.ManagedLocalServer {
+			server = ensureLocalServer(ctx, cfg)
+		}
+
+		supervisor = server.supervisor
+		local = openaic.New("local", openaic.WithBaseURL(server.baseURL), openaic.WithModel(cfg.LocalModel))
 	}
 
 	if hosted == nil {
@@ -236,6 +260,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		Store:           store,
 		Indexer:         indexer,
 		Scope:           scope,
+		supervisor:      supervisor,
 		bgCancel:        bgCancel,
 		Tools:           registry,
 		Local:           local,
@@ -287,6 +312,38 @@ func loopOptions(root string, cfg config.Config, options Options, verifier agent
 	}
 
 	return out
+}
+
+// ensureLocalServer starts llama-server for the configured local model, or
+// reuses one already answering on its port. A start failure is not fatal:
+// the caller may still have a server wavez did not start, so the reason is
+// reported and the default endpoint is returned to try anyway.
+func ensureLocalServer(ctx context.Context, cfg config.Config) localServer {
+	fallback := runtime.LocalBaseURL(cfg.LocalPort)
+
+	sup := runtime.NewSupervisor(cfg.LocalModel, runtime.Config{Port: cfg.LocalPort},
+		runtime.WithStartTimeout(cfg.LocalStartTimeout))
+
+	endpoint, err := sup.Ensure(context.WithoutCancel(ctx))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wavez: local model unavailable, trying %s anyway: %v\n", fallback, err)
+
+		return localServer{baseURL: fallback}
+	}
+
+	if !endpoint.Managed {
+		return localServer{baseURL: endpoint.BaseURL}
+	}
+
+	return localServer{supervisor: sup, baseURL: endpoint.BaseURL}
+}
+
+// localServer is the endpoint the local provider dials, plus the supervisor
+// to stop if wavez is the one that started it. A nil supervisor means the
+// server belongs to someone else and must be left running.
+type localServer struct {
+	supervisor *runtime.Supervisor
+	baseURL    string
 }
 
 func newSessionDir(stateDir string) (string, error) {
@@ -376,7 +433,7 @@ func buildGates(
 	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce, runFunc)
 
 	manifestPath := filepath.Join(root, wavezDirName, coverageManifestFileName)
-	adapter := gate.NewCoverageAdapter(store, manifestPath, runtime.NumCPU())
+	adapter := gate.NewCoverageAdapter(store, manifestPath, goruntime.NumCPU())
 
 	// fail-to-pass runs after go-test because it assumes the suite is green
 	// on the tree as written; without that a merely broken test reads as one
@@ -420,6 +477,16 @@ func (a *App) Close() error {
 	a.bgCancel()
 
 	var errs []error
+
+	if a.supervisor != nil {
+		// A leaked llama-server holds the model's 6 GB, so the stop always
+		// carries a deadline and kills past it.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), serverStopTimeout)
+		if err := a.supervisor.Stop(stopCtx); err != nil {
+			errs = append(errs, err)
+		}
+		cancel()
+	}
 
 	if err := a.Store.Close(); err != nil {
 		errs = append(errs, err)

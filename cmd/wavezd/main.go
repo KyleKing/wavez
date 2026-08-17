@@ -78,10 +78,14 @@ func serve(ctx context.Context, dir, sock string) error {
 
 	broker := daemon.NewBroker()
 
-	a, err := app.New(ctx, root, cfg, broker.Gate(), app.WithAsker(broker.Asker()))
+	a, err := app.New(ctx, root, cfg, broker.Gate(), app.WithAsker(broker.Asker()), app.WithManagedLocalServer())
 	if err != nil {
 		return fmt.Errorf("building project: %w", err)
 	}
+	// Close takes no context on purpose: a run canceled by ctrl-c must
+	// still stop the llama-server it started, and a canceled context would
+	// skip exactly that.
+	//nolint:contextcheck // see the comment above: shutdown must outlive the run's context
 	defer func() {
 		if cerr := a.Close(); cerr != nil {
 			fmt.Fprintf(os.Stderr, "wavezd: shutdown: %v\n", cerr)
@@ -99,6 +103,7 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithPrefix(prefix(a)),
 		daemon.WithStatsSource(machineStats{ctx: ctx}),
 		daemon.WithDiffer(vcs.NewJj()),
+		daemon.WithRestorer(vcs.NewJj()),
 		daemon.WithRoot(root),
 	)
 	if err != nil {

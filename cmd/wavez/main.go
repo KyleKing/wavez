@@ -27,11 +27,14 @@ import (
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tui"
+	"github.com/kyleking/wavez/internal/vcs"
 )
 
 var (
-	errStoppedEarly = errors.New("thread stopped early")
-	errUnknownModel = errors.New("unknown -model: want local or hosted")
+	errNothingToUndo     = errors.New("nothing has changed since the checkpoint")
+	errRestoreIncomplete = errors.New("restore left the working copy changed")
+	errStoppedEarly      = errors.New("thread stopped early")
+	errUnknownModel      = errors.New("unknown -model: want local or hosted")
 )
 
 var (
@@ -47,6 +50,7 @@ type options struct {
 	with                string
 	resume              string
 	socket              string
+	undo                string
 	maxTurns            int
 	maxToolCallsPerTurn int
 	maxStagnantErrors   int
@@ -78,6 +82,8 @@ func run(args []string) error {
 	fs.StringVar(&opt.with, "with", "", "add one file to the stable prefix for this run only")
 	fs.StringVar(&opt.socket, "socket", "", "daemon socket path (defaults to <root>/.wavez/d.sock)")
 	fs.StringVar(&opt.resume, "resume", "", "continue an existing thread by id instead of starting a new one")
+	fs.StringVar(&opt.undo, "undo", "",
+		"restore the working copy to a run's checkpoint operation id, discarding everything since")
 	fs.BoolVar(&opt.allowAll, "allow-all", false, "approve every permission prompt without asking")
 	fs.BoolVar(&opt.strictScope, "strict-scope", false,
 		"refuse an edit to a file this run never read or created")
@@ -103,6 +109,15 @@ func run(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if opt.undo != "" {
+		root, err := resolveRoot(ctx, opt.dir)
+		if err != nil {
+			return err
+		}
+
+		return undo(ctx, root, opt.undo)
+	}
 
 	if opt.mutate {
 		root, err := resolveRoot(ctx, opt.dir)
@@ -181,10 +196,16 @@ func headless(ctx context.Context, opt options) error {
 		appOpts = append(appOpts, app.WithStrictScope())
 	}
 
+	appOpts = append(appOpts, app.WithManagedLocalServer())
+
 	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), appOpts...)
 	if err != nil {
 		return fmt.Errorf("building project: %w", err)
 	}
+	// Close takes no context on purpose: a run canceled by ctrl-c must
+	// still stop the llama-server it started, and a canceled context would
+	// skip exactly that.
+	//nolint:contextcheck // see the comment above: shutdown must outlive the run's context
 	defer func() {
 		if cerr := a.Close(); cerr != nil {
 			fmt.Fprintf(os.Stderr, "wavez: shutdown: %v\n", cerr)
@@ -208,13 +229,55 @@ func headless(ctx context.Context, opt options) error {
 	}
 
 	fmt.Println(finalText(th))
-	fmt.Fprintf(os.Stderr, "\nstop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f\n",
-		outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls, outcome.HostedSpendUSD)
+	fmt.Fprintf(os.Stderr, "\nstop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f checkpoint=%s\n",
+		outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls, outcome.HostedSpendUSD,
+		outcome.Checkpoint)
 	reportStrayedEdits(a.Scope.Strayed(), root, opt.strictScope)
 
 	if outcome.Stop != agent.StopComplete {
 		return fmt.Errorf("%w: %s", errStoppedEarly, outcome.Stop)
 	}
+
+	return nil
+}
+
+// undo restores root to a checkpoint an earlier run captured, which the
+// run printed as checkpoint=<id>. Typing the flag is the confirmation the
+// TUI asks for, so this acts directly, and it prints the work it destroyed
+// rather than only that it ran.
+//
+// Nothing to discard is a refusal: jj's own restore is silent about a
+// no-op, and an undo that reports success without undoing anything is
+// worse than one that fails.
+func undo(ctx context.Context, root, checkpoint string) error {
+	jj := vcs.NewJj()
+
+	changed, err := jj.ChangedFiles(ctx, root, checkpoint)
+	if err != nil {
+		return fmt.Errorf("listing what -undo would discard: %w", err)
+	}
+	if len(changed) == 0 {
+		return fmt.Errorf("%w: %s", errNothingToUndo, checkpoint)
+	}
+
+	stat, err := jj.DiffStat(ctx, root, checkpoint)
+	if err != nil {
+		return fmt.Errorf("summarizing what -undo would discard: %w", err)
+	}
+
+	if err := jj.Restore(ctx, root, checkpoint); err != nil {
+		return fmt.Errorf("restoring %s: %w", root, err)
+	}
+
+	left, err := jj.ChangedFiles(ctx, root, checkpoint)
+	if err != nil {
+		return fmt.Errorf("verifying the restore of %s: %w", root, err)
+	}
+	if len(left) > 0 {
+		return fmt.Errorf("%w: %d file(s) still differ", errRestoreIncomplete, len(left))
+	}
+
+	fmt.Printf("restored %s to checkpoint %s, discarding:\n%s", root, checkpoint, stat)
 
 	return nil
 }
@@ -369,6 +432,7 @@ Flags:
   -model <tier>   force local or hosted for every turn
   -with <file>    add one file to the stable prefix for this run only
   -resume <id>    continue an existing thread instead of starting a new one
+  -undo <op>      restore the working copy to a run's checkpoint and print what it discarded
   -socket <path>  daemon socket path (defaults to <root>/.wavez/d.sock)
   -allow-all      approve every permission prompt without asking
   -strict-scope   refuse an edit to a file this run never read or created

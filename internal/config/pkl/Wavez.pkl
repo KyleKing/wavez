@@ -28,6 +28,14 @@ hostedKeyCommand: String = ""
 /// Local model's served context window, in tokens.
 contextWindow: Int = 8000
 
+/// Loopback port llama-server serves the local model on. Wavez reuses a
+/// server already answering there instead of starting a second one, since
+/// only one model fits in 16 GB.
+localPort: Int = 8080
+
+/// Seconds to wait for a started llama-server to report ready.
+localStartTimeoutSeconds: Int = 60
+
 /// Extra directories, beyond the project root, the agent may read and write.
 extraDirs: Listing<String> = new Listing {}
 

@@ -40,6 +40,8 @@ type pklConfig struct {
 	ContextWindow    int      `pkl:"contextWindow"`
 	DebounceMs       int      `pkl:"debounceMs"`
 	FullRunCadence   int      `pkl:"fullRunCadence"`
+	LocalPort        int      `pkl:"localPort"`
+	LocalStartSecs   int      `pkl:"localStartTimeoutSeconds"`
 }
 
 // Loader evaluates ".wavez.pkl" files through one long-lived pkl.Evaluator,
@@ -170,6 +172,14 @@ func fromPkl(root string, p pklConfig) Config {
 
 	if p.FullRunCadence != 0 {
 		cfg.FullRunCadence = p.FullRunCadence
+	}
+
+	if p.LocalPort != 0 {
+		cfg.LocalPort = p.LocalPort
+	}
+
+	if p.LocalStartSecs != 0 {
+		cfg.LocalStartTimeout = time.Duration(p.LocalStartSecs) * time.Second
 	}
 
 	cfg.Context = p.Context

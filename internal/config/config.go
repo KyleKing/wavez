@@ -20,6 +20,15 @@ const DefaultHostedModel = "openai/gpt-5-mini"
 // tokens, matching internal/router.LocalContextBudget.
 const DefaultContextWindow = 8000
 
+// DefaultLocalPort is the loopback port llama-server serves the local model
+// on, matching internal/runtime.DefaultPort.
+const DefaultLocalPort = 8080
+
+// DefaultLocalStartTimeout bounds one llama-server start. Cold start
+// measured 1.6 s to first token on this laptop (_ai_/demos/local-runtime);
+// the rest of the budget covers reading a 5 GB blob past a cold page cache.
+const DefaultLocalStartTimeout = 60 * time.Second
+
 // DefaultGateDebounce is how long a Runner waits after the last change in a
 // burst before invoking gates.
 const DefaultGateDebounce = 500 * time.Millisecond
@@ -43,17 +52,25 @@ type Config struct {
 	ContextWindow    int
 	GateDebounce     time.Duration
 	FullRunCadence   int
+	// LocalPort is the loopback port llama-server serves LocalModel on.
+	// Wavez reuses a server already answering there rather than starting a
+	// second one.
+	LocalPort int
+	// LocalStartTimeout bounds one llama-server start attempt.
+	LocalStartTimeout time.Duration
 }
 
 // Defaults returns the Config a project with no ".wavez.pkl" gets: every
 // field is readable without a config file at all.
 func Defaults(root string) Config {
 	return Config{
-		Root:           root,
-		LocalModel:     DefaultLocalModel,
-		HostedModel:    DefaultHostedModel,
-		ContextWindow:  DefaultContextWindow,
-		GateDebounce:   DefaultGateDebounce,
-		FullRunCadence: DefaultFullRunCadence,
+		Root:              root,
+		LocalModel:        DefaultLocalModel,
+		HostedModel:       DefaultHostedModel,
+		ContextWindow:     DefaultContextWindow,
+		GateDebounce:      DefaultGateDebounce,
+		FullRunCadence:    DefaultFullRunCadence,
+		LocalPort:         DefaultLocalPort,
+		LocalStartTimeout: DefaultLocalStartTimeout,
 	}
 }

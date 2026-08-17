@@ -34,6 +34,12 @@ func (s *Server) BaseURL() string { return s.baseURL }
 // done, and kills it if the deadline passes first. A leaked server holds
 // 6 GB of RAM, so callers must always give ctx a deadline.
 func (s *Server) Stop(ctx context.Context) error {
+	select {
+	case <-s.done:
+		return s.waitErr
+	default:
+	}
+
 	if err := s.process.Signal(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("signaling llama-server to stop: %w", err)
 	}
@@ -62,8 +68,8 @@ func startServer(ctx context.Context, cfg Config, deps startDeps) (*Server, erro
 
 	s := &Server{
 		process:   proc,
-		baseURL:   fmt.Sprintf("http://127.0.0.1:%d/v1", cfg.Port),
-		healthURL: fmt.Sprintf("http://127.0.0.1:%d", cfg.Port),
+		baseURL:   LocalBaseURL(cfg.Port),
+		healthURL: localHealthURL(cfg.Port),
 		done:      make(chan struct{}),
 	}
 
