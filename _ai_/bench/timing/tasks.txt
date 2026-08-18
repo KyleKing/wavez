@@ -1,0 +1,4 @@
+q1|Which file defines the destructive-command guard rules, and how many distinct rule kinds does it have? Answer in two sentences.
+e1|In README.md change the status line 'Status: M2 in progress.' to 'Status: M2 in progress, M3 next.' and nothing else.
+e2|In internal/sysinfo/memory.go add a method UsedFraction on Memory that returns the used share of Total as a float64 between 0 and 1 (0 when Total is 0), and add a table-driven test for it in internal/sysinfo/memory_test.go.
+e3|Rename the unexported function firstDir in internal/daemon/thread.go to primaryDir and update every caller in the daemon package.

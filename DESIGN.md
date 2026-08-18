@@ -673,10 +673,25 @@ done when its condition holds, and nothing here promises a release number.
 | Milestone | Done when | Ships |
 |---|---|---|
 | M1 Loop | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
-| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold | pkl routines, DAG runner, Cycles with the fix cycle, locks, fleet Home, schedule view, diagnostics panel, sub-threads and fork, routines panel, PTY recordings, memory-aware admission, semantic index and similarity notes, repo map, Semgrep routine with capability delta, local model management |
+| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold. Both hold on the fake-loop harness (`internal/daemon/schedule_test.go`, `internal/cycle`), and neither has yet been watched on a real model run | Shipped: pkl routines, DAG runner, Cycles with the fix cycle, leases, schedule view, diagnostics panel, sub-threads and fork, routines panel, memory-aware admission, local model management, `llama-server` timings on the panel, the remote local tier. Left for the ordered list below: fleet Home over one daemon per laptop, PTY recordings, semantic index and similarity notes, repo map, Semgrep routine with capability delta, schedule and thread-lifecycle triggers firing, per-model settings reaching the supervisor |
 | M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, mutation gate in the verification round (it runs on demand today), Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim` with `$EDITOR` prompt handoff and a `wavez lsp` completion server, MCP on demand, web search, context manifest and Ask-a-line |
 | M4 Away | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | M5 Proof | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
+
+### Next
+
+Ordered by what unblocks daily use soonest, from the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood rows. Each names what closes it.
+
+1. Read the reply. Transcript rows get a cursor, `Enter` expands and collapses, and agent prose is typed `answer` vs `note` per Thread view, so a reply longer than one row can be read at all. Empty `state` and empty `agent` rows stop rendering
+2. Finish the timed comparison. Hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, on a quiet machine, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows
+3. A run that changed nothing on a task that asked for a change never reports `complete`. Extend the announcement and offer detectors to "let me try again" shapes and to a zero-change outcome against an edit-shaped task
+4. One daemon per laptop with projects loaded lazily per root, then fleet Home with `w` scope, so the design's one-API claim holds and the M4 phone client has one thing to attach to
+5. Probe the M4 Pro (steps in the audit) and re-run the five-task edit harness against `localBaseURL`, which decides whether local writing is a property of 8B models or of local inference
+6. The owner's asks now in the design: idle toast and push, progress line and estimate (after the `progress-estimate` spike), history by kind, auto-linked identifiers, parked-work inbox
+7. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
+8. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
+9. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
+10. The efficiency spikes, in the order their numbers would change a decision: `kv-slots`, `trim-turns`, `prefix-tokens`, `thinking-budget`, `fork-shape`, then the rest
 
 ## Considered and deferred
 
@@ -736,5 +751,3 @@ No:
 - Whether Ask-a-line threads persist across sessions as review comments do
 - Web search API and version-pinning strategy
 - Progress estimate: how well a thread's own turn and gate-round durations predict its remaining wall clock, and whether the project's history for the same shape of work improves it enough to be worth storing. Spike: `_ai_/demos/progress-estimate`, replaying the thread logs already on disk
-- Efficiency spikes proposed by the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`): `trim-turns`, `recall-handle`, `kv-slots`, `prefix-tokens`, `terse-prefix`, `thinking-budget`, `fork-shape`, `bundle-value`, `admission-line`. Each names the number that decides it; none has run
-- Which of the audit's ranked gaps (`_ai_/bench/audit-2026-08-18.md`) closes first once the M4 Pro tier is measured: the transcript's answer rows, Modifiers for Go, or web search

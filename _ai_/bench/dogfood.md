@@ -243,3 +243,24 @@ daemon attaches the holding thread to the context and `wavez -p` did not, and
 the run still reported `complete` having changed nothing (verification had
 no change set to fail). Both `-p` and a cycle's phase threads now attach the
 holder.
+
+## 2026-08-18, timing harness, first rows
+
+`_ai_/bench/timing/` holds the harness. Only the local tier ran before the
+session ended, and the machine was not quiet for all of it, so these are
+first rows and not the comparison the audit still owes (hosted and
+`claude -p` rows next, on a quiet machine, three samples each).
+
+| Task | qwen3:8b via `wavez -p` | Outcome |
+|---|---|---|
+| q1 question about the guard rules | 7.3 s | correct |
+| e1 one-line README edit | 15 s then 374 s | first run refused every write (lease holder missing on the headless path, fixed), second run landed the edit exactly in 12 s of model time and then took six more minutes to exit, which did not reproduce (a repeat exited in 9 s) |
+| e2 add a method and a table test | 28 s, then 423 s | no change the first time (`stagnant`), code that does not build the second |
+| e3 rename across a package | 203 s | no change |
+
+Two harness findings from the rows: a run that ends having changed nothing on
+a task that asked for a change still reports `complete` when its last turn is
+"let me try again" (the announcement detector did not fire on that phrasing),
+and the coverage-map build that every `-p` process starts competes with the
+model for the machine and never finishes inside one run, so it restarts on the
+next. The daemon is where the build belongs; a `-p` run should not start one.
