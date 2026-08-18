@@ -1,9 +1,14 @@
 [files]
 # Generated from commit subjects by commitizen, so a typo here can only be fixed
 # by rewriting history. Catch it in the commit message instead.
-extend-exclude = ["CHANGELOG.md"]
+# The vim tests describe keystroke sequences ("ab<esc>IZ"), where a run of
+# letters is input and not a word.
+extend-exclude = ["CHANGELOG.md", "internal/tui/vim_test.go"]
 
-# golangci-lint linter identifiers that typos reads as misspellings.
+# Identifiers and prefixes typos reads as misspellings: golangci-lint linter
+# names, a TUI framework, and an English prefix.
 [default.extend-words]
+Ratatui = "Ratatui"
 decorder = "decorder"
 importas = "importas"
+mis = "mis"

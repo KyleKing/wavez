@@ -48,6 +48,14 @@ fullRunCadence: Int = 20
 /// Glob patterns for ast-grep convention rule files.
 astGrepRules: Listing<String> = new Listing {}
 
+/// Functions `wavez -deadcode` should not report, as `package.Function`
+/// globs. A function no main reaches is not always a mistake: functional
+/// options and test seams are reachable only from tests by design, and the
+/// analyzer ignores tests on purpose.
+deadcodeAllow: Listing<String> = new Listing {
+  "*.With*"
+}
+
 /// Command run before every tool call, as an argv with the program first. It
 /// is executed directly, never through a shell. It reads a JSON payload on
 /// stdin (event, tool, input, paths) and answers with its exit status: 0
