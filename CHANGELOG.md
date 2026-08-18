@@ -1,3 +1,9 @@
+## v0.11.1 (2026-08-18)
+
+### Fix
+
+- **cli**: attach the lease holder on the headless and cycle paths so writes are not refused
+
 ## v0.11.0 (2026-08-18)
 
 ### Feat
