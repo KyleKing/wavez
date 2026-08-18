@@ -70,7 +70,7 @@ func (m Model) updateDiagnosticsKey(s string) (Model, tea.Cmd) {
 	switch s {
 	case keyTab, keyJ, keyDown:
 		m.diagUI.section = (m.diagUI.section + 1) % sectionCount
-	case "shift+tab", keyK, keyUp:
+	case keyShTab, keyK, keyUp:
 		m.diagUI.section = (m.diagUI.section + sectionCount - 1) % sectionCount
 	case keyEnter:
 		m.diagUI.drilled = !m.diagUI.drilled

@@ -47,7 +47,7 @@ func (m Model) updateNewThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd
 	switch s {
 	case keyEnter:
 		return m.submitNewThread()
-	case keyTab, "shift+tab":
+	case keyTab, keyShTab:
 		return m.toggleFormField()
 	}
 

@@ -70,10 +70,10 @@ type fakeClient struct {
 	routes      []routeCall
 	thinks      []thinkCall
 	ranRoutines []string
-	listed      int
 	canceled    []string
 	models      []api.Command
 	subscribed  []string
+	listed      int
 	resets      int
 }
 

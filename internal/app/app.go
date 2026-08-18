@@ -205,33 +205,11 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		opt(&options)
 	}
 
-	stateDir := filepath.Join(root, wavezDirName)
-	if err := os.MkdirAll(stateDir, dirPerm); err != nil {
-		return nil, fmt.Errorf("creating state dir %s: %w", stateDir, err)
-	}
-
-	store, err := codeintel.Open(ctx, filepath.Join(stateDir, storeFileName))
+	st, err := openState(ctx, root, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("opening code-intelligence store: %w", err)
-	}
-
-	gateLog, err := gate.OpenLog(filepath.Join(stateDir, gateLogFileName))
-	if err != nil {
-		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
-		return nil, fmt.Errorf("opening gate log: %w", err)
-	}
-
-	sandboxDir, err := newSessionDir(stateDir)
-	if err != nil {
-		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
 		return nil, err
 	}
-
-	prefix, err := BuildPrefix(root, cfg.Context)
-	if err != nil {
-		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
-		return nil, fmt.Errorf("building system prefix: %w", err)
-	}
+	stateDir, store, gateLog, sandboxDir, prefix := st.dir, st.store, st.gateLog, st.sandboxDir, st.prefix
 
 	// One `go list` per App, shared by test selection and by the blast-radius
 	// signal on every permission prompt. A nil graph drops selection to
@@ -321,6 +299,49 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		PlanSystem:      planSystemPrefix(prefix),
 		threadLogDir:    filepath.Join(stateDir, threadLogDirName),
 	}, nil
+}
+
+// projectState is what New opens on disk before it can assemble anything
+// else: the state directory, the store, the gate log, the sandbox session
+// directory, and the system prefix read from the project's context list.
+type projectState struct {
+	store      *codeintel.Store
+	gateLog    *gate.Log
+	dir        string
+	sandboxDir string
+	prefix     string
+}
+
+func openState(ctx context.Context, root string, cfg config.Config) (projectState, error) {
+	stateDir := filepath.Join(root, wavezDirName)
+	if err := os.MkdirAll(stateDir, dirPerm); err != nil {
+		return projectState{}, fmt.Errorf("creating state dir %s: %w", stateDir, err)
+	}
+
+	store, err := codeintel.Open(ctx, filepath.Join(stateDir, storeFileName))
+	if err != nil {
+		return projectState{}, fmt.Errorf("opening code-intelligence store: %w", err)
+	}
+
+	gateLog, err := gate.OpenLog(filepath.Join(stateDir, gateLogFileName))
+	if err != nil {
+		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
+		return projectState{}, fmt.Errorf("opening gate log: %w", err)
+	}
+
+	sandboxDir, err := newSessionDir(stateDir)
+	if err != nil {
+		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
+		return projectState{}, err
+	}
+
+	prefix, err := BuildPrefix(root, cfg.Context)
+	if err != nil {
+		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
+		return projectState{}, fmt.Errorf("building system prefix: %w", err)
+	}
+
+	return projectState{store: store, gateLog: gateLog, dir: stateDir, sandboxDir: sandboxDir, prefix: prefix}, nil
 }
 
 // buildCycles resolves the phased ways of working this project can run:

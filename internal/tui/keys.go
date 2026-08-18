@@ -22,6 +22,7 @@ const (
 	keyJ     = "j"
 	keyK     = "k"
 	keyTab   = "tab"
+	keyShTab = "shift+tab"
 	keyHome  = "home"
 
 	labelBack     = "back"

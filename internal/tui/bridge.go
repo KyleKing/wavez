@@ -16,16 +16,27 @@ import (
 // which feed the model api.Reply values directly instead of talking to a
 // daemon.
 type daemonClient interface {
+	threadClient
+	machineClient
+}
+
+// threadClient is the daemonClient half that targets one thread.
+type threadClient interface {
 	subscribe(threadID string) tea.Cmd
 	send(threadID, text string) tea.Cmd
 	answer(promptID, text string, decision permission.Decision) tea.Cmd
 	diff(threadID string) tea.Cmd
 	cancel(threadID string) tea.Cmd
-	schedule() tea.Cmd
 	restore(threadID string, confirm bool) tea.Cmd
 	route(threadID string, override router.Choice) tea.Cmd
 	think(threadID string, thinking *bool) tea.Cmd
 	newThread(prompt, model, parent, cycle string, dirs []string) tea.Cmd
+}
+
+// machineClient is the daemonClient half about the machine and the project:
+// the schedule, routines, diagnostics, and model management.
+type machineClient interface {
+	schedule() tea.Cmd
 	routines() tea.Cmd
 	runRoutine(name string) tea.Cmd
 	resetDiag() tea.Cmd

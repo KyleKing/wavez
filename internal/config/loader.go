@@ -37,6 +37,8 @@ type pklConfig struct {
 	LocalModel       string                `pkl:"localModel"`
 	HostedModel      string                `pkl:"hostedModel"`
 	HostedKeyCommand string                `pkl:"hostedKeyCommand"`
+	LocalBaseURL     string                `pkl:"localBaseURL"`
+	LocalKeyCommand  string                `pkl:"localKeyCommand"`
 	Context          []string              `pkl:"context"`
 	ExtraDirs        []string              `pkl:"extraDirs"`
 	AstGrepRules     []string              `pkl:"astGrepRules"`
@@ -44,15 +46,13 @@ type pklConfig struct {
 	Cycles           []pklCycle            `pkl:"cycles"`
 	PreToolUseHook   []string              `pkl:"preToolUseHook"`
 	PostToolUseHook  []string              `pkl:"postToolUseHook"`
+	AdmissionRoom    float64               `pkl:"admissionHeadroom"`
 	ContextWindow    int                   `pkl:"contextWindow"`
 	DebounceMs       int                   `pkl:"debounceMs"`
 	FullRunCadence   int                   `pkl:"fullRunCadence"`
 	HookTimeoutMs    int                   `pkl:"hookTimeoutMs"`
 	LocalPort        int                   `pkl:"localPort"`
 	LocalStartSecs   int                   `pkl:"localStartTimeoutSeconds"`
-	LocalBaseURL     string                `pkl:"localBaseURL"`
-	LocalKeyCommand  string                `pkl:"localKeyCommand"`
-	AdmissionRoom    float64               `pkl:"admissionHeadroom"`
 	LeaseTTLMinutes  int                   `pkl:"leaseTtlMinutes"`
 }
 

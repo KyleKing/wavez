@@ -320,7 +320,7 @@ func (m Model) handleGlobalKey(s string) (Model, tea.Cmd, bool) {
 		m.popOrClose()
 
 		return m, nil, true
-	case keyTab, "shift+tab":
+	case keyTab, keyShTab:
 		if m.composing() {
 			return m, nil, true
 		}
@@ -514,7 +514,8 @@ func (m *Model) applyScreenReply(r api.Reply) {
 		// A preview that failed has nothing to confirm against, and leaving
 		// the prompt open would offer to act on a model the registry refused.
 		m.models.action, m.models.pending, m.models.confirm = "", "", ""
-	case api.RepHello, api.RepThreads, api.RepThread, api.RepEvent, api.RepPending, api.RepDiag, api.RepLagged:
+	case api.RepHello, api.RepThreads, api.RepThread, api.RepEvent, api.RepPending, api.RepDiag, api.RepSchedule,
+		api.RepRoutines, api.RepLagged:
 		// Handled by applyReply, which is the only caller.
 	}
 }
