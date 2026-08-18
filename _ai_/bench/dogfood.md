@@ -264,3 +264,61 @@ a task that asked for a change still reports `complete` when its last turn is
 and the coverage-map build that every `-p` process starts competes with the
 model for the machine and never finishes inside one run, so it restarts on the
 next. The daemon is where the build belongs; a `-p` run should not start one.
+
+## 2026-08-18, the transcript becomes readable
+
+Drove the TUI under `tmux new -d -x 120 -y 40` against the real daemon and the
+running `qwen3:8b`, asking one question about `internal/tui/transcript.go`, to
+measure the P0 from the session above rather than restate it.
+
+Before: the reply was 1,614 characters, 15 lines wrapped at that width, and the
+thread view rendered 100 of them on one truncated row. About 94% of the answer
+was unreachable, `j` and `k` moved nothing, and `Enter` expanded nothing. Two
+`state` rows rendered as bare labels with no text beside them.
+
+After: the answer renders in full over 13 wrapped lines, unfolded on arrival
+because the harness typed the turn `answer`. `k` walks a cursor up the rows and
+marks the current one, `Enter` folds it back to one line with an ellipsis, and
+the empty `state` rows are gone. The fold state survives leaving the thread and
+coming back.
+
+Three findings the run produced that the code review had not:
+
+- Once a role marker types an agent row, a later `KindAgent` text event must not
+  coalesce into it, because a new turn has started
+- `renderRow`'s width budget used `len(label)`, a byte count, against a label
+  holding `▸`, which is three bytes and one cell. Harmless while every label was
+  ASCII and wrong as soon as the glyph entered the budget
+- The footer promised `[enter]send` while the diff pane held focus, where Enter
+  binds to nothing. The hint now names Enter only on the two panels where it
+  does something
+
+The role only arrives when the turn ends, so a final answer streams as one
+folded line and unfolds when the turn completes. That reads correctly in the
+PTY: the row is legible while it grows and opens once there is something worth
+opening.
+
+Two failures found while verifying, neither caused by this work and both under
+investigation. `TestSend_RunErrorReachesTheThreadLog` fails on CI and passes
+20/20 here: a `list` answered right after the stream delivered `StateFailed`
+reports `idle`, which is the two surfaces disagreeing rather than a flaky
+assertion. `internal/hook`'s tests fail under a parallel `go test ./...` on this
+laptop and pass under `-p 1`, and the cause turned out to be Gatekeeper rather
+than the bound.
+
+Measuring `Start` and `Wait` separately on a trivial `/bin/sh` script showed
+`Start` steady at 1-5 ms throughout, with every stall inside `Wait`. A freshly
+written executable's first exec costs 200-245 ms on an idle machine and 4-6 ms
+on the second exec of the same file, a 50x first-exec tax; `XprotectService`
+and `syspolicyd` held most of a core for the whole run. Under `go test ./...`
+that tax climbs into seconds, because the suite is itself linking about thirty
+fresh unsigned binaries that queue for the same scan. Two of sixty sample execs
+hit the 5s wall.
+
+So the 5s bound is right for a hook (roughly 20x headroom at steady state) and
+the failing subtests were never testing the timeout: they assert exit-code to
+verdict mapping and had merely inherited `DefaultTimeout`. They now pass an
+explicit test bound, the two subtests that do exercise the timeout keep their
+20 ms one, and `DefaultTimeout` is unchanged. Whether a real hook can lose this
+race against a concurrent gate build is untested and plausible, since
+`internal/gate` shells out to `go build` and `go test`.
