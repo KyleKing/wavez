@@ -14,6 +14,12 @@ import (
 
 const scriptPerm = 0o755
 
+// testTimeout bounds every subtest that is not itself exercising the timeout
+// path. DefaultTimeout is a production value sized for one hook process, not
+// for a busy CI or dev machine running these tests alongside a full build, so
+// asserting exit-code handling here must not race it.
+const testTimeout = 30 * time.Second
+
 // writeScript writes body as an executable /bin/sh script and returns its path.
 func writeScript(t *testing.T, body string) string {
 	t.Helper()
@@ -97,9 +103,11 @@ func TestPreToolUse(t *testing.T) {
 				opts = append(opts, hook.WithPreToolUse(writeScript(t, tc.script)))
 			}
 
-			if tc.timeout > 0 {
-				opts = append(opts, hook.WithTimeout(tc.timeout))
+			timeout := tc.timeout
+			if timeout == 0 {
+				timeout = testTimeout
 			}
+			opts = append(opts, hook.WithTimeout(timeout))
 
 			runner := hook.New(dir, opts...)
 
@@ -155,9 +163,11 @@ func TestPostToolUse(t *testing.T) {
 				opts = append(opts, hook.WithPostToolUse(writeScript(t, tc.script)))
 			}
 
-			if tc.timeout > 0 {
-				opts = append(opts, hook.WithTimeout(tc.timeout))
+			timeout := tc.timeout
+			if timeout == 0 {
+				timeout = testTimeout
 			}
+			opts = append(opts, hook.WithTimeout(timeout))
 
 			runner := hook.New(t.TempDir(), opts...)
 
@@ -185,7 +195,8 @@ func TestPayloadOnStdin(t *testing.T) {
 	script := writeScript(t, `cat > "$1"`)
 	runner := hook.New(dir,
 		hook.WithPreToolUse(script, capture),
-		hook.WithPostToolUse(script, capture))
+		hook.WithPostToolUse(script, capture),
+		hook.WithTimeout(testTimeout))
 
 	call := hook.Call{
 		ThreadID: "thread-7",
