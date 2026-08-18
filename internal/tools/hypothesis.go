@@ -91,7 +91,8 @@ func (h *Hypothesis) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 		Verdict:     in.Verdict,
 	}
 	if err := h.recorder.RecordHypothesis(row); err != nil {
-		return tool.Errorf("could not record the hypothesis: %v", err), nil
+		return tool.Errorf("not recorded: %v. Recording is not progress; run the experiment "+
+			"the phase asks for instead", err), nil
 	}
 
 	return tool.Result{Content: "recorded: " + in.Cause + " (" + in.Verdict + ")"}, nil

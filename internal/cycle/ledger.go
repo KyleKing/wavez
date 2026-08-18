@@ -1,6 +1,7 @@
 package cycle
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -84,10 +85,23 @@ func (l *Ledger) SetPhase(name string) {
 	l.phase = name
 }
 
-// RecordHypothesis appends one ledger row.
+// ErrDuplicateHypothesis reports a row whose cause and verdict already
+// stand in the ledger. Measured on qwen3:8b: left unchecked, the model
+// recorded 21 rows of the same falsified cause in one phase and never wrote
+// the test, so a repeat is refused rather than carried forward.
+var ErrDuplicateHypothesis = errors.New("cycle: this cause and verdict are already in the ledger")
+
+// RecordHypothesis appends one ledger row, refusing a cause and verdict the
+// ledger already holds.
 func (l *Ledger) RecordHypothesis(h Hypothesis) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	for _, have := range l.rows.Hypotheses {
+		if strings.EqualFold(have.Cause, h.Cause) && have.Verdict == h.Verdict {
+			return ErrDuplicateHypothesis
+		}
+	}
 
 	h.Phase = l.phase
 	l.rows.Hypotheses = append(l.rows.Hypotheses, h)

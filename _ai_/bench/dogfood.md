@@ -122,3 +122,58 @@ style that carries a reason.
   read back after the fact. That made every str_replace failure harder to
   diagnose than it needed to be
 - Hosted escalation is still unexercised, so the router's main claim is unproven
+
+## 2026-08-18, the fix cycle on a planted bug
+
+Setup: a scratch module in `/tmp/wz-cycle/dog` (a `lease` package copied in
+shape from this repo, git plus colocated jj), with one planted boundary bug:
+`Lease.Expired` returns true when `now` equals `Expires` while its doc comment
+says a lease expiring exactly at now is still held. One test already existed
+and passed. Command:
+
+```
+wavez -cycle fix -model local -allow-all -max-wall-clock 240s -p "Bug: in lease/lease.go, Lease.Expired reports a lease expiring exactly at now as expired, but the doc comment says ... Reproduce it with a test, then fix it."
+```
+
+Result, 2 min 22 s wall, 35 turns, 33 tool calls, $0 hosted:
+
+```
+reproduce    2 attempt(s)  artifact-fails  the change set declares no test on its changed lines, so it produced no artifact to fail
+stop=condition_unmet phase=reproduce
+```
+
+Attempt 1: the model read `lease.go` once, then made 21 consecutive
+`hypothesis` calls, every one marked `falsified`, none preceded by an
+experiment, until the exact-repeat detector escalated and then stopped it
+(`loop_detected`). It never wrote a test. Attempt 2 started from the standing
+goal, the (empty) change set, and those 21 rows, called `context`, `read`,
+`search` twice, `read` again, then emitted a `write` call whose input was not
+valid JSON, which is `malformed_tool_call` and the end of the loop.
+
+What the harness did right: the phase never advanced. Both verdicts are on
+the cycle thread's log as `KindCycle` rows with the reason, the outcome is
+`condition_unmet`, the exit status is 1, and `jj diff` shows no source change
+outside `.wavez/`. A prompt describing the same three steps would have
+reported the model's own account of itself as done.
+
+What it exposed, fixed in the same change: the ledger accepted the same
+(cause, verdict) row 21 times, so it now refuses a duplicate and the tool
+result tells the model recording is not progress. Also worth knowing: the
+hypothesis tool is a sink for qwen3:8b. Given a note-taking tool and a phase
+whose exit it cannot satisfy in one edit, it takes notes. The narrowed tool
+set for reproduce still includes `write` and `str_replace`, so the failure
+was not the fence.
+
+Not measured: whether the ledger-in-place-of-transcript handoff produces
+work as good as a long conversation, since no run reached fix. On this model
+the reproduce phase's binding constraint is the same one the M1 edit
+measurements found (a valid tool call with a verbatim body), which is a
+model problem the cycle correctly refused to paper over.
+
+The TUI path was also driven under tmux: `n`, prompt, `tab`, `fix`, `enter`
+creates a cycle thread; the transcript renders `▸ cycle` and `hypoth` rows.
+Two findings. An unknown cycle name is refused by the daemon and the TUI
+stores the error in `m.status`, which Home never renders, so it surfaces only
+once a thread screen is open. And a cycle run needs a checkpoint, which needs
+jj, so a git worktree that is not colocated fails the first phase at once
+with `capturing checkpoint`.

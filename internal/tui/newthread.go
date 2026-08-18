@@ -16,6 +16,10 @@ type threadForm struct {
 	cycleFocus bool
 }
 
+// cycleLabel prefixes the form's second field, and its width comes off the
+// input so the row fits the frame the way the prompt row does.
+const cycleLabel = "cycle "
+
 func newThreadForm(th theme) threadForm {
 	return threadForm{
 		prompt: th.newInput("what should this thread do?"),
@@ -31,7 +35,7 @@ func (m Model) openNewThread(parent string) (Model, tea.Cmd) {
 	// Sized here as well as on resize: the form is built after the last
 	// WindowSizeMsg, so it would otherwise render one column wide.
 	m.form.prompt.SetWidth(fitInput(m.width, true))
-	m.form.cycle.SetWidth(fitInput(m.width, true))
+	m.form.cycle.SetWidth(fitInput(m.width, true) - len(cycleLabel) + promptWidth)
 	m.form.prompt.Focus()
 	m.stack = append(m.stack, screenNewThread)
 
@@ -101,7 +105,7 @@ func (m Model) renderNewThread() string {
 		"",
 		"> " + m.form.prompt.View(),
 		"",
-		"cycle " + m.form.cycle.View(),
+		cycleLabel + m.form.cycle.View(),
 		"",
 	}
 

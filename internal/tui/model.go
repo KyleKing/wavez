@@ -193,6 +193,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.thread.search.input.SetWidth(fitInput(msg.Width, false))
 		m.palette.input.SetWidth(fitInput(msg.Width, false))
 		m.form.prompt.SetWidth(fitInput(msg.Width, true))
+		m.form.cycle.SetWidth(fitInput(msg.Width, true) - len(cycleLabel) + promptWidth)
 
 		return m, nil
 

@@ -11,9 +11,11 @@ file is the map you read first.
 | Thread | One work stream: a directory set, a history, and a compaction state. Sessions are disposable, threads are the unit of work |
 | Turn | One model call plus the tool calls it makes. The agent Loop drives turns |
 | Loop | The streaming tool-use loop inside `internal/agent`. Runs turns until a Condition holds |
-| Cycle | A named, reusable, phased way of working on a class of problem, defined per project. A Cycle contains phases; a phase contains a Loop |
-| Phase | One stage of a Cycle, with its own tool set and its own exit Condition |
-| Condition | A check that decides when a Loop or a phase may stop. Evaluated by the harness, never reported by the model |
+| Cycle | A named, reusable, phased way of working on a class of problem (`internal/cycle`), defined per project in `.wavez.pkl` beside the built-in fix cycle. A Cycle contains phases; a phase contains a Loop, run in a thread of its own |
+| Phase | One stage of a Cycle, with its own tool set, standing goal, attempt bound, and exit Condition. What crosses to the next phase is the goal, the change set, and the hypothesis ledger, never the transcript |
+| Condition | A check that decides when a Loop or a phase may stop (`internal/condition`): `Holds(ctx, state)` returns a Verdict, which is a name, a reason, and whether it holds. Evaluated by the harness, never reported by the model. A Loop's stop reason is one; a phase's exit gate is one |
+| Hypothesis | One ledger row a phase records through the `hypothesis` tool: candidate cause, experiment, observation, verdict. Carried across phase boundaries and read by no Condition |
+| Sweep | An `ast-grep` pattern the generalize phase records through the `sweep` tool, whose hits the harness enumerates and the model triages. Its exit Condition re-runs the pattern rather than trusting the triage |
 | Gate | A deterministic check triggered by a change event: format, convention rules, build, selected tests |
 | Routine | A pkl-defined DAG of Steps triggered by change, schedule, thread lifecycle, or hand, serialized per concurrency key. No model involved. Gates ship as built-in routines named `gate-<gate>` |
 | Step | One node of a Routine: a named Action with typed params and the parent steps it waits on. Steps with no unfinished parent run concurrently |
@@ -70,7 +72,10 @@ stateDiagram-v2
 
 Each arrow out of a phase is a Condition the harness evaluates. A phase that
 cannot satisfy its Condition does not advance, which is the whole difference
-between a Cycle and a prompt that describes the same steps.
+between a Cycle and a prompt that describes the same steps. A phase gets a
+small attempt bound, and once it is spent the Cycle ends `condition_unmet`
+carrying the last verdict's reason; `complete` is only reachable when every
+phase's Condition held.
 
 ## What the pieces know about each other
 
@@ -89,7 +94,7 @@ classDiagram
         +run(thread, prefix) Outcome
     }
     class Condition {
-        +holds(state) bool
+        +Holds(ctx, state) Verdict
     }
     class Gate {
         +run(changes) Result
