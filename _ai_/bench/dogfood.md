@@ -322,3 +322,25 @@ explicit test bound, the two subtests that do exercise the timeout keep their
 20 ms one, and `DefaultTimeout` is unchanged. Whether a real hook can lose this
 race against a concurrent gate build is untested and plausible, since
 `internal/gate` shells out to `go build` and `go test`.
+
+## 2026-08-18, snippets and the fleet Home in a PTY
+
+Two runs against a real `wavezd` on a temporary socket, no model needed for
+either.
+
+Snippets: a project `snippets.json` holding `qt`, the TUI under
+`tmux new -d -x 100 -y 30`, a thread opened, the composer taken fullscreen
+(`[tab]snippet` in the footer), `please q` typed, `Tab`. The line read
+`please use the question tool liberally` with the cursor at column 39. Not
+proven: the inline composer, where `Tab` still cycles panels, so completion
+is fullscreen-only until the open question in DESIGN.md is settled.
+
+Fleet Home: one thread in each of two `git init` repos, `wavez` launched
+from the first. Home listed that repo's thread alone. `w` re-listed every
+root and grouped rows under `repo-a/` and `repo-b/`, `/repo-b` filtered to
+the second group, `Enter` on its row opened a thread from the other root,
+and `n` showed `in repo-a`, the launch root. One finding the run produced:
+the fleet title printed the raw launch path, so it now prints the common
+parent of the listed roots with `~` for home, which is right for a `~/dev`
+layout and degrades to `/` for roots spread across the disk.
+
