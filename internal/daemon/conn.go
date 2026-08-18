@@ -366,12 +366,12 @@ func (c *conn) handleSubscribe(cmd api.Command) {
 	c.subs[cmd.ThreadID] = true
 	c.subsMu.Unlock()
 
+	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
+
 	if !already {
 		c.wg.Add(1)
 		go c.forwardEvents(mt, cmd.From)
 	}
-
-	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
 }
 
 func (c *conn) forwardEvents(mt *managedThread, from uint64) {
