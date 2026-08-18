@@ -93,6 +93,7 @@ type created struct {
 	prompt string
 	model  string
 	parent string
+	cycle  string
 	dirs   []string
 }
 
@@ -149,8 +150,10 @@ func (f *fakeClient) diff(threadID string) tea.Cmd {
 	return nil
 }
 
-func (f *fakeClient) newThread(prompt, model, parent string, dirs []string) tea.Cmd {
-	f.created = append(f.created, created{prompt: prompt, model: model, parent: parent, dirs: dirs})
+func (f *fakeClient) newThread(prompt, model, parent, cycle string, dirs []string) tea.Cmd {
+	f.created = append(f.created, created{
+		prompt: prompt, model: model, parent: parent, cycle: cycle, dirs: dirs,
+	})
 
 	return nil
 }

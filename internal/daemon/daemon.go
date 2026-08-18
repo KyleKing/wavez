@@ -17,6 +17,9 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
+	"github.com/kyleking/wavez/internal/cycle"
+	"github.com/kyleking/wavez/internal/router"
+	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/sched"
 )
@@ -59,8 +62,17 @@ type MemStats struct {
 	ModelMeasured bool
 }
 
+// CycleSource resolves the phased ways of working a thread may run and
+// builds the Driver each phase's model work goes through. *app.App
+// satisfies it.
+type CycleSource interface {
+	Cycle(name string) (cycle.Cycle, error)
+	CycleDriver(base thread.ID, dirs []string, hint router.Input) cycle.Driver
+}
+
 type config struct {
 	loop          *agent.Loop
+	cycles        CycleSource
 	broker        *Broker
 	leases        *lease.Manager
 	scheduler     *sched.Scheduler
@@ -81,6 +93,13 @@ type Option func(*config)
 // WithLoop sets the agent.Loop every thread's turns run against. Required.
 func WithLoop(loop *agent.Loop) Option {
 	return func(c *config) { c.loop = loop }
+}
+
+// WithCycles lets a thread run a named Cycle instead of a single loop. A
+// Server without one refuses a cycle request rather than silently running
+// the prompt as an ordinary turn, since the phases are the work.
+func WithCycles(c CycleSource) Option {
+	return func(cfg *config) { cfg.cycles = c }
 }
 
 // WithBroker sets the Broker threads ask permission and questions through.
@@ -197,6 +216,7 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 
 	mgr := newManager(c.logDir, c.loop, c.prefix)
 	mgr.mentions = c.expander
+	mgr.cycles = c.cycles
 	mgr.defaultDirs = defaultDirs(c.root)
 	mgr.scheduler = c.scheduler
 	s := &Server{

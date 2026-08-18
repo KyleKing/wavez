@@ -9,6 +9,7 @@ package config
 import (
 	"time"
 
+	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/routine"
 )
 
@@ -74,8 +75,12 @@ type Config struct {
 	LocalKeyCommand string
 	Context         []string
 	ExtraDirs       []string
-	AstGrepRules    []string
-	DeadcodeAllow   []string
+	// Cycles are the phased ways of working this project defines, beside the
+	// ones wavez ships. A definition here replaces a built-in of the same
+	// name outright.
+	Cycles        []cycle.Spec
+	AstGrepRules  []string
+	DeadcodeAllow []string
 	// PreToolUseHook and PostToolUseHook are argv slices, program first,
 	// executed directly rather than through a shell. Empty means no hook, and
 	// no hook process.

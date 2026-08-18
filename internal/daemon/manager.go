@@ -13,6 +13,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
+	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/mention"
@@ -33,6 +34,9 @@ var (
 	ErrNothingToRestore  = errors.New("daemon: nothing has changed since the checkpoint")
 	ErrRestoreIncomplete = errors.New("daemon: restore left the working copy changed")
 	ErrUnknownTier       = errors.New("daemon: unknown routing tier")
+	// ErrNoCycles reports a cycle asked of a Server built without one, which
+	// is refused rather than run as an ordinary turn.
+	ErrNoCycles = errors.New("daemon: this daemon runs no cycles")
 )
 
 // manager holds every live thread for the lifetime of the Server, so a
@@ -40,6 +44,7 @@ var (
 type manager struct {
 	ctx       context.Context //nolint:containedctx // scopes every thread's lifetime to the manager
 	loop      *agent.Loop
+	cycles    CycleSource
 	mentions  Expander
 	cancelAll context.CancelFunc
 	spend     *spendLedger
@@ -84,6 +89,7 @@ const (
 )
 
 type createParams struct {
+	Cycle  string
 	Model  string
 	Parent string
 	Prompt string
@@ -117,6 +123,15 @@ func slugName(prompt, fallback string) string {
 // create does not take a context: a thread outlives the request that
 // created it, so its lifetime is m.ctx (the manager's), never a caller's.
 func (m *manager) create(p createParams) (*managedThread, error) {
+	if p.Cycle != "" {
+		if m.cycles == nil {
+			return nil, ErrNoCycles
+		}
+		if _, err := m.cycles.Cycle(p.Cycle); err != nil {
+			return nil, fmt.Errorf("creating thread: %w", err)
+		}
+	}
+
 	id := newID()
 
 	dirs := p.Dirs
@@ -139,6 +154,7 @@ func (m *manager) create(p createParams) (*managedThread, error) {
 
 	mt := &managedThread{
 		th:      th,
+		cycle:   p.Cycle,
 		id:      id,
 		dirs:    dirs,
 		model:   p.Model,
@@ -202,34 +218,14 @@ func (m *manager) seedFromParent(child *managedThread, parentID string) error {
 	return nil
 }
 
-// accumulatedChanges collapses a thread's log to one entry per changed
-// file, keeping the last line ranges recorded for it.
+// accumulatedChanges collapses a thread's log to its change set.
 func accumulatedChanges(mt *managedThread) ([]tool.Change, error) {
 	events, err := mt.th.Log().Since(0)
 	if err != nil {
 		return nil, fmt.Errorf("reading thread %s: %w", mt.id, err)
 	}
 
-	byPath := map[string]tool.Change{}
-
-	var order []string
-
-	for i := range events {
-		for _, c := range events[i].Changes {
-			if _, seen := byPath[c.Path]; !seen {
-				order = append(order, c.Path)
-			}
-
-			byPath[c.Path] = c
-		}
-	}
-
-	out := make([]tool.Change, 0, len(order))
-	for _, path := range order {
-		out = append(out, byPath[path])
-	}
-
-	return out, nil
+	return thread.ChangeSet(events), nil
 }
 
 // defaultDirs normalizes a configured root into a directory set, so a
@@ -434,7 +430,15 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	defer release()
 
 	route := router.Input{Override: override, Thinking: thinking}
-	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, m.expand(runCtx, mt, prompt), route)
+	expanded := m.expand(runCtx, mt, prompt)
+
+	if mt.cycle != "" {
+		m.runCycle(runCtx, mt, route, expanded)
+
+		return
+	}
+
+	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, expanded, route)
 
 	m.toolCalls.Add(int64(outcome.ToolCalls))
 	if outcome.Stop == agent.StopMalformedTool {
@@ -457,6 +461,81 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	}
 
 	mt.mu.Unlock()
+}
+
+// runCycle drives the thread's cycle instead of one loop. The thread's own
+// log carries the phase transitions and Condition verdicts, and each phase's
+// model work runs in a thread of its own, so what crosses a phase boundary
+// is the standing goal, the change set, and the ledger rather than the
+// transcript.
+func (m *manager) runCycle(ctx context.Context, mt *managedThread, route router.Input, prompt string) {
+	err := m.driveCycle(ctx, mt, route, prompt)
+
+	mt.mu.Lock()
+	mt.running = false
+	mt.cancel = nil
+	mt.lastErr = err
+	mt.mu.Unlock()
+}
+
+func (m *manager) driveCycle(ctx context.Context, mt *managedThread, route router.Input, prompt string) error {
+	c, err := m.cycles.Cycle(mt.cycle)
+	if err != nil {
+		return fmt.Errorf("resolving cycle %s: %w", mt.cycle, err)
+	}
+
+	if err := mt.th.SetState(ctx, event.StateWorking); err != nil {
+		return fmt.Errorf("setting state: %w", err)
+	}
+
+	driver := m.cycles.CycleDriver(mt.th.ID(), mt.dirs, route)
+
+	outcome, err := cycle.NewRunner(firstDir(mt.dirs), driver, mt.th.Log()).Run(ctx, c, prompt)
+
+	m.toolCalls.Add(int64(outcome.ToolCalls))
+	m.spend.add(outcome.SpendUSD)
+
+	mt.mu.Lock()
+	mt.spendUSD += outcome.SpendUSD
+	mt.mu.Unlock()
+
+	if err != nil {
+		return m.failCycle(ctx, mt, err)
+	}
+
+	return m.finishCycle(ctx, mt, outcome)
+}
+
+// failCycle records a cycle whose phase could not run at all, which is a
+// broken run rather than a harness refusal.
+func (*manager) failCycle(ctx context.Context, mt *managedThread, cause error) error {
+	if _, logErr := mt.th.Log().Append(event.Event{
+		Kind: event.KindError, Text: "cycle stopped: " + cause.Error(),
+	}); logErr != nil {
+		return logErr //nolint:wrapcheck // the log error replaces the cause it could not record
+	}
+
+	if err := mt.th.SetState(ctx, event.StateFailed); err != nil {
+		return fmt.Errorf("setting state: %w", err)
+	}
+
+	return cause
+}
+
+// finishCycle records where the cycle ended. A cycle whose last phase's
+// Condition did not hold is failed, never done: reporting it as finished
+// would put the model's account of itself where a check belongs.
+func (*manager) finishCycle(ctx context.Context, mt *managedThread, outcome cycle.Outcome) error {
+	state := event.StateFailed
+	if outcome.Stop == cycle.StopComplete {
+		state = event.StateDone
+	}
+
+	if err := mt.th.SetState(ctx, state); err != nil {
+		return fmt.Errorf("setting state: %w", err)
+	}
+
+	return nil
 }
 
 // reportRunError puts a run that failed before the loop could describe it

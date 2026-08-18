@@ -310,6 +310,30 @@ type testFunc struct {
 	name string
 }
 
+// TestFunc is one test a change set declares, paired with the package
+// argument it has to be run from.
+type TestFunc struct {
+	Package string
+	Name    string
+}
+
+// ChangedTests reports the test functions declared on the changed lines of a
+// change set's Go test files. It is the artifact question asked without
+// running anything: which tests does this change claim to be checked by.
+func ChangedTests(repoRoot string, changes []tool.Change) ([]TestFunc, error) {
+	found, err := candidateTests(repoRoot, goChangesMatching(changes, true))
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]TestFunc, 0, len(found))
+	for _, f := range found {
+		out = append(out, TestFunc{Package: f.pkg, Name: f.name})
+	}
+
+	return out, nil
+}
+
 // candidateTests collects the test functions declared on the changed lines of
 // the run's own test files. A changed test file with no line ranges
 // contributes every test it declares.

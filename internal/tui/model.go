@@ -312,6 +312,11 @@ func (m Model) handleGlobalKey(s string) (Model, tea.Cmd, bool) {
 		if m.composing() {
 			return m, nil, true
 		}
+		// The new-thread form has two fields of its own, so tab belongs to it
+		// rather than to the panel focus this screen does not have.
+		if m.top() == screenNewThread {
+			return m, nil, false
+		}
 
 		step := 1
 		if s != keyTab {

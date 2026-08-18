@@ -128,6 +128,10 @@ func rowLabel(k event.Kind, th theme) (string, lipgloss.Style) {
 		return "▸ perm  ", th.statusWarn
 	case event.KindError:
 		return "▸ error ", th.statusErr
+	case event.KindCycle:
+		return "▸ cycle ", th.statusInfo
+	case event.KindHypothesis:
+		return "  hypoth", th.fgMuted
 	case event.KindLedger:
 		return "  ledger", th.fgMuted
 	case event.KindUsage:

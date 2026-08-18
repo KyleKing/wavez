@@ -162,3 +162,45 @@ class Routine {
 /// every `["name"] { ... }` an amending file writes then fails to evaluate
 /// as a `Dynamic`.
 routines: Mapping<String, Routine> = new Mapping<String, Routine> {}
+
+/// One phase of a Cycle: what the model is told to achieve, the tools it may
+/// call, and the condition the harness evaluates before the cycle advances.
+class Phase {
+  /// Phase name, shown in the thread log.
+  name: String
+
+  /// The standing instruction for this phase. It is the whole prompt the
+  /// phase starts from, beside the change set and the ledger.
+  goal: String
+
+  /// Exit condition, by name. Wavez ships "artifact-fails" (a test the change
+  /// set declares fails on the current tree), "artifact-passes-gates-green"
+  /// (they all pass and the phase's gates were green), and "sweep-accounted"
+  /// (a recorded structural sweep has every hit fixed or dismissed with a
+  /// reason, or names a durable artifact instead). A condition the harness
+  /// cannot evaluate would be a claim, which is why this is a fixed list.
+  exit: String(this == "artifact-fails" || this == "artifact-passes-gates-green" || this == "sweep-accounted")
+
+  /// Tools this phase may call. Narrowing is a routing lever rather than a
+  /// fence: a narrow phase is a job a small local model can drive, and the
+  /// exit condition is what makes cheating harder than working.
+  tools: Listing<String> = new Listing {}
+
+  /// How many times this phase's loop may run before the cycle ends with the
+  /// condition unmet.
+  maxAttempts: Int = 2
+
+  /// Whether this phase's loop verifies its change set against the gates
+  /// before completing. A phase whose product is a failing test leaves it off.
+  gated: Boolean = true
+}
+
+/// A named, reusable, phased way of working on a class of problem. A cycle
+/// named here replaces a built-in of the same name outright.
+class Cycle {
+  name: String
+  phases: Listing<Phase>
+}
+
+/// Cycles this project can run, beside the built-in fix cycle.
+cycles: Listing<Cycle> = new Listing {}

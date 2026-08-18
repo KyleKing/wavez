@@ -32,6 +32,10 @@ type managedThread struct {
 	// turn, so a diff covers everything the thread did rather than only
 	// its most recent turn.
 	baseline string
+	// cycle names the phased way of working this thread runs, empty for an
+	// ordinary thread, and phase is where it has reached.
+	cycle string
+	phase string
 	// override pins every turn to one routing tier, empty for automatic
 	// routing.
 	override router.Choice
@@ -66,6 +70,8 @@ func (mt *managedThread) info() api.ThreadInfo {
 		Dirs:       append([]string(nil), mt.dirs...),
 		Parent:     mt.parent,
 		Model:      mt.model,
+		Cycle:      mt.cycle,
+		Phase:      mt.phase,
 		Thinking:   mt.thinking,
 		Override:   mt.override,
 		Step:       mt.step,
@@ -113,6 +119,9 @@ func (mt *managedThread) watch(ctx context.Context) {
 		if step := stepText(u.Event); step != "" {
 			mt.step = step
 		}
+		if phase, ok := phaseOf(u.Event); ok {
+			mt.phase = phase
+		}
 		mt.mu.Unlock()
 	}
 }
@@ -138,6 +147,10 @@ func stepText(ev event.Event) string {
 		return "running a tool"
 	case event.KindGate:
 		return "gate " + ev.Tool
+	case event.KindCycle:
+		return firstLine(ev.Text)
+	case event.KindHypothesis:
+		return "recording what it found"
 	case event.KindPermission:
 		return "waiting for approval"
 	case event.KindError:
@@ -149,6 +162,18 @@ func stepText(ev event.Event) string {
 	default:
 		return ""
 	}
+}
+
+// phaseOf reads the phase a cycle event belongs to, so Home shows where a
+// cycle has reached rather than only that one is running.
+func phaseOf(ev event.Event) (string, bool) {
+	if ev.Kind != event.KindCycle {
+		return "", false
+	}
+
+	phase, ok := ev.Detail["phase"].(string)
+
+	return phase, ok
 }
 
 func stateText(state event.State) string {

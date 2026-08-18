@@ -207,7 +207,9 @@ func (c *conn) handleThreadCommand(cmd api.Command) bool {
 }
 
 func (c *conn) handleNew(cmd api.Command) {
-	mt, err := c.srv.mgr.create(createParams{Dirs: cmd.Dirs, Model: cmd.Model, Parent: cmd.Parent, Prompt: cmd.Prompt})
+	mt, err := c.srv.mgr.create(createParams{
+		Dirs: cmd.Dirs, Model: cmd.Model, Parent: cmd.Parent, Prompt: cmd.Prompt, Cycle: cmd.Cycle,
+	})
 	if err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 

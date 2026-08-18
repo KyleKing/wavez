@@ -129,6 +129,41 @@ func (r *Runner) Scan(ctx context.Context, repoRoot string, ruleFiles []RuleFile
 	return Report{Available: true, Findings: findings}, nil
 }
 
+// Pattern runs one bare structural pattern against targets, or against
+// repoRoot when targets is empty, and returns what it matched. It is the
+// sweep a Cycle's generalize phase triages: a proved cause expressed as one
+// node shape, enumerated by the harness rather than recalled by the model.
+//
+// Findings carry no rule id, since a pattern is not a rule file.
+func (r *Runner) Pattern(
+	ctx context.Context, repoRoot, pattern, language string, targets ...string,
+) (Report, error) {
+	avail := r.Resolve()
+	if !avail.Available {
+		return Report{Available: false, InstallHint: avail.InstallHint},
+			fmt.Errorf("%w: %s", ErrUnavailable, avail.InstallHint)
+	}
+
+	scanIn := targets
+	if len(scanIn) == 0 {
+		scanIn = []string{repoRoot}
+	}
+
+	args := append([]string{"run", "--pattern", pattern, "--lang", language, "--json=compact"}, scanIn...)
+
+	out, err := r.runCmd(ctx, avail.Binary, args, repoRoot)
+	if err != nil {
+		return Report{Available: true}, fmt.Errorf("ast-grep run %q: %w", pattern, err)
+	}
+
+	findings, err := ParseJSON(out)
+	if err != nil {
+		return Report{Available: true}, fmt.Errorf("ast-grep run %q: %w", pattern, err)
+	}
+
+	return Report{Available: true, Findings: findings}, nil
+}
+
 // runCommand is CommandFunc's default implementation. Ast-grep exits 1 when
 // a rule matches (DESIGN.md's Structural rules section calls this out as
 // its own convention, not an error), so only a non-ExitError failure is

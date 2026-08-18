@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/apple/pkl-go/pkl"
+
+	"github.com/kyleking/wavez/internal/cycle"
 )
 
 //go:embed pkl/Wavez.pkl
@@ -39,6 +41,7 @@ type pklConfig struct {
 	ExtraDirs        []string              `pkl:"extraDirs"`
 	AstGrepRules     []string              `pkl:"astGrepRules"`
 	DeadcodeAllow    []string              `pkl:"deadcodeAllow"`
+	Cycles           []pklCycle            `pkl:"cycles"`
 	PreToolUseHook   []string              `pkl:"preToolUseHook"`
 	PostToolUseHook  []string              `pkl:"postToolUseHook"`
 	ContextWindow    int                   `pkl:"contextWindow"`
@@ -51,6 +54,45 @@ type pklConfig struct {
 	LocalKeyCommand  string                `pkl:"localKeyCommand"`
 	AdmissionRoom    float64               `pkl:"admissionHeadroom"`
 	LeaseTTLMinutes  int                   `pkl:"leaseTtlMinutes"`
+}
+
+// pklCycle and pklPhase mirror the Cycle and Phase classes in
+// pkl/Wavez.pkl.
+type pklCycle struct {
+	Name   string     `pkl:"name"`
+	Phases []pklPhase `pkl:"phases"`
+}
+
+type pklPhase struct {
+	Name        string   `pkl:"name"`
+	Goal        string   `pkl:"goal"`
+	Exit        string   `pkl:"exit"`
+	Tools       []string `pkl:"tools"`
+	MaxAttempts int      `pkl:"maxAttempts"`
+	Gated       bool     `pkl:"gated"`
+}
+
+// toSpecs maps the evaluated pkl shape onto the cycle package's own.
+func toSpecs(in []pklCycle) []cycle.Spec {
+	out := make([]cycle.Spec, 0, len(in))
+
+	for _, c := range in {
+		spec := cycle.Spec{Name: c.Name}
+		for _, p := range c.Phases {
+			spec.Phases = append(spec.Phases, cycle.PhaseSpec{
+				Name:        p.Name,
+				Goal:        p.Goal,
+				Exit:        p.Exit,
+				Tools:       p.Tools,
+				MaxAttempts: p.MaxAttempts,
+				Gated:       p.Gated,
+			})
+		}
+
+		out = append(out, spec)
+	}
+
+	return out
 }
 
 // Loader evaluates ".wavez.pkl" files through one long-lived pkl.Evaluator,
@@ -210,6 +252,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.ExtraDirs = p.ExtraDirs
 	cfg.AstGrepRules = p.AstGrepRules
 	cfg.DeadcodeAllow = p.DeadcodeAllow
+	cfg.Cycles = toSpecs(p.Cycles)
 	cfg.PreToolUseHook = p.PreToolUseHook
 	cfg.PostToolUseHook = p.PostToolUseHook
 	cfg.Routines = routineDefinitions(p.Routines)

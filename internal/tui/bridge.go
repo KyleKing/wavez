@@ -25,7 +25,7 @@ type daemonClient interface {
 	restore(threadID string, confirm bool) tea.Cmd
 	route(threadID string, override router.Choice) tea.Cmd
 	think(threadID string, thinking *bool) tea.Cmd
-	newThread(prompt, model, parent string, dirs []string) tea.Cmd
+	newThread(prompt, model, parent, cycle string, dirs []string) tea.Cmd
 	routines() tea.Cmd
 	runRoutine(name string) tea.Cmd
 }
@@ -210,12 +210,14 @@ func (b *bridge) route(threadID string, override router.Choice) tea.Cmd {
 	}
 }
 
-func (b *bridge) newThread(prompt, model, parent string, dirs []string) tea.Cmd {
+func (b *bridge) newThread(prompt, model, parent, cycle string, dirs []string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
 
-		cmd := api.Command{Kind: api.CmdNew, Prompt: prompt, Model: model, Parent: parent, Dirs: dirs}
+		cmd := api.Command{
+			Kind: api.CmdNew, Prompt: prompt, Model: model, Parent: parent, Cycle: cycle, Dirs: dirs,
+		}
 
 		reply, err := b.client.Do(ctx, cmd)
 		if err != nil {

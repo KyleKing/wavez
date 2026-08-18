@@ -56,6 +56,10 @@ type Command struct {
 	Prompt string `json:"prompt,omitempty"`
 	// Model overrides the router for this thread.
 	Model string `json:"model,omitempty"`
+	// Cycle names the phased way of working a new thread runs its prompt
+	// through, empty for an ordinary thread. A thread's cycle is fixed at
+	// creation, since a cycle's phases are what its work is made of.
+	Cycle string `json:"cycle,omitempty"`
 	// Routine names the routine run_routine executes.
 	Routine string `json:"routine,omitempty"`
 	// Override pins ThreadID to one routing tier for every turn it runs
@@ -141,6 +145,10 @@ type ThreadInfo struct {
 	// Thinking is the thread's reasoning-trace pin, nil when the thread
 	// follows the served model's own default.
 	Thinking *bool `json:"thinking,omitempty"`
+	// Cycle is the phased way of working this thread runs, empty for an
+	// ordinary thread. Phase is where that cycle has reached.
+	Cycle string `json:"cycle,omitempty"`
+	Phase string `json:"phase,omitempty"`
 	// Checkpoint is the operation id captured before the thread's first
 	// turn, empty until it has run one. A client offers undo only for a
 	// thread that has one.

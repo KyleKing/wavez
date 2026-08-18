@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 // LedgerSummary is the structural facts a session ledger line derives from a
@@ -38,7 +39,7 @@ func Ledger(events []event.Event) LedgerSummary {
 				files[ch.Path] = struct{}{}
 			}
 		case event.KindUser, event.KindPermission, event.KindState, event.KindError, event.KindLedger,
-			event.KindUsage, event.KindReview:
+			event.KindUsage, event.KindReview, event.KindCycle, event.KindHypothesis:
 		}
 	}
 
@@ -80,4 +81,31 @@ func (t *Thread) WriteLedger(ctx context.Context) (LedgerSummary, error) {
 	}
 
 	return summary, nil
+}
+
+// ChangeSet collapses a thread's events to one entry per changed file,
+// keeping the last line ranges recorded for it. It is what a thread's work
+// amounts to once its prose is dropped, which is what a fork inherits and
+// what a Cycle phase hands to the next.
+func ChangeSet(events []event.Event) []tool.Change {
+	byPath := map[string]tool.Change{}
+
+	var order []string
+
+	for i := range events {
+		for _, c := range events[i].Changes {
+			if _, seen := byPath[c.Path]; !seen {
+				order = append(order, c.Path)
+			}
+
+			byPath[c.Path] = c
+		}
+	}
+
+	out := make([]tool.Change, 0, len(order))
+	for _, path := range order {
+		out = append(out, byPath[path])
+	}
+
+	return out
 }

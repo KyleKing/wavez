@@ -22,6 +22,15 @@ const (
 	KindError      Kind = "error"
 	KindLedger     Kind = "ledger"
 	KindUsage      Kind = "usage"
+	// KindCycle records a Cycle's phase transitions and the Condition
+	// verdicts between them. It is not KindGate: a gate checks a change set,
+	// where these say which phase the work is in and why it may or may not
+	// advance.
+	KindCycle Kind = "cycle"
+	// KindHypothesis records one ledger row a phase produced: a candidate
+	// cause, the experiment, the observation, and the verdict. It is the
+	// content that crosses a phase boundary, and no Condition reads it.
+	KindHypothesis Kind = "hypothesis"
 	// KindReview records a model's judgment of a run's diff against its task.
 	// It is deliberately not KindGate: a review objection never fails a run,
 	// and counting it as one would report it as a run that failed a check.

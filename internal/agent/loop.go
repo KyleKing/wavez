@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kyleking/wavez/internal/condition"
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/llm"
@@ -142,10 +143,14 @@ type Outcome struct {
 	// Review is the last verdict a configured Reviewer returned, zero when
 	// none ran. An objection here does not make the run a failure: the run
 	// completed and the objection stands unresolved for the user to settle.
-	Review       Verdict
-	Stop         Stop
+	Review Verdict
+	// Reason says why the run stopped, in the words a bound report needs.
+	// Condition pairs it with Stop as the Verdict shape a Cycle phase's exit
+	// gate returns one granularity up.
+	Reason       string
 	Checkpoint   string
 	StagnantTool string
+	Stop         Stop
 	Turns        int
 	ToolCalls    int
 	InputTokens  int
@@ -156,6 +161,13 @@ type Outcome struct {
 	Elapsed         time.Duration
 	HostedSpendUSD  float64
 	StagnantCount   int
+}
+
+// Condition reports the stop condition that held as the Verdict a Cycle
+// phase's exit gate returns: a Loop's stop reasons and a phase's exit gate
+// are the same idea at two granularities.
+func (o Outcome) Condition() condition.Verdict {
+	return condition.Met(string(o.Stop), o.Reason)
 }
 
 // Verifier gates a run once the model reports it is done, per DESIGN.md's
@@ -608,6 +620,8 @@ func (r *run) finishOrVerify(ctx context.Context) (bool, Outcome, error) {
 func (r *run) complete(ctx context.Context) (bool, Outcome, error) {
 	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopComplete
+	r.outcome.Reason = fmt.Sprintf(
+		"the model ended its turn after %d turn(s) and every configured check passed", r.outcome.Turns)
 	if err := r.thread.SetState(ctx, event.StateDone); err != nil {
 		return true, Outcome{}, fmt.Errorf("setting state: %w", err)
 	}
@@ -974,6 +988,7 @@ func (r *run) stream(
 func (r *run) stopCanceled(ctx context.Context) (Outcome, error) {
 	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopCanceled
+	r.outcome.Reason = "the run's context was canceled"
 	if err := r.thread.SetState(context.WithoutCancel(ctx), event.StateIdle); err != nil {
 		return r.outcome, fmt.Errorf("agent run canceled: %w (also failed logging cancellation: %w)", ctx.Err(), err)
 	}
@@ -984,6 +999,7 @@ func (r *run) stopCanceled(ctx context.Context) (Outcome, error) {
 func (r *run) stopBound(ctx context.Context, stop Stop, reason string) (Outcome, error) {
 	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = stop
+	r.outcome.Reason = reason
 	detail := map[string]any{"bound": string(stop)}
 	if r.outcome.Checkpoint != "" {
 		detail["checkpoint"] = r.outcome.Checkpoint
@@ -1036,6 +1052,7 @@ func (r *run) stopFailed(ctx context.Context, cause error) (Outcome, error) {
 	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopFailed
 	reason := fmt.Sprintf("provider stream failed: %v", cause)
+	r.outcome.Reason = reason
 	detail := map[string]any{}
 	if r.outcome.Checkpoint != "" {
 		detail["checkpoint"] = r.outcome.Checkpoint

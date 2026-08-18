@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
+	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/thread"
 )
 
@@ -52,10 +53,65 @@ func newRunResult(id thread.ID, text string, outcome agent.Outcome, strayed []st
 	}
 }
 
+// cycleResult is one headless cycle, as a machine-readable record. Stop and
+// the phase rows are what a reader has to see: a cycle that ran every phase
+// and one the harness refused to advance differ only there.
+type cycleResult struct {
+	Cycle          string        `json:"cycle"`
+	Stop           string        `json:"stop"`
+	Phase          string        `json:"phase"`
+	Condition      string        `json:"condition"`
+	Reason         string        `json:"reason"`
+	Phases         []phaseResult `json:"phases"`
+	Turns          int           `json:"turns"`
+	ToolCalls      int           `json:"tool_calls"`
+	HostedSpendUSD float64       `json:"hosted_spend_usd"`
+	Complete       bool          `json:"complete"`
+}
+
+// phaseResult is one phase of a cycleResult.
+type phaseResult struct {
+	Phase     string `json:"phase"`
+	Condition string `json:"condition"`
+	Reason    string `json:"reason"`
+	Attempts  int    `json:"attempts"`
+	Turns     int    `json:"turns"`
+	ToolCalls int    `json:"tool_calls"`
+	Holds     bool   `json:"holds"`
+}
+
+func newCycleResult(outcome cycle.Outcome) cycleResult {
+	out := cycleResult{
+		Cycle:          outcome.Cycle,
+		Stop:           string(outcome.Stop),
+		Phase:          outcome.Phase,
+		Condition:      outcome.Verdict.Condition,
+		Reason:         outcome.Verdict.Reason,
+		Complete:       outcome.Stop == cycle.StopComplete,
+		Turns:          outcome.Turns,
+		ToolCalls:      outcome.ToolCalls,
+		HostedSpendUSD: outcome.SpendUSD,
+	}
+
+	for _, p := range outcome.Phases {
+		out.Phases = append(out.Phases, phaseResult{
+			Phase:     p.Phase,
+			Condition: p.Verdict.Condition,
+			Reason:    p.Verdict.Reason,
+			Holds:     p.Verdict.Holds,
+			Attempts:  p.Attempts,
+			Turns:     p.Turns,
+			ToolCalls: p.ToolCalls,
+		})
+	}
+
+	return out
+}
+
 // writeJSON prints the record as one indented object on stdout, so a run
 // with -json emits nothing else there and a caller can pipe it straight
 // into jq.
-func writeJSON(w io.Writer, res runResult) error {
+func writeJSON(w io.Writer, res any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 

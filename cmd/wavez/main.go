@@ -23,6 +23,7 @@ import (
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/permission"
@@ -39,6 +40,7 @@ var (
 	errStoppedEarly      = errors.New("thread stopped early")
 	errUnreachableCode   = errors.New("unreachable code found")
 	errUnknownModel      = errors.New("unknown -model: want local or hosted")
+	errCycleStopped      = errors.New("cycle stopped")
 )
 
 var (
@@ -49,6 +51,7 @@ var (
 
 type options struct {
 	prompt              string
+	cycle               string
 	dir                 string
 	model               string
 	with                string
@@ -86,6 +89,8 @@ func run(args []string) error {
 		showVersion bool
 	)
 	fs.StringVar(&opt.prompt, "p", "", "run one prompt headless and print the result")
+	fs.StringVar(&opt.cycle, "cycle", "",
+		"run the prompt through a named cycle (e.g. fix) instead of one loop")
 	fs.StringVar(&opt.dir, "dir", "", "project root (defaults to the enclosing repo, then cwd)")
 	fs.StringVar(&opt.model, "model", "", "force a tier for every turn: local or hosted")
 	fs.StringVar(&opt.with, "with", "", "add one file to the stable prefix for this run only")
@@ -261,14 +266,18 @@ func headless(ctx context.Context, opt options) error {
 		return err
 	}
 
-	loop, tools, system := a.Loop, a.Tools, a.SystemPrefix
-	if opt.plan {
-		loop, tools, system = a.PlanLoop, a.PlanTools, a.PlanSystem
-	}
-
 	prompt, err := expandMentions(ctx, a, opt.prompt)
 	if err != nil {
 		return err
+	}
+
+	if opt.cycle != "" {
+		return runCycle(ctx, a, th, prompt, opt, hint)
+	}
+
+	loop, tools, system := a.Loop, a.Tools, a.SystemPrefix
+	if opt.plan {
+		loop, tools, system = a.PlanLoop, a.PlanTools, a.PlanSystem
 	}
 
 	outcome, err := loop.Run(ctx, th, prefix(system, tools), prompt, hint)
@@ -285,6 +294,53 @@ func headless(ctx context.Context, opt options) error {
 	}
 
 	return nil
+}
+
+// runCycle drives the named cycle instead of one loop. A cycle whose last
+// phase's Condition did not hold exits nonzero carrying that reason: work
+// the harness refused to advance is not work that finished.
+func runCycle(
+	ctx context.Context, a *app.App, th *thread.Thread, prompt string, opt options, hint router.Input,
+) error {
+	c, err := a.Cycle(opt.cycle)
+	if err != nil {
+		return fmt.Errorf("running a cycle: %w", err)
+	}
+
+	driver := a.CycleDriver(th.ID(), append([]string{a.Root}, a.Config.ExtraDirs...), hint)
+
+	outcome, err := cycle.NewRunner(a.Root, driver, th.Log()).Run(ctx, c, prompt)
+	if err != nil {
+		return fmt.Errorf("running cycle %s: %w", opt.cycle, err)
+	}
+
+	reportCycle(outcome, opt)
+
+	if outcome.Stop != cycle.StopComplete {
+		return fmt.Errorf("%w: %s in %s: %s", errCycleStopped, outcome.Stop, outcome.Phase, outcome.Verdict.Reason)
+	}
+
+	return nil
+}
+
+// reportCycle prints one cycle's outcome: which phase it reached, what the
+// harness observed there, and what every phase cost.
+func reportCycle(outcome cycle.Outcome, opt options) {
+	if opt.jsonOut {
+		if err := writeJSON(os.Stdout, newCycleResult(outcome)); err != nil {
+			fmt.Fprintf(os.Stderr, "wavez: %v\n", err)
+		}
+
+		return
+	}
+
+	for _, p := range outcome.Phases {
+		fmt.Fprintf(os.Stderr, "%-12s %d attempt(s)  %-24s %s\n",
+			p.Phase, p.Attempts, p.Verdict.Condition, p.Verdict.Reason)
+	}
+
+	fmt.Fprintf(os.Stderr, "\nstop=%s phase=%s turns=%d tool_calls=%d hosted_spend=$%.4f\n",
+		outcome.Stop, outcome.Phase, outcome.Turns, outcome.ToolCalls, outcome.SpendUSD)
 }
 
 // undo restores root to a checkpoint an earlier run captured, which the
@@ -474,6 +530,7 @@ Usage:
 
 Flags:
   -p <prompt>     run one prompt headless and print the result
+  -cycle <name>   run the prompt through a named cycle (fix ships built in)
   -json           with -p, print one JSON object on stdout instead of the text
   -plan           run with read-only tools: investigate without editing
   -dir <path>     project root (defaults to the enclosing repo, then cwd)

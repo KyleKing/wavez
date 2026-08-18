@@ -19,6 +19,7 @@ import (
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/lease"
@@ -102,6 +103,11 @@ type App struct {
 	Tools           *tool.Registry
 	PlanTools       *tool.Registry
 	Scope           *tools.Scope
+	Cycles          map[string]cycle.Cycle
+	verifier        agent.Verifier
+	reviewer        agent.Reviewer
+	loopBase        []agent.Option
+	sweeper         cycle.Sweeper
 	lspPool         *lsp.Pool
 	supervisor      *runtime.Supervisor
 	bgCancel        context.CancelFunc
@@ -256,8 +262,17 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	reviewer := NewModelReviewer(root, vcs.NewJj(), local, hosted, cfg.LocalModel, cfg.HostedModel)
 	changeGate := NewChangeGate(runner)
-	loopOpts := append(loopOptions(root, cfg, options, verifier, reviewer), agent.WithChangeGate(changeGate))
+	loopBase := loopOptions(root, cfg, options)
+	loopOpts := append(append([]agent.Option{}, loopBase...),
+		agent.WithVerifier(verifier), agent.WithReviewer(reviewer), agent.WithChangeGate(changeGate))
 	loop := agent.New(local, hosted, registry, permGate, loopOpts...)
+
+	sweeper, cycles, err := buildCycles(cfg)
+	if err != nil {
+		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
+
+		return nil, err
+	}
 	// Plan mode is a thread whose tools are read-only rather than a mode the
 	// loop knows about, so it is the same loop over a narrower registry.
 	// Narrowing the registry and not just the advertised specs matters: a
@@ -296,6 +311,11 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		CoverageAdapter: adapter,
 		Routines:        bundle.routines.service,
 		Permission:      permGate,
+		Cycles:          cycles,
+		verifier:        verifier,
+		reviewer:        reviewer,
+		loopBase:        loopBase,
+		sweeper:         sweeper,
 		SandboxDir:      sandboxDir,
 		SystemPrefix:    systemPrefix(prefix),
 		PlanSystem:      planSystemPrefix(prefix),
@@ -303,16 +323,25 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	}, nil
 }
 
+// buildCycles resolves the phased ways of working this project can run:
+// the built-in fix cycle, plus whatever ".wavez.pkl" defines.
+func buildCycles(cfg config.Config) (*cycle.AstGrepSweeper, map[string]cycle.Cycle, error) {
+	sweeper := cycle.NewAstGrepSweeper(astgrep.NewRunner())
+
+	cycles, err := cycle.Resolve(cfg.Cycles, cycle.Checks{Prober: cycle.NewGoProber(), Sweeper: sweeper})
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolving cycles: %w", err)
+	}
+
+	return sweeper, cycles, nil
+}
+
 // loopOptions maps the Options a caller set to agent.Option values. A zero
 // bound means "leave the loop's own default", never "no bound".
-func loopOptions(
-	root string, cfg config.Config, options Options, verifier agent.Verifier, reviewer agent.Reviewer,
-) []agent.Option {
+func loopOptions(root string, cfg config.Config, options Options) []agent.Option {
 	out := []agent.Option{
 		agent.WithLocalModel(cfg.LocalModel),
 		agent.WithHostedModel(cfg.HostedModel),
-		agent.WithVerifier(verifier),
-		agent.WithReviewer(reviewer),
 		agent.WithCheckpointer(vcs.NewJj(), root),
 		agent.WithHooks(hook.New(root,
 			hook.WithPreToolUse(cfg.PreToolUseHook...),
