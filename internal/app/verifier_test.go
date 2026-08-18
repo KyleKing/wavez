@@ -68,6 +68,18 @@ func TestGateVerifier_Verify(t *testing.T) {
 			wantFeedbackContains: "undefined: filepath",
 		},
 		{
+			name: "a failure whose frames were trimmed away still says which gate and that it could not say more",
+			gates: []gate.Gate{
+				&stubGate{name: "go-test", result: gate.Result{
+					Gate:     "go-test",
+					Failures: []gate.TrimmedFailure{{Package: "."}},
+				}},
+			},
+			wantOK:               false,
+			wantRanGates:         []string{"go-test"},
+			wantFeedbackContains: "go-test build .",
+		},
+		{
 			name: "a gate error becomes failing feedback instead of silently passing",
 			gates: []gate.Gate{
 				&stubGate{name: "format", err: errGoimportsMissing},

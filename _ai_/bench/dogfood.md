@@ -202,3 +202,20 @@ stores the error in `m.status`, which Home never renders, so it surfaces only
 once a thread screen is open. And a cycle run needs a checkpoint, which needs
 jj, so a git worktree that is not colocated fails the first phase at once
 with `capturing checkpoint`.
+
+## 2026-08-18, first runs on the merged M2 tree
+
+Two threads at once from the TUI, qwen3:8b: a one-line README edit and a
+question about the lease package. Both rendered as lanes in the schedule view
+and finished within a minute; the question was answered correctly.
+
+The README edit landed exactly (`Status: M1 in progress.` to `M2`), and the
+verification round then failed it: `go-test failed: :`. The gate selected the
+module root from the file's directory, `go test .` there fails with "no Go
+files", and the trimmer dropped every output line because none named a
+changed file, so the model was told a gate failed and nothing else. It asked
+for details, the second round failed the same way, and the run ended
+`verify_failed` on a correct change. Two harness fixes: the test gate abstains
+when no Go file changed, and a failure whose frames were all trimmed still
+names its package and says why it cannot say more (the change-triggered path
+already did this, the verification path did not).

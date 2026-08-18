@@ -186,16 +186,15 @@ func (*GoTestGate) Resources() []string { return []string{goTestResource} }
 // Run executes the tests or packages rc.Selection names.
 func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	changedGo := len(goFiles(rc.Changes))
+	if changedGo == 0 {
+		return Abstained(g.Name(), rc.Selection.Level, "no changed Go file"), nil
+	}
 
 	args := buildTestArgs(rc.Selection)
 	if len(args) == 0 {
-		if changedGo > 0 {
-			return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
-				"selection produced no tests or packages for %d changed Go file(s), so nothing was run",
-				changedGo)), nil
-		}
-
-		return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil
+		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
+			"selection produced no tests or packages for %d changed Go file(s), so nothing was run",
+			changedGo)), nil
 	}
 
 	//nolint:gosec // args are a fixed subset of Selection's own test/package names
@@ -218,7 +217,7 @@ func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	// clean pass having executed no test at all. That is the whole reason
 	// Examined exists: a green gate that ran zero tests is the failure this
 	// catches, and it is invisible from Pass alone.
-	if ran == 0 && changedGo > 0 {
+	if ran == 0 {
 		// A package go test skipped whole holds no test file, which is a
 		// change set with no work for this gate rather than a selection that
 		// drifted off the tests that do exist. Reporting it as a failure

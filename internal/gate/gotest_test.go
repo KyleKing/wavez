@@ -221,3 +221,27 @@ func TestGoTestGateEndToEnd(t *testing.T) {
 		t.Fatalf("Failures = %+v, want one TestGreet failure", result.Failures)
 	}
 }
+
+// A change set with no Go file holds no work for the test gate: running the
+// selection's directory guess as a package reported "no Go files" as a
+// failure with nothing after it, on a README edit.
+func TestGoTestGateAbstainsWhenNoGoFileChanged(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := copyFixtureModule(t, "gotestjson/fail")
+
+	g := gate.NewGoTestGate(repoRoot)
+	rc := gate.RunContext{
+		RepoRoot:  repoRoot,
+		Changes:   []tool.Change{{Path: "README.md"}},
+		Selection: gate.Selection{Level: gate.LevelPackage, Packages: []string{"."}},
+	}
+
+	result, err := g.Run(context.Background(), rc)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.Pass || result.Examined != 0 || result.Reason == "" {
+		t.Fatalf("result = %+v, want a reasoned abstention", result)
+	}
+}

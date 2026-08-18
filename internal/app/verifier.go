@@ -107,10 +107,5 @@ func feedbackText(result gate.Result) string {
 		return ""
 	}
 
-	lines := make([]string, 0, len(view.Failures))
-	for _, f := range view.Failures {
-		lines = append(lines, fmt.Sprintf("%s: %s", f.Test, strings.Join(f.Frames, "; ")))
-	}
-
-	return fmt.Sprintf("%s failed:\n%s", result.Gate, strings.Join(lines, "\n"))
+	return strings.TrimRight(describeFailure(result), "\n")
 }

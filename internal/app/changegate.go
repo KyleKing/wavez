@@ -120,12 +120,16 @@ func describeFailure(r gate.Result) string {
 	said := false
 
 	for _, f := range r.Failures {
-		if len(f.Frames) == 0 && f.Test == "" {
+		if len(f.Frames) == 0 && f.Test == "" && f.Package == "" {
 			continue
 		}
 
 		b.WriteString(r.Gate + " " + failureName(f) + "\n")
 		said = true
+
+		if len(f.Frames) == 0 {
+			b.WriteString("  no output line named a changed file, so run it yourself to see\n")
+		}
 
 		for _, frame := range f.Frames {
 			b.WriteString("  " + frame + "\n")
