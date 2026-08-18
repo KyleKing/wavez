@@ -1,7 +1,0 @@
-{
-  "first_prompt_eval_duration_ns": 16195365000,
-  "first_prompt_eval_count": 2672,
-  "second_prompt_eval_duration_ns": 379904000,
-  "second_prompt_eval_count": 2672,
-  "speedup_ratio": 42.6301513013814
-}

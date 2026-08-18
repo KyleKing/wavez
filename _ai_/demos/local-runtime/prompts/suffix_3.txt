@@ -1,3 +1,0 @@
-
-
-Given the above, write a one-sentence commit message for adding the overdraft check to `PostTransaction`.

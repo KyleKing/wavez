@@ -1,7 +1,0 @@
-{
-  "load_wall_seconds": 14.158460140228271,
-  "mem_before": "System-wide memory free percentage: 82%",
-  "mem_after": "System-wide memory free percentage: 30%",
-  "ollama_ps": "NAME          ID              SIZE      PROCESSOR    CONTEXT    UNTIL              \ngemma4:12b    4eb23ef187e2    8.0 GB    100% GPU     4096       4 minutes from now",
-  "response_load_duration_ns": 7489272958
-}

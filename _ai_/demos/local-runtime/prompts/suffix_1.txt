@@ -1,3 +1,0 @@
-
-
-Given the above, does `PostTransaction` currently allow the balance to go negative? Answer yes or no and name the exact line.

@@ -2,9 +2,4 @@
 .coverage
 scratch/
 wavez-bench
-**/csv/
-**/run.log
-pull-*.log
-ollama-serve.log
 intentgo
-editloop

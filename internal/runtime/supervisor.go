@@ -12,8 +12,8 @@ import (
 const DefaultPort = 8080
 
 // DefaultStartTimeout bounds one Start attempt. Cold start measured 1.6 s
-// to first token in _ai_/demos/local-runtime; the rest of the budget covers
-// reading a 5 GB blob past a cold page cache.
+// to first token on this laptop; the rest of the budget covers reading a
+// 5 GB blob past a cold page cache.
 const DefaultStartTimeout = 60 * time.Second
 
 // LocalBaseURL is the OpenAI-compatible endpoint root of a llama-server on

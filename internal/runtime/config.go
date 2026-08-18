@@ -6,8 +6,8 @@ package runtime
 const DefaultContextSize = 8192
 
 // DefaultCacheReuse is the --cache-reuse token count llama-server starts
-// with unless Config overrides it, matching the value measured in
-// _ai_/demos/local-runtime.
+// with unless Config overrides it, matching the value measured on this
+// laptop.
 const DefaultCacheReuse = 256
 
 // DefaultBinary is the llama-server executable name resolved via PATH

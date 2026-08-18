@@ -6,20 +6,14 @@ Status: M1 in progress. [docs/glossary.md](docs/glossary.md) is the map: the voc
 
 ## What it does differently
 
-- **Structural rules** (`ast-grep` embedded, Semgrep CE opt-in) enforce project conventions as YAML instead of prose, gate every edit, drive codemods and autofix as Modifier calls, and flag new capabilities in a change set
-- **Gates** run checks in response to what changed. The model never decides what to test. Coverage map plus changed lines selects the test subset. Format and lint run as pre-passes. Passing gates return nothing to the model. Failures return only the failing test names and the frames that touch changed files
-- **Routines** are user-defined workflows in pkl with workflow-engine semantics (DAG steps, concurrency keys, cancel-in-progress, multiple triggers) that run locally with resource locks. Gates are the built-in routines
-- **Edits** in M1 are `str_replace` with a fuzzy fallback (measured better than hashed-line ops on an 8B model), kept small, re-verified by a gate, escalated after one failure. Named changes go to Modifiers and intents instead of text
-- **Intent edits** (exploration) go further: the model or a human states `add fn parseTTL(cfg Config) time.Duration near TTL` or `like Foo: add Bar`, and a resolver driven by the code-intelligence store places the code, adds imports, plumbs config, registers routes, writes the test stub, and leaves a small local model only the hole that structure cannot decide. The same resolver is a completion source in Neovim
-- **Modifiers** let the model call a refactor engine (rename, move, extract, add import, stub from signature) with a dozen tokens instead of emitting the edited text. Backed by LSP, `gopls`, `ast-grep`, `ts-morph`, and `rope`
-- **A dashboard, not a chat app.** Home lists threads across repos the way gh-repo-dashboard lists repos, an inbox collects every prompt that needs you, a schedule view shows lanes and locks, and a diagnostics panel shows memory, CPU, model state, cache hit rates, gate latency, and lease contention live. Vim-shaped controls layered from arrows to `:` verbs
-- **Threads** replace the single god session. Each work stream has its own compacted history. A scheduler coordinates threads that touch the same directories, alternates edit and execute phases, and respects the laptop's memory
-- **Code intelligence** is one SQLite store per project (symbols, call and import edges, trigram FTS, embeddings, line-to-test coverage, cross-stack contracts) fed incrementally by tree-sitter, `codegraph`, coverage adapters, and a small local embedder. One `search` tool with fuzzy, semantic, graph, and hybrid modes, and one `context` bundle (repo map plus one-hop neighbourhood plus covering tests) for a small model's first turn. Everything else reads it: gates, modifiers, intent edits, similarity notes, the scheduler, Neovim pickers
-- **Compaction** is deterministic first (append-only trimming that keeps the prompt-cache prefix stable, rule-based stdout truncation, tool results dropped after N turns) and model-based only for the residue
-- **Local model management** (M2) lists what Ollama has pulled, what each one costs in disk and RAM, and whether a newer version exists, and ships runtime settings already tuned for this laptop that you can edit and reset. It installs and uninstalls on request and never removes a model on its own, because Ollama serves other tools on the same machine
-- **Recordings** capture PTY and browser step sequences as they happen so a fix can be replayed for regression, then promoted to a test or discarded
+- **Gates** run checks in response to what changed, so the model never decides what to test. The coverage map plus the changed lines picks the test subset, format and lint run as pre-passes, a passing gate returns nothing, and a failing one returns the failing test names and the frames touching changed files
+- **Routines** are user-defined pkl workflows with workflow-engine semantics (DAG steps, concurrency keys, cancel-in-progress, several triggers) run locally under resource locks. Gates are the built-in routines
+- **Modifiers** let the model call a refactor engine (rename, move, extract, stub from signature) with a dozen tokens instead of emitting the edited text. **Intent edits** go one step further: `add fn parseTTL(cfg Config) time.Duration near TTL` or `like Foo: add Bar`, and a resolver places the code, adds imports, registers routes, and writes the test stub, leaving a small local model only the hole structure cannot decide
+- **A dashboard, not a chat app.** Home lists threads across repos the way gh-repo-dashboard lists repos, an inbox collects every prompt that needs you, a schedule view shows lanes and locks, and a diagnostics panel shows memory, model state, cache hit rates, gate latency, and lease contention live. Vim-shaped controls layered from arrows to `:` verbs
+- **Threads** replace the single god session. Each work stream carries its own compacted history, and a scheduler coordinates threads touching the same directories against the laptop's memory
+- **Code intelligence** is one SQLite store per project (symbols, edges, trigram FTS, embeddings, line-to-test coverage, cross-stack contracts) that every other subsystem queries: gates, modifiers, intent edits, the scheduler, and the Neovim pickers
 
-Also: local models first (qwen3:8b on `llama-server` with n-gram speculation, chosen by measurement on this laptop), hosted models through OpenRouter when a task needs more, works across directories rather than worktrees, one pane of glass across concurrent agents, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
+Also: local models first (qwen3:8b on `llama-server` with n-gram speculation, chosen by measurement on this laptop), hosted models through OpenRouter when a task needs more, works across directories rather than worktrees, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
 
 TLDR: fewer tokens, faster builds, higher quality, low RAM.
 
@@ -27,13 +21,16 @@ macOS only for now. The sandbox is a Seatbelt profile and the symbol indexer is 
 
 ## Milestones
 
-| Milestone | Usable for | Adds |
-|---|---|---|
-| M1 Loop | Single-thread edits on one project, replacing Claude Code for small tasks | TUI (home, thread, inbox, diagnostics strip, vim controls), chat loop, code-intelligence store with `search` and `context`, Gates, sandbox + permission gate, local model + OpenRouter escalation |
-| M2 Fleet | Several concurrent threads across directories | Routines (pkl, DAG runner, locks), Threads dashboard, scheduler, PTY recordings, semantic index, similarity notes, repo map, local model management |
-| M3 Cheaper | Cheaper and faster on the same work, from Neovim too | Benchmark harness on replayed commits and extreme-ends performance, Modifiers, intent edits, deterministic compaction, cross-stack contract nodes, `wavez.nvim`, web search |
-| M4 Away | Away from the laptop | jj/git integration layer, mobile client (Tailscale + PWA + push) |
-| M5 Proof | Proving it | Browser recordings, benchmark comparison against Claude Code and OpenCode in local and hosted lanes |
+What each milestone ships and the condition that closes it are in
+[DESIGN.md](DESIGN.md#milestones).
+
+| Milestone | Usable for |
+|---|---|
+| M1 Loop | Single-thread edits on one project, replacing Claude Code for small tasks |
+| M2 Fleet | Several concurrent threads across directories |
+| M3 Cheaper | Cheaper and faster on the same work, from Neovim too |
+| M4 Away | Away from the laptop |
+| M5 Proof | Proving it against Claude Code and OpenCode on the same tasks |
 
 Innovation tokens go to Routines + Gates and Modifiers. Everything else copies prior art (Crush for the Go tool loop and Bubble Tea patterns, opencode for compaction policy, `_ai_/` projects for locks, risk scoring, and browser safety).
 
@@ -51,8 +48,6 @@ Innovation tokens go to Routines + Gates and Modifiers. Everything else copies p
 
 ## Open questions
 
-- Whether a stronger local coder than qwen3:8b exists that fits 16 GB, or whether multi-file edits always go hosted
-- How much of the session ledger needs a model-written handoff note versus structural facts alone
-- Intent edits: hole-fill correctness on an 8B model with retry against gates, or a FIM-tuned local model, before the resolver's 4x speed win over a hosted model counts
-- How to keep the per-test coverage map incremental across branches and rebases without a full 4-minute rebuild
-- Web search: which API, how to keep results current for the right software version, whether Dash docsets cover enough
+The list lives in [DESIGN.md](DESIGN.md#open-questions). The two that decide whether the
+thesis holds: whether a local coder stronger than qwen3:8b fits 16 GB, and whether an 8B
+model fills an intent-edit hole correctly with retry against gates.

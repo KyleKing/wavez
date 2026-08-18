@@ -1,3 +1,0 @@
-
-
-Given the above, list the CONV rule numbers that `PostTransaction` currently violates, if any.
