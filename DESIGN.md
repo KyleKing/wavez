@@ -2,6 +2,38 @@
 
 High-level design: what each piece does, requirements per feature, decisions as y-statements, and milestones. Not an implementation plan. Research and prior art live in `_ai_/`, especially [`_ai_/research/2026-08-design-proposal.md`](_ai_/research/2026-08-design-proposal.md) and [`_ai_/research/2026-08-synthesis.md`](_ai_/research/2026-08-synthesis.md), which this supersedes. [`_ai_/README.md`](_ai_/README.md) is the index.
 
+## Starting a session
+
+Work comes off [Next](#next), top first. Say what you are taking and what is
+in the way before starting, and ask rather than guess when a choice is the
+owner's to make.
+
+Mechanics live in the files that own them and are not repeated here:
+[CONTRIBUTING.md](CONTRIBUTING.md) for tasks, the git workflow, and how a
+release is cut and verified, [AGENTS.md](AGENTS.md) for conventions and the
+five CI jobs a green `mise run ci` does not cover, and
+[docs/troubleshooting.md](docs/troubleshooting.md) for toolchain failures.
+What is worth saying once, here:
+
+- The repository is a colocated jj checkout. Use `jj`, not `git`, for anything
+  that writes. A detached git HEAD is normal and is not something to fix.
+  `jj abandon <change>+` abandons every descendant, not the one just made, and
+  `jj op restore` is how that gets undone
+- Commit per lane with a subject that says what changed and why, so a lane that
+  turns out wrong can be dropped on its own
+- Push at a milestone, never mid-lane: a `feat:` or `fix:` landing on `main`
+  cuts a release, so `main` has to be green before the push rather than after
+- Green means all five CI jobs and a full `go test ./...`, run on a machine
+  quiet enough for the result to mean anything. A test that fails only under a
+  parallel run is evidence about something, and which thing is a question to
+  answer rather than a reason to rerun it
+- A TUI change is not done until it has been driven in a PTY. The defects worth
+  fixing have consistently been invisible in review and obvious within seconds
+  against a real model, with the unit tests green throughout.
+  `_ai_/bench/dogfood.md` records those runs and is where a new one goes
+- Fix the cause and prove which cause it is. Where that is not possible, say so
+  and leave the item open rather than closing it on a plausible story
+
 ## Problem
 
 Coding agents spend most of their tokens and wall-clock on work that does not need a model: deciding which tests to run, re-reading files that did not change, emitting whole edited files for a rename, carrying a single conversation that grows until compaction throws away what mattered. On a 16 GB M2 Pro with a local model, that waste also shows up as RAM pressure and slow tokens/sec.
@@ -684,15 +716,16 @@ done when its condition holds, and nothing here promises a release number.
 Ordered by what unblocks daily use soonest, from the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood rows. Each names what closes it.
 
 1. A run that changed nothing on a task that asked for a change never reports `complete`. Extend the announcement and offer detectors to "let me try again" shapes and to a zero-change outcome against an edit-shaped task
-2. One daemon per laptop with projects loaded lazily per root, then fleet Home with `w` scope, so the design's one-API claim holds and the M4 phone client has one thing to attach to
-3. Snippets in the composer, per Table stakes, so a phrase the user retypes into every prompt is typed once
-4. The owner's asks now in the design: idle toast and push, progress line and estimate (after the `progress-estimate` spike), auto-linked identifiers, parked-work inbox
-5. Probe the M4 Pro (steps in the audit) and re-run the five-task edit harness against `localBaseURL`, which decides whether local writing is a property of 8B models or of local inference
-6. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
-7. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
-8. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
-9. The efficiency spikes, in the order their numbers would change a decision: `kv-slots`, `trim-turns`, `prefix-tokens`, `thinking-budget`, `fork-shape`, then the rest
-10. Finish the timed comparison. Hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows. Last because it is blocked on a quiet machine rather than on work, and the daily-use items above are not
+2. The daemon answers from a stale thread cache whenever `sync` cannot read the log, because it swallows the read error. That is the invariant `sync` exists to hold, failing silently in the same shape as the bug it was written to close. A reader that cannot catch up should say so rather than return a number it knows may be old
+3. One daemon per laptop with projects loaded lazily per root, then fleet Home with `w` scope, so the design's one-API claim holds and the M4 phone client has one thing to attach to
+4. Snippets in the composer, per Table stakes, so a phrase the user retypes into every prompt is typed once
+5. The owner's asks now in the design: idle toast and push, progress line and estimate (after the `progress-estimate` spike), auto-linked identifiers, parked-work inbox
+6. Probe the M4 Pro (steps in the audit) and re-run the five-task edit harness against `localBaseURL`, which decides whether local writing is a property of 8B models or of local inference
+7. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
+8. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
+9. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
+10. The efficiency spikes, in the order their numbers would change a decision: `kv-slots`, `trim-turns`, `prefix-tokens`, `thinking-budget`, `fork-shape`, then the rest
+11. Finish the timed comparison. Hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows. Last because it is blocked on a quiet machine rather than on work, and the daily-use items above are not
 
 ## Considered and deferred
 
@@ -734,6 +767,7 @@ No:
 - Charm's runway. Crush is a reference, not a dependency, so this is a research-continuity risk only
 - Coverage-map adapters per language are the long tail. Importer-based selection from `codegraph` is the fallback, and on this repo it is close to running everything
 - `codegraph`'s SQLite schema is its own and may change. Wavez copies rows into its store rather than querying theirs
+- `internal/app`'s `TestHostedKeyErrorsOnFirstHostedRequest` failed once inside a full-suite run and then did not reproduce in 36 runs of that package. It was reported as a pre-existing `t.TempDir` cleanup race, and neither half of that is verified, so it stays recorded rather than closed
 - Bubble Tea v2 broke imports and APIs in February 2026 (`charm.land/...` paths, `View() tea.View`, `tea.KeyPressMsg`, FPS-capped cell-diff renderer), so Crush-era snippets need translation. The spike found no scroll stall at 100 events/s and rolled its own virtualized transcript because `bubbles/v2` viewport and list do not fit a live-growing log
 
 ## Open questions
