@@ -37,6 +37,14 @@ const DefaultGateDebounce = 500 * time.Millisecond
 // before a full run is forced.
 const DefaultFullRunCadence = 20
 
+// DefaultAdmissionHeadroom is the free-memory fraction at or above which a
+// local turn and a gate run may overlap, matching internal/sched.
+const DefaultAdmissionHeadroom = 0.25
+
+// DefaultLeaseTTL bounds how long a write lease survives unrenewed, matching
+// internal/lease.
+const DefaultLeaseTTL = 30 * time.Minute
+
 // DefaultHookTimeout bounds one pre- or post-tool-use hook process, matching
 // internal/hook.DefaultTimeout.
 const DefaultHookTimeout = 5 * time.Second
@@ -67,7 +75,12 @@ type Config struct {
 	PostToolUseHook []string
 	ContextWindow   int
 	GateDebounce    time.Duration
-	FullRunCadence  int
+	// AdmissionHeadroom is the free-memory fraction at or above which a turn
+	// on the local model and a gate run may overlap.
+	AdmissionHeadroom float64
+	// LeaseTTL bounds how long a write lease survives unrenewed.
+	LeaseTTL       time.Duration
+	FullRunCadence int
 	// HookTimeout bounds one hook process. A pre-tool-use hook that exceeds
 	// it refuses the call.
 	HookTimeout time.Duration
@@ -90,6 +103,8 @@ func Defaults(root string) Config {
 		GateDebounce:      DefaultGateDebounce,
 		FullRunCadence:    DefaultFullRunCadence,
 		HookTimeout:       DefaultHookTimeout,
+		AdmissionHeadroom: DefaultAdmissionHeadroom,
+		LeaseTTL:          DefaultLeaseTTL,
 		LocalPort:         DefaultLocalPort,
 		LocalStartTimeout: DefaultLocalStartTimeout,
 	}

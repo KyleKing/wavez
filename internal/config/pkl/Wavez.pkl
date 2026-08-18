@@ -49,6 +49,18 @@ localKeyCommand: String = ""
 /// Seconds to wait for a started llama-server to report ready.
 localStartTimeoutSeconds: Int = 60
 
+/// Free-memory fraction at or above which a turn on the local model and a
+/// gate run may overlap. Below it the scheduler serializes the two, since only
+/// one model fits in 16 GB. Measured on this laptop: qwen3:8b loaded leaves
+/// ~31% free, which is enough for a Go suite, while gemma4:12b leaves 14-18%,
+/// which is not.
+admissionHeadroom: Float = 0.25
+
+/// Minutes a write lease on a directory subtree survives without being
+/// renewed. It is the backstop for a thread that died mid-write, which nothing
+/// else cleans up.
+leaseTtlMinutes: Int = 30
+
 /// Extra directories, beyond the project root, the agent may read and write.
 extraDirs: Listing<String> = new Listing {}
 

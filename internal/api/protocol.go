@@ -28,9 +28,12 @@ const (
 	CmdAnswer    CommandKind = "answer"
 	CmdCancel    CommandKind = "cancel"
 	CmdDiag      CommandKind = "diag"
-	CmdDiff      CommandKind = "diff"
-	CmdRestore   CommandKind = "restore"
-	CmdRoute     CommandKind = "route"
+	// CmdSchedule asks for the whole fleet's lanes, the current scheduler
+	// phase, and the lease list, which is what the schedule view renders.
+	CmdSchedule CommandKind = "schedule"
+	CmdDiff     CommandKind = "diff"
+	CmdRestore  CommandKind = "restore"
+	CmdRoute    CommandKind = "route"
 	// CmdThink turns a hybrid model's reasoning trace on or off for a
 	// thread's next turn.
 	CmdThink CommandKind = "think"
@@ -77,15 +80,16 @@ type ReplyKind string
 
 // Replies the daemon may send.
 const (
-	RepHello   ReplyKind = "hello"
-	RepThreads ReplyKind = "threads"
-	RepThread  ReplyKind = "thread"
-	RepEvent   ReplyKind = "event"
-	RepPending ReplyKind = "pending"
-	RepDiag    ReplyKind = "diag"
-	RepDiff    ReplyKind = "diff"
-	RepRestore ReplyKind = "restore"
-	RepError   ReplyKind = "error"
+	RepHello    ReplyKind = "hello"
+	RepThreads  ReplyKind = "threads"
+	RepThread   ReplyKind = "thread"
+	RepEvent    ReplyKind = "event"
+	RepPending  ReplyKind = "pending"
+	RepDiag     ReplyKind = "diag"
+	RepSchedule ReplyKind = "schedule"
+	RepDiff     ReplyKind = "diff"
+	RepRestore  ReplyKind = "restore"
+	RepError    ReplyKind = "error"
 	// RepLagged reports that a subscription dropped events. The client must
 	// resubscribe from its last seen Seq rather than assume continuity.
 	RepLagged ReplyKind = "lagged"
@@ -101,6 +105,7 @@ type Reply struct {
 	Thread   *ThreadInfo   `json:"thread,omitempty"`
 	Event    *event.Event  `json:"event,omitempty"`
 	Diag     *Diagnostics  `json:"diag,omitempty"`
+	Schedule *Schedule     `json:"schedule,omitempty"`
 	Diff     *Diff         `json:"diff,omitempty"`
 	Restore  *Restore      `json:"restore,omitempty"`
 	Threads  []ThreadInfo  `json:"threads,omitempty"`
@@ -179,6 +184,55 @@ type Restore struct {
 	Restored bool   `json:"restored"`
 }
 
+// Schedule is the fleet as the scheduler sees it: one lane per thread over
+// the recent past, what the daemon is letting run, and who holds what.
+type Schedule struct {
+	// Phase is "edit" while threads write and gate runs queue, "execute"
+	// while a gate run holds the machine.
+	Phase string `json:"phase"`
+	// LocalModel is the model resident for local turns, empty when none is.
+	LocalModel    string  `json:"local_model,omitempty"`
+	Lanes         []Lane  `json:"lanes,omitempty"`
+	Leases        []Lease `json:"leases,omitempty"`
+	MemUsedBytes  uint64  `json:"mem_used_bytes"`
+	MemTotalBytes uint64  `json:"mem_total_bytes"`
+	// Headroom is the free-memory fraction below which a local turn and a
+	// gate run stop overlapping.
+	Headroom float64 `json:"headroom"`
+	// MemMeasured is false when memory could not be read, which a client
+	// renders as unavailable rather than as an empty machine.
+	MemMeasured bool `json:"mem_measured"`
+}
+
+// Lane is one thread's recent history, oldest cell first. Cells carry
+// event.State values so a client picks its own glyphs.
+type Lane struct {
+	ThreadID string `json:"thread_id"`
+	Thread   string `json:"thread"`
+	// Step is what the thread is doing now, the same words Home shows.
+	Step  string        `json:"step"`
+	Cells []event.State `json:"cells,omitempty"`
+	// Gate names the gate run this thread is waiting on or running, empty
+	// when it is not gating.
+	Gate string `json:"gate,omitempty"`
+	// Lock is the subtree this thread waits on, empty when it waits on none.
+	Lock string `json:"lock,omitempty"`
+	// LockHolder names the thread holding Lock.
+	LockHolder string `json:"lock_holder,omitempty"`
+}
+
+// Lease is one directory subtree's claim: who holds it, how strong the claim
+// is, and who is waiting behind it.
+type Lease struct {
+	Subtree string `json:"subtree"`
+	Holder  string `json:"holder"`
+	// State is active while its holder writes, committed once the writes
+	// land (a rebase risk rather than a concurrent-edit one), and expired
+	// once a holder stops renewing it.
+	State   string   `json:"state"`
+	Waiters []string `json:"waiters,omitempty"`
+}
+
 // Gauge names one Diagnostics number, so a daemon that cannot measure it can
 // say so instead of sending a zero a client would render as a reading.
 type Gauge string
@@ -211,12 +265,16 @@ type Diagnostics struct {
 	PrefixHit     float64 `json:"prefix_hit"`
 	CacheRead     float64 `json:"cache_read"`
 	GateQueue     int     `json:"gate_queue"`
-	GateFailures  int     `json:"gate_failures"`
-	GateRuns      int     `json:"gate_runs"`
-	Threads       int     `json:"threads"`
-	NeedsInput    int     `json:"needs_input"`
-	ToolCalls     int     `json:"tool_calls"`
-	Malformed     int     `json:"malformed"`
+	// LeasesHeld and LeasesWaiting count subtrees claimed right now and
+	// threads blocked behind one, the panel's leases row.
+	LeasesHeld    int `json:"leases_held"`
+	LeasesWaiting int `json:"leases_waiting"`
+	GateFailures  int `json:"gate_failures"`
+	GateRuns      int `json:"gate_runs"`
+	Threads       int `json:"threads"`
+	NeedsInput    int `json:"needs_input"`
+	ToolCalls     int `json:"tool_calls"`
+	Malformed     int `json:"malformed"`
 }
 
 // Measured reports whether g holds a real reading.

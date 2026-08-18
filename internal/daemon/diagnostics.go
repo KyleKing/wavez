@@ -10,18 +10,21 @@ var unmeasurableGauges = []api.Gauge{api.GaugeTokensPerSec, api.GaugePrefixHit}
 
 func (s *Server) diagnostics() api.Diagnostics {
 	u := s.mgr.totalUsage()
+	held, waiting := s.leases.Counts()
 
 	d := api.Diagnostics{
-		LocalModel:   s.mgr.localModel(),
-		Threads:      s.mgr.count(),
-		NeedsInput:   s.mgr.needsInputCount(),
-		GateQueue:    s.broker.gateQueueCount(),
-		GateRuns:     s.broker.askedCount(),
-		GateFailures: s.broker.deniedCount(),
-		ToolCalls:    s.mgr.toolCallCount(),
-		Malformed:    s.mgr.malformedCount(),
-		SpendToday:   s.mgr.spend.today(),
-		Unmeasured:   append([]api.Gauge(nil), unmeasurableGauges...),
+		LeasesHeld:    held,
+		LeasesWaiting: waiting,
+		LocalModel:    s.mgr.localModel(),
+		Threads:       s.mgr.count(),
+		NeedsInput:    s.mgr.needsInputCount(),
+		GateQueue:     s.broker.gateQueueCount(),
+		GateRuns:      s.broker.askedCount(),
+		GateFailures:  s.broker.deniedCount(),
+		ToolCalls:     s.mgr.toolCallCount(),
+		Malformed:     s.mgr.malformedCount(),
+		SpendToday:    s.mgr.spend.today(),
+		Unmeasured:    append([]api.Gauge(nil), unmeasurableGauges...),
 	}
 
 	if u.input > 0 {

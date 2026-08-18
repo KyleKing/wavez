@@ -179,6 +179,9 @@ func (c *conn) handle(cmd api.Command) {
 	case api.CmdDiag:
 		diag := c.srv.diagnostics()
 		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
+	case api.CmdSchedule:
+		schedule := c.srv.schedule(c.ctx)
+		c.reply(cmd.ID, api.Reply{Kind: api.RepSchedule, Schedule: &schedule})
 	default:
 		c.reply(cmd.ID, errorReply(fmt.Sprintf("unknown command %q", cmd.Kind)))
 	}

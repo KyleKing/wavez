@@ -42,12 +42,13 @@ const (
 type Write struct {
 	scope *Scope
 	root  string
+	deps  deps
 }
 
 // NewWrite builds a Write tool scoped to root, reporting each file it
 // creates to scope.
-func NewWrite(root string, scope *Scope) *Write {
-	return &Write{root: root, scope: scope}
+func NewWrite(root string, scope *Scope, opts ...Option) *Write {
+	return &Write{root: root, scope: scope, deps: newDeps(opts)}
 }
 
 // permFor gives a file with a shebang the executable bit and every other
@@ -92,6 +93,12 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	if err != nil {
 		return tool.Errorf("%v", err), nil
 	}
+
+	release, err := w.deps.hold(ctx, abs)
+	if err != nil {
+		return tool.Errorf("%v", err), nil
+	}
+	defer release()
 
 	if _, statErr := os.Lstat(abs); statErr == nil {
 		return tool.Errorf("%s already exists; use str_replace to edit it", in.Path), nil

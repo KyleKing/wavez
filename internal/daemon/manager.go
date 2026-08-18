@@ -14,8 +14,10 @@ import (
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/router"
+	"github.com/kyleking/wavez/internal/sched"
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 )
@@ -41,6 +43,7 @@ type manager struct {
 	mentions  Expander
 	cancelAll context.CancelFunc
 	spend     *spendLedger
+	scheduler *sched.Scheduler
 	threads   map[string]*managedThread
 	logDir    string
 	prefix    agent.Prefix
@@ -418,7 +421,18 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	override, thinking := mt.override, mt.thinking
 	mt.mu.Unlock()
 
-	runCtx := withThreadID(ctx, mt.id)
+	runCtx := lease.WithHolder(withThreadID(ctx, mt.id), mt.id)
+
+	release, err := m.admit(runCtx, mt.id, override)
+	if err != nil {
+		mt.mu.Lock()
+		mt.running, mt.cancel, mt.lastErr = false, nil, err
+		mt.mu.Unlock()
+
+		return
+	}
+	defer release()
+
 	route := router.Input{Override: override, Thinking: thinking}
 	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, m.expand(runCtx, mt, prompt), route)
 
@@ -457,6 +471,22 @@ func reportRunError(mt *managedThread, err error) {
 	if _, aerr := log.Append(event.Event{Kind: event.KindError, Text: err.Error()}); aerr != nil {
 		slog.Warn("recording run error", "thread", mt.id, "err", aerr)
 	}
+}
+
+// admit holds a turn until the machine has room for the local model beside
+// whatever else is running. A turn pinned hosted skips admission: it occupies
+// no local memory, and holding it back would trade a network call for a wait.
+func (m *manager) admit(ctx context.Context, threadID string, override router.Choice) (func(), error) {
+	if override == router.ChoiceHosted {
+		return func() {}, nil
+	}
+
+	release, err := m.scheduler.AdmitTurn(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("admitting a turn on %s: %w", threadID, err)
+	}
+
+	return release, nil
 }
 
 // expand resolves the prompt's mentions, logging each that did not so the

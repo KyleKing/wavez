@@ -37,6 +37,10 @@ type managedThread struct {
 	override router.Choice
 	thinking *bool
 	state    event.State
+	// samples is the recent state history one schedule lane is drawn from,
+	// oldest first and bounded, since a lane covers minutes rather than a
+	// thread's whole life.
+	samples  []stateSample
 	dirs     []string
 	usage    usage
 	spendUSD float64
@@ -97,6 +101,11 @@ func (mt *managedThread) watch(ctx context.Context) {
 		mt.lastAt = u.Event.At
 		if u.Event.Kind == event.KindState {
 			mt.state = u.Event.State
+			mt.samples = append(mt.samples, stateSample{at: u.Event.At, state: u.Event.State})
+
+			if len(mt.samples) > laneSamples {
+				mt.samples = mt.samples[len(mt.samples)-laneSamples:]
+			}
 		}
 		if v, ok := usageFromEvent(u.Event); ok {
 			mt.usage.add(v)
@@ -114,6 +123,12 @@ func (mt *managedThread) watch(ctx context.Context) {
 func stepText(ev event.Event) string {
 	switch ev.Kind {
 	case event.KindState:
+		// A transition may carry its own words (which lock, which rival held
+		// the memory), and those say more than the state's name does.
+		if ev.Text != "" {
+			return ev.Text
+		}
+
 		return stateText(ev.State)
 	case event.KindTool:
 		if ev.Tool != "" {

@@ -1,0 +1,96 @@
+package tools
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+)
+
+// Leases coordinates concurrent writes between threads. *lease.Manager
+// satisfies it, and a tool built without one writes without coordinating.
+type Leases interface {
+	Acquire(ctx context.Context, target string) (func(), error)
+}
+
+// deps holds what a write tool may be given beyond its root and scope.
+type deps struct {
+	leases Leases
+}
+
+// Option configures a tool's optional dependencies.
+type Option func(*deps)
+
+// WithLeases makes a tool hold the lease covering a write target's subtree
+// for as long as the write takes. Acquisition sits here rather than at thread
+// creation because a thread's directory set does not say where it writes.
+func WithLeases(l Leases) Option {
+	return func(d *deps) { d.leases = l }
+}
+
+func newDeps(opts []Option) deps {
+	var d deps
+	for _, opt := range opts {
+		opt(&d)
+	}
+
+	return d
+}
+
+// hold takes the lease covering target, returning a release func. A tool with
+// no Leases holds nothing.
+func (d deps) hold(ctx context.Context, target string) (func(), error) {
+	if d.leases == nil {
+		return func() {}, nil
+	}
+
+	release, err := d.leases.Acquire(ctx, target)
+	if err != nil {
+		return nil, fmt.Errorf("leasing %s: %w", target, err)
+	}
+
+	return release, nil
+}
+
+// holdAll takes the leases covering every target, in sorted order so two
+// tools claiming overlapping sets cannot deadlock each other.
+func (d deps) holdAll(ctx context.Context, targets []string) (func(), error) {
+	sorted := append([]string(nil), targets...)
+	sort.Strings(sorted)
+
+	releases := make([]func(), 0, len(sorted))
+
+	for _, t := range sorted {
+		release, err := d.hold(ctx, t)
+		if err != nil {
+			for i := len(releases) - 1; i >= 0; i-- {
+				releases[i]()
+			}
+
+			return nil, err
+		}
+
+		releases = append(releases, release)
+	}
+
+	return func() {
+		for i := len(releases) - 1; i >= 0; i-- {
+			releases[i]()
+		}
+	}, nil
+}
+
+// existingDirs keeps the targets whose parent directory is on disk, which is
+// what separates a path from a command fragment that merely reads like one.
+func existingDirs(targets []string) []string {
+	out := make([]string, 0, len(targets))
+
+	for _, t := range targets {
+		if info, err := os.Stat(filepath.Dir(t)); err == nil && info.IsDir() {
+			out = append(out, t)
+		}
+	}
+
+	return out
+}

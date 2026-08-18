@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
+	"github.com/kyleking/wavez/internal/lease"
+	"github.com/kyleking/wavez/internal/sched"
 )
 
 const (
@@ -60,6 +62,8 @@ type MemStats struct {
 type config struct {
 	loop          *agent.Loop
 	broker        *Broker
+	leases        *lease.Manager
+	scheduler     *sched.Scheduler
 	stats         StatsSource
 	differ        Differ
 	restorer      Restorer
@@ -126,6 +130,20 @@ func WithExpander(e Expander) Option {
 	return func(c *config) { c.expander = e }
 }
 
+// WithLeases sets the lease manager the write tools acquire through, so the
+// daemon can report who holds what and say which thread is waiting on whom.
+// It must be the same manager the tool registry was built with.
+func WithLeases(m *lease.Manager) Option {
+	return func(c *config) { c.leases = m }
+}
+
+// WithScheduler sets the memory-aware admission every local turn passes
+// through. It must be the same scheduler the gate runner was built with, or
+// a turn and a gate run will not see each other.
+func WithScheduler(s *sched.Scheduler) Option {
+	return func(c *config) { c.scheduler = s }
+}
+
 // WithStatsSource injects the memory and model numbers Diagnostics reports.
 func WithStatsSource(s StatsSource) Option {
 	return func(c *config) { c.stats = s }
@@ -142,6 +160,8 @@ func WithShutdownGrace(d time.Duration) Option {
 // answers pending prompts from any connected client.
 type Server struct {
 	stats      StatsSource
+	leases     *lease.Manager
+	sched      *sched.Scheduler
 	differ     Differ
 	restorer   Restorer
 	ln         net.Listener
@@ -176,10 +196,13 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 	mgr := newManager(c.logDir, c.loop, c.prefix)
 	mgr.mentions = c.expander
 	mgr.defaultDirs = defaultDirs(c.root)
+	mgr.scheduler = c.scheduler
 	s := &Server{
 		mgr:      mgr,
 		broker:   c.broker,
 		stats:    c.stats,
+		leases:   c.leases,
+		sched:    c.scheduler,
 		differ:   c.differ,
 		restorer: c.restorer,
 		sockPath: sockPath,
@@ -187,6 +210,14 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 		conns:    make(map[*conn]struct{}),
 	}
 	c.broker.attach(mgr, s.wakePending)
+
+	if c.leases != nil {
+		c.leases.OnWait(s.noteLeaseWait)
+	}
+
+	if c.scheduler != nil {
+		c.scheduler.OnHold(s.noteHold)
+	}
 
 	return s, nil
 }

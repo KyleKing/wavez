@@ -42,7 +42,9 @@ type pklConfig struct {
 	DeadcodeAllow    []string `pkl:"deadcodeAllow"`
 	PreToolUseHook   []string `pkl:"preToolUseHook"`
 	PostToolUseHook  []string `pkl:"postToolUseHook"`
+	AdmissionRoom    float64  `pkl:"admissionHeadroom"`
 	ContextWindow    int      `pkl:"contextWindow"`
+	LeaseTTLMinutes  int      `pkl:"leaseTtlMinutes"`
 	DebounceMs       int      `pkl:"debounceMs"`
 	FullRunCadence   int      `pkl:"fullRunCadence"`
 	HookTimeoutMs    int      `pkl:"hookTimeoutMs"`
@@ -170,6 +172,14 @@ func fromPkl(root string, p pklConfig) Config {
 
 	if p.ContextWindow != 0 {
 		cfg.ContextWindow = p.ContextWindow
+	}
+
+	if p.AdmissionRoom > 0 {
+		cfg.AdmissionHeadroom = p.AdmissionRoom
+	}
+
+	if p.LeaseTTLMinutes != 0 {
+		cfg.LeaseTTL = time.Duration(p.LeaseTTLMinutes) * time.Minute
 	}
 
 	if p.DebounceMs != 0 {

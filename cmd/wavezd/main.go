@@ -109,6 +109,8 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithDiffer(vcs.NewJj()),
 		daemon.WithRestorer(vcs.NewJj()), daemon.WithExpander(a.Mentions),
 		daemon.WithRoot(root),
+		daemon.WithLeases(a.Leases),
+		daemon.WithScheduler(a.Scheduler),
 	)
 	if err != nil {
 		return fmt.Errorf("starting daemon: %w", err)

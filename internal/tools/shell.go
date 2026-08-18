@@ -45,12 +45,13 @@ type Shell struct {
 	root       string
 	sessionTmp string
 	threadID   string
+	deps       deps
 }
 
 // NewShell builds a Shell tool scoped to root and sessionTmp, gating
 // approval-worthy commands through gate. The threadID identifies the
 // thread in permission.Request.
-func NewShell(root, sessionTmp, threadID string, gate permission.Gate) *Shell {
+func NewShell(root, sessionTmp, threadID string, gate permission.Gate, opts ...Option) *Shell {
 	// Read once here rather than inside the guard: a verdict has to be a
 	// function of its inputs, so the machine's home and temp directory are
 	// arguments to it and not something it looks up for itself.
@@ -60,7 +61,7 @@ func NewShell(root, sessionTmp, threadID string, gate permission.Gate) *Shell {
 	}
 
 	return &Shell{
-		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate,
+		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate, deps: newDeps(opts),
 		env: guard.Env{ProjectRoot: root, Home: home, TempDir: os.TempDir()},
 	}
 }
@@ -116,6 +117,14 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		}
 	case guard.Allow:
 	}
+
+	// A command that writes takes the leases covering what it writes, since
+	// the edit tools are not the only way a thread changes the tree.
+	release, err := s.deps.holdAll(ctx, existingDirs(guard.WriteTargets(in.Command, s.env)))
+	if err != nil {
+		return tool.Errorf("%v", err), nil
+	}
+	defer release()
 
 	result, err := sandbox.Exec(ctx, s.root, s.sessionTmp, "sh", "-c", in.Command)
 	if err != nil {

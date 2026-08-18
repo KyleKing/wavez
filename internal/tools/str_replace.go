@@ -40,12 +40,13 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 type StrReplace struct {
 	scope *Scope
 	root  string
+	deps  deps
 }
 
 // NewStrReplace builds a StrReplace tool scoped to root, checking each edit
 // against scope.
-func NewStrReplace(root string, scope *Scope) *StrReplace {
-	return &StrReplace{root: root, scope: scope}
+func NewStrReplace(root string, scope *Scope, opts ...Option) *StrReplace {
+	return &StrReplace{root: root, scope: scope, deps: newDeps(opts)}
 }
 
 // Name implements tool.Tool.
@@ -87,6 +88,12 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	if err := s.scope.Edit(abs); err != nil {
 		return tool.Errorf("%v", err), nil
 	}
+
+	release, err := s.deps.hold(ctx, abs)
+	if err != nil {
+		return tool.Errorf("%v", err), nil
+	}
+	defer release()
 
 	change, err := edit.ApplyToFile(abs, in.OldString, in.NewString)
 	if err != nil {

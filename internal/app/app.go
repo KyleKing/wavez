@@ -21,12 +21,14 @@ import (
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/hook"
+	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/openaic"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/runtime"
+	"github.com/kyleking/wavez/internal/sched"
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
@@ -89,6 +91,8 @@ type App struct {
 	CoverageAdapter *gate.CoverageAdapter
 	Store           *codeintel.Store
 	Indexer         *codeintel.Indexer
+	Leases          *lease.Manager
+	Scheduler       *sched.Scheduler
 	Mentions        *mention.Expander
 	Loop            *agent.Loop
 	PlanLoop        *agent.Loop
@@ -231,14 +235,16 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 	scope := tools.NewScope(options.StrictScope)
-	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker)
+	leases := lease.New(root, lease.WithTTL(cfg.LeaseTTL))
+	scheduler := sched.New(sched.WithHeadroom(cfg.AdmissionHeadroom))
+	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker, leases)
 
 	p := buildProviders(ctx, cfg, options)
 	local, hosted, supervisor := p.local, p.hosted, p.supervisor
 
 	lspPool := lsp.NewPool(root)
 
-	runner, adapter, verifier, err := buildGates(root, store, gateLog, cfg, graph, lspPool)
+	runner, adapter, verifier, err := buildGates(root, store, gateLog, cfg, graph, lspPool, scheduler)
 	if err != nil {
 		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
 		return nil, err
@@ -267,6 +273,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		Config:          cfg,
 		Store:           store,
 		Indexer:         indexer,
+		Leases:          leases,
+		Scheduler:       scheduler,
 		Mentions:        mention.New(root, indexer),
 		Scope:           scope,
 		lspPool:         lspPool,
@@ -439,13 +447,15 @@ func newSessionDir(stateDir string) (string, error) {
 
 func buildRegistry(
 	root, sandboxDir string, indexer *codeintel.Indexer, store *codeintel.Store, scope *tools.Scope,
-	permGate permission.Gate, asker tools.Asker,
+	permGate permission.Gate, asker tools.Asker, leases tools.Leases,
 ) *tool.Registry {
+	withLeases := tools.WithLeases(leases)
+
 	return tool.NewRegistry(
 		tools.NewRead(root, scope),
-		tools.NewStrReplace(root, scope),
-		tools.NewWrite(root, scope),
-		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate),
+		tools.NewStrReplace(root, scope, withLeases),
+		tools.NewWrite(root, scope, withLeases),
+		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate, withLeases),
 		tools.NewSearch(indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: indexer, Store: store}),
 		tools.NewQuestion(asker),
@@ -494,7 +504,7 @@ func rootedGlobs(root string, patterns []string) []string {
 // pipelines against them.
 func buildGates(
 	root string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config, graph *gate.ImportGraph,
-	lspPool *lsp.Pool,
+	lspPool *lsp.Pool, scheduler *sched.Scheduler,
 ) (*gate.Runner, *gate.CoverageAdapter, *GateVerifier, error) {
 	rules, err := loadConventionRules(root, cfg.AstGrepRules)
 	if err != nil {
@@ -524,7 +534,7 @@ func buildGates(
 	// The adapter, not the store, is what selection reads: only the thing
 	// building the map knows whether the map is finished.
 	runFunc := gate.BuildRunFunc(gate.RealClock{}, adapter, graph, gates, gateLog, root, resources)
-	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce, runFunc)
+	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce, admitted(scheduler, runFunc))
 
 	// fail-to-pass runs after go-test because it assumes the suite is green
 	// on the tree as written; without that a merely broken test reads as one
@@ -536,6 +546,20 @@ func buildGates(
 	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources)
 
 	return runner, adapter, verifier, nil
+}
+
+// admitted holds a gate run until the scheduler says the machine has room
+// for it beside whatever the local model is doing.
+func admitted(scheduler *sched.Scheduler, run gate.RunFunc) gate.RunFunc {
+	return func(ctx context.Context, changes []tool.Change) gate.RunResult {
+		release, err := scheduler.AdmitGate(ctx)
+		if err != nil {
+			return gate.RunResult{LogError: err, Changes: changes}
+		}
+		defer release()
+
+		return run(ctx, changes)
+	}
 }
 
 // OpenThread opens or resumes a thread under this App's thread log
