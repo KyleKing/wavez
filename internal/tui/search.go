@@ -10,12 +10,14 @@ import (
 )
 
 // searchState is Thread view's transcript search: the live input, the
-// committed query, and which match the cursor sits on.
+// committed query, which match the cursor sits on, and whether the query is
+// matched fuzzily (every word, any order) or as one literal substring.
 type searchState struct {
 	query   string
 	input   textinput.Model
 	cursor  int
 	editing bool
+	fuzzy   bool
 }
 
 func newSearchState(th theme) searchState {
@@ -24,9 +26,10 @@ func newSearchState(th theme) searchState {
 
 func (s searchState) visible() bool { return s.editing || s.query != "" }
 
-// search returns the indices of rows matching query, case-insensitively,
-// over the row's text and its tool name rather than its rendered label.
-func (t *transcript) search(query string) []int {
+// search returns the indices of rows in filter matching query,
+// case-insensitively, over the row's text and its tool name rather than its
+// rendered label.
+func (t *transcript) search(query string, filter filterCategory) []int {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return nil
@@ -34,11 +37,38 @@ func (t *transcript) search(query string) []int {
 
 	var out []int
 
-	for i := range t.rows {
-		text := strings.ToLower(t.rows[i].text)
-		tool := strings.ToLower(t.rows[i].tool)
+	for i, r := range t.rows {
+		if !matchesFilter(r, filter) {
+			continue
+		}
+
+		text := strings.ToLower(r.text)
+		tool := strings.ToLower(r.tool)
 
 		if strings.Contains(text, q) || strings.Contains(tool, q) {
+			out = append(out, i)
+		}
+	}
+
+	return out
+}
+
+// fuzzySearch returns the indices of rows in filter whose text every word in
+// query matches, in any order, using the same matcher the command palette
+// filters its entries with.
+func (t *transcript) fuzzySearch(query string, filter filterCategory) []int {
+	if strings.TrimSpace(query) == "" {
+		return nil
+	}
+
+	var out []int
+
+	for i, r := range t.rows {
+		if !matchesFilter(r, filter) {
+			continue
+		}
+
+		if wordsMatch(rowText(r), query) {
 			out = append(out, i)
 		}
 	}
@@ -52,7 +82,11 @@ func (m Model) searchMatches() []int {
 		return nil
 	}
 
-	return tr.search(m.thread.search.query)
+	if m.thread.search.fuzzy {
+		return tr.fuzzySearch(m.thread.search.query, m.thread.filter)
+	}
+
+	return tr.search(m.thread.search.query, m.thread.filter)
 }
 
 func (m Model) updateSearchKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
@@ -69,15 +103,20 @@ func (m Model) updateSearchKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 // threadSearchKey opens the search and steps its matches. An active query
 // owns n/N ahead of the permission answers, because stepping a match when
 // the user meant to deny costs nothing while the reverse denies a prompt
-// they never read.
+// they never read. `/` and `F` open the same overlay in the two matching
+// modes rather than each owning a separate one, so there is one query, one
+// cursor, and one highlight path between them; switching mode means closing
+// and reopening the search, which also resets which match the cursor sits
+// on rather than leaving it pointed at a match the other mode would not
+// have found.
 func (m Model) threadSearchKey(s string) (Model, tea.Cmd, bool) {
 	switch s {
-	case "/":
+	case "/", "F":
 		if m.focus == focusInput {
 			return m, nil, false
 		}
 
-		mm, cmd := m.openSearch()
+		mm, cmd := m.openSearch(s == "F")
 
 		return mm, cmd, true
 	case "n":
@@ -97,8 +136,9 @@ func (m Model) threadSearchKey(s string) (Model, tea.Cmd, bool) {
 	}
 }
 
-func (m Model) openSearch() (Model, tea.Cmd) {
+func (m Model) openSearch(fuzzy bool) (Model, tea.Cmd) {
 	m.thread.search.editing = true
+	m.thread.search.fuzzy = fuzzy
 	m.thread.search.input.SetValue(m.thread.search.query)
 
 	return m, m.thread.search.input.Focus()
@@ -108,6 +148,7 @@ func (m *Model) clearSearch() {
 	m.thread.search.editing = false
 	m.thread.search.query = ""
 	m.thread.search.cursor = 0
+	m.thread.search.fuzzy = false
 	m.thread.search.input.Blur()
 	m.thread.search.input.Reset()
 }
@@ -153,9 +194,9 @@ func (m Model) focusMatch() Model {
 	idx := matches[min(m.thread.search.cursor, len(matches)-1)]
 	width := m.transcriptWidth()
 	height := m.transcriptHeight()
-	lineCount := tr.lineCount(width)
+	lineCount := tr.lineCount(width, m.thread.filter)
 
-	lo, hi := rowLineSpan(tr, width, idx, lineCount)
+	lo, hi := rowLineSpan(tr, width, m.thread.filter, idx, lineCount)
 	if lo >= hi {
 		return m
 	}
@@ -173,17 +214,29 @@ func (m Model) focusMatch() Model {
 	return m
 }
 
+// searchGlyph names the active mode's marker: "/" is a literal substring,
+// "~" is a fuzzy, any-order word match, matching how each mode is opened.
+func (s searchState) searchGlyph() string {
+	if s.fuzzy {
+		return "~"
+	}
+
+	return "/"
+}
+
 func (m Model) searchLine(width int) string {
+	glyph := m.thread.search.searchGlyph()
+
 	if m.thread.search.editing {
-		return m.th.fgMuted.Render("/ ") + m.thread.search.input.View()
+		return m.th.fgMuted.Render(glyph+" ") + m.thread.search.input.View()
 	}
 
 	matches := m.searchMatches()
 	if len(matches) == 0 {
-		return m.th.statusWarn.Render(truncate("/"+m.thread.search.query+"  no matches", width))
+		return m.th.statusWarn.Render(truncate(glyph+m.thread.search.query+"  no matches", width))
 	}
 
-	pos := fmt.Sprintf("/%s  %d/%d", m.thread.search.query, m.thread.search.cursor+1, len(matches))
+	pos := fmt.Sprintf("%s%s  %d/%d", glyph, m.thread.search.query, m.thread.search.cursor+1, len(matches))
 
 	return m.th.fgMuted.Render(truncate(pos, width))
 }
@@ -217,4 +270,17 @@ func highlightMatches(s, query string, st lipgloss.Style) string {
 
 		s, lower = s[i+len(lowerQuery):], lower[i+len(lowerQuery):]
 	}
+}
+
+// highlightWords highlights every word of query separately, so a fuzzy
+// query ("gofmt shell") highlights each word wherever it lands rather than
+// only a row where the words appear together as typed. A single-word query
+// (every literal `/` search) highlights exactly as highlightMatches alone
+// would.
+func highlightWords(s, query string, st lipgloss.Style) string {
+	for _, w := range strings.Fields(query) {
+		s = highlightMatches(s, w, st)
+	}
+
+	return s
 }

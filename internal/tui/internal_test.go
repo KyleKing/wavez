@@ -14,6 +14,7 @@ import (
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 func TestTranscript_CoalescesAgentText(t *testing.T) {
@@ -138,9 +139,9 @@ func TestTranscript_LineCountChangesWithToggle(t *testing.T) {
 
 	const width = 30
 
-	folded := tr.lineCount(width)
+	folded := tr.lineCount(width, catNone)
 	require.True(t, tr.toggle(0))
-	expanded := tr.lineCount(width)
+	expanded := tr.lineCount(width, catNone)
 
 	assert.Equal(t, 1, folded)
 	assert.Greater(t, expanded, folded)
@@ -156,18 +157,18 @@ func TestTranscript_RowAtLineRoundTrips(t *testing.T) {
 
 	const width = 24
 
-	total := tr.lineCount(width)
+	total := tr.lineCount(width, catNone)
 	require.Greater(t, total, 1)
 
 	for line := range total {
-		row := tr.rowAtLine(width, line)
+		row := tr.rowAtLine(width, catNone, line)
 		require.GreaterOrEqual(t, row, 0)
 		require.Less(t, row, tr.count())
 	}
 
-	assert.Equal(t, 1, tr.rowAtLine(width, total-1), "the last line belongs to the trailing tool row")
-	assert.Equal(t, -1, tr.rowAtLine(width, total))
-	assert.Equal(t, -1, tr.rowAtLine(width, -1))
+	assert.Equal(t, 1, tr.rowAtLine(width, catNone, total-1), "the last line belongs to the trailing tool row")
+	assert.Equal(t, -1, tr.rowAtLine(width, catNone, total))
+	assert.Equal(t, -1, tr.rowAtLine(width, catNone, -1))
 }
 
 func TestTranscript_RenderWindowsOffsetInLinesAtTopAndBottom(t *testing.T) {
@@ -179,7 +180,7 @@ func TestTranscript_RenderWindowsOffsetInLinesAtTopAndBottom(t *testing.T) {
 
 	const width = 30
 
-	total := tr.lineCount(width)
+	total := tr.lineCount(width, catNone)
 	require.Greater(t, total, 3)
 
 	th := newTheme(true)
@@ -199,7 +200,82 @@ func TestTranscript_RenderWindowsOffsetInLinesAtTopAndBottom(t *testing.T) {
 	overshoot := tr.render(renderOpts{width: width, height: window, offset: total + 10, cursor: -1, theme: th})
 	assert.Equal(t, top, overshoot, "an offset past the top clamps to the top instead of going empty")
 
-	assert.Equal(t, 0, tr.rowAtLine(width+10, 0), "rowAtLine tracks a rewrap at a different width")
+	assert.Equal(t, 0, tr.rowAtLine(width+10, catNone, 0), "rowAtLine tracks a rewrap at a different width")
+}
+
+func TestRow_Category(t *testing.T) {
+	t.Parallel()
+
+	edited := row{kind: event.KindTool, tool: "write", changes: []tool.Change{{Path: "a.go"}}}
+
+	answer := row{kind: event.KindAgent, role: event.RoleAnswer}
+
+	tests := []struct {
+		name string
+		want filterCategory
+		row  row
+	}{
+		{"a tool row with file changes is an edit", catEdit, edited},
+		{"a shell tool row with no changes is a shell", catShell, row{kind: event.KindTool, tool: "shell"}},
+		{"a read-only tool row is neither", catNone, row{kind: event.KindTool, tool: "read"}},
+		{"a gate row is a gate", catGate, row{kind: event.KindGate}},
+		{"a permission row is a permission", catPermission, row{kind: event.KindPermission}},
+		{"an agent row with the answer role is an answer", catAnswer, answer},
+		{"an agent row with the note role is neither", catNone, row{kind: event.KindAgent, role: event.RoleNote}},
+		{"a user row is neither", catNone, row{kind: event.KindUser}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.row.category())
+		})
+	}
+}
+
+func TestTranscript_VisibleRows_KeepsOnlyOneCategory(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{
+		Kind: event.KindTool, Tool: "write", Text: "wrote a.go", Changes: []tool.Change{{Path: "a.go"}},
+	})
+	tr.append(event.Event{Kind: event.KindTool, Tool: "shell", Text: "ran go test"})
+	tr.append(event.Event{Kind: event.KindGate, Text: "format passed"})
+
+	assert.Equal(t, []int{0}, tr.visibleRows(catEdit))
+	assert.Equal(t, []int{1}, tr.visibleRows(catShell))
+	assert.Equal(t, []int{2}, tr.visibleRows(catGate))
+	assert.Empty(t, tr.visibleRows(catAnswer), "a category with no matching rows keeps none")
+	assert.Equal(t, []int{0, 1, 2}, tr.visibleRows(catNone), "catNone keeps every row")
+}
+
+func TestNextFilterCategory_CyclesAndWrapsBackToAll(t *testing.T) {
+	t.Parallel()
+
+	cat := catNone
+
+	seen := make([]filterCategory, 0, len(filterCategories))
+	for range filterCategories {
+		cat = nextFilterCategory(cat)
+		seen = append(seen, cat)
+	}
+
+	assert.Equal(t, append(filterCategories[1:], catNone), seen,
+		"cycling once through every category returns to catNone (all)")
+}
+
+func TestTranscript_FuzzySearchFindsWordsSubstringWouldMiss(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindTool, Text: "renamed the lease default"})
+
+	assert.Empty(t, tr.search("default lease", catNone),
+		"the words appear out of order, so a literal substring search misses")
+	assert.Equal(t, []int{0}, tr.fuzzySearch("default lease", catNone),
+		"fuzzy search matches every word regardless of order")
 }
 
 func TestFooterHints_DropsLowestPriorityAsWidthShrinks(t *testing.T) {
@@ -789,7 +865,7 @@ func TestThreadHints_NameEnterOnlyWhereItBinds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := footerHints(threadHints(searchState{}, tc.focus), 200)
+			got := footerHints(threadHints(searchState{}, tc.focus, catNone), 200)
 			assert.Contains(t, got, tc.want)
 		})
 	}
@@ -797,7 +873,7 @@ func TestThreadHints_NameEnterOnlyWhereItBinds(t *testing.T) {
 	t.Run("diff pane names no enter", func(t *testing.T) {
 		t.Parallel()
 
-		got := footerHints(threadHints(searchState{}, focusDiff), 200)
+		got := footerHints(threadHints(searchState{}, focusDiff, catNone), 200)
 		assert.NotContains(t, got, "[enter]")
 	})
 }

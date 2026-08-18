@@ -25,6 +25,7 @@ const (
 	screenRoutines
 	screenSchedule
 	screenModels
+	screenSummary
 )
 
 const (
@@ -144,6 +145,11 @@ func (m *Model) popOrClose() {
 	}
 	if m.top() == screenThread && m.thread.search.visible() {
 		m.clearSearch()
+
+		return
+	}
+	if m.top() == screenThread && m.thread.filter != catNone {
+		m.thread.filter = catNone
 
 		return
 	}
@@ -402,6 +408,8 @@ func (m Model) dispatchScreenKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd)
 		return m.updateRoutinesKey(msg, s)
 	case screenSchedule:
 		return m.updateScheduleKey(msg, s)
+	case screenSummary:
+		return m.updateSummaryKey(s)
 	default:
 		return m, nil
 	}
@@ -616,9 +624,9 @@ func (m *Model) appendEvent(e event.Event) {
 	}
 
 	width := m.transcriptWidth()
-	before := tr.lineCount(width)
+	before := tr.lineCount(width, m.thread.filter)
 
 	tr.append(e)
 
-	m.thread.scrollOffset += tr.lineCount(width) - before
+	m.thread.scrollOffset += tr.lineCount(width, m.thread.filter) - before
 }

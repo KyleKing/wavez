@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -30,7 +31,13 @@ const keyCompose = "ctrl+f"
 // threadState is the active thread id, transcript scroll offset, and the
 // modal composer.
 type threadState struct {
-	activeID     string
+	activeID string
+	// filter keeps only rows in this category, or every row when catNone
+	// ("all"). It is cleared on switchThread, alongside cursor and search,
+	// because it names positions in one thread's row list; it survives
+	// leaving Thread view for another screen and coming back to the same
+	// thread, the way search and cursor already do.
+	filter       filterCategory
 	search       searchState
 	input        vimInput
 	scrollOffset int
@@ -174,9 +181,57 @@ func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
 		mm, cmd := m.requestRestore()
 
 		return mm, cmd, true
+	case "c":
+		return m.cycleKindFilter(), nil, true
+	case "s":
+		m.push(screenSummary)
+
+		return m, nil, true
 	default:
 		return m, nil, false
 	}
+}
+
+// cycleKindFilter steps the transcript's kind filter to the next category
+// (edits, shells, gates, permissions, answers, then "all" again), and snaps
+// the cursor onto a visible row when the step just hid the one it was on.
+func (m Model) cycleKindFilter() Model {
+	m.thread.filter = nextFilterCategory(m.thread.filter)
+
+	tr := m.transcripts[m.thread.activeID]
+	if tr == nil {
+		return m
+	}
+
+	m.thread.cursor = snapCursor(tr.visibleRows(m.thread.filter), m.thread.cursor)
+
+	return m.clampCursorVisible(tr)
+}
+
+// snapCursor finds cursor's nearest surviving row in visible (ascending row
+// indices): cursor itself when the filter kept it, else the closest one
+// before it, else the first one after, else -1 when nothing survived. It
+// keeps the cursor answering the same question ("what am I looking at")
+// across a filter change instead of resetting to the bottom every time.
+func snapCursor(visible []int, cursor int) int {
+	if cursor < 0 {
+		return cursor
+	}
+
+	if len(visible) == 0 {
+		return -1
+	}
+
+	i := sort.Search(len(visible), func(i int) bool { return visible[i] >= cursor })
+	if i < len(visible) && visible[i] == cursor {
+		return cursor
+	}
+
+	if i > 0 {
+		return visible[i-1]
+	}
+
+	return visible[0]
 }
 
 // threadPinKey handles the two keys that pin how the next turn runs.
@@ -217,21 +272,32 @@ func (m Model) threadScrollKey(s string) (Model, bool) {
 	return m, true
 }
 
-// moveCursor steps the transcript cursor by delta rows, clamping at both
-// ends. The first move from no cursor lands on the last row rather than
-// applying delta from an assumed position, since that is the row the
-// reader is already looking at while the view is pinned to the bottom.
+// moveCursor steps the transcript cursor by delta rows among those the
+// active kind filter keeps, clamping at both ends. The first move from no
+// cursor lands on the last visible row rather than applying delta from an
+// assumed position, since that is the row the reader is already looking at
+// while the view is pinned to the bottom.
 func (m Model) moveCursor(delta int) Model {
 	tr := m.transcripts[m.thread.activeID]
-	if tr == nil || tr.count() == 0 {
+	if tr == nil {
 		return m
 	}
 
-	if m.thread.cursor < 0 {
-		m.thread.cursor = tr.count() - 1
-	} else {
-		m.thread.cursor = min(max(m.thread.cursor+delta, 0), tr.count()-1)
+	visible := tr.visibleRows(m.thread.filter)
+	if len(visible) == 0 {
+		return m
 	}
+
+	pos := slices.Index(visible, m.thread.cursor)
+
+	switch {
+	case m.thread.cursor < 0, pos < 0:
+		pos = len(visible) - 1
+	default:
+		pos = min(max(pos+delta, 0), len(visible)-1)
+	}
+
+	m.thread.cursor = visible[pos]
 
 	return m.clampCursorVisible(tr)
 }
@@ -260,9 +326,9 @@ func (m Model) transcriptWidth() int {
 func (m Model) clampCursorVisible(tr *transcript) Model {
 	width := m.transcriptWidth()
 	height := m.transcriptHeight()
-	lineCount := tr.lineCount(width)
+	lineCount := tr.lineCount(width, m.thread.filter)
 
-	lo, hi := rowLineSpan(tr, width, m.thread.cursor, lineCount)
+	lo, hi := rowLineSpan(tr, width, m.thread.filter, m.thread.cursor, lineCount)
 	if lo >= hi {
 		return m
 	}
@@ -272,15 +338,15 @@ func (m Model) clampCursorVisible(tr *transcript) Model {
 	return m
 }
 
-// rowLineSpan finds the [lo, hi) rendered-line range row occupies at
-// width. It binary-searches rather than scanning every line, since
+// rowLineSpan finds the [lo, hi) rendered-line range row occupies at width
+// under filter. It binary-searches rather than scanning every line, since
 // rowAtLine reports rows in non-decreasing order as line grows and a
 // transcript can run to hundreds of rows.
 //
 //nolint:gocritic // named returns are forbidden
-func rowLineSpan(tr *transcript, width, row, lineCount int) (int, int) {
-	lo := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, i) >= row })
-	hi := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, i) > row })
+func rowLineSpan(tr *transcript, width int, filter filterCategory, row, lineCount int) (int, int) {
+	lo := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, filter, i) >= row })
+	hi := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, filter, i) > row })
 
 	return lo, hi
 }
@@ -360,6 +426,7 @@ func (m Model) switchThread(delta int) (Model, tea.Cmd) {
 	m.thread.scrollOffset = 0
 	m.thread.cursor = -1
 	m.thread.diffCursor = 0
+	m.thread.filter = catNone
 	m.clearSearch()
 
 	if m.client == nil {
@@ -423,12 +490,12 @@ func (m Model) renderThread() string {
 		return frame(m.width, "thread", []string{m.th.fgMuted.Render("no thread selected")}, keyEsc+" "+labelBack, m.th)
 	}
 
-	title := fmt.Sprintf("%s · %s · %s %s/%s · %s%s",
+	title := fmt.Sprintf("%s · %s · %s %s/%s · %s%s%s",
 		lastSeg(info.Dir), info.Name, m.activeModel(info), tokensK(info.Context), tokensK(info.Window),
-		spend(info.Spend), otherPendingBadge(m.pending, info.ID, m.ascii))
+		spend(info.Spend), filterBadge(m.thread.filter), otherPendingBadge(m.pending, info.ID, m.ascii))
 
 	body := m.threadBody(info)
-	footer := footerHints(threadHints(m.thread.search, m.focus), m.width-boxPad)
+	footer := footerHints(threadHints(m.thread.search, m.focus, m.thread.filter), m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
 }
@@ -527,10 +594,15 @@ func (m Model) threadBody(info api.ThreadInfo) []string {
 
 	tr := m.transcripts[info.ID]
 	if tr != nil {
-		body = append(body, tr.render(renderOpts{
+		rows := tr.render(renderOpts{
 			width: inner, height: m.transcriptHeight(), offset: m.thread.scrollOffset,
-			cursor: m.thread.cursor, theme: m.th, query: m.thread.search.query,
-		})...)
+			cursor: m.thread.cursor, theme: m.th, query: m.thread.search.query, filter: m.thread.filter,
+		})
+		if len(rows) == 0 && m.thread.filter != catNone && tr.count() > 0 {
+			rows = []string{m.th.fgMuted.Render("no " + string(m.thread.filter) + " in this thread")}
+		}
+
+		body = append(body, rows...)
 	}
 
 	sep := strings.Repeat("─", max(inner, 0))
@@ -640,7 +712,7 @@ func changeSummary(tr *transcript, width int) []string {
 }
 
 // threadHintTail is the count of hints threadHints appends after its head.
-const threadHintTail = 9
+const threadHintTail = 12
 
 // threadHints is priority ordered; footerHints drops from the tail. The
 // composer's own keys lead while it holds focus, the way a live search
@@ -649,7 +721,7 @@ const threadHintTail = 9
 // the row under the cursor from the transcript, so the hint names whichever
 // is true of the panel that is actually focused. It binds to nothing on the
 // diff pane, where no hint names it.
-func threadHints(search searchState, focus int) []hint {
+func threadHints(search searchState, focus int, filter filterCategory) []hint {
 	if search.editing {
 		return []hint{{keyEnter, labelApply}, {keyEsc, labelCancel}}
 	}
@@ -673,6 +745,10 @@ func threadHints(search searchState, focus int) []hint {
 	head = append(head, enter...)
 	head = append(head, hint{keyTab, labelPanel}, hint{"/", "search"})
 	back := []hint{{keyEsc, labelHome}}
+
+	if filter != catNone {
+		back = []hint{{keyEsc, "clear filter"}}
+	}
 
 	// A live query puts its keys first: footerHints drops from the tail, and
 	// Esc is the only way back out of the highlight.
@@ -700,8 +776,33 @@ func threadHints(search searchState, focus int) []hint {
 		hint{"u", "undo"},
 		hint{"m", "route"},
 		hint{"t", "think"},
+		hint{"F", "fuzzy"},
+		hint{"c", filterHintLabel(filter)},
+		hint{"s", "summary"},
 	)
 	hints = append(hints, back...)
 
 	return append(hints, hint{"?", labelHelp})
+}
+
+// filterBadge names an active kind filter in the header. A filter that keeps
+// one row type can empty the transcript, so what is hiding the rest belongs
+// where it stays visible rather than in a footer hint the width may drop.
+func filterBadge(filter filterCategory) string {
+	if filter == catNone {
+		return ""
+	}
+
+	return " · " + string(filter) + " only"
+}
+
+// filterHintLabel names what `c` does next: the category it would switch
+// to keeping, or that it would clear back to every row once every category
+// has been cycled through.
+func filterHintLabel(filter filterCategory) string {
+	if filter == catNone {
+		return "filter"
+	}
+
+	return "filter:" + string(filter)
 }

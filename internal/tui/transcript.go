@@ -91,6 +91,102 @@ func defaultExpanded(k event.Kind, r event.Role) bool {
 	return k == event.KindAgent && r == event.RoleAnswer
 }
 
+// toolShell is internal/tools' Shell.Name(), the one tool name the kind
+// filter treats as a shell rather than an edit.
+const toolShell = "shell"
+
+// filterCategory groups a row for Thread view's kind filter and its
+// "what was done" summary. It layers over kind, tool, and role rather than
+// mapping straight from event.Kind: an edit and a shell are both KindTool
+// distinguished by row.tool, and an answer is KindAgent with RoleAnswer.
+// Its zero value, catNone, doubles as "no category" (row.category's zero
+// value) and "no filter applied" (matchesFilter's zero value); this is safe
+// because a row's category is never compared against catNone to mean "show
+// it".
+type filterCategory string
+
+// The categories the kind filter and the summary group rows by, in
+// DESIGN.md's Thread view order.
+const (
+	catNone       filterCategory = ""
+	catEdit       filterCategory = "edits"
+	catShell      filterCategory = "shells"
+	catGate       filterCategory = "gates"
+	catPermission filterCategory = "permissions"
+	catAnswer     filterCategory = "answers"
+)
+
+// filterCategories is catNone (meaning "all") followed by every named
+// category in display order, what cycleKindFilter steps through.
+var filterCategories = []filterCategory{catNone, catEdit, catShell, catGate, catPermission, catAnswer}
+
+// category reports which named category r belongs to, or catNone when it
+// belongs to none of them. A tool row is an edit when it produced file
+// changes rather than by name, since read/search/context/question/hypothesis
+// tool calls never carry Changes and a future read-only tool needs no entry
+// here to stay out of the edits group.
+func (r row) category() filterCategory {
+	switch {
+	case r.kind == event.KindTool && len(r.changes) > 0:
+		return catEdit
+	case r.kind == event.KindTool && r.tool == toolShell:
+		return catShell
+	case r.kind == event.KindGate:
+		return catGate
+	case r.kind == event.KindPermission:
+		return catPermission
+	case r.kind == event.KindAgent && r.role == event.RoleAnswer:
+		return catAnswer
+	default:
+		return catNone
+	}
+}
+
+// matchesFilter reports whether r passes filter, where catNone keeps every
+// row.
+func matchesFilter(r row, filter filterCategory) bool {
+	return filter == catNone || r.category() == filter
+}
+
+// nextFilterCategory steps forward through filterCategories, wrapping from
+// the last named category back to catNone ("all"). A cur not found in the
+// list (impossible in practice, since threadState only ever holds a value
+// from this list) restarts at catNone rather than panicking.
+func nextFilterCategory(cur filterCategory) filterCategory {
+	for i, c := range filterCategories {
+		if c == cur {
+			return filterCategories[(i+1)%len(filterCategories)]
+		}
+	}
+
+	return filterCategories[0]
+}
+
+// visibleRows reports every row index filter keeps, ascending. The row
+// cursor and the "what was done" summary walk this instead of t.rows
+// directly, so a row's category and its filter match are decided in the
+// one place, row.category.
+func (t *transcript) visibleRows(filter filterCategory) []int {
+	if filter == catNone {
+		idx := make([]int, len(t.rows))
+		for i := range t.rows {
+			idx[i] = i
+		}
+
+		return idx
+	}
+
+	var out []int
+
+	for i, r := range t.rows {
+		if r.category() == filter {
+			out = append(out, i)
+		}
+	}
+
+	return out
+}
+
 // count reports how many rows the transcript holds.
 func (t *transcript) count() int {
 	return len(t.rows)
@@ -161,7 +257,9 @@ func (t *transcript) visible(height, offset int) []row {
 // several lines and a row-counted offset would jump the window by an
 // unpredictable amount as rows fold and unfold.
 type renderOpts struct {
-	query  string
+	query string
+	// filter keeps only rows in this category, or every row when catNone.
+	filter filterCategory
 	theme  theme
 	width  int
 	height int
@@ -173,7 +271,7 @@ type renderOpts struct {
 // render returns at most o.height lines, windowed from the bottom by
 // o.offset lines, with the cursor row marked.
 func (t *transcript) render(o renderOpts) []string {
-	lines, _ := t.renderLines(o.width, o.theme, o.query, o.cursor)
+	lines, _ := t.renderLines(o.width, o.theme, o.query, o.cursor, o.filter)
 
 	height := max(o.height, 0)
 
@@ -186,17 +284,18 @@ func (t *transcript) render(o renderOpts) []string {
 	return lines[start:end]
 }
 
-// lineCount reports the transcript's total rendered height at width, which
-// is what bounds a scroll offset once a row can occupy more than one line.
-func (t *transcript) lineCount(width int) int {
-	lines, _ := t.renderLines(width, theme{}, "", -1)
+// lineCount reports the transcript's total rendered height at width under
+// filter, which is what bounds a scroll offset once a row can occupy more
+// than one line.
+func (t *transcript) lineCount(width int, filter filterCategory) int {
+	lines, _ := t.renderLines(width, theme{}, "", -1, filter)
 
 	return len(lines)
 }
 
-// rowAtLine maps a rendered line index to its row index.
-func (t *transcript) rowAtLine(width, line int) int {
-	_, rowOf := t.renderLines(width, theme{}, "", -1)
+// rowAtLine maps a rendered line index to its row index under filter.
+func (t *transcript) rowAtLine(width int, filter filterCategory, line int) int {
+	_, rowOf := t.renderLines(width, theme{}, "", -1, filter)
 	if line < 0 || line >= len(rowOf) {
 		return -1
 	}
@@ -204,20 +303,24 @@ func (t *transcript) rowAtLine(width, line int) int {
 	return rowOf[line]
 }
 
-// renderLines renders every row in order, folded rows to one line and
-// expanded rows wrapped over as many lines as their text needs, and returns
-// the flattened line list alongside a parallel slice naming each line's
-// source row index.
+// renderLines renders every row filter keeps, in order: folded rows to one
+// line and expanded rows wrapped over as many lines as their text needs. It
+// returns the flattened line list alongside a parallel slice naming each
+// line's source row index.
 //
 //nolint:gocritic // named returns are forbidden
 func (t *transcript) renderLines(
-	width int, th theme, query string, cursor int,
+	width int, th theme, query string, cursor int, filter filterCategory,
 ) ([]string, []int) {
 	var lines []string
 
 	var rowOf []int
 
 	for i, r := range t.rows {
+		if !matchesFilter(r, filter) {
+			continue
+		}
+
 		rl := renderRowLines(r, width, th, query, i == cursor)
 		lines = append(lines, rl...)
 
@@ -257,7 +360,7 @@ func renderRowLines(r row, width int, th theme, query string, marked bool) []str
 	if !r.expanded {
 		line := truncate(text, width-indent)
 
-		return []string{prefix + style.Render(label) + " " + highlightMatches(line, query, th.searchHit)}
+		return []string{prefix + style.Render(label) + " " + highlightWords(line, query, th.searchHit)}
 	}
 
 	wrapped := strings.Split(lipgloss.Wrap(text, max(width-indent, 1), ""), "\n")
@@ -265,7 +368,7 @@ func renderRowLines(r row, width int, th theme, query string, marked bool) []str
 	out := make([]string, 0, len(wrapped))
 
 	for i, w := range wrapped {
-		highlighted := highlightMatches(w, query, th.searchHit)
+		highlighted := highlightWords(w, query, th.searchHit)
 		if i == 0 {
 			out = append(out, prefix+style.Render(label)+" "+highlighted)
 

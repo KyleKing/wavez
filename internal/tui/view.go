@@ -56,6 +56,8 @@ func (m Model) renderScreen() string {
 		return m.renderRoutines()
 	case screenSchedule:
 		return m.renderSchedule()
+	case screenSummary:
+		return m.renderSummary()
 	default:
 		return ""
 	}

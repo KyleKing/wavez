@@ -66,29 +66,14 @@ func (m Model) paletteEntries() []paletteEntry {
 }
 
 func filterEntries(entries []paletteEntry, query string) []paletteEntry {
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
+	if strings.TrimSpace(query) == "" {
 		return entries
 	}
-
-	words := strings.Fields(query)
 
 	var out []paletteEntry
 
 	for _, e := range entries {
-		label := strings.ToLower(e.label)
-
-		match := true
-
-		for _, w := range words {
-			if !strings.Contains(label, w) {
-				match = false
-
-				break
-			}
-		}
-
-		if match {
+		if wordsMatch(e.label, query) {
 			out = append(out, e)
 		}
 	}
