@@ -189,7 +189,12 @@ func (c *conn) handle(cmd api.Command) {
 	case api.CmdHello:
 		c.reply(cmd.ID, api.Reply{Kind: api.RepHello, Protocol: api.Protocol})
 	case api.CmdList:
-		threads, err := c.srv.listThreads(cmd.Root)
+		root := cmd.Root
+		if cmd.AllRoots {
+			root = ""
+		}
+
+		threads, err := c.srv.listThreads(root)
 		if err != nil {
 			c.reply(cmd.ID, errorReply(err.Error()))
 

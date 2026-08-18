@@ -42,7 +42,7 @@ func connect(ctx context.Context, client *api.Client, prog *tea.Program) {
 	b := newBridge(ctx, client, prog)
 	prog.Send(clientReadyMsg{c: b})
 
-	refresh(ctx, client, prog)
+	refresh(ctx, client, b, prog)
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
@@ -52,16 +52,20 @@ func connect(ctx context.Context, client *api.Client, prog *tea.Program) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			refresh(ctx, client, prog)
+			refresh(ctx, client, b, prog)
 		}
 	}
 }
 
-func refresh(ctx context.Context, client *api.Client, prog *tea.Program) {
+// refresh polls the fleet-wide readings the daemon has no push equivalent
+// for. The list request honors b's current scope, since a `w` toggle that
+// won a race against this poll would otherwise be undone by it within
+// pollInterval.
+func refresh(ctx context.Context, client *api.Client, b *bridge, prog *tea.Program) {
 	reqCtx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	if reply, err := client.Do(reqCtx, api.Command{Kind: api.CmdList}); err == nil {
+	if reply, err := client.Do(reqCtx, api.Command{Kind: api.CmdList, AllRoots: b.fleet.Load()}); err == nil {
 		prog.Send(reply)
 	}
 	if reply, err := client.Do(reqCtx, api.Command{Kind: api.CmdDiag}); err == nil {

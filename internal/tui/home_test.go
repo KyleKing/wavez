@@ -40,6 +40,86 @@ func sampleThreads() []api.ThreadInfo {
 	}
 }
 
+// fleetThreads spans two roots so fleet-scope tests exercise real grouping:
+// calcipy sorts before wavez alphabetically, and calcipy's own two threads
+// keep the needs-input-first, most-recent ordering within their group.
+func fleetThreads() []api.ThreadInfo {
+	base := fixedNow().Add(-time.Hour)
+
+	return []api.ThreadInfo{
+		{
+			ID: "f1", Name: "fix-lock-timeout", Root: "/dev/calcipy", Step: "editing internal/lease.go",
+			State: event.StateWorking, LastEvent: base.Add(2 * time.Minute),
+		},
+		{
+			ID: "f2", Name: "docs-pass", Root: "/dev/calcipy", Step: "allow? rm -rf .testmondata",
+			State: event.StateNeedsIn, LastEvent: base.Add(40 * time.Second),
+		},
+		{
+			ID: "f3", Name: "add-jj-backend", Root: "/dev/wavez", Step: "gate test 4/7",
+			State: event.StateGating, LastEvent: base.Add(time.Minute),
+		},
+	}
+}
+
+func TestHome_ScopedRenderingHasNoGroupHeaders(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{Dir: "/dev/wavez", NoColor: true}, 100, 30)
+	m = apply(t, m, api.Reply{Kind: api.RepThreads, Threads: fleetThreads()})
+
+	out := m.View().Content
+
+	assert.NotContains(t, out, "calcipy/")
+	assert.NotContains(t, out, "wavez/")
+	assert.Contains(t, out, "wavez", "the title still names the scoped repo")
+}
+
+func TestHome_ScopeTogglesFleetGroupingByRoot(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{Dir: "/dev/wavez", NoColor: true}, 100, 30)
+	m = apply(t, m, api.Reply{Kind: api.RepThreads, Threads: fleetThreads()})
+
+	m = apply(t, m, tea.KeyPressMsg{Code: 'w', Text: "w"})
+	out := m.View().Content
+
+	assert.Contains(t, out, "wavez · /dev ·", "fleet scope is titled by the roots' common parent")
+	assert.Contains(t, out, "calcipy/")
+	assert.Contains(t, out, "wavez/")
+
+	calcHeader := strings.Index(out, "calcipy/")
+	wavezHeader := strings.Index(out, "wavez/")
+	docsPass := strings.Index(out, "docs-pass")
+	fixLock := strings.Index(out, "fix-lock-timeout")
+	addJJ := strings.Index(out, "add-jj-backend")
+
+	assert.Less(t, calcHeader, wavezHeader, "groups sort by root name, calcipy before wavez")
+	assert.Less(t, calcHeader, docsPass)
+	assert.Less(t, calcHeader, fixLock)
+	assert.Less(t, wavezHeader, addJJ)
+	assert.Less(t, docsPass, fixLock, "within a group, needs-input still sorts first")
+}
+
+func TestHome_FilterMatchesRootBasename(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{Dir: "/dev/wavez", NoColor: true}, 100, 30)
+	m = apply(t, m,
+		api.Reply{Kind: api.RepThreads, Threads: fleetThreads()},
+		tea.KeyPressMsg{Code: 'w', Text: "w"},
+		tea.KeyPressMsg{Code: '/', Text: "/"},
+	)
+	m = apply(t, m, tea.KeyPressMsg{Code: 'c', Text: "c"}, tea.KeyPressMsg{Code: 'a', Text: "a"},
+		tea.KeyPressMsg{Code: 'l', Text: "l"}, tea.KeyPressMsg{Code: 'c', Text: "c"})
+
+	out := m.View().Content
+
+	assert.Contains(t, out, "docs-pass")
+	assert.Contains(t, out, "fix-lock-timeout")
+	assert.NotContains(t, out, "add-jj-backend", "filtering by root basename should exclude the other group")
+}
+
 func TestHome_RendersEveryState(t *testing.T) {
 	t.Parallel()
 

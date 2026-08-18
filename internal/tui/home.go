@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -13,7 +15,7 @@ import (
 	"github.com/kyleking/wavez/internal/permission"
 )
 
-// homeState is Home's list cursor, filter, and per-row expansion.
+// homeState is Home's list cursor, filter, per-row expansion, and scope.
 type homeState struct {
 	expanded     map[string]bool
 	filterInput  textinput.Model
@@ -21,6 +23,9 @@ type homeState struct {
 	cursor       int
 	filtering    bool
 	answerActive bool
+	// fleet requests every loaded project's threads instead of just the
+	// launch root's, toggled by `w` without restarting.
+	fleet bool
 }
 
 func newHomeState(th theme) homeState {
@@ -41,7 +46,9 @@ func (m Model) homeRows() []api.ThreadInfo {
 		filtered := rows[:0]
 
 		for i := range rows {
-			if strings.Contains(strings.ToLower(rows[i].Name), q) || strings.Contains(strings.ToLower(rows[i].Dir), q) {
+			if strings.Contains(strings.ToLower(rows[i].Name), q) ||
+				strings.Contains(strings.ToLower(rows[i].Dir), q) ||
+				strings.Contains(strings.ToLower(rootBase(rows[i].Root)), q) {
 				filtered = append(filtered, rows[i])
 			}
 		}
@@ -50,6 +57,13 @@ func (m Model) homeRows() []api.ThreadInfo {
 	}
 
 	sort.SliceStable(rows, func(i, j int) bool {
+		if m.home.fleet {
+			bi, bj := rootBase(rows[i].Root), rootBase(rows[j].Root)
+			if bi != bj {
+				return bi < bj
+			}
+		}
+
 		iWait := rows[i].State == event.StateNeedsIn
 		jWait := rows[j].State == event.StateNeedsIn
 		if iWait != jWait {
@@ -60,6 +74,16 @@ func (m Model) homeRows() []api.ThreadInfo {
 	})
 
 	return rows
+}
+
+// rootBase names the group a fleet row renders under: the launch directory
+// basename DESIGN.md's mockup groups by (`wavez/`, not the full path).
+func rootBase(root string) string {
+	if root == "" {
+		return ""
+	}
+
+	return filepath.Base(root)
 }
 
 func (m Model) pendingFor(threadID string) *api.PendingInfo {
@@ -122,6 +146,8 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 		return m, m.home.filterInput.Focus()
 	case "s":
 		return m.openSchedule()
+	case "w":
+		return m.toggleScope()
 	case "v":
 		if len(rows) > 0 {
 			return m.togglePeek(rows[m.cappedCursor(len(rows))].ID)
@@ -146,6 +172,21 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 	}
 
 	return m, nil
+}
+
+// toggleScope switches Home between the launch root and the whole fleet,
+// re-requesting the list rather than restarting: a per-laptop daemon
+// already serves every loaded project over one socket, so widening scope
+// is just a different list request.
+func (m Model) toggleScope() (Model, tea.Cmd) {
+	m.home.fleet = !m.home.fleet
+	m.home.cursor = 0
+
+	if m.client == nil {
+		return m, nil
+	}
+
+	return m, m.client.setScope(m.home.fleet)
 }
 
 // togglePeek expands or collapses a row. Events only flow for a subscribed
@@ -249,19 +290,21 @@ func (m Model) renderHome() string {
 	}
 
 	title := fmt.Sprintf("wavez · %s · %d threads · %s%s",
-		m.dir, len(m.threads), needsInputBadge(needsInput, m.ascii), diagStrip(m.diag))
+		m.homeScopeLabel(), len(m.threads), needsInputBadge(needsInput, m.ascii), diagStrip(m.diag))
 
 	var body []string
 	body = append(body, m.th.fgMuted.Render(fmt.Sprintf("%-3s%-22s%-28s%-7s%s", "", "thread", "step", "age", "spend")))
 
-	var lastDir string
+	var lastRoot string
 
 	for i := range rows {
 		t := &rows[i]
 
-		if t.Dir != lastDir {
-			body = append(body, m.th.fgEmphasis.Render(t.Dir+"/"))
-			lastDir = t.Dir
+		if m.home.fleet {
+			if rb := rootBase(t.Root); rb != lastRoot {
+				body = append(body, m.th.fgEmphasis.Render(rb+"/"))
+				lastRoot = rb
+			}
 		}
 
 		body = append(body, m.renderHomeRow(*t, i == m.cappedCursor(len(rows))))
@@ -286,6 +329,46 @@ func (m Model) renderHome() string {
 	footer := footerHints(homeHints(m.home.filtering), m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
+}
+
+// homeScopeLabel is the title's location word: the repo name when Home is
+// scoped to the launch root, or the common parent of every listed root
+// in fleet scope, with the home directory shortened to "~".
+func (m Model) homeScopeLabel() string {
+	if !m.home.fleet {
+		return rootBase(m.dir)
+	}
+
+	roots := make([]string, 0, len(m.threads)+1)
+	roots = append(roots, m.dir)
+	for i := range m.threads {
+		if m.threads[i].Root != "" {
+			roots = append(roots, m.threads[i].Root)
+		}
+	}
+
+	return tildeHome(commonParent(roots))
+}
+
+func commonParent(paths []string) string {
+	sep := string(filepath.Separator)
+	parent := filepath.Dir(paths[0])
+	for _, p := range paths[1:] {
+		for parent != sep && !strings.HasPrefix(p+sep, parent+sep) {
+			parent = filepath.Dir(parent)
+		}
+	}
+
+	return parent
+}
+
+func tildeHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || !strings.HasPrefix(path, home) {
+		return path
+	}
+
+	return "~" + strings.TrimPrefix(path, home)
 }
 
 func needsInputBadge(n int, ascii bool) string {
@@ -368,6 +451,7 @@ func homeHints(filtering bool) []hint {
 		{"v", "peek"},
 		{"i", labelInbox},
 		{"s", "schedule"},
+		{"w", "scope"},
 		{"D", "diag"},
 		{"/", "filter"},
 		{"q", labelQuit},

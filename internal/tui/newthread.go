@@ -103,6 +103,8 @@ func (m Model) renderNewThread() string {
 
 	body := []string{
 		"",
+		"in " + rootBase(m.dir),
+		"",
 		"> " + m.form.prompt.View(),
 		"",
 		cycleLabel + m.form.cycle.View(),

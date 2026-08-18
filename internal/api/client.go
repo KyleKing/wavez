@@ -107,7 +107,7 @@ func (c *Client) Do(ctx context.Context, cmd Command) (Reply, error) {
 	if cmd.ID == "" {
 		cmd.ID = "c" + strconv.FormatUint(c.seq.Add(1), 36)
 	}
-	if cmd.Root == "" && c.defaultRoot != "" && rootCarryingCommand(cmd.Kind) {
+	if cmd.Root == "" && c.defaultRoot != "" && !cmd.AllRoots && rootCarryingCommand(cmd.Kind) {
 		cmd.Root = c.defaultRoot
 	}
 

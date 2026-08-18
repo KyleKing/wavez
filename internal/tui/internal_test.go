@@ -303,6 +303,7 @@ type fakeClient struct {
 	canceled    []string
 	models      []api.Command
 	subscribed  []string
+	scopes      []bool
 	listed      int
 	resets      int
 }
@@ -384,6 +385,12 @@ func (f *fakeClient) route(threadID string, override router.Choice) tea.Cmd {
 }
 
 func (*fakeClient) schedule() tea.Cmd { return nil }
+
+func (f *fakeClient) setScope(fleet bool) tea.Cmd {
+	f.scopes = append(f.scopes, fleet)
+
+	return nil
+}
 
 func (f *fakeClient) cancel(threadID string) tea.Cmd {
 	f.canceled = append(f.canceled, threadID)
@@ -823,6 +830,41 @@ func TestHome_PeekSubscribesToAnUnvisitedThread(t *testing.T) {
 	if !m.home.expanded["t1"] {
 		t.Error("third press should leave the row expanded")
 	}
+}
+
+func TestHomeKey_ScopeTogglesFleetAndRequestsAnUnscopedList(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	m := homeFixture(t, fc, nil, nil)
+
+	m = pressKey(t, m, 'w')
+	assert.True(t, m.home.fleet)
+	require.Len(t, fc.scopes, 1)
+	assert.True(t, fc.scopes[0], "toggling to fleet scope should ask the client for every root")
+
+	m = pressKey(t, m, 'w')
+	assert.False(t, m.home.fleet)
+	require.Len(t, fc.scopes, 2)
+	assert.False(t, fc.scopes[1], "toggling back should ask the client to scope again")
+}
+
+// TestHome_OpenThreadWorksForAFleetRowFromAnotherRoot covers the fleet
+// lane's routing claim for Home: a row from a root other than the launch
+// root subscribes and opens the same as any other, since thread ids are
+// globally unique and no command here carries a root to filter by.
+func TestHome_OpenThreadWorksForAFleetRowFromAnotherRoot(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	threads := []api.ThreadInfo{{ID: "other-root-thread", Name: "flaky-ci", Root: "/repo/yak-shears"}}
+	m := homeFixture(t, fc, threads, nil)
+
+	m, _ = m.updateHomeKey(keyMsg("enter"), keyEnter)
+
+	require.Len(t, fc.subscribed, 1)
+	assert.Equal(t, "other-root-thread", fc.subscribed[0])
+	assert.Equal(t, screenThread, m.top())
 }
 
 func TestModelScreen_EscClosesOverlaysBeforeLeavingTheScreen(t *testing.T) {

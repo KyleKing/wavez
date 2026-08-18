@@ -113,6 +113,11 @@ type Command struct {
 	// discard, since destroying uncommitted work without asking is worse
 	// than leaving it.
 	Confirm bool `json:"confirm,omitempty"`
+	// AllRoots asks list for every loaded project's threads, overriding
+	// both Root and the client's own default root. A daemon now serves
+	// several projects over one socket, so this is the fleet scope's way
+	// of opting out of a client's single-project default.
+	AllRoots bool `json:"all_roots,omitempty"`
 }
 
 // ReplyKind names a message from the daemon.

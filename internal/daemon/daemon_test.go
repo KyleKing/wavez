@@ -163,17 +163,7 @@ func TestProjects_LoaderRoutesByRoot(t *testing.T) {
 		t.Fatalf("two projects issued the same thread id %q", threadA.Thread.ID)
 	}
 
-	cl.send(api.Command{ID: "listAll", Kind: api.CmdList})
-	all := cl.recvFor("listAll")
-	if len(all.Threads) != 2 {
-		t.Fatalf("list with no root filter = %d threads, want 2", len(all.Threads))
-	}
-
-	cl.send(api.Command{ID: "listA", Kind: api.CmdList, Root: rootA})
-	onlyA := cl.recvFor("listA")
-	if len(onlyA.Threads) != 1 || onlyA.Threads[0].ID != threadA.Thread.ID {
-		t.Fatalf("list filtered by root A = %+v, want only %q", onlyA.Threads, threadA.Thread.ID)
-	}
+	assertListScoping(t, cl, rootA, threadA)
 
 	// A command naming only the thread id, never the root, must still reach
 	// the right project: threadB's id resolves through the daemon's own
@@ -189,6 +179,33 @@ func TestProjects_LoaderRoutesByRoot(t *testing.T) {
 	mu.Unlock()
 	if len(gotLoads) != 2 {
 		t.Fatalf("loader ran %d time(s), want exactly 2 (one per root, cached after)", len(gotLoads))
+	}
+}
+
+// assertListScoping covers CmdList's three ways of naming what to return:
+// no root lists every loaded project, an explicit root filters to it, and
+// AllRoots overrides a Root the caller also set, which is what lets a
+// client with a default root ask for the whole fleet without clearing it
+// first.
+func assertListScoping(t *testing.T, cl *client, rootA string, threadA api.Reply) {
+	t.Helper()
+
+	cl.send(api.Command{ID: "listAll", Kind: api.CmdList})
+	all := cl.recvFor("listAll")
+	if len(all.Threads) != 2 {
+		t.Fatalf("list with no root filter = %d threads, want 2", len(all.Threads))
+	}
+
+	cl.send(api.Command{ID: "listA", Kind: api.CmdList, Root: rootA})
+	onlyA := cl.recvFor("listA")
+	if len(onlyA.Threads) != 1 || onlyA.Threads[0].ID != threadA.Thread.ID {
+		t.Fatalf("list filtered by root A = %+v, want only %q", onlyA.Threads, threadA.Thread.ID)
+	}
+
+	cl.send(api.Command{ID: "listAllRoots", Kind: api.CmdList, Root: rootA, AllRoots: true})
+	viaAllRoots := cl.recvFor("listAllRoots")
+	if len(viaAllRoots.Threads) != 2 {
+		t.Fatalf("list with AllRoots and a Root set = %d threads, want 2", len(viaAllRoots.Threads))
 	}
 }
 

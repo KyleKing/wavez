@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -36,6 +37,10 @@ type threadClient interface {
 // machineClient is the daemonClient half about the machine and the project:
 // the schedule, routines, diagnostics, and model management.
 type machineClient interface {
+	// setScope switches Home's list request between the launch root
+	// (fleet false) and the whole fleet (fleet true), and issues the new
+	// request immediately rather than waiting for the next poll.
+	setScope(fleet bool) tea.Cmd
 	schedule() tea.Cmd
 	routines() tea.Cmd
 	runRoutine(name string) tea.Cmd
@@ -54,6 +59,7 @@ const flushInterval = 16 * time.Millisecond
 type bridge struct {
 	client *api.Client
 	prog   *tea.Program
+	fleet  atomic.Bool
 }
 
 // newBridge starts forwarding c's pushed replies into prog and returns a
@@ -92,6 +98,30 @@ func (b *bridge) forward(ctx context.Context) {
 			b.prog.Send(batchMsg(buf))
 			buf = nil
 		}
+	}
+}
+
+// setScope stores fleet for both this call's own list request and every
+// poll refresh() issues afterward, since a poll that kept asking for the
+// old scope would silently undo the toggle within pollInterval.
+func (b *bridge) setScope(fleet bool) tea.Cmd {
+	b.fleet.Store(fleet)
+
+	return b.list()
+}
+
+// list issues a list request for whichever scope setScope last stored.
+func (b *bridge) list() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdList, AllRoots: b.fleet.Load()})
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
 	}
 }
 
