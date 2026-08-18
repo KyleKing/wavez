@@ -354,8 +354,12 @@ func commonParent(paths []string) string {
 	sep := string(filepath.Separator)
 	parent := filepath.Dir(paths[0])
 	for _, p := range paths[1:] {
-		for parent != sep && !strings.HasPrefix(p+sep, parent+sep) {
-			parent = filepath.Dir(parent)
+		for !strings.HasPrefix(p+sep, parent+sep) {
+			up := filepath.Dir(parent)
+			if up == parent {
+				return parent
+			}
+			parent = up
 		}
 	}
 

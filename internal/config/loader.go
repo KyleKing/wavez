@@ -44,6 +44,7 @@ type pklConfig struct {
 	AstGrepRules     []string              `pkl:"astGrepRules"`
 	DeadcodeAllow    []string              `pkl:"deadcodeAllow"`
 	Cycles           []pklCycle            `pkl:"cycles"`
+	Links            []pklLink             `pkl:"links"`
 	PreToolUseHook   []string              `pkl:"preToolUseHook"`
 	PostToolUseHook  []string              `pkl:"postToolUseHook"`
 	AdmissionRoom    float64               `pkl:"admissionHeadroom"`
@@ -70,6 +71,22 @@ type pklPhase struct {
 	Tools       []string `pkl:"tools"`
 	MaxAttempts int      `pkl:"maxAttempts"`
 	Gated       bool     `pkl:"gated"`
+}
+
+// pklLink mirrors the LinkPattern class in pkl/Wavez.pkl.
+type pklLink struct {
+	Pattern string `pkl:"pattern"`
+	URL     string `pkl:"url"`
+}
+
+// toLinkPatterns maps the evaluated pkl shape onto the config package's own.
+func toLinkPatterns(in []pklLink) []LinkPattern {
+	out := make([]LinkPattern, 0, len(in))
+	for _, l := range in {
+		out = append(out, LinkPattern(l))
+	}
+
+	return out
 }
 
 // toSpecs maps the evaluated pkl shape onto the cycle package's own.
@@ -253,6 +270,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.AstGrepRules = p.AstGrepRules
 	cfg.DeadcodeAllow = p.DeadcodeAllow
 	cfg.Cycles = toSpecs(p.Cycles)
+	cfg.Links = toLinkPatterns(p.Links)
 	cfg.PreToolUseHook = p.PreToolUseHook
 	cfg.PostToolUseHook = p.PostToolUseHook
 	cfg.Routines = routineDefinitions(p.Routines)

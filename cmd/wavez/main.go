@@ -25,6 +25,7 @@ import (
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/lease"
+	"github.com/kyleking/wavez/internal/link"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/permission"
@@ -165,7 +166,13 @@ func launchTUI(ctx context.Context, opt options) error {
 		}
 	}()
 
-	if err := tui.Run(ctx, client, tui.Options{Dir: root, NoColor: os.Getenv("NO_COLOR") != ""}); err != nil {
+	links, err := link.LoadAll(ctx, root)
+	if err != nil {
+		return fmt.Errorf("loading link patterns: %w", err)
+	}
+
+	opts := tui.Options{Dir: root, Links: links, NoColor: os.Getenv("NO_COLOR") != ""}
+	if err := tui.Run(ctx, client, opts); err != nil {
 		return fmt.Errorf("running the interface: %w", err)
 	}
 
@@ -489,6 +496,30 @@ func (stdinAsker) Ask(_ context.Context, question string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
+// linkifyText renders text with every identifier that matches repoLinks or
+// the per-laptop link patterns as a markdown link. An error loading the
+// per-laptop file (missing is not an error; a malformed one is) or an
+// invalid pattern anywhere leaves text unchanged and names the problem on
+// stderr, since a headless run's stdout is a result other programs parse
+// and must not carry a load failure in its place.
+func linkifyText(repoLinks []config.LinkPattern, text string) string {
+	userLinks, err := link.LoadUser()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wavez: loading link patterns: %v\n", err)
+
+		return text
+	}
+
+	table, err := link.Compile(append(link.FromConfig(repoLinks), userLinks...))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wavez: loading link patterns: %v\n", err)
+
+		return text
+	}
+
+	return table.Markdown(text)
+}
+
 func finalText(th *thread.Thread) string {
 	history := th.History()
 	for i := len(history) - 1; i >= 0; i-- {
@@ -590,14 +621,16 @@ func expandMentions(ctx context.Context, a *app.App, prompt string) (string, err
 }
 
 // reportRun prints one run's outcome, as a JSON object on stdout under
-// -json and as the result text plus a human summary on stderr otherwise.
+// -json and as the result text plus a human summary on stderr otherwise. The
+// JSON result carries the raw text unchanged; text mode renders any matched
+// identifier as a markdown link, per DESIGN.md's Thread view section.
 func reportRun(th *thread.Thread, a *app.App, outcome agent.Outcome, opt options, root string) error {
 	if opt.jsonOut {
 		return writeJSON(os.Stdout, newRunResult(th.ID(), finalText(th), outcome,
 			relStrayed(a.Scope.Strayed(), root)))
 	}
 
-	fmt.Println(finalText(th))
+	fmt.Println(linkifyText(a.Config.Links, finalText(th)))
 	fmt.Fprintf(os.Stderr, "\nstop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f checkpoint=%s\n",
 		outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls,
 		outcome.HostedSpendUSD, outcome.Checkpoint)

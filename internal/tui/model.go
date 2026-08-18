@@ -10,6 +10,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/link"
 	"github.com/kyleking/wavez/internal/snippet"
 )
 
@@ -38,6 +39,7 @@ const (
 type Options struct {
 	Now     func() time.Time
 	Dir     string
+	Links   link.Table
 	NoColor bool
 }
 
@@ -52,10 +54,12 @@ type Model struct {
 	now         func() time.Time
 	dir         string
 	status      string
+	toast       toastState
 	threads     []api.ThreadInfo
 	routines    []api.RoutineInfo
 	stack       []screenKind
 	pending     []api.PendingInfo
+	links       link.Table
 	th          theme
 	restore     restoreState
 	form        threadForm
@@ -103,6 +107,7 @@ func New(opts Options) Model {
 		inbox:       newInboxState(th),
 		models:      newModelsState(th),
 		palette:     newPaletteState(th),
+		toast:       newToastState(),
 	}
 
 	snippets, err := snippet.LoadAll(opts.Dir)
@@ -111,6 +116,7 @@ func New(opts Options) Model {
 	}
 
 	m.snippets = snippets
+	m.links = opts.Links
 
 	return m
 }
@@ -224,19 +230,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if m.toast.current != "" {
+			m.dismissToast()
+
+			mm, keyCmd := m.handleKey(msg)
+			mm, tickCmd := mm.advanceToast()
+
+			return mm, tea.Batch(keyCmd, tickCmd)
+		}
+
 		return m.handleKey(msg)
+
+	case toastTickMsg:
+		if msg.gen == m.toast.gen {
+			m.toast.current = ""
+
+			return m.advanceToast()
+		}
+
+		return m, nil
 
 	case api.Reply:
 		m.applyReply(msg)
 
-		return m, nil
+		return m.advanceToast()
 
 	case batchMsg:
 		for i := range msg {
 			m.applyReply(msg[i])
 		}
 
-		return m, nil
+		return m.advanceToast()
 
 	case scheduleTickMsg:
 		return m.refreshSchedule()
@@ -513,6 +537,8 @@ func (m *Model) replaceThreads(next []api.ThreadInfo) {
 		if prev, ok := m.threadByID(next[i].ID); ok {
 			m.notePinnedFailure(prev, next[i])
 		}
+
+		m.noteThreadState(next[i].ID, threadLabel(next[i], m.home.fleet), next[i].State, next[i].Step)
 	}
 
 	m.threads = next
@@ -589,6 +615,8 @@ func (m *Model) threadByID(id string) (api.ThreadInfo, bool) {
 }
 
 func (m *Model) upsertThread(info api.ThreadInfo) {
+	m.noteThreadState(info.ID, threadLabel(info, m.home.fleet), info.State, info.Step)
+
 	for i := range m.threads {
 		if m.threads[i].ID == info.ID {
 			m.notePinnedFailure(m.threads[i], info)
@@ -626,6 +654,15 @@ func (m *Model) notePinnedFailure(prev, next api.ThreadInfo) {
 // down as the transcript grows underneath it; scrollOffset == 0 already
 // keeps the window pinned to the bottom without any adjustment.
 func (m *Model) appendEvent(e event.Event) {
+	if e.Kind == event.KindState {
+		label, step := e.ThreadID, ""
+		if t, ok := m.threadByID(e.ThreadID); ok {
+			label, step = threadLabel(t, m.home.fleet), t.Step
+		}
+
+		m.noteThreadState(e.ThreadID, label, e.State, step)
+	}
+
 	tr := m.transcripts[e.ThreadID]
 	if tr == nil {
 		tr = &transcript{}

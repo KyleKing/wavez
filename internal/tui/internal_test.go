@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/link"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/tool"
@@ -123,11 +125,53 @@ func TestTranscript_RenderExpandsAnswerAndFoldsNote(t *testing.T) {
 
 	const width = 40
 
-	answerLines := renderRowLines(tr.rows[0], width, th, "", false)
-	noteLines := renderRowLines(tr.rows[1], width, th, "", false)
+	answerLines := renderRowLines(tr.rows[0], width, th, "", false, link.Table{})
+	noteLines := renderRowLines(tr.rows[1], width, th, "", false, link.Table{})
 
 	assert.Greater(t, len(answerLines), 1, "an expanded answer wraps across multiple lines")
 	assert.Len(t, noteLines, 1, "a folded note stays one line")
+}
+
+func TestTranscript_LinkedIdentifierDoesNotWidenTheWrap(t *testing.T) {
+	t.Parallel()
+
+	th := newTheme(true)
+
+	tbl, err := link.Compile([]link.Source{
+		{Pattern: `#(\d+)`, URL: "https://github.com/kyleking/wavez/pull/$1"},
+	})
+	require.NoError(t, err)
+
+	text := "please take a look at #123 when you have a minute to review it fully"
+
+	for _, width := range []int{20, 30, 40, 60} {
+		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
+			t.Parallel()
+
+			trUnlinked := &transcript{}
+			trUnlinked.append(event.Event{Kind: event.KindAgent, Text: text})
+			trUnlinked.append(event.Event{Kind: event.KindAgent, Role: event.RoleAnswer})
+
+			trLinked := &transcript{}
+			trLinked.append(event.Event{Kind: event.KindAgent, Text: text})
+			trLinked.append(event.Event{Kind: event.KindAgent, Role: event.RoleAnswer})
+
+			unlinkedLines := renderRowLines(trUnlinked.rows[0], width, th, "", false, link.Table{})
+			linkedLines := renderRowLines(trLinked.rows[0], width, th, "", false, tbl)
+
+			require.Len(t, linkedLines, len(unlinkedLines),
+				"a hyperlink escape sequence must not count toward the wrap width")
+
+			for i, line := range linkedLines {
+				assert.LessOrEqual(t, lipgloss.Width(line), width,
+					"linked line %d exceeds the render width", i)
+			}
+
+			joined := strings.Join(linkedLines, "")
+			assert.Contains(t, joined, "\x1b]8;;https://github.com/kyleking/wavez/pull/123\x1b\\",
+				"the identifier should render as an OSC 8 hyperlink")
+		})
+	}
 }
 
 func TestTranscript_LineCountChangesWithToggle(t *testing.T) {

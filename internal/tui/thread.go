@@ -597,6 +597,7 @@ func (m Model) threadBody(info api.ThreadInfo) []string {
 		rows := tr.render(renderOpts{
 			width: inner, height: m.transcriptHeight(), offset: m.thread.scrollOffset,
 			cursor: m.thread.cursor, theme: m.th, query: m.thread.search.query, filter: m.thread.filter,
+			links: m.links,
 		})
 		if len(rows) == 0 && m.thread.filter != catNone && tr.count() > 0 {
 			rows = []string{m.th.fgMuted.Render("no " + string(m.thread.filter) + " in this thread")}

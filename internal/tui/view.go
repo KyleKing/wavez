@@ -35,7 +35,12 @@ func (m Model) render() string {
 		return m.renderCompose()
 	}
 
-	return m.renderScreen()
+	out := m.renderScreen()
+	if m.toast.current != "" {
+		out = m.applyToast(out)
+	}
+
+	return out
 }
 
 func (m Model) renderScreen() string {

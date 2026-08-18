@@ -120,6 +120,48 @@ hookTimeoutMs = 250
 	}
 }
 
+func TestLoad_LinksParsePatternsInOrder(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, config.FileName), `
+amends ".wavez/Wavez.pkl"
+
+links {
+  new LinkPattern { pattern = "#(\\d+)"; url = "https://github.com/kyleking/wavez/pull/$1" }
+  new LinkPattern { pattern = "\\b(ENG-\\d+)\\b"; url = "https://linear.app/team/issue/$1" }
+}
+`)
+
+	loader, err := config.NewLoader(context.Background())
+	if err != nil {
+		t.Fatalf("NewLoader: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := loader.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+
+	cfg, _, err := loader.Load(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := []config.LinkPattern{
+		{Pattern: `#(\d+)`, URL: "https://github.com/kyleking/wavez/pull/$1"},
+		{Pattern: `\b(ENG-\d+)\b`, URL: "https://linear.app/team/issue/$1"},
+	}
+	if len(cfg.Links) != len(want) {
+		t.Fatalf("Links = %+v, want %+v", cfg.Links, want)
+	}
+	for i, w := range want {
+		if cfg.Links[i] != w {
+			t.Errorf("Links[%d] = %+v, want %+v", i, cfg.Links[i], w)
+		}
+	}
+}
+
 func TestLoad_WithExtraAppendsToContext(t *testing.T) {
 	t.Parallel()
 

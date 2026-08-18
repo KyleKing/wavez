@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kyleking/wavez/internal/api"
+	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/tui"
 )
 
@@ -128,6 +129,17 @@ func inputScreens() []inputScreen {
 			m := apply(t, newSized(t, opts, w, h), api.Reply{Kind: api.RepThreads, Threads: sampleThreads()})
 
 			return press(t, m, ':')
+		}},
+		{name: "toast_active", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
+			t.Helper()
+
+			working := api.ThreadInfo{ID: "t2", Name: "docs-pass", Dir: "calcipy", State: event.StateWorking}
+			needsInput := working
+			needsInput.State = event.StateNeedsIn
+
+			m := apply(t, newSized(t, opts, w, h), api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{working}})
+
+			return apply(t, m, api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{needsInput}})
 		}},
 		{name: "thread", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
 			t.Helper()

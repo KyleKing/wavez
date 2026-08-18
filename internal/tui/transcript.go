@@ -6,6 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/link"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -257,21 +258,20 @@ func (t *transcript) visible(height, offset int) []row {
 // several lines and a row-counted offset would jump the window by an
 // unpredictable amount as rows fold and unfold.
 type renderOpts struct {
-	query string
-	// filter keeps only rows in this category, or every row when catNone.
+	query  string
 	filter filterCategory
+	links  link.Table
 	theme  theme
 	width  int
 	height int
 	offset int
-	// cursor is the row index under the cursor, or -1 for none.
 	cursor int
 }
 
 // render returns at most o.height lines, windowed from the bottom by
 // o.offset lines, with the cursor row marked.
 func (t *transcript) render(o renderOpts) []string {
-	lines, _ := t.renderLines(o.width, o.theme, o.query, o.cursor, o.filter)
+	lines, _ := t.renderLines(o.width, o.theme, o.query, o.cursor, o.filter, o.links)
 
 	height := max(o.height, 0)
 
@@ -288,14 +288,14 @@ func (t *transcript) render(o renderOpts) []string {
 // filter, which is what bounds a scroll offset once a row can occupy more
 // than one line.
 func (t *transcript) lineCount(width int, filter filterCategory) int {
-	lines, _ := t.renderLines(width, theme{}, "", -1, filter)
+	lines, _ := t.renderLines(width, theme{}, "", -1, filter, link.Table{})
 
 	return len(lines)
 }
 
 // rowAtLine maps a rendered line index to its row index under filter.
 func (t *transcript) rowAtLine(width int, filter filterCategory, line int) int {
-	_, rowOf := t.renderLines(width, theme{}, "", -1, filter)
+	_, rowOf := t.renderLines(width, theme{}, "", -1, filter, link.Table{})
 	if line < 0 || line >= len(rowOf) {
 		return -1
 	}
@@ -310,7 +310,7 @@ func (t *transcript) rowAtLine(width int, filter filterCategory, line int) int {
 //
 //nolint:gocritic // named returns are forbidden
 func (t *transcript) renderLines(
-	width int, th theme, query string, cursor int, filter filterCategory,
+	width int, th theme, query string, cursor int, filter filterCategory, links link.Table,
 ) ([]string, []int) {
 	var lines []string
 
@@ -321,7 +321,7 @@ func (t *transcript) renderLines(
 			continue
 		}
 
-		rl := renderRowLines(r, width, th, query, i == cursor)
+		rl := renderRowLines(r, width, th, query, i == cursor, links)
 		lines = append(lines, rl...)
 
 		for range rl {
@@ -337,7 +337,7 @@ func (t *transcript) renderLines(
 // ellipsis affordance when content was cut, so a folded row that has more
 // to read looks different from one that does not; expanded wraps the full
 // text at width instead of cutting it.
-func renderRowLines(r row, width int, th theme, query string, marked bool) []string {
+func renderRowLines(r row, width int, th theme, query string, marked bool, links link.Table) []string {
 	label, style := rowLabel(r.kind, th)
 
 	switch r.role {
@@ -356,6 +356,9 @@ func renderRowLines(r row, width int, th theme, query string, marked bool) []str
 	pad := strings.Repeat(" ", max(indent, 0))
 
 	text := rowText(r)
+	if r.kind == event.KindUser || r.kind == event.KindAgent {
+		text = links.Linkify(text)
+	}
 
 	if !r.expanded {
 		line := truncate(text, width-indent)

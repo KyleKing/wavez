@@ -204,3 +204,18 @@ class Cycle {
 
 /// Cycles this project can run, beside the built-in fix cycle.
 cycles: Listing<Cycle> = new Listing {}
+
+/// One identifier-linking rule: text matching `pattern` renders as a
+/// hyperlink to `url`, which may reference the pattern's capture groups with
+/// Go `regexp.Expand` syntax (`$1`).
+class LinkPattern {
+  pattern: String
+  url: String
+}
+
+/// PR numbers, issue keys, and ticket ids this project links in the
+/// transcript and in `-p` output. Repo entries take precedence over the
+/// per-laptop user config on a clash; a pattern that fails to compile as a
+/// Go regexp fails the config load.
+/// Example: new LinkPattern { pattern = "#(\\d+)"; url = "https://github.com/kyleking/wavez/pull/$1" }
+links: Listing<LinkPattern> = new Listing {}

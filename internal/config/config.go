@@ -81,6 +81,11 @@ type Config struct {
 	Cycles        []cycle.Spec
 	AstGrepRules  []string
 	DeadcodeAllow []string
+	// Links are this project's identifier-to-URL patterns (PR numbers, issue
+	// keys, ticket ids), matched against transcript and -p output text and
+	// rendered as hyperlinks. Entries here take precedence over the per-laptop
+	// user config on a clash.
+	Links []LinkPattern
 	// PreToolUseHook and PostToolUseHook are argv slices, program first,
 	// executed directly rather than through a shell. Empty means no hook, and
 	// no hook process.
@@ -103,6 +108,14 @@ type Config struct {
 	LocalPort int
 	// LocalStartTimeout bounds one llama-server start attempt.
 	LocalStartTimeout time.Duration
+}
+
+// LinkPattern is one identifier-linking rule: text matching Pattern renders
+// as a link to URL, which may reference the pattern's capture groups with
+// Go regexp.Expand syntax ("$1").
+type LinkPattern struct {
+	Pattern string
+	URL     string
 }
 
 // Defaults returns the Config a project with no ".wavez.pkl" gets: every
