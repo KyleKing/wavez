@@ -716,7 +716,7 @@ done when its condition holds, and nothing here promises a release number.
 
 Ordered by what unblocks daily use soonest, from the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood rows. Each names what closes it.
 
-1. The owner's asks now in the design: idle toast and push, progress line and estimate (after the `progress-estimate` spike), auto-linked identifiers, parked-work inbox
+1. The progress line and estimate, after the `progress-estimate` spike. The other owner's asks (idle toast, auto-linked identifiers, parked-work inbox) shipped; the mobile push half of the toast is M4
 2. Probe the M4 Pro (steps in the audit) and re-run the five-task edit harness against `localBaseURL`, which decides whether local writing is a property of 8B models or of local inference
 3. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
 4. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
@@ -777,6 +777,8 @@ No:
 - Cycles: how to detect that two experiments are independent enough to run concurrently, beyond "neither writes the tree"
 
 - Home: the fleet title is the common parent of the listed roots, which is right for a `~/dev` layout and wrong for roots spread across the disk (it degrades to `/`). Whether `scan_paths` should name the fleet label instead is unanswered
+- Schedule: a parked lane shows the state word (`needs input`, `waiting to resume`) and not the mockup's `input 40s`, so how long a thread has sat parked is not yet on the lane
+- Links: the transcript flattens a row to one line and has no code-fence notion, so identifiers inside code get linked too. Whether that is wrong enough to track fences is unanswered
 - Router heuristic: fixed rules (file count, line count, prior failure) or learned from usage
 - Intent edits: hole-fill correctness with retry-against-gates and hosted escalation, and whether `qwen2.5-coder` infill beats chat-style fill on qwen3:8b
 - Monorepo per-package test commands in M1 or later

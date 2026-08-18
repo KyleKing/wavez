@@ -344,3 +344,26 @@ the fleet title printed the raw launch path, so it now prints the common
 parent of the listed roots with `~` for home, which is right for a `~/dev`
 layout and degrades to `/` for roots spread across the disk.
 
+## 2026-08-18, toast and links in a PTY
+
+Toast: a `wavezd` with no model configured, a thread created from a
+throwaway client, the TUI on Home under tmux. The thread went `working`,
+`responding`, `failed`, and the footer rule read `✖ say-hi failed` for four
+seconds before the hints came back. The first capture read
+`toast-repo/say-hi`, root-qualified outside fleet scope where Home shows the
+bare name, and that is fixed. Not driven: a real `needs_input` transition,
+which needs a model. The unit tests cover it.
+
+Links: a temp repo whose `.wavez.pkl` maps `#(\d+)` to a pull URL, a prompt
+`discuss #123 and ENG-456 please`. `tmux capture-pane -p -e` through `cat -v`
+showed `^[]8;;https://github.com/kyleking/wavez/pull/123^[\#123^[]8;;^[\` on
+the user row and again on the agent row that echoed it, `ENG-456` unlinked
+because no pattern named it, and the wrap width unchanged.
+
+Parking has no PTY run: reaching a Broker prompt needs a model turn. The
+fake-loop harness case (`TestSchedule_ParkedThreadFreesAdmissionAndReadmitsOnAnswer`)
+is the proof so far. Building it surfaced a real defect: `PermissionGate.Ask`
+read `req.ThreadID`, which nothing sets, so every permission wait was keyed
+to an empty thread id and only worked because the lookup was cosmetic. It
+reads the thread from the context now, the way `QuestionAsker` already did.
+
