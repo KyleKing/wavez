@@ -63,6 +63,7 @@ func TestFooterHints_DropsLowestPriorityAsWidthShrinks(t *testing.T) {
 }
 
 type fakeClient struct {
+	canceled []string
 	answered []answered
 	diffed   []string
 	created  []created
@@ -116,6 +117,14 @@ func (f *fakeClient) think(threadID string, thinking *bool) tea.Cmd {
 
 func (f *fakeClient) route(threadID string, override router.Choice) tea.Cmd {
 	f.routes = append(f.routes, routeCall{threadID: threadID, override: override})
+
+	return nil
+}
+
+func (*fakeClient) schedule() tea.Cmd { return nil }
+
+func (f *fakeClient) cancel(threadID string) tea.Cmd {
+	f.canceled = append(f.canceled, threadID)
 
 	return nil
 }

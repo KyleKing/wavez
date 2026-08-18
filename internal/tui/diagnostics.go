@@ -50,6 +50,7 @@ func (m Model) renderDiagnostics() string {
 		localLine,
 		hostedLine,
 		fmt.Sprintf("gates queue %d  runs %d  fail %d", d.GateQueue, d.GateRuns, d.GateFailures),
+		fmt.Sprintf("leases %d held  %d waiting", d.LeasesHeld, d.LeasesWaiting),
 		fmt.Sprintf("threads %d  needs input %d", d.Threads, d.NeedsInput),
 		fmt.Sprintf("tools %d calls  %d malformed", d.ToolCalls, d.Malformed),
 	}

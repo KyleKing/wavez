@@ -8,4 +8,4 @@
 [1m│ [m[1myak-shears/[m                                                                 [1m │[m
 [1m│ [m    x flaky-ci             go test failed              1h     $0.00         [1m │[m
 [1m│ [m    ok release-notes        done                        2h     $0.00        [1m │[m
-[1m└ [enter]open [n]new [v]peek [i]inbox [D]diag [/]filter [q]quit [?]help ───────┘[m
+[1m└ [enter]open [n]new [v]peek [i]inbox [s]schedule [D]diag [/]filter [q]quit ───┘[m

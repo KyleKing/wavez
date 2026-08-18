@@ -46,6 +46,8 @@ func (m Model) currentHints() []hint {
 		return []hint{{keyEnter, "answer"}, {"o", labelOpen}, {keyEsc, labelBack}}
 	case screenDiagnostics:
 		return diagnosticsHints()
+	case screenSchedule:
+		return scheduleHints(m.sched.leases)
 	default:
 		return nil
 	}

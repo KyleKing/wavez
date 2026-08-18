@@ -22,6 +22,7 @@ const (
 	screenInbox
 	screenDiagnostics
 	screenNewThread
+	screenSchedule
 )
 
 const (
@@ -56,6 +57,8 @@ type Model struct {
 	restore     restoreState
 	inbox       inboxState
 	home        homeState
+	sched       scheduleState
+	schedule    api.Schedule
 	diag        api.Diagnostics
 	width       int
 	focus       int
@@ -204,6 +207,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, nil
+
+	case scheduleTickMsg:
+		return m.refreshSchedule()
 
 	case clientReadyMsg:
 		m.client = msg.c
@@ -364,6 +370,8 @@ func (m Model) dispatchScreenKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd)
 		return m, nil
 	case screenNewThread:
 		return m.updateNewThreadKey(msg, s)
+	case screenSchedule:
+		return m.updateScheduleKey(msg, s)
 	default:
 		return m, nil
 	}
@@ -390,6 +398,10 @@ func (m *Model) applyReply(r api.Reply) {
 	case api.RepDiag:
 		if r.Diag != nil {
 			m.diag = *r.Diag
+		}
+	case api.RepSchedule:
+		if r.Schedule != nil {
+			m.schedule = *r.Schedule
 		}
 	case api.RepEvent:
 		if r.Event != nil {

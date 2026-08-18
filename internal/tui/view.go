@@ -46,6 +46,8 @@ func (m Model) render() string {
 		return m.renderDiagnostics()
 	case screenNewThread:
 		return m.renderNewThread()
+	case screenSchedule:
+		return m.renderSchedule()
 	default:
 		return ""
 	}

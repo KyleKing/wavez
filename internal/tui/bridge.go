@@ -20,6 +20,8 @@ type daemonClient interface {
 	send(threadID, text string) tea.Cmd
 	answer(promptID, text string, decision permission.Decision) tea.Cmd
 	diff(threadID string) tea.Cmd
+	cancel(threadID string) tea.Cmd
+	schedule() tea.Cmd
 	restore(threadID string, confirm bool) tea.Cmd
 	route(threadID string, override router.Choice) tea.Cmd
 	think(threadID string, thinking *bool) tea.Cmd
@@ -111,6 +113,34 @@ func (b *bridge) answer(promptID, text string, decision permission.Decision) tea
 		cmd := api.Command{Kind: api.CmdAnswer, PromptID: promptID, Answer: text, Decision: decision}
 
 		reply, err := b.client.Do(ctx, cmd)
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+func (b *bridge) cancel(threadID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdCancel, ThreadID: threadID})
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+func (b *bridge) schedule() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdSchedule})
 		if err != nil {
 			return connErrMsg{err: err}
 		}

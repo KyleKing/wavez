@@ -120,6 +120,8 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 		m.home.filtering = true
 
 		return m, m.home.filterInput.Focus()
+	case "s":
+		return m.openSchedule()
 	case "v":
 		if len(rows) > 0 {
 			id := rows[m.cappedCursor(len(rows))].ID
@@ -353,6 +355,7 @@ func homeHints(filtering bool) []hint {
 		{"n", "new"},
 		{"v", "peek"},
 		{"i", labelInbox},
+		{"s", "schedule"},
 		{"D", "diag"},
 		{"/", "filter"},
 		{"q", labelQuit},
