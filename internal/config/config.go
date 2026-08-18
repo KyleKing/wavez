@@ -50,10 +50,16 @@ type Config struct {
 	// HostedKeyCommand's stdout is the hosted API key. Empty means fall back
 	// to the OPENROUTER_API_KEY environment variable.
 	HostedKeyCommand string
-	Context          []string
-	ExtraDirs        []string
-	AstGrepRules     []string
-	DeadcodeAllow    []string
+	// LocalBaseURL points the local tier at a llama-server elsewhere. When
+	// set, Wavez neither starts nor stops a server and LocalPort is unused.
+	LocalBaseURL string
+	// LocalKeyCommand's stdout is the bearer token for LocalBaseURL. Empty
+	// means none.
+	LocalKeyCommand string
+	Context         []string
+	ExtraDirs       []string
+	AstGrepRules    []string
+	DeadcodeAllow   []string
 	// PreToolUseHook and PostToolUseHook are argv slices, program first,
 	// executed directly rather than through a shell. Empty means no hook, and
 	// no hook process.

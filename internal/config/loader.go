@@ -34,6 +34,8 @@ type pklConfig struct {
 	LocalModel       string   `pkl:"localModel"`
 	HostedModel      string   `pkl:"hostedModel"`
 	HostedKeyCommand string   `pkl:"hostedKeyCommand"`
+	LocalBaseURL     string   `pkl:"localBaseURL"`
+	LocalKeyCommand  string   `pkl:"localKeyCommand"`
 	Context          []string `pkl:"context"`
 	ExtraDirs        []string `pkl:"extraDirs"`
 	AstGrepRules     []string `pkl:"astGrepRules"`
@@ -189,6 +191,9 @@ func fromPkl(root string, p pklConfig) Config {
 	if p.LocalStartSecs != 0 {
 		cfg.LocalStartTimeout = time.Duration(p.LocalStartSecs) * time.Second
 	}
+
+	cfg.LocalBaseURL = p.LocalBaseURL
+	cfg.LocalKeyCommand = p.LocalKeyCommand
 
 	cfg.Context = p.Context
 	cfg.ExtraDirs = p.ExtraDirs

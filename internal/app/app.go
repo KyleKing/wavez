@@ -346,12 +346,14 @@ func buildProviders(ctx context.Context, cfg config.Config, options Options) pro
 
 	if local == nil {
 		server := localServer{baseURL: runtime.LocalBaseURL(cfg.LocalPort)}
-		if options.ManagedLocalServer {
+		if cfg.LocalBaseURL != "" {
+			server = localServer{baseURL: cfg.LocalBaseURL}
+		} else if options.ManagedLocalServer {
 			server = ensureLocalServer(ctx, cfg)
 		}
 
 		supervisor = server.supervisor
-		local = openaic.New("local", openaic.WithBaseURL(server.baseURL), openaic.WithModel(cfg.LocalModel))
+		local = openaic.New("local", localProviderOptions(ctx, cfg, server.baseURL)...)
 	}
 
 	if hosted == nil {
@@ -365,6 +367,20 @@ func buildProviders(ctx context.Context, cfg config.Config, options Options) pro
 	}
 
 	return providers{local: local, hosted: hosted, supervisor: supervisor}
+}
+
+// localProviderOptions dials baseURL, adding a bearer token only for a remote
+// endpoint with a key command, since the loopback server takes none.
+func localProviderOptions(ctx context.Context, cfg config.Config, baseURL string) []openaic.Option {
+	opts := []openaic.Option{openaic.WithBaseURL(baseURL), openaic.WithModel(cfg.LocalModel)}
+	if cfg.LocalBaseURL != "" && cfg.LocalKeyCommand != "" {
+		keyFn := func() (string, error) {
+			return keyFromCommand(context.WithoutCancel(ctx), "local", cfg.LocalKeyCommand)
+		}
+		opts = append(opts, openaic.WithAPIKeyFunc(keyFn))
+	}
+
+	return opts
 }
 
 // providers is the two model tiers plus the supervisor to stop, non-nil

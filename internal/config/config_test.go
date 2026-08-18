@@ -61,6 +61,8 @@ localModel = "custom-local"
 debounceMs = 750
 localPort = 8123
 localStartTimeoutSeconds = 120
+localBaseURL = "https://m4.example.ts.net/v1"
+localKeyCommand = "security find-generic-password -w -s wavez-local"
 preToolUseHook {
   ".wavez/hooks/pre.sh"
   "--strict"
@@ -86,11 +88,16 @@ hookTimeoutMs = 250
 		t.Errorf("inference = %+v, want nil when a config file exists", inference)
 	}
 
-	if cfg.LocalModel != "custom-local" {
-		t.Errorf("LocalModel = %q, want %q", cfg.LocalModel, "custom-local")
-	}
-	if cfg.HostedModel != config.DefaultHostedModel {
-		t.Errorf("HostedModel = %q, want unchanged default %q", cfg.HostedModel, config.DefaultHostedModel)
+	for name, tc := range map[string]struct{ got, want string }{
+		"LocalModel":      {cfg.LocalModel, "custom-local"},
+		"HostedModel":     {cfg.HostedModel, config.DefaultHostedModel},
+		"LocalBaseURL":    {cfg.LocalBaseURL, "https://m4.example.ts.net/v1"},
+		"LocalKeyCommand": {cfg.LocalKeyCommand, "security find-generic-password -w -s wavez-local"},
+		"PreToolUseHook":  {strings.Join(cfg.PreToolUseHook, " "), ".wavez/hooks/pre.sh --strict"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q, want %q", name, tc.got, tc.want)
+		}
 	}
 	if cfg.GateDebounce != 750*time.Millisecond {
 		t.Errorf("GateDebounce = %v, want 750ms", cfg.GateDebounce)
@@ -103,9 +110,6 @@ hookTimeoutMs = 250
 	}
 	if len(cfg.Context) != 1 || cfg.Context[0] != "AGENTS.md" {
 		t.Errorf("Context = %v, want [AGENTS.md]", cfg.Context)
-	}
-	if strings.Join(cfg.PreToolUseHook, " ") != ".wavez/hooks/pre.sh --strict" {
-		t.Errorf("PreToolUseHook = %v, want the argv from the config", cfg.PreToolUseHook)
 	}
 	if len(cfg.PostToolUseHook) != 0 {
 		t.Errorf("PostToolUseHook = %v, want empty when unset", cfg.PostToolUseHook)

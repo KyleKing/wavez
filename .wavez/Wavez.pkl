@@ -33,6 +33,19 @@ contextWindow: Int = 8000
 /// only one model fits in 16 GB.
 localPort: Int = 8080
 
+/// OpenAI-compatible endpoint root of a llama-server on another machine
+/// (e.g. "https://m4.tailnet.ts.net/v1"). When set, the local tier dials it
+/// and Wavez never starts, stops, or probes a llama-server of its own, so a
+/// remote endpoint that is down fails the turn rather than loading a 6 GB
+/// model here. Empty means the loopback server on localPort. The memory
+/// headroom the daemon measures still describes this laptop, not the remote
+/// one.
+localBaseURL: String = ""
+
+/// Command whose stdout is the bearer token for localBaseURL, in the same
+/// shape as hostedKeyCommand. Empty means no Authorization header.
+localKeyCommand: String = ""
+
 /// Seconds to wait for a started llama-server to report ready.
 localStartTimeoutSeconds: Int = 60
 

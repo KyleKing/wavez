@@ -2,9 +2,13 @@ package app_test
 
 import (
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/app"
@@ -214,5 +218,54 @@ func TestHostedKeyErrorsOnFirstHostedRequest(t *testing.T) {
 	}
 	if !errors.Is(streamErr, app.ErrEmptyKeyCommand) {
 		t.Fatalf("stream error = %v, want ErrEmptyKeyCommand", streamErr)
+	}
+}
+
+// A remote local tier dials the configured endpoint with its key and never
+// starts a llama-server here, even when the App was asked to manage one.
+func TestRemoteLocalTierDialsTheEndpointWithItsKey(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu   sync.Mutex
+		auth string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		auth = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+			t.Logf("writing SSE body: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	root := t.TempDir()
+	cfg := config.Defaults(root)
+	cfg.LocalBaseURL = srv.URL
+	cfg.LocalKeyCommand = "printf tok-from-command"
+
+	a, err := app.New(t.Context(), root, cfg, permission.DenyAll(), app.WithManagedLocalServer())
+	if err != nil {
+		t.Fatalf("app.New: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := a.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+
+	for _, err := range a.Local.Stream(t.Context(), llm.Request{Model: "m"}) {
+		if err != nil {
+			t.Fatalf("stream: %v", err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if auth != "Bearer tok-from-command" {
+		t.Fatalf("Authorization = %q, want the key command's output as a bearer token", auth)
 	}
 }

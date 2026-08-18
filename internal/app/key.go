@@ -11,7 +11,7 @@ import (
 
 // ErrEmptyKeyCommand reports a key command that produced no output, which
 // means an unlocked secret store was expected and was not there.
-var ErrEmptyKeyCommand = errors.New("hosted key command produced no output")
+var ErrEmptyKeyCommand = errors.New("key command produced no output")
 
 // hostedKey resolves the hosted API key from the configured command, falling
 // back to the environment. The command's stdout is the key and is never
@@ -22,6 +22,13 @@ func hostedKey(ctx context.Context, command string) (string, error) {
 		return os.Getenv(HostedAPIKeyEnv), nil
 	}
 
+	return keyFromCommand(ctx, "hosted", command)
+}
+
+// keyFromCommand runs command and returns its trimmed stdout as the key for
+// tier, which names the endpoint in errors so a failing keychain lookup says
+// which one it was for.
+func keyFromCommand(ctx context.Context, tier, command string) (string, error) {
 	fields := strings.Fields(command)
 
 	//nolint:gosec // running the user's own configured command is the point
@@ -29,16 +36,16 @@ func hostedKey(ctx context.Context, command string) (string, error) {
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return "", fmt.Errorf("hosted key command %q failed: %w: %s",
-				fields[0], err, strings.TrimSpace(string(exitErr.Stderr)))
+			return "", fmt.Errorf("%s key command %q failed: %w: %s",
+				tier, fields[0], err, strings.TrimSpace(string(exitErr.Stderr)))
 		}
 
-		return "", fmt.Errorf("hosted key command %q failed: %w", fields[0], err)
+		return "", fmt.Errorf("%s key command %q failed: %w", tier, fields[0], err)
 	}
 
 	key := strings.TrimSpace(string(out))
 	if key == "" {
-		return "", fmt.Errorf("%w: %q", ErrEmptyKeyCommand, fields[0])
+		return "", fmt.Errorf("%w: %s %q", ErrEmptyKeyCommand, tier, fields[0])
 	}
 
 	return key, nil
