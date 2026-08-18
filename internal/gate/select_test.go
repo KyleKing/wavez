@@ -22,6 +22,13 @@ func coverageKey(file string, start, end int) string {
 	return file + ":" + strconv.Itoa(start) + "-" + strconv.Itoa(end)
 }
 
+// unreadyCoverage is a coverage map still building: it answers queries but
+// reports itself unready, which is what a CoverageAdapter does before its
+// first full build finishes.
+type unreadyCoverage struct{ fakeLineCoverage }
+
+func (unreadyCoverage) CoverageReady() bool { return false }
+
 func TestSelect(t *testing.T) {
 	t.Parallel()
 
@@ -31,7 +38,7 @@ func TestSelect(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		cov       fakeLineCoverage
+		cov       gate.LineCoverage
 		graph     *gate.ImportGraph
 		changes   []tool.Change
 		wantLevel gate.Level
@@ -50,6 +57,19 @@ func TestSelect(t *testing.T) {
 		{
 			name: "importer level when line coverage is empty but the graph knows the file",
 			cov:  fakeLineCoverage{},
+			graph: gate.NewImportGraph(
+				map[string]string{"pkg/a.go": "example.com/pkg"},
+				map[string][]string{"example.com/pkg": {"example.com/consumer"}},
+			),
+			changes:   []tool.Change{change("pkg/a.go", 1, 5)},
+			wantLevel: gate.LevelImporter,
+			wantPkgs:  []string{"example.com/consumer", "example.com/pkg"},
+		},
+		{
+			name: "an unready map is not consulted, however much coverage it holds",
+			cov: unreadyCoverage{fakeLineCoverage{
+				coverageKey("pkg/a.go", 1, 5): {{TestID: "pkg.TestA", TestHash: "h1"}},
+			}},
 			graph: gate.NewImportGraph(
 				map[string]string{"pkg/a.go": "example.com/pkg"},
 				map[string][]string{"example.com/pkg": {"example.com/consumer"}},

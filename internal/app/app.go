@@ -260,6 +260,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	bgCtx, bgCancel := context.WithCancel(context.WithoutCancel(ctx))
 	indexer.Start(bgCtx)
 	changeGate.Start(bgCtx)
+	adapter.Start(bgCtx)
 
 	return &App{
 		Root:            root,
@@ -488,6 +489,15 @@ func buildGates(
 	// checks that cost real time. Verification adds a whole-module build in
 	// front of the test gate, since a compile failure makes every test
 	// result noise.
+	// One set for the whole project: a change-triggered batch, a
+	// verification round, and the background coverage-map build all run
+	// `go test` on the same machine.
+	resources := gate.NewResourceSet()
+
+	manifestPath := filepath.Join(root, wavezDirName, coverageManifestFileName)
+	adapter := gate.NewCoverageAdapter(store, root, manifestPath, goruntime.NumCPU(),
+		gate.WithCoverageLog(gateLog), gate.WithCoverageResources(resources))
+
 	convention := gate.NewConventionGate(root, rules, nil)
 	// DESIGN.md's gate order puts the type checker last among the checks that
 	// fit a per-edit run. Measured on this repo at 1.18 s worst case for a
@@ -495,11 +505,10 @@ func buildGates(
 	// round with the slower checks.
 	gates := append(conventionGates(gate.NewFormatGate(root), convention),
 		gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root))
-	runFunc := gate.BuildRunFunc(gate.RealClock{}, store, graph, gates, gateLog, root)
+	// The adapter, not the store, is what selection reads: only the thing
+	// building the map knows whether the map is finished.
+	runFunc := gate.BuildRunFunc(gate.RealClock{}, adapter, graph, gates, gateLog, root, resources)
 	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce, runFunc)
-
-	manifestPath := filepath.Join(root, wavezDirName, coverageManifestFileName)
-	adapter := gate.NewCoverageAdapter(store, manifestPath, goruntime.NumCPU())
 
 	// fail-to-pass runs after go-test because it assumes the suite is green
 	// on the tree as written; without that a merely broken test reads as one
@@ -508,7 +517,7 @@ func buildGates(
 	verifyGates := append(conventionGates(gate.NewFormatGate(root), convention),
 		gate.NewBuildGate(root), gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root),
 		gate.NewFailToPassGate(root, jj, jj))
-	verifier := NewGateVerifier(root, store, graph, gateLog, gate.RealClock{}, verifyGates)
+	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources)
 
 	return runner, adapter, verifier, nil
 }

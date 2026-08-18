@@ -16,6 +16,17 @@ type LineCoverage interface {
 	CoveringTests(ctx context.Context, file string, start, end int) ([]codeintel.CoverageTest, error)
 }
 
+// CoverageMap is a LineCoverage that also reports whether its map is
+// finished. Selection needs that distinction because a map still building
+// answers "no test covers this range" for every test it has not run yet,
+// and three tests chosen from a half-built map is a wrong answer where
+// falling back to importer level is merely a coarse one. A cov that
+// implements only LineCoverage is read as a finished map.
+type CoverageMap interface {
+	LineCoverage
+	CoverageReady() bool
+}
+
 // Select resolves changes to the narrowest tier DESIGN.md's Gates section
 // orders: line-to-test where the coverage map covers every changed range,
 // transitive importers of the changed files' packages otherwise, and the
@@ -48,11 +59,12 @@ func Select(ctx context.Context, cov LineCoverage, graph *ImportGraph, changes [
 // selectByLine reports ok only when every changed range in every changed
 // file resolves to at least one covering test; a single unresolved range
 // means the batch falls through to the importer tier rather than mixing
-// selection granularity within one run.
+// selection granularity within one run. A map that reports itself unready
+// is not queried at all, since its silence carries no information.
 //
 //nolint:gocritic // named returns here would trip nonamedreturns instead; the doc comment above carries the meaning
 func selectByLine(ctx context.Context, cov LineCoverage, changes []tool.Change) ([]string, bool, error) {
-	if cov == nil || len(changes) == 0 {
+	if !coverageUsable(cov) || len(changes) == 0 {
 		return nil, false, nil
 	}
 
@@ -74,21 +86,34 @@ func selectByLine(ctx context.Context, cov LineCoverage, changes []tool.Change) 
 				return nil, false, nil
 			}
 
-			for _, t := range covering {
-				if _, ok := seen[t.TestID]; ok {
-					continue
-				}
-
-				seen[t.TestID] = struct{}{}
-
-				tests = append(tests, t.TestID)
-			}
+			collect(seen, covering, &tests)
 		}
 	}
 
 	sort.Strings(tests)
 
 	return tests, true, nil
+}
+
+func coverageUsable(cov LineCoverage) bool {
+	if cov == nil {
+		return false
+	}
+
+	m, ok := cov.(CoverageMap)
+
+	return !ok || m.CoverageReady()
+}
+
+func collect(seen map[string]struct{}, covering []codeintel.CoverageTest, tests *[]string) {
+	for _, t := range covering {
+		if _, ok := seen[t.TestID]; ok {
+			continue
+		}
+
+		seen[t.TestID] = struct{}{}
+		*tests = append(*tests, t.TestID)
+	}
 }
 
 // selectByImporters reports ok only when every changed file resolves to a

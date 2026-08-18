@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kyleking/wavez/internal/codeintel"
 )
@@ -27,37 +28,93 @@ const (
 	coverProfilePosParts = 2
 )
 
-// CoverageWriter is the codeintel.Store method CoverageAdapter needs.
-// A codeintel.Store satisfies it directly.
+// CoverageWriter is the codeintel.Store method CoverageAdapter needs to
+// record what it measured. A codeintel.Store satisfies it directly.
 type CoverageWriter interface {
 	WriteCoverage(ctx context.Context, testID, testHash string, rows []codeintel.CoverageRow) error
 }
+
+// CoverageStore is the store side of the coverage map: the writer the
+// adapter fills and the reader Select queries. A codeintel.Store satisfies
+// it directly.
+type CoverageStore interface {
+	CoverageWriter
+	LineCoverage
+}
+
+// coverageMapGate names the coverage-map build in the gate log. It is not
+// a Gate: it runs once in the background rather than per change event, and
+// its entry carries no selection level for that reason.
+const coverageMapGate = "coverage-map"
 
 // CoverageAdapter runs Go's per-test coverprofile loop (DESIGN.md's Gates
 // section) and writes rows into a codeintel store. It keeps its own
 // manifest of which files each test last covered, by content hash,
 // separate from the store's coverage rows, so a Refresh only re-runs a
 // test whose covered files actually changed.
+//
+// It is also the LineCoverage selection reads, because only the thing that
+// builds the map knows whether the map is finished: CoverageReady is false
+// until every test in the module has been measured at least once, and a
+// selection that trusted a half-built map would run three tests where the
+// finished map names thirty.
 type CoverageAdapter struct {
-	store        CoverageWriter
+	store        CoverageStore
+	log          *Log
+	resources    *ResourceSet
+	repoRoot     string
 	manifestPath string
 	workers      int
+	// runMu holds one Refresh at a time; mu guards the readiness cache and
+	// is never held across a test run.
+	runMu    sync.Mutex
+	mu       sync.Mutex
+	complete bool
+	loaded   bool
 }
 
-// NewCoverageAdapter builds an adapter over store, persisting its re-run
-// manifest at manifestPath and running up to workers tests in parallel.
-func NewCoverageAdapter(store CoverageWriter, manifestPath string, workers int) *CoverageAdapter {
+// CoverageOption configures a CoverageAdapter.
+type CoverageOption func(*CoverageAdapter)
+
+// WithCoverageLog records every build in the project's gate log, which is
+// what keeps a map that failed to build visible instead of silent.
+func WithCoverageLog(l *Log) CoverageOption {
+	return func(a *CoverageAdapter) { a.log = l }
+}
+
+// WithCoverageResources makes the build compete for the process's shared
+// resource keys, taking `go test` in shared mode per test so a gate run
+// triggered by an edit preempts the build at the next test rather than
+// waiting out the whole map.
+func WithCoverageResources(res *ResourceSet) CoverageOption {
+	return func(a *CoverageAdapter) { a.resources = res }
+}
+
+// NewCoverageAdapter builds an adapter over store for the module at
+// repoRoot, persisting its re-run manifest at manifestPath and running up
+// to workers tests in parallel.
+func NewCoverageAdapter(
+	store CoverageStore, repoRoot, manifestPath string, workers int, opts ...CoverageOption,
+) *CoverageAdapter {
 	if workers < 1 {
 		workers = 1
 	}
 
-	return &CoverageAdapter{store: store, manifestPath: manifestPath, workers: workers}
+	a := &CoverageAdapter{store: store, repoRoot: repoRoot, manifestPath: manifestPath, workers: workers}
+	for _, opt := range opts {
+		opt(a)
+	}
+
+	return a
 }
 
 // coverageManifest is the adapter's own on-disk record of covered-file
-// hashes per test.
+// hashes per test. Complete says every test the module had at the end of
+// the last build has an entry, which is what lets a later process know the
+// map is usable without rebuilding it.
 type coverageManifest struct {
-	Tests map[string]map[string]string `json:"tests"` // testID -> file -> content hash
+	Tests    map[string]map[string]string `json:"tests"` // testID -> file -> content hash
+	Complete bool                         `json:"complete"`
 }
 
 // RefreshStats reports what one Refresh call did.
@@ -68,22 +125,70 @@ type RefreshStats struct {
 	Failed     int
 }
 
-// Refresh lists every Go test under repoRoot and re-runs only the ones
+// Start builds the map in the background and returns immediately, the way
+// codeintel.Indexer.Start absorbs its cold index cost: the first build is
+// minutes (DESIGN.md measures 249 s for 522 Go tests at 8 workers) and
+// selection stays at importer level until it lands. Later starts pay only
+// for the tests whose covered files changed since the last one.
+//
+// It drops the error because the build reports itself to the gate log,
+// which is the surface a failed map has to be visible on.
+func (a *CoverageAdapter) Start(ctx context.Context) {
+	go func() {
+		start := time.Now()
+		stats, err := a.Refresh(ctx)
+		a.record(start, stats, err)
+	}()
+}
+
+// CoverageReady reports whether the map covers every test in the module.
+// It is false until a build has measured them all, which is what keeps a
+// partial map from answering a selection query. A map built by an earlier
+// process is ready without rebuilding, since the manifest records it.
+func (a *CoverageAdapter) CoverageReady() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if !a.loaded {
+		man, err := loadManifest(a.manifestPath)
+		if err != nil {
+			return false
+		}
+
+		a.complete, a.loaded = man.Complete, true
+	}
+
+	return a.complete
+}
+
+// CoveringTests implements LineCoverage against the store the adapter
+// fills.
+func (a *CoverageAdapter) CoveringTests(
+	ctx context.Context, file string, start, end int,
+) ([]codeintel.CoverageTest, error) {
+	//nolint:wrapcheck // a pass-through to the store, which already names the query in its error
+	return a.store.CoveringTests(ctx, file, start, end)
+}
+
+// Refresh lists every Go test in the module and re-runs only the ones
 // whose manifest entry is missing or whose previously covered files
 // changed by content hash, writing fresh coverage rows for each into the
-// store.
-func (a *CoverageAdapter) Refresh(ctx context.Context, repoRoot string) (RefreshStats, error) {
+// store. Concurrent callers serialize rather than measuring twice.
+func (a *CoverageAdapter) Refresh(ctx context.Context) (RefreshStats, error) {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+
 	man, err := loadManifest(a.manifestPath)
 	if err != nil {
 		return RefreshStats{}, err
 	}
 
-	modulePath, err := goModulePath(ctx, repoRoot)
+	modulePath, err := goModulePath(ctx, a.repoRoot)
 	if err != nil {
 		return RefreshStats{}, err
 	}
 
-	jobs, err := listGoTests(ctx, repoRoot)
+	jobs, err := listGoTests(ctx, a.repoRoot)
 	if err != nil {
 		return RefreshStats{}, err
 	}
@@ -95,37 +200,129 @@ func (a *CoverageAdapter) Refresh(ctx context.Context, repoRoot string) (Refresh
 	var toRun []goTestJob
 
 	for _, j := range jobs {
-		if testNeedsRerun(repoRoot, man, j.id()) {
+		if testNeedsRerun(a.repoRoot, man, j.id()) {
 			toRun = append(toRun, j)
 		} else {
 			stats.Skipped++
 		}
 	}
 
-	results, failed := runCoverageJobs(ctx, repoRoot, modulePath, toRun, a.workers)
+	pruned, err := a.prune(ctx, man, jobs)
+	if err != nil {
+		return stats, err
+	}
+
+	results, failed := runCoverageJobs(ctx, a.repoRoot, modulePath, toRun, a.workers, a.resources)
 	stats.Ran = len(toRun)
 	stats.Failed = failed
 
+	if err := a.recordResults(ctx, man, results); err != nil {
+		return stats, err
+	}
+
+	return stats, a.finish(man, jobs, pruned || len(results) > 0, failed == 0)
+}
+
+// prune drops tests the module no longer has. Their rows would otherwise
+// outlive them and be selected forever, and `go test -run` against a name
+// that no longer exists runs nothing at all.
+func (a *CoverageAdapter) prune(ctx context.Context, man *coverageManifest, jobs []goTestJob) (bool, error) {
+	live := make(map[string]struct{}, len(jobs))
+	for _, j := range jobs {
+		live[j.id()] = struct{}{}
+	}
+
+	pruned := false
+
+	for id := range man.Tests {
+		if _, ok := live[id]; ok {
+			continue
+		}
+
+		if err := a.store.WriteCoverage(ctx, id, "", nil); err != nil {
+			return pruned, fmt.Errorf("clearing coverage for removed test %s: %w", id, err)
+		}
+
+		delete(man.Tests, id)
+
+		pruned = true
+	}
+
+	return pruned, nil
+}
+
+func (a *CoverageAdapter) recordResults(ctx context.Context, man *coverageManifest, results []coverageResult) error {
 	for _, r := range results {
-		hashes, err := hashCoveredFiles(repoRoot, r.rows)
+		hashes, err := hashCoveredFiles(a.repoRoot, r.rows)
 		if err != nil {
-			return stats, err
+			return err
 		}
 
 		if err := a.store.WriteCoverage(ctx, r.id, manifestDigest(hashes), r.rows); err != nil {
-			return stats, fmt.Errorf("writing coverage for %s: %w", r.id, err)
+			return fmt.Errorf("writing coverage for %s: %w", r.id, err)
 		}
 
 		man.Tests[r.id] = hashes
 	}
 
-	if len(results) > 0 {
-		if err := saveManifest(a.manifestPath, man); err != nil {
-			return stats, err
+	return nil
+}
+
+// finish decides whether the map is now complete and persists that with
+// the manifest. A test that would not run leaves the map incomplete even
+// when every other test measured, because selection that quietly omits a
+// test it could not measure is the wrong answer this readiness flag
+// exists to prevent.
+func (a *CoverageAdapter) finish(man *coverageManifest, jobs []goTestJob, wrote, allRan bool) error {
+	complete := allRan && len(jobs) > 0
+
+	for _, j := range jobs {
+		if _, ok := man.Tests[j.id()]; !ok {
+			complete = false
+
+			break
 		}
 	}
 
-	return stats, nil
+	changed := man.Complete != complete
+	man.Complete = complete
+
+	a.mu.Lock()
+	a.complete, a.loaded = complete, true
+	a.mu.Unlock()
+
+	if !wrote && !changed {
+		return nil
+	}
+
+	return saveManifest(a.manifestPath, man)
+}
+
+// record writes the build's outcome to the gate log. It carries no
+// selection level: the build is not a selection, and a level here would
+// read as one in the log.
+func (a *CoverageAdapter) record(start time.Time, stats RefreshStats, err error) {
+	if a.log == nil {
+		return
+	}
+
+	reason := fmt.Sprintf("considered %d, ran %d, skipped %d, failed %d",
+		stats.Considered, stats.Ran, stats.Skipped, stats.Failed)
+	if err != nil {
+		reason = "build failed: " + err.Error()
+	}
+
+	entry := LogEntry{
+		Timestamp: start,
+		Gate:      coverageMapGate,
+		Duration:  time.Since(start),
+		Reason:    reason,
+		Examined:  stats.Ran,
+		Pass:      err == nil && stats.Failed == 0,
+	}
+	if logErr := a.log.Append(entry); logErr != nil {
+		fmt.Fprintf(os.Stderr, "wavez: recording coverage map build: %v\n", logErr)
+	}
 }
 
 func testNeedsRerun(repoRoot string, man *coverageManifest, id string) bool {
@@ -278,7 +475,7 @@ type coverageResult struct {
 
 //nolint:gocritic // named returns here would trip nonamedreturns instead; callers read (results, failedCount)
 func runCoverageJobs(
-	ctx context.Context, repoRoot, modulePath string, jobs []goTestJob, workers int,
+	ctx context.Context, repoRoot, modulePath string, jobs []goTestJob, workers int, res *ResourceSet,
 ) ([]coverageResult, int) {
 	jobCh := make(chan goTestJob)
 	resCh := make(chan coverageResult)
@@ -289,14 +486,14 @@ func runCoverageJobs(
 
 	var wg sync.WaitGroup
 
-	for i := range workers {
+	for range workers {
 		wg.Add(1)
 
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
 
 			for j := range jobCh {
-				rows, err := runOneCoverageJob(ctx, repoRoot, modulePath, j, workerID)
+				rows, err := runCoverageJob(ctx, repoRoot, modulePath, j, res)
 				if err != nil {
 					failedMu.Lock()
 					failed++
@@ -307,7 +504,7 @@ func runCoverageJobs(
 
 				resCh <- coverageResult{id: j.id(), rows: rows}
 			}
-		}(i)
+		}()
 	}
 
 	go func() {
@@ -331,10 +528,35 @@ func runCoverageJobs(
 	return results, failed
 }
 
-func runOneCoverageJob(
-	ctx context.Context, repoRoot, modulePath string, j goTestJob, workerID int,
+// runCoverageJob takes the shared `go test` resource for one test only, so
+// a gate run waits out a single test rather than the whole map.
+func runCoverageJob(
+	ctx context.Context, repoRoot, modulePath string, j goTestJob, res *ResourceSet,
 ) ([]codeintel.CoverageRow, error) {
-	prof := filepath.Join(os.TempDir(), fmt.Sprintf("wavez-cov-w%d-%s.out", workerID, sanitizeTestID(j.id())))
+	release := res.LockShared([]string{goTestResource})
+	defer release()
+
+	return runOneCoverageJob(ctx, repoRoot, modulePath, j)
+}
+
+func runOneCoverageJob(
+	ctx context.Context, repoRoot, modulePath string, j goTestJob,
+) ([]codeintel.CoverageRow, error) {
+	// A profile path derived from the test name collides whenever two
+	// builds measure the same module at once, and the loser parses the
+	// other's file or an empty one, which reads as a test that covers
+	// nothing rather than as a failure.
+	f, err := os.CreateTemp("", "wavez-cov-*.out")
+	if err != nil {
+		return nil, fmt.Errorf("creating coverprofile for %s: %w", j.id(), err)
+	}
+
+	prof := f.Name()
+
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("closing coverprofile %s: %w", prof, err)
+	}
+
 	defer func() { _ = os.Remove(prof) }() //nolint:errcheck // best-effort temp-file cleanup
 
 	//nolint:gosec // args are this adapter's own generated test name and package path
@@ -353,10 +575,6 @@ func runOneCoverageJob(
 	}
 
 	return parseCoverprofile(prof, modulePath)
-}
-
-func sanitizeTestID(id string) string {
-	return strings.NewReplacer("/", "_", " ", "_").Replace(id)
 }
 
 func truncateOutput(s string, n int) string {

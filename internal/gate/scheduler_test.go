@@ -105,7 +105,7 @@ func TestRunGatesResourceScheduling(t *testing.T) {
 
 			done := make(chan []gate.Result, 1)
 			go func() {
-				done <- gate.RunGates(context.Background(), gate.RealClock{}, gates, gate.RunContext{})
+				done <- gate.RunGates(context.Background(), gate.RealClock{}, nil, gates, gate.RunContext{})
 			}()
 
 			waitForBothRunning(t, active, tt.wantMaxSeen)
@@ -119,6 +119,42 @@ func TestRunGatesResourceScheduling(t *testing.T) {
 				t.Errorf("max concurrent gates = %d, want %d", got, tt.wantMaxSeen)
 			}
 		})
+	}
+}
+
+// TestResourceSetSharedYieldsToGate covers the two properties the
+// background coverage-map build depends on: its workers hold `go test`
+// together, and a gate wanting the same key waits for them rather than
+// running `go test` alongside a 249 s build.
+func TestResourceSetSharedYieldsToGate(t *testing.T) {
+	t.Parallel()
+
+	set := gate.NewResourceSet()
+
+	releaseA := set.LockShared([]string{"go-test"})
+	releaseB := set.LockShared([]string{"go-test"})
+
+	acquired := make(chan struct{})
+
+	go func() {
+		release := set.Lock([]string{"go-test"})
+		close(acquired)
+		release()
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("exclusive Lock acquired while two shared holders held the key")
+	default:
+	}
+
+	releaseA()
+	releaseB()
+
+	select {
+	case <-acquired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("exclusive Lock never acquired after every shared holder released")
 	}
 }
 

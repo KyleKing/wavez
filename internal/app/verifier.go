@@ -16,20 +16,26 @@ import (
 // test output. Gates and their dependencies are injected so tests never
 // shell out to a real toolchain.
 type GateVerifier struct {
-	cov      gate.LineCoverage
-	clock    gate.Clock
-	graph    *gate.ImportGraph
-	log      *gate.Log
-	repoRoot string
-	gates    []gate.Gate
+	cov       gate.LineCoverage
+	clock     gate.Clock
+	graph     *gate.ImportGraph
+	log       *gate.Log
+	resources *gate.ResourceSet
+	repoRoot  string
+	gates     []gate.Gate
 }
 
 // NewGateVerifier builds a GateVerifier rooted at repoRoot, running gates
-// in the given order against cov and graph for test selection.
+// in the given order against cov and graph for test selection. Resources
+// is the project's shared resource set, so a verification round and
+// anything else holding `go test` take turns; nil serializes with nothing.
 func NewGateVerifier(
-	repoRoot string, cov gate.LineCoverage, graph *gate.ImportGraph, log *gate.Log, clock gate.Clock, gates []gate.Gate,
+	repoRoot string, cov gate.LineCoverage, graph *gate.ImportGraph, log *gate.Log, clock gate.Clock,
+	gates []gate.Gate, resources *gate.ResourceSet,
 ) *GateVerifier {
-	return &GateVerifier{repoRoot: repoRoot, cov: cov, graph: graph, log: log, clock: clock, gates: gates}
+	return &GateVerifier{
+		repoRoot: repoRoot, cov: cov, graph: graph, log: log, clock: clock, gates: gates, resources: resources,
+	}
 }
 
 // Verify implements agent.Verifier.
@@ -57,6 +63,9 @@ func (v *GateVerifier) Verify(ctx context.Context, changes []tool.Change) (strin
 // can act on, since an absent toolchain binary is as much a failure as a
 // failing check.
 func (v *GateVerifier) runStep(ctx context.Context, g gate.Gate, rc gate.RunContext) gate.Result {
+	release := v.resources.Lock(g.Resources())
+	defer release()
+
 	start := v.clock.Now()
 
 	result, err := g.Run(ctx, rc)

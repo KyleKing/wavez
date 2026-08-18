@@ -36,7 +36,7 @@ func TestBuildRunFuncLogsEachResult(t *testing.T) {
 		&stubGate{name: "go-test", result: gate.Result{Gate: "go-test", Pass: false, Examined: 3}},
 	}
 
-	runFn := gate.BuildRunFunc(gate.RealClock{}, fakeLineCoverage{}, nil, gates, l, "/repo")
+	runFn := gate.BuildRunFunc(gate.RealClock{}, fakeLineCoverage{}, nil, gates, l, "/repo", nil)
 
 	result := runFn(context.Background(), []tool.Change{{Path: "pkg/a.go"}})
 	if result.LogError != nil {

@@ -88,7 +88,7 @@ func TestGateVerifier_Verify(t *testing.T) {
 				t.Fatalf("OpenLog: %v", err)
 			}
 
-			v := app.NewGateVerifier("/repo", nil, nil, log, gate.RealClock{}, tt.gates)
+			v := app.NewGateVerifier("/repo", nil, nil, log, gate.RealClock{}, tt.gates, nil)
 
 			feedback, ok := v.Verify(context.Background(), []tool.Change{{Path: "a.go"}})
 			assertVerifyOutcome(t, log, feedback, ok, tt)
