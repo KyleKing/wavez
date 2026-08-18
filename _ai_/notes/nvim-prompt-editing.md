@@ -74,25 +74,8 @@ Two files, both following conventions already in the config:
 Nothing else. `<C-Space>` already triggers completion on any attached client, and the
 autotrigger toggle already works per buffer.
 
-## Claude Code's Ctrl-G
-
-The same server answers this, and it needs one fact first: what Claude Code names the
-temp file it opens. If the name is stable and recognizable, an autocmd matching it sets
-the `wavez` filetype and the server attaches, and the prompt gets `@file` and `@symbol`
-completion from whatever repository the buffer's root markers resolve to.
-
-Two limits worth stating before building on it. The completions would come from wavez's
-index of that repository, not from Claude Code, so slash commands and Claude Code's own
-`@`-syntax are out of scope unless they happen to agree. And a buffer Claude Code owns
-is not a buffer wavez can validate, so an unresolved reference is a completion that
-never appears rather than a message.
-
-Determine the filename by pressing `<C-g>` in Claude Code and reading `:echo expand('%')`.
-
 ## Order
 
 The handoff is useful with no server at all, since `$EDITOR` on a temp file is already
-better than an inline box for a long prompt. The server is useful with no handoff, since
-Claude Code's Ctrl-G is the buffer the user actually reaches for daily. They meet at the
-filetype. Build the handoff first because it is bounded and testable in a PTY, then the
-server, then the two config files.
+better than an inline box for a long prompt. Build it first because it is bounded and
+testable in a PTY, then the server, then the two config files.
