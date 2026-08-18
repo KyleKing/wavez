@@ -1,3 +1,15 @@
+## v0.10.0 (2026-08-18)
+
+### Feat
+
+- **tui**: make the message composer modal with a fullscreen mode
+- **gate**: build the coverage map so test selection reaches line level
+- **cli**: report functions no main reaches
+
+### Fix
+
+- **typos**: unblock the repo-wide spell check
+
 ## v0.9.0 (2026-08-17)
 
 ### Feat
