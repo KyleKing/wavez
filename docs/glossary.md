@@ -29,6 +29,8 @@ file is the map you read first.
 | Run scope | The files a run has read or created. An edit to anything else is recorded, and refused under `-strict-scope` |
 | Lease | An advisory TTL lock on the directory holding a write target, taken where the write happens, so two threads do not write the same place. Active while its holder writes, committed once the writes land, expired once the holder stops renewing it |
 | Scheduler phase | What admission is letting run: edit while threads write and gate runs queue, execute while a gate run holds the machine. Derived from what is running, never set |
+| Gauge | One number on the diagnostics panel. The daemon names the gauges it cannot measure so a client renders a dash for them, never a zero |
+| Timings | The serving runtime's own measurement of one model call (decode speed, prompt tokens evaluated, prompt tokens taken from its cache), parsed from `llama-server`'s stream and carried on the turn's usage. The only source for tok/s and prefix-hit ratio |
 
 ## How a turn runs
 

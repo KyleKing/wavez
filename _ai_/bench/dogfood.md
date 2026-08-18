@@ -111,6 +111,31 @@ that replaces it (`context` in `.wavez.pkl`, plus rules) was simply unused. Both
 are wired now, and the rule catches a bare `//nolint` while allowing the house
 style that carries a reason.
 
+## 2026-08-18, diagnostics panel and model screen
+
+One turn through the daemon (`Reply with the single word OK`, qwen3:8b,
+thinking off, in a scratch jj repo since a git worktree of the main tree is not
+one) and the panel filled in: 28.2 tok/s decode, 99% prefix hit on the run's
+second request, 1.6k of an 8.0k window, model footprint 3.6 GB. Two probes of
+the same server before that: the first request cached 1 of 18 prompt tokens at
+108 tok/s prompt eval and 28.9 tok/s decode, the second cached 17 of 18 at
+29.4 tok/s decode.
+
+Two things the panel taught: RSS is the wrong number for a Metal-mapped GGUF
+(16 MB against a 3.6 GB footprint), and `wavez -p` runs its own loop in
+process, so nothing it does reaches the daemon's gauges.
+
+The model screen listed both installed models with an update check against
+the registry ("current" for each), previewed removing qwen2.5-coder:7b (4.4 GB
+freed) and installing qwen3:4b (2.3 GB added) without acting on either, and
+persisted a served-context edit and its restore. `ollama list` matched before
+and after.
+
+Three UX bugs found by driving it: `v` on Home opened an unvisited thread
+onto nothing because peeking never subscribed, `Esc` inside the settings pane
+left the whole screen because the global handler ran first, and a preview the
+registry refused left its confirmation open. All three are fixed and tested.
+
 ## Open
 
 - The model asserted success on code that does not compile, and nothing
