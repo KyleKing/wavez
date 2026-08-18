@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/guard"
@@ -25,6 +26,11 @@ const (
 	shellHeadLines = 20
 	shellTailLines = 20
 )
+
+// reasonNoScript is the reason attached to a path that named no readable
+// file, which is not suspicious: a command may name a file it is about to
+// create, or one on PATH that merely looks like a path.
+const reasonNoScript = "names no readable file in the project"
 
 // Shell runs a command line in the sandbox after two deterministic checks,
 // in a fixed order that no permission answer can shorten: guard.Classify
@@ -75,7 +81,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Errorf("invalid input: %v", err), nil
 	}
 
-	verdict := guard.Classify(in.Command, s.root)
+	verdict := s.classify(in.Command)
 
 	switch verdict.Verdict {
 	case guard.Refuse:
@@ -105,6 +111,77 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	}
 
 	return tool.Result{Content: formatShellResult(result)}, nil
+}
+
+// maxScriptBytes bounds how much of a script the guard reads. A file
+// larger than this is not a script a run just wrote, and reading it whole
+// would put an unbounded string through the classifier.
+const maxScriptBytes = 64 * 1024
+
+// classify judges the command, then judges the contents of every project
+// script it would run and takes the worst of them.
+//
+// Running `./setup.sh` says nothing about what happens next, so classifying
+// only the command line would let a run write anything into a file and then
+// execute it past a guard that never saw it. Creating a file is not the
+// dangerous step and is not gated; this is the step that is.
+//
+// A script the guard cannot read is approval-worthy rather than allowed,
+// for the same reason an unparsable fragment is: this guard fails closed.
+func (s *Shell) classify(command string) guard.Result {
+	verdict := guard.Classify(command, s.root)
+	if verdict.Verdict == guard.Refuse {
+		return verdict
+	}
+
+	for _, rel := range guard.ExecutedScripts(command, s.root) {
+		inner := s.classifyScript(rel)
+		if inner.Verdict.Worse(verdict.Verdict) {
+			verdict = inner
+		}
+	}
+
+	return verdict
+}
+
+func (s *Shell) classifyScript(rel string) guard.Result {
+	abs, err := resolvePath(s.root, rel)
+	if err != nil {
+		return guard.Result{Verdict: guard.Allow, Reason: reasonNoScript, Fragment: rel}
+	}
+
+	info, err := os.Lstat(abs)
+	if err != nil || !info.Mode().IsRegular() {
+		return guard.Result{Verdict: guard.Allow, Reason: reasonNoScript, Fragment: rel}
+	}
+
+	if info.Size() > maxScriptBytes {
+		return guard.Result{
+			Verdict:  guard.NeedsApproval,
+			Reason:   "runs " + rel + ", too large to read before running it",
+			Fragment: rel,
+		}
+	}
+
+	body, err := os.ReadFile(abs) //nolint:gosec // abs is resolved inside the project root above
+	if err != nil {
+		return guard.Result{
+			Verdict:  guard.NeedsApproval,
+			Reason:   "runs " + rel + ", which could not be read before running it",
+			Fragment: rel,
+		}
+	}
+
+	inner := guard.Classify(string(body), s.root)
+	if inner.Verdict == guard.Allow {
+		return inner
+	}
+
+	return guard.Result{
+		Verdict:  inner.Verdict,
+		Reason:   "runs " + rel + ", which " + inner.Reason,
+		Fragment: inner.Fragment,
+	}
 }
 
 func approvalKey(command string) string {

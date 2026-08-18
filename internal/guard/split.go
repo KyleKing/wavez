@@ -143,7 +143,9 @@ func indexRuneFrom(runes []rune, start int, target rune) int {
 func splitSequence(s string) []string {
 	return splitTopLevel(s, func(runes []rune, i int) (int, bool) {
 		switch {
-		case runes[i] == ';':
+		// A newline separates commands exactly as `;` does, which is what
+		// lets Classify read a whole script and not just one command line.
+		case runes[i] == ';' || runes[i] == '\n':
 			return singleCharOp, true
 		case runes[i] == '&' && i+1 < len(runes) && runes[i+1] == '&':
 			return twoCharOp, true

@@ -24,7 +24,17 @@ var writeSchema = buildSchema(map[string]schemaProperty{
 	},
 }, propPath, "content")
 
-const newFilePerm = 0o644
+const (
+	newFilePerm = 0o644
+	// A file opening with a shebang is meant to be run, so write sets the
+	// executable bit rather than making the model spend a failed execution
+	// and a chmod on discovering it did not. Measured on qwen3:8b: writing
+	// a script cost `./x.sh` exiting 126, a `chmod +x` through the
+	// permission gate, and a re-run, three tool calls to run one script.
+	// The guard reads a script's contents when something runs it, so the
+	// bit costs no check that was doing work.
+	execFilePerm = 0o755
+)
 
 // Write creates a new file with the given content. It refuses to overwrite
 // a file that already exists (str_replace edits those) and refuses a path
@@ -38,6 +48,16 @@ type Write struct {
 // creates to scope.
 func NewWrite(root string, scope *Scope) *Write {
 	return &Write{root: root, scope: scope}
+}
+
+// permFor gives a file with a shebang the executable bit and every other
+// file the ordinary one.
+func permFor(content string) os.FileMode {
+	if strings.HasPrefix(content, "#!") {
+		return execFilePerm
+	}
+
+	return newFilePerm
 }
 
 // Name implements tool.Tool.
@@ -79,7 +99,7 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Errorf("checking %s: %v", in.Path, statErr), nil
 	}
 
-	if err := os.WriteFile(abs, []byte(in.Content), newFilePerm); err != nil {
+	if err := os.WriteFile(abs, []byte(in.Content), permFor(in.Content)); err != nil {
 		return tool.Errorf("writing %s: %v", in.Path, err), nil
 	}
 

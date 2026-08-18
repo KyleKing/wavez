@@ -41,6 +41,10 @@ func (v Verdict) rank() int {
 	}
 }
 
+// Worse reports whether v is a stricter verdict than other, so a caller
+// merging several judgments keeps the strictest without knowing the order.
+func (v Verdict) Worse(other Verdict) bool { return v.rank() > other.rank() }
+
 // Result is a guard's decision on a command line: the worst verdict found
 // among every fragment the line splits into, the reason it was assigned,
 // and the exact fragment that triggered it.
