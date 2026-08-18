@@ -24,6 +24,7 @@ import (
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/cycle"
+	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/permission"
@@ -260,6 +261,7 @@ func headless(ctx context.Context, opt options) error {
 		return fmt.Errorf("opening thread: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "thread %s\n", th.ID())
+	ctx = lease.WithHolder(ctx, string(th.ID()))
 
 	hint, err := routerHint(opt.model)
 	if err != nil {

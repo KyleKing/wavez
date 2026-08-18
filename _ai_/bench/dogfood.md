@@ -236,3 +236,10 @@ At 120x36 in tmux against the main-tree daemon, before the M2 lanes merged.
 - Palette lacks `new`, `fork`, `kill`, `scope`, `pause` verbs that DESIGN.md lists; it has route and think verbs the design does not mention. Fuzzy filter typing works
 - Home directory group header prints the full absolute path; the mock abbreviates to the repo name with a trailing slash. At 80 columns the header truncates the memory badge with `…`
 - "1 threads" (no singular)
+
+The first headless run after the merge could not edit at all: `str_replace`
+answered `lease: no holding thread in context` on every call, because the
+daemon attaches the holding thread to the context and `wavez -p` did not, and
+the run still reported `complete` having changed nothing (verification had
+no change set to fail). Both `-p` and a cycle's phase threads now attach the
+holder.

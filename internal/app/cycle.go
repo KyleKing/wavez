@@ -6,6 +6,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/cycle"
+	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
@@ -50,6 +51,10 @@ func (d *CycleDriver) Drive(ctx context.Context, at cycle.Attempt) (cycle.PhaseR
 	th, err := d.app.OpenThread(id, d.dirs, thread.WithParent(d.base))
 	if err != nil {
 		return cycle.PhaseResult{}, fmt.Errorf("opening phase thread: %w", err)
+	}
+
+	if _, ok := lease.HolderFrom(ctx); !ok {
+		ctx = lease.WithHolder(ctx, string(d.base))
 	}
 
 	registry := d.app.phaseRegistry(at.Phase, at.Ledger)
