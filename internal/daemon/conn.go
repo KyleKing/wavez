@@ -153,11 +153,31 @@ func errorReply(msg string) api.Reply {
 func infoPtr(i api.ThreadInfo) *api.ThreadInfo { return &i }
 
 func (c *conn) handle(cmd api.Command) {
+	if c.handleThreadCommand(cmd) {
+		return
+	}
+
 	switch cmd.Kind {
 	case api.CmdHello:
 		c.reply(cmd.ID, api.Reply{Kind: api.RepHello, Protocol: api.Protocol})
 	case api.CmdList:
 		c.reply(cmd.ID, api.Reply{Kind: api.RepThreads, Threads: c.srv.mgr.list()})
+	case api.CmdRoutines:
+		c.handleRoutines(cmd)
+	case api.CmdRunRoutine:
+		c.handleRunRoutine(cmd)
+	case api.CmdDiag:
+		diag := c.srv.diagnostics()
+		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
+	default:
+		c.reply(cmd.ID, errorReply(fmt.Sprintf("unknown command %q", cmd.Kind)))
+	}
+}
+
+// handleThreadCommand answers the commands that target one thread, and
+// reports whether it recognized cmd.
+func (c *conn) handleThreadCommand(cmd api.Command) bool {
+	switch cmd.Kind {
 	case api.CmdNew:
 		c.handleNew(cmd)
 	case api.CmdSend:
@@ -176,19 +196,14 @@ func (c *conn) handle(cmd api.Command) {
 		c.handleRoute(cmd)
 	case api.CmdThink:
 		c.handleThink(cmd)
-	case api.CmdRoutines:
-		c.handleRoutines(cmd)
-	case api.CmdRunRoutine:
-		c.handleRunRoutine(cmd)
-	case api.CmdDiag:
-		diag := c.srv.diagnostics()
-		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
 	case api.CmdSchedule:
 		schedule := c.srv.schedule(c.ctx)
 		c.reply(cmd.ID, api.Reply{Kind: api.RepSchedule, Schedule: &schedule})
 	default:
-		c.reply(cmd.ID, errorReply(fmt.Sprintf("unknown command %q", cmd.Kind)))
+		return false
 	}
+
+	return true
 }
 
 func (c *conn) handleNew(cmd api.Command) {

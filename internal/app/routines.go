@@ -49,7 +49,7 @@ func buildRoutines(
 
 	hash, err := routine.HashFile(filepath.Join(root, config.FileName))
 	if err != nil {
-		return routineLayer{}, err
+		return routineLayer{}, fmt.Errorf("hashing the project config: %w", err)
 	}
 
 	var cache routine.Cache
@@ -61,7 +61,7 @@ func buildRoutines(
 
 	history, err := routine.OpenHistory(filepath.Join(stateDir, routineHistoryFileName))
 	if err != nil {
-		return routineLayer{}, err
+		return routineLayer{}, fmt.Errorf("opening routine history: %w", err)
 	}
 
 	runner := routine.NewRunner(gate.RealClock{}, resources, history)
@@ -85,7 +85,7 @@ type RoutineService struct {
 func (s *RoutineService) List() ([]api.RoutineInfo, error) {
 	infos, err := s.svc.List()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing routines: %w", err)
 	}
 
 	out := make([]api.RoutineInfo, 0, len(infos))
@@ -99,7 +99,7 @@ func (s *RoutineService) List() ([]api.RoutineInfo, error) {
 // Run runs the routine named name and returns its refreshed row.
 func (s *RoutineService) Run(ctx context.Context, name string) (api.RoutineInfo, error) {
 	if _, err := s.svc.Run(ctx, name); err != nil {
-		return api.RoutineInfo{}, err
+		return api.RoutineInfo{}, fmt.Errorf("running routine %s: %w", name, err)
 	}
 
 	infos, err := s.List()

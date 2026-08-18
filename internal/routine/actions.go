@@ -34,11 +34,6 @@ const DefaultRunTimeout = 10 * time.Minute
 // nothing at all would be worse than handing back the end of the output.
 const tailLines = 20
 
-// ErrCommandFailed reports a `run` step whose command exited nonzero. It is
-// the step's own result rather than a runner failure, so the runner records
-// it as a failing step and keeps going.
-var ErrCommandFailed = errors.New("command failed")
-
 // ErrDirEscapes reports a `dir` parameter resolving outside the project.
 var ErrDirEscapes = errors.New("dir escapes the project root")
 
@@ -127,8 +122,9 @@ func runCommand(ctx context.Context, argv []string, dir string, timeout time.Dur
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	//nolint:gosec // argv comes from the project's own config file, and is executed directly rather than through a shell
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// argv comes from the project's own config file, and runs directly
+	// rather than through a shell.
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // see above
 	cmd.Dir = dir
 
 	out, err := cmd.CombinedOutput()

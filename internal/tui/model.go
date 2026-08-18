@@ -22,6 +22,7 @@ const (
 	screenInbox
 	screenDiagnostics
 	screenNewThread
+	screenRoutines
 	screenSchedule
 )
 
@@ -49,6 +50,7 @@ type Model struct {
 	status      string
 	dir         string
 	threads     []api.ThreadInfo
+	routines    []api.RoutineInfo
 	stack       []screenKind
 	pending     []api.PendingInfo
 	thread      threadState
@@ -59,6 +61,7 @@ type Model struct {
 	home        homeState
 	schedule    api.Schedule
 	diag        api.Diagnostics
+	routinesUI  routinesState
 	sched       scheduleState
 	width       int
 	focus       int
@@ -349,6 +352,8 @@ func (m Model) handleGlobalShortcut(s string) (Model, tea.Cmd, bool) {
 		m.push(screenDiagnostics)
 
 		return m, nil, true
+	case "R":
+		return m.openRoutines()
 	case "i":
 		m.push(screenInbox)
 
@@ -370,11 +375,25 @@ func (m Model) dispatchScreenKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd)
 		return m, nil
 	case screenNewThread:
 		return m.updateNewThreadKey(msg, s)
+	case screenRoutines:
+		return m.updateRoutinesKey(msg, s)
 	case screenSchedule:
 		return m.updateScheduleKey(msg, s)
 	default:
 		return m, nil
 	}
+}
+
+// openRoutines pushes the routines panel and asks the daemon for the
+// project's routines, since nothing pushes them on its own.
+func (m Model) openRoutines() (Model, tea.Cmd, bool) {
+	m.push(screenRoutines)
+
+	if m.client == nil {
+		return m, nil, true
+	}
+
+	return m, m.client.routines(), true
 }
 
 // batchMsg is a coalesced burst of daemon replies, delivered at most once
@@ -386,21 +405,17 @@ type batchMsg []api.Reply
 type connErrMsg struct{ err error }
 
 func (m *Model) applyReply(r api.Reply) {
+	if m.applyThreadReply(r) {
+		return
+	}
+
 	switch r.Kind {
-	case api.RepThreads:
-		m.replaceThreads(r.Threads)
-	case api.RepThread:
-		if r.Thread != nil {
-			m.upsertThread(*r.Thread)
-		}
+	case api.RepRoutines:
+		m.applyRoutines(r.Routines)
 	case api.RepPending:
 		m.pending = r.Pending
 	case api.RepDiag, api.RepSchedule:
 		m.applyPanel(r)
-	case api.RepEvent:
-		if r.Event != nil {
-			m.appendEvent(*r.Event)
-		}
 	case api.RepDiff:
 		if r.Diff != nil {
 			m.diffs[r.Diff.ThreadID] = parseDiff(r.Diff.Unified)
@@ -411,10 +426,33 @@ func (m *Model) applyReply(r api.Reply) {
 		}
 	case api.RepError:
 		m.status = r.Error
+	case api.RepThreads, api.RepThread, api.RepEvent:
+		// Already folded in by applyThreadReply.
 	case api.RepHello, api.RepLagged:
 		// Hello is consumed by Dial; a lagged subscription resubscribes in
 		// the bridge, not here.
 	}
+}
+
+// applyThreadReply folds in the replies about threads, and reports whether
+// it recognized r.
+func (m *Model) applyThreadReply(r api.Reply) bool {
+	switch r.Kind {
+	case api.RepThreads:
+		m.replaceThreads(r.Threads)
+	case api.RepThread:
+		if r.Thread != nil {
+			m.upsertThread(*r.Thread)
+		}
+	case api.RepEvent:
+		if r.Event != nil {
+			m.appendEvent(*r.Event)
+		}
+	default:
+		return false
+	}
+
+	return true
 }
 
 // applyPanel takes the fleet-wide readings the diagnostics and schedule
@@ -440,6 +478,27 @@ func (m *Model) replaceThreads(next []api.ThreadInfo) {
 	}
 
 	m.threads = next
+}
+
+// applyRoutines takes a full list, or folds in the single routine a run
+// answered with, so running one row does not blank the rest of the panel.
+func (m *Model) applyRoutines(next []api.RoutineInfo) {
+	if len(next) != 1 || len(m.routines) == 0 {
+		m.routines = next
+
+		return
+	}
+
+	for i := range m.routines {
+		if m.routines[i].Name == next[0].Name {
+			m.routines[i] = next[0]
+			m.status = ""
+
+			return
+		}
+	}
+
+	m.routines = append(m.routines, next[0])
 }
 
 func (m *Model) threadByID(id string) (api.ThreadInfo, bool) {

@@ -26,6 +26,8 @@ type daemonClient interface {
 	route(threadID string, override router.Choice) tea.Cmd
 	think(threadID string, thinking *bool) tea.Cmd
 	newThread(prompt, model, parent string, dirs []string) tea.Cmd
+	routines() tea.Cmd
+	runRoutine(name string) tea.Cmd
 }
 
 const flushInterval = 16 * time.Millisecond
@@ -216,6 +218,34 @@ func (b *bridge) newThread(prompt, model, parent string, dirs []string) tea.Cmd 
 		cmd := api.Command{Kind: api.CmdNew, Prompt: prompt, Model: model, Parent: parent, Dirs: dirs}
 
 		reply, err := b.client.Do(ctx, cmd)
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+func (b *bridge) routines() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdRoutines})
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+// runRoutine has no command timeout: a routine is a build or a test suite,
+// and cutting the reply off after five seconds would leave the panel
+// reporting a failure the routine never had.
+func (b *bridge) runRoutine(name string) tea.Cmd {
+	return func() tea.Msg {
+		reply, err := b.client.Do(context.Background(), api.Command{Kind: api.CmdRunRoutine, Routine: name})
 		if err != nil {
 			return connErrMsg{err: err}
 		}

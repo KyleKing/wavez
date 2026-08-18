@@ -31,27 +31,26 @@ const (
 // pklConfig is the wire shape EvaluateModule decodes ".wavez.pkl" into.
 // Field names and defaults mirror pkl/Wavez.pkl exactly.
 type pklConfig struct {
-	LocalModel       string   `pkl:"localModel"`
-	HostedModel      string   `pkl:"hostedModel"`
-	HostedKeyCommand string   `pkl:"hostedKeyCommand"`
-	LocalBaseURL     string   `pkl:"localBaseURL"`
-	LocalKeyCommand  string   `pkl:"localKeyCommand"`
-	Context          []string `pkl:"context"`
-	ExtraDirs        []string `pkl:"extraDirs"`
-	AstGrepRules     []string `pkl:"astGrepRules"`
-	DeadcodeAllow    []string `pkl:"deadcodeAllow"`
-	PreToolUseHook   []string `pkl:"preToolUseHook"`
-	PostToolUseHook  []string `pkl:"postToolUseHook"`
-	AdmissionRoom    float64  `pkl:"admissionHeadroom"`
-	ContextWindow    int      `pkl:"contextWindow"`
-	LeaseTTLMinutes  int      `pkl:"leaseTtlMinutes"`
-	DebounceMs       int      `pkl:"debounceMs"`
-	FullRunCadence   int      `pkl:"fullRunCadence"`
-	HookTimeoutMs    int      `pkl:"hookTimeoutMs"`
-	LocalPort        int      `pkl:"localPort"`
-	LocalStartSecs   int      `pkl:"localStartTimeoutSeconds"`
-
-	Routines map[string]pklRoutine `pkl:"routines"`
+	Routines         map[string]pklRoutine `pkl:"routines"`
+	LocalModel       string                `pkl:"localModel"`
+	HostedModel      string                `pkl:"hostedModel"`
+	HostedKeyCommand string                `pkl:"hostedKeyCommand"`
+	Context          []string              `pkl:"context"`
+	ExtraDirs        []string              `pkl:"extraDirs"`
+	AstGrepRules     []string              `pkl:"astGrepRules"`
+	DeadcodeAllow    []string              `pkl:"deadcodeAllow"`
+	PreToolUseHook   []string              `pkl:"preToolUseHook"`
+	PostToolUseHook  []string              `pkl:"postToolUseHook"`
+	ContextWindow    int                   `pkl:"contextWindow"`
+	DebounceMs       int                   `pkl:"debounceMs"`
+	FullRunCadence   int                   `pkl:"fullRunCadence"`
+	HookTimeoutMs    int                   `pkl:"hookTimeoutMs"`
+	LocalPort        int                   `pkl:"localPort"`
+	LocalStartSecs   int                   `pkl:"localStartTimeoutSeconds"`
+	LocalBaseURL     string                `pkl:"localBaseURL"`
+	LocalKeyCommand  string                `pkl:"localKeyCommand"`
+	AdmissionRoom    float64               `pkl:"admissionHeadroom"`
+	LeaseTTLMinutes  int                   `pkl:"leaseTtlMinutes"`
 }
 
 // Loader evaluates ".wavez.pkl" files through one long-lived pkl.Evaluator,

@@ -56,6 +56,8 @@ type Command struct {
 	Prompt string `json:"prompt,omitempty"`
 	// Model overrides the router for this thread.
 	Model string `json:"model,omitempty"`
+	// Routine names the routine run_routine executes.
+	Routine string `json:"routine,omitempty"`
 	// Override pins ThreadID to one routing tier for every turn it runs
 	// from now on. Empty clears the pin back to automatic routing, which is
 	// why route carries no separate clear command.
@@ -75,8 +77,6 @@ type Command struct {
 	Dirs []string `json:"dirs,omitempty"`
 	// From resumes a subscription after the client's last seen Seq.
 	From uint64 `json:"from,omitempty"`
-	// Routine names the routine run_routine executes.
-	Routine string `json:"routine,omitempty"`
 	// Confirm performs a restore instead of previewing what it would
 	// discard, since destroying uncommitted work without asking is worse
 	// than leaving it.

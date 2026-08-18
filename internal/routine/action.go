@@ -99,9 +99,9 @@ var (
 	ErrEmptyParam   = errors.New("parameter is empty")
 )
 
-// stringList reads a list-of-strings parameter. pkl hands a
-// Listing<String> over as []any, so the element check happens here rather
-// than in a type assertion.
+// stringList reads a list-of-strings parameter. A pkl Listing<String>
+// arrives as []any, so the element check happens here rather than in a
+// single type assertion.
 func stringList(params map[string]any, key string) ([]string, error) {
 	raw, ok := params[key]
 	if !ok {

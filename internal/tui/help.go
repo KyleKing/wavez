@@ -48,6 +48,8 @@ func (m Model) currentHints() []hint {
 		return diagnosticsHints()
 	case screenSchedule:
 		return scheduleHints(m.sched.leases)
+	case screenRoutines:
+		return routinesHints()
 	default:
 		return nil
 	}

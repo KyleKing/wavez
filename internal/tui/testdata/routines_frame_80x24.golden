@@ -1,0 +1,5 @@
+[1m┌ routines · 3 ────────────────────────────────────────────────────────────────┐[m
+[1m│ [m[1m> ok gate-format        manual                 5m     +=%[m                   [1m │[m
+[1m│ [m  - gate-go-test       manual                 -                             [1m │[m
+[1m│ [m  x nightly-audit      schedule,manual        10m    .%                     [1m │[m
+[1m└ [r]run [h]history [esc]back [?]help ─────────────────────────────────────────┘[m

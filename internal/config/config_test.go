@@ -283,7 +283,15 @@ routines {
 		t.Fatalf("steps = %+v, want a two-step DAG with one parent edge", def.Steps)
 	}
 
-	set, err := routine.CompileSet(cfg.Routines, routine.NewRegistry(routine.RunAction(root)), "hash")
+	assertCompiles(t, root, cfg.Routines)
+}
+
+// assertCompiles checks that a loaded definition survives the step every
+// project pays on startup: compiling against a real action registry.
+func assertCompiles(t *testing.T, root string, defs map[string]routine.Definition) {
+	t.Helper()
+
+	set, err := routine.CompileSet(defs, routine.NewRegistry(routine.RunAction(root)), "hash")
 	if err != nil {
 		t.Fatalf("CompileSet: %v", err)
 	}

@@ -15,10 +15,10 @@ type waiter struct {
 // rest wait in a queue whose service order is the arriving run's strategy.
 type group struct {
 	cancelHeld context.CancelFunc
-	waiters    []*waiter
 	// lastServed is the routine admitted most recently, which is what makes
 	// round-robin rotate rather than repeat.
 	lastServed string
+	waiters    []*waiter
 	mu         sync.Mutex
 	held       bool
 	// rotate is set once a routine declaring round-robin has queued on this
@@ -66,7 +66,9 @@ func (g *groups) acquire(ctx context.Context, rt *Routine) (context.Context, fun
 	case <-ctx.Done():
 		grp.drop(w)
 
-		return nil, nil, ctx.Err() //nolint:wrapcheck // the caller reports the run canceled, and a wrapped context error reads no better
+		// The caller reports the run canceled; wrapping the context error
+		// reads no better at the surface.
+		return nil, nil, ctx.Err() //nolint:wrapcheck // see above
 	}
 }
 

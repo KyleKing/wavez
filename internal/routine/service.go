@@ -34,7 +34,7 @@ type Service struct {
 	root    string
 }
 
-// NewService builds the Service over the compiled set set returns.
+// NewService builds a Service reading its routines through set.
 func NewService(root string, runner *Runner, history *History, set func() *Set) *Service {
 	return &Service{root: root, runner: runner, history: history, set: set}
 }

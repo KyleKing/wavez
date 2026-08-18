@@ -17,6 +17,9 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
+// errNoLabel is what a stub action rejects a step without a label with.
+var errNoLabel = errors.New("label is required")
+
 // recorder collects the step names an action ran, in completion order, so a
 // test can assert dependency order without a sleep.
 type recorder struct {
@@ -40,13 +43,15 @@ func (r *recorder) seen() []string {
 
 // stubAction registers an action whose handler is supplied per step through
 // a "label" parameter, which is how a test names the step it is watching.
-func stubAction(name string, resources []string, run func(ctx context.Context, label string) (routine.Outcome, error)) routine.Action {
+type stubRun func(ctx context.Context, label string) (routine.Outcome, error)
+
+func stubAction(name string, resources []string, run stubRun) routine.Action {
 	return routine.Action{
 		Name: name,
 		Bind: func(params map[string]any) (routine.Bound, error) {
 			label, ok := params["label"].(string)
 			if !ok {
-				return routine.Bound{}, errors.New("label is required")
+				return routine.Bound{}, errNoLabel
 			}
 
 			return routine.Bound{
@@ -58,6 +63,9 @@ func stubAction(name string, resources []string, run func(ctx context.Context, l
 		},
 	}
 }
+
+// scriptPerm makes a test fixture script executable.
+const scriptPerm = 0o700
 
 func step(name, action string, parents ...string) routine.StepDef {
 	return routine.StepDef{
@@ -192,7 +200,7 @@ func TestRunner_SerializesStepsSharingAResourceKey(t *testing.T) {
 		maxLive int
 	)
 
-	reg := routine.NewRegistry(stubAction("busy", []string{"go-test"}, func(context.Context, string) (routine.Outcome, error) {
+	busy := func(context.Context, string) (routine.Outcome, error) {
 		mu.Lock()
 		live++
 		maxLive = max(maxLive, live)
@@ -205,7 +213,9 @@ func TestRunner_SerializesStepsSharingAResourceKey(t *testing.T) {
 		}()
 
 		return routine.Outcome{Pass: true, Examined: 1}, nil
-	}))
+	}
+
+	reg := routine.NewRegistry(stubAction("busy", []string{"go-test"}, busy))
 
 	rt, err := routine.Compile(def("parallel", step("a", "busy"), step("b", "busy"), step("c", "busy")), reg)
 	require.NoError(t, err)
@@ -250,7 +260,8 @@ func TestRunner_CancelInProgressTakesTheKeyFromTheRunningInstance(t *testing.T) 
 	first := make(chan routine.RunRecord, 1)
 
 	go func() {
-		rec, _ := runner.Run(context.Background(), held, routine.TriggerManual, routine.Env{})
+		rec, runErr := runner.Run(context.Background(), held, routine.TriggerManual, routine.Env{})
+		assert.NoError(t, runErr)
 		first <- rec
 	}()
 
@@ -270,8 +281,8 @@ func TestRunAction_TrimsFailureToTheChangedFile(t *testing.T) {
 
 	root := t.TempDir()
 	script := filepath.Join(root, "fail.sh")
-	require.NoError(t, os.WriteFile(script,
-		[]byte("#!/bin/sh\necho 'noise from elsewhere.go:9'\necho 'internal/lease.go:12: broke'\nexit 1\n"), 0o700))
+	body := "#!/bin/sh\necho 'noise from elsewhere.go:9'\necho 'internal/lease.go:12: broke'\nexit 1\n"
+	require.NoError(t, os.WriteFile(script, []byte(body), scriptPerm))
 
 	reg := routine.NewRegistry(routine.RunAction(root))
 

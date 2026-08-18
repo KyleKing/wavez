@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/api"
@@ -10,12 +11,14 @@ import (
 	"github.com/kyleking/wavez/internal/llm/fake"
 )
 
+var errUnknownStubRoutine = errors.New("unknown routine")
+
 // stubRoutines is a RoutineSource that records what it was asked to run.
 type stubRoutines struct {
 	ran chan string
 }
 
-func (s stubRoutines) List() ([]api.RoutineInfo, error) {
+func (stubRoutines) List() ([]api.RoutineInfo, error) {
 	return []api.RoutineInfo{
 		{Name: "gate-format", Triggers: []string{"manual"}, Steps: []string{"format"}, Enabled: true},
 	}, nil
@@ -23,7 +26,7 @@ func (s stubRoutines) List() ([]api.RoutineInfo, error) {
 
 func (s stubRoutines) Run(_ context.Context, name string) (api.RoutineInfo, error) {
 	if name != "gate-format" {
-		return api.RoutineInfo{}, errors.New("unknown routine " + name)
+		return api.RoutineInfo{}, fmt.Errorf("%w: %s", errUnknownStubRoutine, name)
 	}
 
 	s.ran <- name

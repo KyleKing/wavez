@@ -63,13 +63,15 @@ func TestFooterHints_DropsLowestPriorityAsWidthShrinks(t *testing.T) {
 }
 
 type fakeClient struct {
-	canceled []string
-	answered []answered
-	diffed   []string
-	created  []created
-	restores []restoreCall
-	routes   []routeCall
-	thinks   []thinkCall
+	answered    []answered
+	diffed      []string
+	created     []created
+	restores    []restoreCall
+	routes      []routeCall
+	thinks      []thinkCall
+	ranRoutines []string
+	listed      int
+	canceled    []string
 }
 
 type routeCall struct {
@@ -98,6 +100,18 @@ type answered struct {
 	promptID string
 	text     string
 	decision permission.Decision
+}
+
+func (f *fakeClient) routines() tea.Cmd {
+	f.listed++
+
+	return nil
+}
+
+func (f *fakeClient) runRoutine(name string) tea.Cmd {
+	f.ranRoutines = append(f.ranRoutines, name)
+
+	return nil
 }
 
 func (*fakeClient) subscribe(string) tea.Cmd    { return nil }

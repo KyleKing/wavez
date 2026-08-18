@@ -285,16 +285,17 @@ type Set struct {
 func CompileSet(defs map[string]Definition, reg *Registry, hash string) (*Set, error) {
 	merged := make(map[string]Definition, len(defs)+len(builtinDefinitions))
 
-	for name, def := range builtinDefinitions {
+	for _, name := range sortedKeys(builtinDefinitions) {
 		// A built-in exists only because its gate does: a caller that never
 		// registered that gate's action gets no routine for it rather than a
 		// config error it cannot fix.
-		if registered(def, reg) {
-			merged[name] = def
+		if registered(builtinDefinitions[name], reg) {
+			merged[name] = builtinDefinitions[name]
 		}
 	}
 
-	for name, def := range defs {
+	for _, name := range sortedKeys(defs) {
+		def := defs[name]
 		def.Name = name
 		merged[name] = def
 	}

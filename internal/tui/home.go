@@ -361,5 +361,6 @@ func homeHints(filtering bool) []hint {
 		{"q", labelQuit},
 		{"?", labelHelp},
 		{":", "palette"},
+		{"R", labelRoutines},
 	}
 }

@@ -41,9 +41,9 @@ type RunContext struct {
 // the model nothing but a boolean, a failing one gives it only what touches
 // the change.
 type TrimmedFailure struct {
-	Test    string
-	Package string
-	Frames  []string
+	Test    string   `json:"test"`
+	Package string   `json:"package,omitempty"`
+	Frames  []string `json:"frames,omitempty"`
 }
 
 // Result is one Gate's outcome. Timestamp and Duration are stamped by
