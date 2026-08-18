@@ -141,6 +141,17 @@ func TestRun_TwoTurnConversationWithOneToolCall(t *testing.T) {
 		t.Fatalf("event kinds = %v, want %v", got, wantSeq)
 	}
 
+	events, err := th.Log().Since(0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	if role := events[2].Role; role != event.RoleNote {
+		t.Errorf("turn 1 marker Role = %q, want note: it precedes a tool call", role)
+	}
+	if role := events[5].Role; role != event.RoleAnswer {
+		t.Errorf("turn 2 marker Role = %q, want answer: it ends the run with no tool call", role)
+	}
+
 	history := th.History()
 	if len(history) != 4 {
 		t.Fatalf("history len = %d, want 4 (user, assistant, tool, assistant)", len(history))

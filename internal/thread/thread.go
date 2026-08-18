@@ -157,7 +157,11 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 	if usage != nil {
 		detail["usage"] = usage
 	}
-	if _, err := t.log.Append(event.Event{Kind: event.KindAgent, Detail: detail}); err != nil {
+	role := event.RoleNote
+	if len(msg.ToolCalls) == 0 {
+		role = event.RoleAnswer
+	}
+	if _, err := t.log.Append(event.Event{Kind: event.KindAgent, Role: role, Detail: detail}); err != nil {
 		return fmt.Errorf("logging agent turn: %w", err)
 	}
 

@@ -37,6 +37,21 @@ const (
 	KindReview Kind = "review"
 )
 
+// Role types a KindAgent turn's prose so a client can tell what must be read
+// from what is good to know. The harness derives it from turn shape, never
+// from the model stating which it is: a turn that ends a run with no
+// pending tool call is RoleAnswer, one that precedes tool calls is
+// RoleNote. It is carried on a terminating KindAgent event that has no
+// Text, a marker rather than a row, and applies to the agent prose that
+// immediately preceded it in the log.
+type Role string
+
+// Roles a KindAgent turn's prose may take.
+const (
+	RoleAnswer Role = "answer"
+	RoleNote   Role = "note"
+)
+
 // State is a thread's lifecycle position, rendered as a glyph in every view.
 type State string
 
@@ -66,6 +81,8 @@ type Event struct {
 	Tool string `json:"tool,omitempty"`
 	// State is set on KindState.
 	State State `json:"state,omitempty"`
+	// Role is set on the terminating KindAgent marker; see Role's doc.
+	Role Role `json:"role,omitempty"`
 	// Changes carries file changes a tool produced, which is what triggers gates.
 	Changes []tool.Change `json:"changes,omitempty"`
 	Seq     uint64        `json:"seq"`

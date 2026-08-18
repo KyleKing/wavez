@@ -86,6 +86,52 @@ func TestHistoryIsAppendOnlyAndCopied(t *testing.T) {
 	}
 }
 
+func TestAppendAssistantLogsRoleFromToolCalls(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		want      event.Role
+		toolCalls []llm.ToolCall
+	}{
+		{name: "no tool calls is an answer", toolCalls: nil, want: event.RoleAnswer},
+		{
+			name:      "tool calls make it a note",
+			toolCalls: []llm.ToolCall{{ID: "1", Name: "read"}},
+			want:      event.RoleNote,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := open(t)
+			ctx := context.Background()
+			th.BeginTurn()
+			msg := llm.Message{Content: "hi", ToolCalls: tt.toolCalls}
+			if err := th.AppendAssistant(ctx, msg, nil); err != nil {
+				t.Fatalf("AppendAssistant: %v", err)
+			}
+
+			events, err := th.Log().Since(0)
+			if err != nil {
+				t.Fatalf("Since: %v", err)
+			}
+			last := events[len(events)-1]
+			if last.Kind != event.KindAgent {
+				t.Fatalf("last event kind = %q, want agent", last.Kind)
+			}
+			if last.Role != tt.want {
+				t.Errorf("Role = %q, want %q", last.Role, tt.want)
+			}
+			if last.Text != "" {
+				t.Errorf("Text = %q, want empty: the role marker carries no prose", last.Text)
+			}
+		})
+	}
+}
+
 func TestSetStateLogsEvent(t *testing.T) {
 	t.Parallel()
 
