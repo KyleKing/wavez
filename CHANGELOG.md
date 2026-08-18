@@ -1,3 +1,28 @@
+## v0.11.0 (2026-08-18)
+
+### Feat
+
+- **diag**: parse llama-server timings and grow the diagnostics protocol
+- **cycle**: advance a phase on a condition the harness evaluates
+- **tui**: add a routines panel with triggers, history, and a duration sparkline
+- **api**: list and run routines over the daemon socket
+- **routine**: compile pkl routines into a DAG the runner can execute
+- **tui**: schedule view behind s with lanes, lock waits, and the lease list
+- **lease**: take a directory-subtree lease where a thread writes
+- **config**: point the local tier at a llama-server on another machine
+- **guard**: read the script a command runs, and let write make one executable
+
+### Fix
+
+- **gate**: abstain from go test on a change set with no Go file, and never fail silently
+- **tui**: read the model footprint, subscribe on peek, and keep esc inside the model screen
+- **daemon**: put a run that fails before its first turn on the thread log
+- **guard**: expand a destructive target before judging where it points
+
+### Refactor
+
+- settle the lint findings from merging the M2 lanes
+
 ## v0.10.0 (2026-08-18)
 
 ### Feat
