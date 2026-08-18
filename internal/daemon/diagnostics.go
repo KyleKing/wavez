@@ -1,52 +1,135 @@
 package daemon
 
-import "github.com/kyleking/wavez/internal/api"
+import (
+	"context"
+
+	"github.com/kyleking/wavez/internal/api"
+)
 
 // unmeasurableGauges are the panel's numbers nothing in wavez observes today.
-// Decode speed and local prefix-cache reuse are both llama-server timings the
-// OpenAI-compatible stream never carries, and the daemon does not scrape
-// llama-server's metrics endpoint, so neither has a source to plumb.
-var unmeasurableGauges = []api.Gauge{api.GaugeTokensPerSec, api.GaugePrefixHit}
+// Each is a subsystem that has not landed or an instrument the loop does not
+// keep, and naming them here is what lets a client render a dash instead of
+// inferring one from a zero.
+//
+// Hosted call count and latency need the loop to time and count a turn per
+// tier, which it does not. Gate latency and the running gate need the gate
+// runner to report its own queue rather than the permission broker standing
+// in for it. Escalations need the router to record a tier change on the
+// outcome. CPU by process group stops at what
+// `ps` can attribute: the TUI is another process the daemon cannot identify,
+// and a gate's subprocesses are gone by the time a sample lands.
+var unmeasurableGauges = []api.Gauge{
+	api.GaugeCPUGates,
+	api.GaugeCPUTUI,
+	api.GaugeEscalations,
+	api.GaugeGateLatency,
+	api.GaugeGateRunning,
+	api.GaugeHostedCalls,
+	api.GaugeHostedLatency,
+}
 
 func (s *Server) diagnostics() api.Diagnostics {
-	u := s.mgr.totalUsage()
+	f := s.mgr.fleetStats()
 	counts := s.leases.Counts()
 
 	d := api.Diagnostics{
-		LeasesHeld:    counts.Held,
-		LeasesWaiting: counts.Waiting,
-		LocalModel:    s.mgr.localModel(),
-		Threads:       s.mgr.count(),
-		NeedsInput:    s.mgr.needsInputCount(),
-		GateQueue:     s.broker.gateQueueCount(),
-		GateRuns:      s.broker.askedCount(),
-		GateFailures:  s.broker.deniedCount(),
-		ToolCalls:     s.mgr.toolCallCount(),
-		Malformed:     s.mgr.malformedCount(),
-		SpendToday:    s.mgr.spend.today(),
-		Unmeasured:    append([]api.Gauge(nil), unmeasurableGauges...),
+		LeasesHeld:     counts.Held,
+		LeasesWaiting:  counts.Waiting,
+		LocalModel:     s.mgr.localModel(),
+		Threads:        s.mgr.count(),
+		NeedsInput:     f.needsInput,
+		GateQueue:      s.broker.gateQueueCount(),
+		GateRuns:       s.broker.askedCount(),
+		GateFailures:   s.broker.deniedCount(),
+		ToolCalls:      s.mgr.toolCallCount(),
+		Malformed:      s.mgr.malformedCount(),
+		SpendToday:     s.mgr.spend.today(),
+		ContextUsed:    f.context,
+		ContextWindow:  f.window,
+		TranscriptRows: f.rows,
+		CompactionRuns: f.compactionRuns,
+		TokensSaved:    f.tokensSaved,
+		EventsPerSec:   s.window.rate(f.rows),
+		PerThread:      f.perThread,
+		Sparks:         s.window.sparks(),
+		Unmeasured:     append([]api.Gauge(nil), unmeasurableGauges...),
 	}
 
-	if u.input > 0 {
-		d.CacheRead = float64(u.cacheRead) / float64(u.input)
+	applyUsage(&d, f)
+	s.applyMachine(&d)
+	s.applyModelDisk(&d)
+
+	return d
+}
+
+// applyUsage fills the local and hosted rows from what the threads reported.
+// Decode speed and prefix reuse come from the serving runtime's own timings,
+// so a fleet that has run no local turn yet has neither.
+func applyUsage(d *api.Diagnostics, f fleetStats) {
+	if f.usage.input > 0 {
+		d.CacheRead = float64(f.usage.cacheRead) / float64(f.usage.input)
 	} else {
 		d.Unmeasured = append(d.Unmeasured, api.GaugeCacheRead)
 	}
 
-	if s.stats == nil {
-		d.Unmeasured = append(d.Unmeasured, api.GaugeMemory, api.GaugeModelBytes)
+	if f.context == 0 {
+		d.Unmeasured = append(d.Unmeasured, api.GaugeContext)
+	}
 
-		return d
+	if f.timings == nil {
+		d.Unmeasured = append(d.Unmeasured, api.GaugeTokensPerSec, api.GaugePrefixHit)
+
+		return
+	}
+
+	d.TokensPerSec = f.timings.DecodePerSecond
+	d.PrefixHit = f.timings.PrefixHit()
+}
+
+func (s *Server) applyMachine(d *api.Diagnostics) {
+	if s.stats == nil {
+		d.Unmeasured = append(d.Unmeasured,
+			api.GaugeMemory, api.GaugeModelBytes, api.GaugeCPU, api.GaugeCPUDaemon, api.GaugeCPUModel)
+
+		return
 	}
 
 	m := s.stats.Stats()
 	d.MemUsedBytes = m.UsedBytes
 	d.MemTotalBytes = m.TotalBytes
 	d.ModelBytes = m.ModelBytes
+	d.CPUPercent = m.CPUPercent
+	d.CPUDaemon = m.CPUDaemon
+	d.CPUModel = m.CPUModel
 
 	if !m.ModelMeasured {
 		d.Unmeasured = append(d.Unmeasured, api.GaugeModelBytes)
 	}
+	if !m.CPUMeasured {
+		d.Unmeasured = append(d.Unmeasured, api.GaugeCPU, api.GaugeCPUDaemon, api.GaugeCPUModel)
+	}
+}
 
-	return d
+// applyModelDisk totals what the models on disk take, which bounds what the
+// router may choose the same way memory does.
+func (s *Server) applyModelDisk(d *api.Diagnostics) {
+	if s.modelStore == nil {
+		d.Unmeasured = append(d.Unmeasured, api.GaugeModelDisk)
+
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
+	defer cancel()
+
+	models, err := s.modelStore.List(ctx)
+	if err != nil {
+		d.Unmeasured = append(d.Unmeasured, api.GaugeModelDisk)
+
+		return
+	}
+
+	for _, m := range models {
+		d.ModelDiskBytes += m.SizeBytes
+	}
 }

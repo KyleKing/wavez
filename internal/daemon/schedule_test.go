@@ -97,7 +97,7 @@ func TestSchedule_ThreeThreadsTwoDirectoriesSerializeOnTheLease(t *testing.T) {
 	}
 
 	local := fake.New("local", writeTurn(), writeTurn(), writeTurn(), endTurn(), endTurn(), endTurn())
-	h := newHarnessWith(t, local, nil, []daemon.Option{daemon.WithLeases(leases)}, tl)
+	h := newHarness(t, local, withServerOptions(daemon.WithLeases(leases)), withTool(tl))
 
 	cl := dial(t, h)
 	cl.hello()
@@ -238,7 +238,7 @@ func TestSchedule_HeldTurnSaysWhyInItsStep(t *testing.T) {
 	}
 
 	local := fake.New("local", endTurn())
-	h := newHarnessWith(t, local, nil, []daemon.Option{daemon.WithScheduler(scheduler)})
+	h := newHarness(t, local, withServerOptions(daemon.WithScheduler(scheduler)))
 
 	cl := dial(t, h)
 	cl.hello()

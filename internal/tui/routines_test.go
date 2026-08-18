@@ -63,7 +63,7 @@ func TestRoutines_RendersTriggersLastRunAndSparkline(t *testing.T) {
 			assert.Contains(t, out, want, "size %dx%d", size.w, size.h)
 		}
 
-		assert.Contains(t, out, "+=%",
+		assert.Contains(t, out, "+=@",
 			"size %dx%d: the sparkline scales per routine and degrades to ascii under NO_COLOR", size.w, size.h)
 
 		goldenCompare(t, fmt.Sprintf("routines_frame_%dx%d", size.w, size.h), out)

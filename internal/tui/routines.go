@@ -129,7 +129,7 @@ func (m Model) routineRow(r api.RoutineInfo) string {
 		truncate(r.Name, routineNameWidth),
 		truncate(triggerList(r), routineTriggerWidth),
 		last,
-		sparkline(durations(r.Runs), m.ascii))
+		durationSparkline(durations(r.Runs), m.ascii))
 }
 
 // routineMark says at a glance whether the last run passed, using the same
@@ -247,15 +247,11 @@ func durations(runs []api.RoutineRun) []time.Duration {
 	return out
 }
 
-var (
-	sparkBlocks = []rune("▁▂▃▄▅▆▇█")
-	sparkASCII  = []rune("_.-=+*#%")
-)
-
-// sparkline renders the last sparklineWidth durations relative to the
-// longest of them. The scale is per routine rather than global, so a fast
-// routine's variation is still visible beside a slow one.
-func sparkline(values []time.Duration, ascii bool) string {
+// durationSparkline renders the last sparklineWidth durations relative to
+// the longest of them, with zero as the floor so a fast routine reads low.
+// The scale is per routine rather than global, so a fast routine's variation
+// is still visible beside a slow one.
+func durationSparkline(values []time.Duration, ascii bool) string {
 	if len(values) == 0 {
 		return ""
 	}
@@ -264,7 +260,7 @@ func sparkline(values []time.Duration, ascii bool) string {
 		values = values[len(values)-sparklineWidth:]
 	}
 
-	alphabet := sparkBlocks
+	alphabet := sparkGlyphs
 	if ascii {
 		alphabet = sparkASCII
 	}

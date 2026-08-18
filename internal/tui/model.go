@@ -24,6 +24,7 @@ const (
 	screenNewThread
 	screenRoutines
 	screenSchedule
+	screenModels
 )
 
 const (
@@ -60,9 +61,11 @@ type Model struct {
 	inbox       inboxState
 	home        homeState
 	schedule    api.Schedule
+	models      modelsState
 	diag        api.Diagnostics
 	routinesUI  routinesState
 	sched       scheduleState
+	diagUI      diagState
 	width       int
 	focus       int
 	height      int
@@ -95,6 +98,7 @@ func New(opts Options) Model {
 		thread:      newThreadState(th),
 		form:        newThreadForm(th),
 		inbox:       newInboxState(th),
+		models:      newModelsState(th),
 		palette:     newPaletteState(th),
 	}
 }
@@ -189,6 +193,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.ready = true
 		m.thread.input.SetWidth(msg.Width - boxPad)
+		m.models.install.SetWidth(fitInput(msg.Width, true))
+		m.models.edit.SetWidth(fitInput(msg.Width, true))
 		m.home.filterInput.SetWidth(fitInput(msg.Width, false))
 		m.thread.search.input.SetWidth(fitInput(msg.Width, false))
 		m.palette.input.SetWidth(fitInput(msg.Width, false))
@@ -294,6 +300,8 @@ func (m Model) capturingText() bool {
 		return true
 	case m.top() == screenNewThread:
 		return true
+	case m.top() == screenModels && (m.models.naming || m.models.editing):
+		return true
 	default:
 		return false
 	}
@@ -358,6 +366,10 @@ func (m Model) handleGlobalShortcut(s string) (Model, tea.Cmd, bool) {
 		m.push(screenDiagnostics)
 
 		return m, nil, true
+	case "M":
+		mm, cmd := m.openModels()
+
+		return mm, cmd, true
 	case "R":
 		return m.openRoutines()
 	case "i":
@@ -378,7 +390,9 @@ func (m Model) dispatchScreenKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd)
 	case screenInbox:
 		return m.updateInboxKey(msg, s)
 	case screenDiagnostics:
-		return m, nil
+		return m.updateDiagnosticsKey(s)
+	case screenModels:
+		return m.updateModelsKey(msg, s)
 	case screenNewThread:
 		return m.updateNewThreadKey(msg, s)
 	case screenRoutines:
@@ -422,16 +436,8 @@ func (m *Model) applyReply(r api.Reply) {
 		m.pending = r.Pending
 	case api.RepDiag, api.RepSchedule:
 		m.applyPanel(r)
-	case api.RepDiff:
-		if r.Diff != nil {
-			m.diffs[r.Diff.ThreadID] = parseDiff(r.Diff.Unified)
-		}
-	case api.RepRestore:
-		if r.Restore != nil {
-			m.applyRestore(*r.Restore)
-		}
-	case api.RepError:
-		m.status = r.Error
+	case api.RepDiff, api.RepRestore, api.RepModels, api.RepError:
+		m.applyScreenReply(r)
 	case api.RepThreads, api.RepThread, api.RepEvent:
 		// Already folded in by applyThreadReply.
 	case api.RepHello, api.RepLagged:
@@ -484,6 +490,41 @@ func (m *Model) replaceThreads(next []api.ThreadInfo) {
 	}
 
 	m.threads = next
+}
+
+// applyScreenReply applies the replies that belong to one screen rather than
+// to the fleet's shared state.
+func (m *Model) applyScreenReply(r api.Reply) {
+	switch r.Kind {
+	case api.RepDiff:
+		if r.Diff != nil {
+			m.diffs[r.Diff.ThreadID] = parseDiff(r.Diff.Unified)
+		}
+	case api.RepRestore:
+		if r.Restore != nil {
+			m.applyRestore(*r.Restore)
+		}
+	case api.RepModels:
+		m.applyModels(r)
+	case api.RepError:
+		m.status = r.Error
+	case api.RepHello, api.RepThreads, api.RepThread, api.RepEvent, api.RepPending, api.RepDiag, api.RepLagged:
+		// Handled by applyReply, which is the only caller.
+	}
+}
+
+// applyModels takes the whole list every model command answers with. The
+// note lands on the confirmation while one is open and in the status line
+// otherwise, since the same string answers both "what would this cost" and
+// "what happened".
+func (m *Model) applyModels(r api.Reply) {
+	m.models.list = r.Models
+	m.models.confirm = r.Note
+	m.models.cursor = min(m.models.cursor, max(len(r.Models)-1, 0))
+
+	if m.models.action == "" && r.Note != "" {
+		m.status = r.Note
+	}
 }
 
 // applyRoutines takes a full list, or folds in the single routine a run

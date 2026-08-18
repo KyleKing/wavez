@@ -44,6 +44,8 @@ func (m Model) render() string {
 		return m.renderInbox()
 	case screenDiagnostics:
 		return m.renderDiagnostics()
+	case screenModels:
+		return m.renderModels()
 	case screenNewThread:
 		return m.renderNewThread()
 	case screenRoutines:

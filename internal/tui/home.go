@@ -344,7 +344,7 @@ func (m Model) renderHomeExpanded(t api.ThreadInfo) []string {
 
 func homeHints(filtering bool) []hint {
 	if filtering {
-		return []hint{{keyEnter, "apply"}, {keyEsc, "cancel"}}
+		return []hint{{keyEnter, labelApply}, {keyEsc, "cancel"}}
 	}
 
 	// Ordered by what a reader loses least when the footer is too narrow:

@@ -71,9 +71,39 @@ type Request struct {
 
 // Usage counts tokens for one model call.
 type Usage struct {
-	InputTokens     int `json:"input_tokens"`
-	OutputTokens    int `json:"output_tokens"`
-	CacheReadTokens int `json:"cache_read_tokens"`
+	// Timings is the serving runtime's own measurement of this call, nil for
+	// a provider that reports none.
+	Timings         *Timings `json:"timings,omitempty"`
+	InputTokens     int      `json:"input_tokens"`
+	OutputTokens    int      `json:"output_tokens"`
+	CacheReadTokens int      `json:"cache_read_tokens"`
+}
+
+// Timings is how fast a serving runtime ran one call and how much of the
+// prompt it reused from its cache. Token counts alone cannot answer either,
+// so a runtime that reports no timings leaves decode speed and prefix-cache
+// reuse without a source rather than at zero.
+type Timings struct {
+	// PromptTokens is how many prompt tokens the runtime evaluated, which
+	// excludes CachedTokens.
+	PromptTokens int `json:"prompt_tokens"`
+	// CachedTokens is how many prompt tokens the runtime took from its
+	// prefix cache instead of evaluating.
+	CachedTokens    int     `json:"cached_tokens"`
+	PromptPerSecond float64 `json:"prompt_per_second"`
+	// DecodePerSecond is generation speed, which is the local bottleneck.
+	DecodePerSecond float64 `json:"decode_per_second"`
+}
+
+// PrefixHit is the share of the prompt served from the prefix cache, and is
+// zero for a prompt with no tokens.
+func (t Timings) PrefixHit() float64 {
+	total := t.PromptTokens + t.CachedTokens
+	if total == 0 {
+		return 0
+	}
+
+	return float64(t.CachedTokens) / float64(total)
 }
 
 // StopReason explains why the model stopped generating.

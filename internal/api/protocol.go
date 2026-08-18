@@ -37,6 +37,24 @@ const (
 	// CmdThink turns a hybrid model's reasoning trace on or off for a
 	// thread's next turn.
 	CmdThink CommandKind = "think"
+	// CmdDiagReset clears the diagnostics window: the sparkline samples and
+	// every counter scoped to it. Lifetime totals survive.
+	CmdDiagReset CommandKind = "diag_reset"
+	// CmdModels lists the models Ollama has on disk. It never contacts the
+	// registry, so it is cheap enough to call whenever the screen opens.
+	CmdModels CommandKind = "models"
+	// CmdModelCheck asks the registry whether a newer manifest exists for
+	// Model, or for every installed model when Model is empty. It never
+	// installs anything.
+	CmdModelCheck CommandKind = "model_check"
+	// CmdModelInstall pulls Model. Without Confirm it reports the disk the
+	// pull would take and installs nothing.
+	CmdModelInstall CommandKind = "model_install"
+	// CmdModelRemove uninstalls Model. Without Confirm it reports the disk
+	// the removal frees and removes nothing.
+	CmdModelRemove CommandKind = "model_remove"
+	// CmdModelSettings replaces Model's runtime settings with Settings.
+	CmdModelSettings CommandKind = "model_settings"
 	// CmdRoutines lists the project's routines with their triggers and
 	// recent runs.
 	CmdRoutines CommandKind = "routines"
@@ -77,6 +95,9 @@ type Command struct {
 	Decision permission.Decision `json:"decision,omitempty"`
 	// PromptID names the pending prompt an answer resolves.
 	PromptID string `json:"prompt_id,omitempty"`
+	// Settings carries the runtime flags a model is served with, for
+	// model_settings.
+	Settings *ModelSettings `json:"settings,omitempty"`
 	// Dirs is the directory set for new, defaulting to the daemon's scope.
 	Dirs []string `json:"dirs,omitempty"`
 	// From resumes a subscription after the client's last seen Seq.
@@ -102,6 +123,9 @@ const (
 	RepDiff     ReplyKind = "diff"
 	RepRestore  ReplyKind = "restore"
 	RepError    ReplyKind = "error"
+	// RepModels answers every model command with the whole list, so a client
+	// never merges a partial update into a list it already holds.
+	RepModels ReplyKind = "models"
 	// RepLagged reports that a subscription dropped events. The client must
 	// resubscribe from its last seen Seq rather than assume continuity.
 	RepLagged ReplyKind = "lagged"
@@ -116,7 +140,11 @@ type Reply struct {
 	ID   string    `json:"id,omitempty"`
 	Kind ReplyKind `json:"kind"`
 
-	Error    string        `json:"error,omitempty"`
+	Error string `json:"error,omitempty"`
+	// Note carries a command's human-readable outcome where it has one: the
+	// disk a model install or removal would cost, reported before anything
+	// happens so a client can confirm against it.
+	Note     string        `json:"note,omitempty"`
 	Thread   *ThreadInfo   `json:"thread,omitempty"`
 	Event    *event.Event  `json:"event,omitempty"`
 	Diag     *Diagnostics  `json:"diag,omitempty"`
@@ -126,8 +154,47 @@ type Reply struct {
 	Threads  []ThreadInfo  `json:"threads,omitempty"`
 	Routines []RoutineInfo `json:"routines,omitempty"`
 	Pending  []PendingInfo `json:"pending,omitempty"`
+	Models   []ModelInfo   `json:"models,omitempty"`
 	Protocol int           `json:"protocol,omitempty"`
 	LastSeq  uint64        `json:"last_seq,omitempty"`
+}
+
+// ModelSettings is how one model is served: the llama-server flags DESIGN.md
+// tunes per laptop. A zero field means "use the shipped default", which is
+// what lets a client show the default beside every value and restore it.
+type ModelSettings struct {
+	SpecType    string `json:"spec_type,omitempty"`
+	ContextSize int    `json:"context_size,omitempty"`
+	CacheReuse  int    `json:"cache_reuse,omitempty"`
+	Threads     int    `json:"threads,omitempty"`
+	BatchSize   int    `json:"batch_size,omitempty"`
+}
+
+// ModelInfo is one row on the model management screen: what is on disk, what
+// loading it would leave free, and whether the registry has moved on.
+type ModelInfo struct {
+	Name      string `json:"name"`
+	Tag       string `json:"tag"`
+	Quant     string `json:"quant,omitempty"`
+	ParamSize string `json:"param_size,omitempty"`
+	// Settings is what wavez serves this model with, and Defaults is what it
+	// ships with, so a client renders both and can restore one.
+	Settings  ModelSettings `json:"settings"`
+	Defaults  ModelSettings `json:"defaults"`
+	SizeBytes uint64        `json:"size_bytes"`
+	// FreeBytes is what stays free against the machine's ceiling once this
+	// model is resident, so the cost of loading it is visible before the
+	// scheduler has to refuse it.
+	FreeBytes uint64 `json:"free_bytes"`
+	// Checked reports whether an update check has run for this model. Until
+	// it has, UpdateAvailable says nothing and a client renders a dash.
+	Checked bool `json:"checked"`
+	// UpdateAvailable reports that the registry holds a different manifest
+	// for this tag. Wavez never acts on it.
+	UpdateAvailable bool `json:"update_available"`
+	// Loaded reports that this is the model the router serves local turns
+	// with.
+	Loaded bool `json:"loaded"`
 }
 
 // ThreadInfo is one row in Home: what the thread is doing and what it cost.
@@ -280,44 +347,107 @@ type Lease struct {
 // say so instead of sending a zero a client would render as a reading.
 type Gauge string
 
-// Gauges a daemon may report as unmeasured.
+// Gauges a daemon may report as unmeasured. Each names one number on the
+// diagnostics panel, so a client renders a dash for it rather than a zero and
+// never has to infer which is which.
 const (
 	GaugeCacheRead Gauge = "cache_read"
 	// GaugeMemory covers MemUsedBytes and MemTotalBytes together, since the
 	// panel's memory row is unavailable or not as a whole.
 	GaugeMemory     Gauge = "memory"
 	GaugeModelBytes Gauge = "model_bytes"
+	GaugeModelDisk  Gauge = "model_disk"
 	GaugePrefixHit  Gauge = "prefix_hit"
 	//nolint:gosec // a gauge name, not a credential
 	GaugeTokensPerSec Gauge = "tokens_per_sec"
+	GaugeContext      Gauge = "context"
+	GaugeCPU          Gauge = "cpu"
+	GaugeCPUDaemon    Gauge = "cpu_daemon"
+	GaugeCPUModel     Gauge = "cpu_model"
+	GaugeCPUGates     Gauge = "cpu_gates"
+	GaugeCPUTUI       Gauge = "cpu_tui"
+	GaugeHostedCalls  Gauge = "hosted_calls"
+	// GaugeHostedLatency covers the hosted row's p50 and last together.
+	GaugeHostedLatency Gauge = "hosted_latency"
+	GaugeGateLatency   Gauge = "gate_latency"
+	GaugeGateRunning   Gauge = "gate_running"
+	// GaugeLeases covers LeasesHeld, LeasesWaiting, and LeaseWaitOn together,
+	// since the scheduler either keeps leases or does not.
+	GaugeLeases      Gauge = "leases"
+	GaugeEscalations Gauge = "escalations"
+	GaugeEvents      Gauge = "events"
+	GaugeCompaction  Gauge = "compaction"
 )
 
 // Diagnostics is the strip in every header and the panel behind `D`. Every
 // number here is one the daemon already keeps for its own decisions.
 type Diagnostics struct {
 	LocalModel string `json:"local_model,omitempty"`
+	// GateRunning names the gate currently executing, empty when none is.
+	GateRunning string `json:"gate_running,omitempty"`
+	// LeaseWaitOn names the subtree the oldest waiting lease wants.
+	LeaseWaitOn string `json:"lease_wait_on,omitempty"`
 	// Unmeasured names the gauges whose value is absent rather than zero. A
 	// client must render each of these as unavailable, since the field itself
 	// carries the zero value either way.
-	Unmeasured    []Gauge `json:"unmeasured,omitempty"`
-	MemUsedBytes  uint64  `json:"mem_used_bytes"`
-	MemTotalBytes uint64  `json:"mem_total_bytes"`
-	ModelBytes    uint64  `json:"model_bytes"`
-	SpendToday    float64 `json:"spend_today"`
-	TokensPerSec  float64 `json:"tokens_per_sec"`
-	PrefixHit     float64 `json:"prefix_hit"`
-	CacheRead     float64 `json:"cache_read"`
-	GateQueue     int     `json:"gate_queue"`
-	// LeasesHeld and LeasesWaiting count subtrees claimed right now and
-	// threads blocked behind one, the panel's leases row.
-	LeasesHeld    int `json:"leases_held"`
-	LeasesWaiting int `json:"leases_waiting"`
-	GateFailures  int `json:"gate_failures"`
-	GateRuns      int `json:"gate_runs"`
-	Threads       int `json:"threads"`
-	NeedsInput    int `json:"needs_input"`
-	ToolCalls     int `json:"tool_calls"`
-	Malformed     int `json:"malformed"`
+	Unmeasured []Gauge `json:"unmeasured,omitempty"`
+	// Sparks carries the window's samples per gauge, oldest first, for the
+	// panel's sparklines. A gauge with no samples has no key.
+	Sparks map[Gauge][]float64 `json:"sparks,omitempty"`
+	// PerThread is what `Enter` on a panel row drills into.
+	PerThread     []ThreadDiag `json:"per_thread,omitempty"`
+	MemUsedBytes  uint64       `json:"mem_used_bytes"`
+	MemTotalBytes uint64       `json:"mem_total_bytes"`
+	ModelBytes    uint64       `json:"model_bytes"`
+	// ModelDiskBytes is what every installed model takes on disk, which
+	// bounds what the router may choose the same way memory does.
+	ModelDiskBytes uint64  `json:"model_disk_bytes"`
+	SpendToday     float64 `json:"spend_today"`
+	TokensPerSec   float64 `json:"tokens_per_sec"`
+	PrefixHit      float64 `json:"prefix_hit"`
+	CacheRead      float64 `json:"cache_read"`
+	CPUPercent     float64 `json:"cpu_percent"`
+	CPUDaemon      float64 `json:"cpu_daemon"`
+	CPUModel       float64 `json:"cpu_model"`
+	CPUGates       float64 `json:"cpu_gates"`
+	CPUTUI         float64 `json:"cpu_tui"`
+	// HostedP50Ms and HostedLastMs are hosted-call latency over the window.
+	HostedP50Ms  float64 `json:"hosted_p50_ms"`
+	HostedLastMs float64 `json:"hosted_last_ms"`
+	GateP50Ms    float64 `json:"gate_p50_ms"`
+	// EventsPerSec is the window's event throughput across every thread.
+	EventsPerSec float64 `json:"events_per_sec"`
+	// ContextUsed and ContextWindow describe the most recently active
+	// thread, since an occupied window belongs to one thread.
+	ContextUsed    int `json:"context_used"`
+	ContextWindow  int `json:"context_window"`
+	HostedCalls    int `json:"hosted_calls"`
+	GateQueue      int `json:"gate_queue"`
+	GateFailures   int `json:"gate_failures"`
+	GateRuns       int `json:"gate_runs"`
+	LeasesHeld     int `json:"leases_held"`
+	LeasesWaiting  int `json:"leases_waiting"`
+	Threads        int `json:"threads"`
+	NeedsInput     int `json:"needs_input"`
+	ToolCalls      int `json:"tool_calls"`
+	Malformed      int `json:"malformed"`
+	Escalations    int `json:"escalations"`
+	TranscriptRows int `json:"transcript_rows"`
+	CompactionRuns int `json:"compaction_runs"`
+	TokensSaved    int `json:"tokens_saved"`
+}
+
+// ThreadDiag is one thread's share of the panel's numbers, which is what a
+// row drills into.
+type ThreadDiag struct {
+	ID      string  `json:"id"`
+	Name    string  `json:"name"`
+	Dir     string  `json:"dir"`
+	Spend   float64 `json:"spend"`
+	Tokens  int     `json:"tokens"`
+	Context int     `json:"context"`
+	Window  int     `json:"window"`
+	Rows    int     `json:"rows"`
 }
 
 // Measured reports whether g holds a real reading.

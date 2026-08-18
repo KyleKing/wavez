@@ -43,6 +43,28 @@ func (g gatedTool) RequestPermission(json.RawMessage) (permission.Request, bool)
 	return permission.Request{Tool: g.name, Action: "write", Key: g.key}, true
 }
 
+// harnessConfig collects what a test wants to vary about the daemon under
+// test: extra tools in the registry, and extra daemon options.
+type harnessConfig struct {
+	tools  []tool.Tool
+	server []daemon.Option
+	loop   []agent.Option
+}
+
+type harnessOption func(*harnessConfig)
+
+func withTool(tl tool.Tool) harnessOption {
+	return func(c *harnessConfig) { c.tools = append(c.tools, tl) }
+}
+
+func withServerOptions(opts ...daemon.Option) harnessOption {
+	return func(c *harnessConfig) { c.server = append(c.server, opts...) }
+}
+
+func withLoopOptions(opts ...agent.Option) harnessOption {
+	return func(c *harnessConfig) { c.loop = append(c.loop, opts...) }
+}
+
 // testHarness wires a daemon.Server against fake providers for a test, and
 // stops it in t.Cleanup.
 type testHarness struct {
@@ -51,26 +73,20 @@ type testHarness struct {
 	sockPath string
 }
 
-func newHarness(t *testing.T, local *fake.Provider, extraTools ...tool.Tool) *testHarness {
+func newHarness(t *testing.T, local *fake.Provider, opts ...harnessOption) *testHarness {
 	t.Helper()
 
-	return newHarnessWith(t, local, nil, nil, extraTools...)
-}
-
-// newHarnessWith is newHarness with extra loop and daemon options, for a
-// test that injects a checkpointer, or wires a lease manager, scheduler, or
-// routine source the tools it passes were built with.
-func newHarnessWith(
-	t *testing.T, local *fake.Provider, loopOpts []agent.Option, extra []daemon.Option, extraTools ...tool.Tool,
-) *testHarness {
-	t.Helper()
+	var h harnessConfig
+	for _, opt := range opts {
+		opt(&h)
+	}
 
 	broker := daemon.NewBroker()
-	tools := append([]tool.Tool{echoTool{name: "echo"}}, extraTools...)
+	tools := append([]tool.Tool{echoTool{name: "echo"}}, h.tools...)
 	reg := tool.NewRegistry(tools...)
 	hosted := fake.New("hosted")
-	opts := append([]agent.Option{agent.WithLocalModel("qwen3:8b")}, loopOpts...)
-	loop := agent.New(local, hosted, reg, broker.Gate(), opts...)
+	loopOpts := append([]agent.Option{agent.WithLocalModel("qwen3:8b")}, h.loop...)
+	loop := agent.New(local, hosted, reg, broker.Gate(), loopOpts...)
 
 	sockPath := shortSockPath(t)
 	daemonOpts := append([]daemon.Option{
@@ -79,7 +95,7 @@ func newHarnessWith(
 		daemon.WithLogDir(t.TempDir()),
 		daemon.WithPrefix(agent.Prefix{System: "test"}),
 		daemon.WithShutdownGrace(2 * time.Second),
-	}, extra...)
+	}, h.server...)
 	srv, err := daemon.New(sockPath, daemonOpts...)
 	if err != nil {
 		t.Fatalf("daemon.New: %v", err)

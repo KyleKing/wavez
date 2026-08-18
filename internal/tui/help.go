@@ -45,7 +45,9 @@ func (m Model) currentHints() []hint {
 	case screenInbox:
 		return []hint{{keyEnter, "answer"}, {"o", labelOpen}, {keyEsc, labelBack}}
 	case screenDiagnostics:
-		return diagnosticsHints()
+		return diagnosticsHints(m.diagUI.drilled)
+	case screenModels:
+		return m.modelHints()
 	case screenSchedule:
 		return scheduleHints(m.sched.leases)
 	case screenRoutines:

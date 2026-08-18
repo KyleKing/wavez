@@ -14,6 +14,11 @@ const DefaultCacheReuse = 256
 // unless Config overrides it.
 const DefaultBinary = "llama-server"
 
+// DefaultSpecType is the speculative-decoding strategy llama-server starts
+// with. Measured on this laptop, n-gram prompt lookup gives 4.3x decode on a
+// copy-heavy edit with no draft model and no extra memory.
+const DefaultSpecType = "ngram-simple"
+
 // thinkingOff disables a hybrid model's reasoning trace through the chat
 // template. Measured on qwen3:8b: replying "OK" costs 92 completion tokens
 // with it on and 3 with it off, and decode is the local bottleneck.
@@ -26,6 +31,9 @@ type Config struct {
 	// Binary overrides the llama-server executable; DefaultBinary is used
 	// when empty.
 	Binary string
+	// SpecType is the --spec-type strategy; DefaultSpecType is used when
+	// empty.
+	SpecType string
 	// Port is the loopback port llama-server listens on.
 	Port int
 	// ContextSize is the served context in tokens; DefaultContextSize is
@@ -34,6 +42,12 @@ type Config struct {
 	// CacheReuse is the --cache-reuse token count; DefaultCacheReuse is
 	// used when zero.
 	CacheReuse int
+	// Threads is the -t count. Zero leaves llama-server's own choice alone,
+	// which is not a number wavez has measured a better value for.
+	Threads int
+	// BatchSize is the -b logical batch. Zero leaves llama-server's own
+	// choice alone, for the same reason as Threads.
+	BatchSize int
 }
 
 func (c Config) binary() string {
@@ -50,6 +64,14 @@ func (c Config) contextSize() int {
 	}
 
 	return c.ContextSize
+}
+
+func (c Config) specType() string {
+	if c.SpecType == "" {
+		return DefaultSpecType
+	}
+
+	return c.SpecType
 }
 
 func (c Config) cacheReuse() int {

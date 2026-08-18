@@ -88,7 +88,7 @@ type inputScreen struct {
 // both closed and open, so a component style that ignores the theme shows up
 // in exactly one of the pair.
 func inputScreens() []inputScreen {
-	return []inputScreen{
+	return append(panelInputScreens(), []inputScreen{
 		{name: "home", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
 			t.Helper()
 
@@ -174,6 +174,35 @@ func inputScreens() []inputScreen {
 				return typeQuery(t, searchFixture(t, opts, w, h), "lease")
 			},
 		},
+	}...)
+}
+
+// panelInputScreens covers the diagnostics panel and the model screen, whose
+// fields are the newest place a component style can ignore the theme.
+func panelInputScreens() []inputScreen {
+	return []inputScreen{
+		{name: "models", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
+			t.Helper()
+
+			return modelsScreen(t, opts, w, h)
+		}},
+		{name: "models_install_open", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
+			t.Helper()
+
+			return press(t, modelsScreen(t, opts, w, h), 'a')
+		}},
+		{name: "models_settings_edit_open", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
+			t.Helper()
+
+			return press(t, modelsScreen(t, opts, w, h), 'e', 'e')
+		}},
+		{name: "diagnostics_drilled", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
+			t.Helper()
+
+			m := diagnosticsScreen(t, opts, w, h)
+
+			return apply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+		}},
 	}
 }
 

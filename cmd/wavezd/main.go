@@ -22,6 +22,7 @@ import (
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/lsp"
+	"github.com/kyleking/wavez/internal/ollama"
 	"github.com/kyleking/wavez/internal/sysinfo"
 	"github.com/kyleking/wavez/internal/vcs"
 )
@@ -106,6 +107,7 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithLogDir(filepath.Join(root, ".wavez", "threads")),
 		daemon.WithPrefix(prefix(a)),
 		daemon.WithStatsSource(machineStats{ctx: ctx}),
+		daemon.WithModelStore(ollama.New()),
 		daemon.WithDiffer(vcs.NewJj()),
 		daemon.WithRestorer(vcs.NewJj()), daemon.WithExpander(a.Mentions),
 		daemon.WithRoot(root),
@@ -127,19 +129,46 @@ func serve(ctx context.Context, dir, sock string) error {
 	return nil
 }
 
-// machineStats reads real memory for the diagnostics strip. A zeroed reading
-// is reported as zero rather than guessed, so the panel never invents a number.
+// llamaServerCommand is the process the local model's resident set and CPU
+// are read from, since llama-server is what wavez serves through.
+const llamaServerCommand = "llama-server"
+
+// machineStats reads real memory and CPU for the diagnostics panel. A reading
+// that fails is reported as unmeasured rather than guessed, so the panel never
+// invents a number.
 type machineStats struct {
 	ctx context.Context //nolint:containedctx // StatsSource.Stats takes no context
 }
 
-func (m machineStats) Stats() daemon.MemStats {
-	mem, err := sysinfo.ReadMemory(m.ctx)
-	if err != nil {
-		return daemon.MemStats{}
+func (m machineStats) Stats() daemon.MachineStats {
+	out := daemon.MachineStats{}
+
+	if mem, err := sysinfo.ReadMemory(m.ctx); err == nil {
+		out.UsedBytes, out.TotalBytes = mem.UsedBytes, mem.TotalBytes
 	}
 
-	return daemon.MemStats{UsedBytes: mem.UsedBytes, TotalBytes: mem.TotalBytes}
+	procs, err := sysinfo.ReadProcesses(m.ctx)
+	if err != nil {
+		return out
+	}
+
+	out.CPUMeasured = true
+	self := os.Getpid()
+
+	for _, p := range procs {
+		out.CPUPercent += p.CPUPercent
+
+		switch {
+		case p.PID == self:
+			out.CPUDaemon += p.CPUPercent
+		case p.Command == llamaServerCommand:
+			out.CPUModel += p.CPUPercent
+			out.ModelBytes += p.RSSBytes
+			out.ModelMeasured = true
+		}
+	}
+
+	return out
 }
 
 func prefix(a *app.App) agent.Prefix {

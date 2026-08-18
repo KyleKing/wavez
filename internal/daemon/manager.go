@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +18,7 @@ import (
 	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/lease"
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/sched"
@@ -283,32 +286,63 @@ func (m *manager) snapshot() []*managedThread {
 	return out
 }
 
-func (m *manager) needsInputCount() int {
-	n := 0
-	for _, mt := range m.snapshot() {
-		if mt.currentState() == event.StateNeedsIn {
-			n++
-		}
-	}
-
-	return n
+// fleetStats is one pass over every live thread for the diagnostics panel:
+// the sums, the per-thread rows a panel row drills into, and the two numbers
+// that belong to one thread rather than to the fleet (the occupied context
+// window and the runtime's last timings).
+type fleetStats struct {
+	timings   *llm.Timings
+	perThread []api.ThreadDiag
+	usage     usage
+	// context and window describe the most recently active thread, since an
+	// occupied window does not add up across threads.
+	context        int
+	window         int
+	rows           int
+	needsInput     int
+	compactionRuns int
+	tokensSaved    int
 }
 
-// totalUsage sums every live thread's token counts. The context field is left
-// zero: an occupied window belongs to one thread and does not add up across
-// them.
-func (m *manager) totalUsage() usage {
-	var out usage
+func (m *manager) fleetStats() fleetStats {
+	var (
+		out    fleetStats
+		latest time.Time
+	)
 
 	for _, mt := range m.snapshot() {
 		mt.mu.Lock()
-		u := mt.usage
+		u, lastAt := mt.usage, mt.lastAt
+		out.compactionRuns += mt.compactions
+		out.tokensSaved += mt.tokensSaved
+		diag := api.ThreadDiag{
+			ID: mt.id, Name: mt.name, Dir: firstDir(mt.dirs),
+			Spend: mt.spendUSD, Tokens: u.tokens(), Context: u.context,
+			Window: router.LocalContextBudget, Rows: clampRows(mt.th.Log().Head()),
+		}
+		state := mt.state
 		mt.mu.Unlock()
 
-		out.input += u.input
-		out.output += u.output
-		out.cacheRead += u.cacheRead
+		if state == event.StateNeedsIn {
+			out.needsInput++
+		}
+
+		out.usage.input += u.input
+		out.usage.output += u.output
+		out.usage.cacheRead += u.cacheRead
+		out.rows += diag.Rows
+		out.perThread = append(out.perThread, diag)
+
+		if u.context > 0 && lastAt.After(latest) {
+			latest = lastAt
+			out.context, out.window = u.context, router.LocalContextBudget
+		}
+		if u.timings != nil && !lastAt.Before(latest) {
+			out.timings = u.timings
+		}
 	}
+
+	sort.Slice(out.perThread, func(i, j int) bool { return out.perThread[i].Name < out.perThread[j].Name })
 
 	return out
 }
@@ -755,4 +789,15 @@ func (m *manager) closeAll() {
 			mt.mu.Unlock()
 		}
 	}
+}
+
+// clampRows narrows an event log's head to the int the wire carries. A log
+// long enough to overflow one has other problems, and reporting a negative
+// row count is not the way to surface them.
+func clampRows(head uint64) int {
+	if head > math.MaxInt {
+		return math.MaxInt
+	}
+
+	return int(head)
 }

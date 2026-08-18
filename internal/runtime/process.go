@@ -84,15 +84,24 @@ func (p *execProcess) Kill() error {
 // DESIGN.md's Model routing section: n-gram speculation, tunable prefix
 // reuse, explicit jinja templating, and an explicit served context.
 func buildArgs(cfg Config) []string {
-	return []string{
+	args := []string{
 		"-m", cfg.GGUFPath,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(cfg.Port),
 		"-c", strconv.Itoa(cfg.contextSize()),
 		"-np", "1",
-		"--spec-type", "ngram-simple",
+		"--spec-type", cfg.specType(),
 		"--cache-reuse", strconv.Itoa(cfg.cacheReuse()),
 		"--jinja",
 		"--chat-template-kwargs", thinkingOff,
 	}
+
+	if cfg.Threads > 0 {
+		args = append(args, "-t", strconv.Itoa(cfg.Threads))
+	}
+	if cfg.BatchSize > 0 {
+		args = append(args, "-b", strconv.Itoa(cfg.BatchSize))
+	}
+
+	return args
 }

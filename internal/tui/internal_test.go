@@ -72,6 +72,8 @@ type fakeClient struct {
 	ranRoutines []string
 	listed      int
 	canceled    []string
+	models      []api.Command
+	resets      int
 }
 
 type routeCall struct {
@@ -154,6 +156,18 @@ func (f *fakeClient) newThread(prompt, model, parent, cycle string, dirs []strin
 	f.created = append(f.created, created{
 		prompt: prompt, model: model, parent: parent, cycle: cycle, dirs: dirs,
 	})
+
+	return nil
+}
+
+func (f *fakeClient) resetDiag() tea.Cmd {
+	f.resets++
+
+	return nil
+}
+
+func (f *fakeClient) modelCommand(cmd api.Command) tea.Cmd {
+	f.models = append(f.models, cmd)
 
 	return nil
 }
@@ -398,4 +412,78 @@ func TestPadRight_KeepsStyledLinesWhole(t *testing.T) {
 
 	under := th.fgEmphasis.Render("short")
 	assert.Equal(t, width, lipgloss.Width(padRight(under, width)), "a line shorter than its frame")
+}
+
+// keyMsg builds one key press from the string form the screens switch on.
+func keyMsg(s string) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: rune(s[0]), Text: s}
+}
+
+func modelScreenModel(fc *fakeClient) Model {
+	m := New(Options{NoColor: true})
+	m.client = fc
+	m.width, m.height, m.ready = 120, 40, true
+	m.push(screenModels)
+	m.models.list = []api.ModelInfo{{Name: "qwen3:8b", SizeBytes: 1}}
+
+	return m
+}
+
+// TestModelScreen_UninstallPreviewsBeforeActing covers the whole path from
+// the client's side: the first key asks the daemon what the action costs, and
+// only a confirmation carries Confirm.
+func TestModelScreen_UninstallPreviewsBeforeActing(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	m := modelScreenModel(fc)
+
+	m, _ = m.updateModelsKey(keyMsg("x"), "x")
+
+	if len(fc.models) != 1 || fc.models[0].Kind != api.CmdModelRemove || fc.models[0].Confirm {
+		t.Fatalf("first key issued %+v, want an unconfirmed remove", fc.models)
+	}
+
+	m, _ = m.updateModelsKey(keyMsg("y"), "y")
+
+	if len(fc.models) != 2 || !fc.models[1].Confirm {
+		t.Fatalf("confirming issued %+v, want a confirmed remove", fc.models)
+	}
+	if m.models.action != "" {
+		t.Errorf("action = %q, want the confirmation closed", m.models.action)
+	}
+}
+
+// TestModelScreen_DeclinedConfirmationActsOnNothing is the case that matters
+// most: nothing on disk changes without a yes.
+func TestModelScreen_DeclinedConfirmationActsOnNothing(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	m := modelScreenModel(fc)
+
+	m, _ = m.updateModelsKey(keyMsg("x"), "x")
+	m, _ = m.updateModelsKey(keyMsg("n"), "n")
+
+	for _, call := range fc.models {
+		if call.Confirm {
+			t.Fatalf("declining still issued %+v", fc.models)
+		}
+	}
+	if m.models.action != "" {
+		t.Errorf("action = %q, want the confirmation closed", m.models.action)
+	}
+}
+
+func TestDiagnostics_ResetAsksTheDaemonToClearTheWindow(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	m := New(Options{NoColor: true})
+	m.client = fc
+	m.push(screenDiagnostics)
+
+	if _, _ = m.updateDiagnosticsKey("r"); fc.resets != 1 {
+		t.Fatalf("resets = %d, want the window cleared once", fc.resets)
+	}
 }

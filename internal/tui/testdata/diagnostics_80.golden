@@ -1,0 +1,10 @@
+[1m┌ diagnostics ─────────────────────────────────────────────────────────────────┐[m
+[1m│ [m[1m> mem    9.5G/16.0G  .:*@@**@  model 6.0G resident  disk 10.0G[m              [1m │[m
+[1m│ [m  cpu    141%        .:=*@*=:  daemon 3%  model 98%  gates -  tui -         [1m │[m
+[1m│ [m  local  qwen3:8b  ctx 3.1k/8.2k  .-*@**#* tok/s 29.4  prefix hit 94%       [1m │[m
+[1m│ [m  hosted $0.43 today  - calls  cache read 71%  p50 -  last -                [1m │[m
+[1m│ [m  gates  queue 2  running -  p50 -  fail 1/38                               [1m │[m
+[1m│ [m  leases - held  - waiting -                                                [1m │[m
+[1m│ [m  tools  142 calls  4 malformed (2.8%)  - escalations                       [1m │[m
+[1m│ [m  events 97/s  transcript 41.0k rows  compaction 3 runs  saved 12.4k tok    [1m │[m
+[1m└ [tab]section [enter]drill [r]reset window [esc]back [?]help ─────────────────┘[m

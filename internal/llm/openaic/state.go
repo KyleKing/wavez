@@ -45,6 +45,17 @@ func (s *streamState) applyDelta(delta sseDelta) {
 	}
 }
 
+// applyTimings attaches a runtime's own measurement of the call. It arrives
+// on the same chunk as usage but is independent of it, so a stream carrying
+// timings and no usage still reports decode speed.
+func (s *streamState) applyTimings(t *sseTimings) {
+	if s.usage == nil {
+		s.usage = &llm.Usage{}
+	}
+
+	s.usage.Timings = t.toLLMTimings()
+}
+
 func (s *streamState) toolCallChunks() []*llm.ToolCall {
 	out := make([]*llm.ToolCall, 0, len(s.order))
 	for _, idx := range s.order {

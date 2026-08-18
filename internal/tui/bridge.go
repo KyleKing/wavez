@@ -28,6 +28,11 @@ type daemonClient interface {
 	newThread(prompt, model, parent, cycle string, dirs []string) tea.Cmd
 	routines() tea.Cmd
 	runRoutine(name string) tea.Cmd
+	resetDiag() tea.Cmd
+	// modelCommand covers the whole model screen. The commands share a reply
+	// and differ only in their fields, so one method carries all of them
+	// rather than five that would each wrap the same call.
+	modelCommand(cmd api.Command) tea.Cmd
 }
 
 const flushInterval = 16 * time.Millisecond
@@ -218,6 +223,41 @@ func (b *bridge) newThread(prompt, model, parent, cycle string, dirs []string) t
 		cmd := api.Command{
 			Kind: api.CmdNew, Prompt: prompt, Model: model, Parent: parent, Cycle: cycle, Dirs: dirs,
 		}
+
+		reply, err := b.client.Do(ctx, cmd)
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
+// modelCommandTimeout leaves room for a pull, which is minutes of network
+// rather than a local round trip.
+const modelCommandTimeout = 2 * time.Hour
+
+func (b *bridge) resetDiag() tea.Cmd {
+	return b.do(commandTimeout, api.Command{Kind: api.CmdDiagReset})
+}
+
+// modelCommand runs any model command, allowing an install the minutes a
+// multi-gigabyte pull takes rather than a local round trip's seconds.
+func (b *bridge) modelCommand(cmd api.Command) tea.Cmd {
+	timeout := commandTimeout
+	if cmd.Kind == api.CmdModelInstall || cmd.Kind == api.CmdModelCheck {
+		timeout = modelCommandTimeout
+	}
+
+	return b.do(timeout, cmd)
+}
+
+// do issues one command and turns its reply into a message, which is the
+// shape every command above shares.
+func (b *bridge) do(timeout time.Duration, cmd api.Command) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 
 		reply, err := b.client.Do(ctx, cmd)
 		if err != nil {

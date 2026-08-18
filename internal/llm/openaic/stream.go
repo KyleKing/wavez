@@ -129,6 +129,9 @@ func processSSEChunk(name string, chunk sseChunk, state *streamState, yield func
 	if chunk.Usage != nil {
 		state.usage = chunk.Usage.toLLMUsage()
 	}
+	if chunk.Timings != nil {
+		state.applyTimings(chunk.Timings)
+	}
 	for _, choice := range chunk.Choices {
 		if choice.Delta.Content != "" {
 			if !yield(llm.Chunk{Kind: llm.ChunkText, Text: choice.Delta.Content}, nil) {

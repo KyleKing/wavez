@@ -144,9 +144,12 @@ func toWireMessage(m llm.Message) wireMessage {
 }
 
 // sseChunk is one decoded "data:" event from the chat-completions stream.
+// Timings is llama-server's extension beside the standard usage block and is
+// absent from every other OpenAI-compatible provider.
 type sseChunk struct {
 	Usage   *sseUsage   `json:"usage"`
 	Error   *sseError   `json:"error"`
+	Timings *sseTimings `json:"timings"`
 	Choices []sseChoice `json:"choices"`
 }
 
@@ -190,6 +193,24 @@ func (u *sseUsage) toLLMUsage() *llm.Usage {
 	}
 
 	return out
+}
+
+// sseTimings is llama-server's timings block. PromptN counts only the tokens
+// it evaluated, so CacheN beside it is what makes prefix reuse measurable.
+type sseTimings struct {
+	CacheN             int     `json:"cache_n"`
+	PromptN            int     `json:"prompt_n"`
+	PromptPerSecond    float64 `json:"prompt_per_second"`
+	PredictedPerSecond float64 `json:"predicted_per_second"`
+}
+
+func (t *sseTimings) toLLMTimings() *llm.Timings {
+	return &llm.Timings{
+		PromptTokens:    t.PromptN,
+		CachedTokens:    t.CacheN,
+		PromptPerSecond: t.PromptPerSecond,
+		DecodePerSecond: t.PredictedPerSecond,
+	}
 }
 
 type sseError struct {

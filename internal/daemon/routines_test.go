@@ -38,7 +38,7 @@ func TestRoutines_ListAndRunOverTheSocket(t *testing.T) {
 	t.Parallel()
 
 	stub := stubRoutines{ran: make(chan string, 1)}
-	h := newHarnessWith(t, fake.New("local"), nil, []daemon.Option{daemon.WithRoutines(stub)})
+	h := newHarness(t, fake.New("local"), withServerOptions(daemon.WithRoutines(stub)))
 
 	cl := dial(t, h)
 	cl.send(api.Command{ID: "hello", Kind: api.CmdHello})

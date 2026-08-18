@@ -1,0 +1,5 @@
+[1m┌ models · 2 installed · 9.5G on disk ─────────────────────────────────────────┐[m
+[1m│ [m[2m  model                  quant     size    free     loaded   update[m         [1m │[m
+[1m│ [m[1m> qwen2.5-coder:7b       Q4_K_M    4.5G    11.5G    no       a newer tag ex…[m[1m │[m
+[1m│ [m  qwen3:8b               Q4_K_M    5.0G    11.0G    yes      current        [1m │[m
+[1m└ [enter]settings [u]check [a]install [x]uninstall [esc]back ──────────────────┘[m

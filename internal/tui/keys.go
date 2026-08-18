@@ -35,6 +35,8 @@ const (
 	labelOpen     = "open"
 	labelQuit     = "quit"
 	labelUndo     = "undo"
+	labelModels   = "models"
+	labelApply    = "apply"
 
 	kindVerb    = "verb"
 	msgNoThread = "no thread selected"

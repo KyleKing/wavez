@@ -12,16 +12,17 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/cycle"
-	"github.com/kyleking/wavez/internal/router"
-	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/lease"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/sched"
+	"github.com/kyleking/wavez/internal/thread"
 )
 
 const (
@@ -48,18 +49,26 @@ var (
 // derive from what the daemon already tracks, so a test can report fixed
 // values instead of reading the real machine.
 type StatsSource interface {
-	Stats() MemStats
+	Stats() MachineStats
 }
 
-// MemStats is one snapshot of machine and model memory.
-type MemStats struct {
+// MachineStats is one snapshot of machine memory and CPU. A source that
+// cannot take a reading leaves the matching Measured flag false, so the panel
+// shows that row as unavailable instead of as zero.
+type MachineStats struct {
 	UsedBytes  uint64
 	TotalBytes uint64
+	// ModelBytes is the local model server's resident set.
 	ModelBytes uint64
-	// ModelMeasured reports whether ModelBytes is a reading. A source with no
-	// way to size the local model's resident set leaves it false, and the
-	// panel then shows that row as unavailable instead of as zero bytes.
+	// CPUPercent is the whole machine as a share of one core summed across
+	// processes, which is how ps reports it and can exceed 100.
+	CPUPercent float64
+	CPUDaemon  float64
+	CPUModel   float64
+	// ModelMeasured reports whether ModelBytes is a reading.
 	ModelMeasured bool
+	// CPUMeasured reports whether the three CPU numbers are readings.
+	CPUMeasured bool
 }
 
 // CycleSource resolves the phased ways of working a thread may run and
@@ -81,6 +90,7 @@ type config struct {
 	restorer      Restorer
 	expander      Expander
 	routines      RoutineSource
+	models        ModelStore
 	logDir        string
 	root          string
 	prefix        agent.Prefix
@@ -164,7 +174,14 @@ func WithScheduler(s *sched.Scheduler) Option {
 	return func(c *config) { c.scheduler = s }
 }
 
-// WithStatsSource injects the memory and model numbers Diagnostics reports.
+// WithModelStore sets the backend the model commands run through. A Server
+// without one refuses every model command rather than reporting an empty
+// list, since "no models installed" and "no way to ask" are different answers.
+func WithModelStore(m ModelStore) Option {
+	return func(c *config) { c.models = m }
+}
+
+// WithStatsSource injects the memory and CPU numbers Diagnostics reports.
 func WithStatsSource(s StatsSource) Option {
 	return func(c *config) { c.stats = s }
 }
@@ -185,6 +202,9 @@ type Server struct {
 	routines   RoutineSource
 	differ     Differ
 	restorer   Restorer
+	modelStore ModelStore
+	modelReg   *modelRegistry
+	window     *sampleWindow
 	ln         net.Listener
 	mgr        *manager
 	broker     *Broker
@@ -220,17 +240,20 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 	mgr.defaultDirs = defaultDirs(c.root)
 	mgr.scheduler = c.scheduler
 	s := &Server{
-		mgr:      mgr,
-		broker:   c.broker,
-		stats:    c.stats,
-		leases:   c.leases,
-		sched:    c.scheduler,
-		differ:   c.differ,
-		restorer: c.restorer,
-		routines: c.routines,
-		sockPath: sockPath,
-		grace:    c.shutdownGrace,
-		conns:    make(map[*conn]struct{}),
+		mgr:        mgr,
+		broker:     c.broker,
+		stats:      c.stats,
+		differ:     c.differ,
+		restorer:   c.restorer,
+		modelStore: c.models,
+		modelReg:   newModelRegistry(modelSettingsPath(c.logDir)),
+		window:     newSampleWindow(time.Now),
+		sockPath:   sockPath,
+		grace:      c.shutdownGrace,
+		conns:      make(map[*conn]struct{}),
+		leases:     c.leases,
+		sched:      c.scheduler,
+		routines:   c.routines,
 	}
 	c.broker.attach(mgr, s.wakePending)
 
@@ -272,6 +295,14 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.ln = ln
 	s.acceptDone = acceptDone
 	s.mu.Unlock()
+
+	// The sampler outlives any one request and is stopped by this defer, so
+	// it takes its own context rather than inheriting a caller's.
+	sampleCtx, stopSampling := context.WithCancel(context.Background())
+	defer stopSampling()
+
+	//nolint:contextcheck // see the comment above
+	go s.sample(sampleCtx)
 
 	acceptErr := make(chan error, 1)
 	// A thread created or sent a prompt from here outlives its connection, so it runs against
@@ -359,6 +390,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// modelSettingsPath keeps per-model runtime settings beside the thread logs,
+// so an edit survives a restart without a config-file round trip.
+func modelSettingsPath(logDir string) string {
+	if logDir == "" {
+		return ""
+	}
+
+	return filepath.Join(filepath.Dir(logDir), "models.json")
 }
 
 func (s *Server) wakePending() {

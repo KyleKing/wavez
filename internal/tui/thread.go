@@ -533,7 +533,7 @@ const threadHintTail = 9
 // query leads while one is set, because that is when they are reachable.
 func threadHints(search searchState, composing bool) []hint {
 	if search.editing {
-		return []hint{{keyEnter, "apply"}, {keyEsc, labelCancel}}
+		return []hint{{keyEnter, labelApply}, {keyEsc, labelCancel}}
 	}
 
 	if composing {

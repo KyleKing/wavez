@@ -166,11 +166,8 @@ func (c *conn) handle(cmd api.Command) {
 		c.handleRoutines(cmd)
 	case api.CmdRunRoutine:
 		c.handleRunRoutine(cmd)
-	case api.CmdDiag:
-		diag := c.srv.diagnostics()
-		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
 	default:
-		c.reply(cmd.ID, errorReply(fmt.Sprintf("unknown command %q", cmd.Kind)))
+		c.handleMachine(cmd)
 	}
 }
 
@@ -196,14 +193,55 @@ func (c *conn) handleThreadCommand(cmd api.Command) bool {
 		c.handleRoute(cmd)
 	case api.CmdThink:
 		c.handleThink(cmd)
-	case api.CmdSchedule:
-		schedule := c.srv.schedule(c.ctx)
-		c.reply(cmd.ID, api.Reply{Kind: api.RepSchedule, Schedule: &schedule})
 	default:
 		return false
 	}
 
 	return true
+}
+
+// handleMachine covers the commands about the machine rather than about a
+// thread: the diagnostics panel, the schedule, and model management.
+func (c *conn) handleMachine(cmd api.Command) {
+	switch cmd.Kind {
+	case api.CmdDiag:
+		diag := c.srv.diagnostics()
+		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
+	case api.CmdSchedule:
+		schedule := c.srv.schedule(c.ctx)
+		c.reply(cmd.ID, api.Reply{Kind: api.RepSchedule, Schedule: &schedule})
+	case api.CmdDiagReset:
+		c.srv.window.reset(c.srv.mgr.fleetStats().rows)
+		diag := c.srv.diagnostics()
+		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
+	case api.CmdModels, api.CmdModelCheck, api.CmdModelInstall, api.CmdModelRemove, api.CmdModelSettings:
+		c.handleModel(cmd)
+	default:
+		c.reply(cmd.ID, errorReply(fmt.Sprintf("unknown command %q", cmd.Kind)))
+	}
+}
+
+// handleModel runs one model command and answers with the whole list, so a
+// client never merges a partial update into a list it already holds.
+func (c *conn) handleModel(cmd api.Command) {
+	note, err := c.srv.runModelCommand(c.ctx, cmd)
+	if err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	listCtx, cancel := context.WithTimeout(c.ctx, modelListTimeout)
+	defer cancel()
+
+	models, err := c.srv.modelInfos(listCtx)
+	if err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	c.reply(cmd.ID, api.Reply{Kind: api.RepModels, Models: models, Note: note})
 }
 
 func (c *conn) handleNew(cmd api.Command) {

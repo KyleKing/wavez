@@ -259,7 +259,7 @@ func TestPending_AnsweredFromSecondConnectionResolvesOnce(t *testing.T) {
 		},
 		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
 	)
-	h := newHarness(t, local, gatedTool{echoTool: echoTool{name: "gated"}, key: "gated-key"})
+	h := newHarness(t, local, withTool(gatedTool{echoTool: echoTool{name: "gated"}, key: "gated-key"}))
 
 	watcher := dial(t, h)
 	watcher.hello()
@@ -387,9 +387,9 @@ func cycleConnectSubscribeDisconnect(t *testing.T, h *testHarness, threadID stri
 	_, _ = c.Read(buf) //nolint:errcheck // best-effort read before the abrupt disconnect below
 }
 
-type fakeStats struct{ mem daemon.MemStats }
+type fakeStats struct{ mem daemon.MachineStats }
 
-func (f fakeStats) Stats() daemon.MemStats { return f.mem }
+func (f fakeStats) Stats() daemon.MachineStats { return f.mem }
 
 func TestDiagnostics_ReflectsThreadCountsAndInjectedStats(t *testing.T) {
 	t.Parallel()
@@ -397,7 +397,7 @@ func TestDiagnostics_ReflectsThreadCountsAndInjectedStats(t *testing.T) {
 	broker := daemon.NewBroker()
 	loop := agentLoopForTest(t, broker)
 	sockPath := shortSockPath(t)
-	stats := fakeStats{mem: daemon.MemStats{UsedBytes: 111, TotalBytes: 222, ModelBytes: 33, ModelMeasured: true}}
+	stats := fakeStats{mem: daemon.MachineStats{UsedBytes: 111, TotalBytes: 222, ModelBytes: 33, ModelMeasured: true}}
 
 	srv, err := daemon.New(sockPath,
 		daemon.WithLoop(loop),
@@ -537,7 +537,7 @@ func TestSend_RunErrorReachesTheThreadLog(t *testing.T) {
 
 	local := fake.New("local", fake.Turn{Text: []string{"never"}, StopReason: llm.StopEndTurn})
 	cp := failingCheckpointer{err: errNoJJRepo}
-	h := newHarnessWith(t, local, []agent.Option{agent.WithCheckpointer(cp, "/x")}, nil)
+	h := newHarness(t, local, withLoopOptions(agent.WithCheckpointer(cp, "/x")))
 
 	cl := dial(t, h)
 	cl.hello()

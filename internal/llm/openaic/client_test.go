@@ -498,3 +498,40 @@ func assertEnableThinking(t *testing.T, body []byte, want *bool) {
 		t.Fatalf("chat_template_kwargs = %+v, want enable_thinking %v", got.Kwargs, *want)
 	}
 }
+
+// llamaServerFinalChunk is llama-server's own last stream event, captured
+// from a real qwen3:8b turn. Its timings block is the only source for decode
+// speed and prefix-cache reuse, and no other OpenAI-compatible provider sends
+// one.
+const llamaServerFinalChunk = `data: {"choices":[],"object":"chat.completion.chunk",` +
+	`"usage":{"completion_tokens":3,"prompt_tokens":18,"total_tokens":21,` +
+	`"prompt_tokens_details":{"cached_tokens":17}},` +
+	`"timings":{"cache_n":17,"prompt_n":1,"prompt_ms":44.33,"prompt_per_second":22.55,` +
+	`"predicted_n":3,"predicted_ms":68.04,"predicted_per_second":29.39}}` + "\n\n" +
+	"data: [DONE]\n\n"
+
+func TestClient_Stream_ParsesLlamaServerTimings(t *testing.T) {
+	t.Parallel()
+
+	client := newClient(t, sseServer(t, llamaServerFinalChunk))
+
+	got, err := collectAll(client, llm.Request{Model: "m"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	last := got[len(got)-1]
+	if last.Kind != llm.ChunkDone || last.Usage == nil || last.Usage.Timings == nil {
+		t.Fatalf("final chunk = %+v, want a done chunk carrying timings", last)
+	}
+
+	want := llm.Timings{PromptTokens: 1, CachedTokens: 17, PromptPerSecond: 22.55, DecodePerSecond: 29.39}
+	if *last.Usage.Timings != want {
+		t.Errorf("timings = %+v, want %+v", *last.Usage.Timings, want)
+	}
+
+	const wantHit = 17.0 / 18.0
+	if got := last.Usage.Timings.PrefixHit(); got != wantHit {
+		t.Errorf("PrefixHit() = %v, want %v", got, wantHit)
+	}
+}

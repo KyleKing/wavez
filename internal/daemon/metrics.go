@@ -13,6 +13,9 @@ import (
 // turn's llm.Usage, so the daemon has the numbers without the agent loop
 // reporting them a second time.
 type usage struct {
+	// timings is the last turn's runtime measurement, nil while no provider
+	// has reported one. Decode speed and prefix reuse have no other source.
+	timings   *llm.Timings
 	input     int
 	output    int
 	cacheRead int
@@ -26,6 +29,10 @@ func (u *usage) add(v llm.Usage) {
 	u.output += v.OutputTokens
 	u.cacheRead += v.CacheReadTokens
 	u.context = v.InputTokens + v.OutputTokens
+
+	if v.Timings != nil {
+		u.timings = v.Timings
+	}
 }
 
 func (u usage) tokens() int { return u.input + u.output }
@@ -54,19 +61,38 @@ func usageFromEvent(ev event.Event) (llm.Usage, bool) {
 			InputTokens:     jsonInt(v, "input_tokens"),
 			OutputTokens:    jsonInt(v, "output_tokens"),
 			CacheReadTokens: jsonInt(v, "cache_read_tokens"),
+			Timings:         timingsFromJSON(v["timings"]),
 		}, true
 	default:
 		return llm.Usage{}, false
 	}
 }
 
+func timingsFromJSON(raw any) *llm.Timings {
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &llm.Timings{
+		PromptTokens:    jsonInt(m, "prompt_tokens"),
+		CachedTokens:    jsonInt(m, "cached_tokens"),
+		PromptPerSecond: jsonFloat(m, "prompt_per_second"),
+		DecodePerSecond: jsonFloat(m, "decode_per_second"),
+	}
+}
+
 func jsonInt(m map[string]any, key string) int {
+	return int(jsonFloat(m, key))
+}
+
+func jsonFloat(m map[string]any, key string) float64 {
 	f, ok := m[key].(float64)
 	if !ok {
 		return 0
 	}
 
-	return int(f)
+	return f
 }
 
 // spendLedger totals hosted spend for the current day. It is in-memory, so a

@@ -31,7 +31,7 @@ func newPaletteState(th theme) paletteState {
 }
 
 var paletteVerbs = []string{
-	"diagnostics", labelInbox, labelQuit, labelRoutines, verbRouteAuto, verbRouteHosted, verbRouteLocal,
+	"diagnostics", labelInbox, labelModels, labelQuit, labelRoutines, verbRouteAuto, verbRouteHosted, verbRouteLocal,
 	verbThinkAuto, verbThinkOn, verbThinkOff, labelUndo,
 }
 
@@ -151,6 +151,8 @@ func (m Model) runPaletteVerb(verb string) (Model, tea.Cmd) {
 		mm, cmd, _ := m.openRoutines()
 
 		return mm, cmd
+	case labelModels:
+		return m.openModels()
 	case labelQuit:
 		m.quitting = true
 

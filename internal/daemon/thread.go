@@ -48,15 +48,12 @@ type managedThread struct {
 	dirs     []string
 	usage    usage
 	spendUSD float64
-	mu       sync.Mutex
-	running  bool
-}
-
-func (mt *managedThread) currentState() event.State {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
-
-	return mt.state
+	// compactions and tokensSaved follow the thread's own compaction events,
+	// which is the only place the saving is recorded.
+	compactions int
+	tokensSaved int
+	mu          sync.Mutex
+	running     bool
 }
 
 func (mt *managedThread) info() api.ThreadInfo {
@@ -116,6 +113,10 @@ func (mt *managedThread) watch(ctx context.Context) {
 		if v, ok := usageFromEvent(u.Event); ok {
 			mt.usage.add(v)
 		}
+		if saved, ok := compactionFromEvent(u.Event); ok {
+			mt.compactions++
+			mt.tokensSaved += saved
+		}
 		if step := stepText(u.Event); step != "" {
 			mt.step = step
 		}
@@ -123,6 +124,24 @@ func (mt *managedThread) watch(ctx context.Context) {
 			mt.phase = phase
 		}
 		mt.mu.Unlock()
+	}
+}
+
+// compactionFromEvent reads the saving a compaction pass recorded on its own
+// event, which is what makes the panel's compaction row a view rather than
+// new instrumentation.
+func compactionFromEvent(ev event.Event) (int, bool) {
+	if ev.Kind != event.KindUsage {
+		return 0, false
+	}
+
+	switch v := ev.Detail["tokens_saved"].(type) {
+	case int:
+		return v, true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
 	}
 }
 
