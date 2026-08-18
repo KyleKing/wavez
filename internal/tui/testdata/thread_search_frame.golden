@@ -9,5 +9,5 @@
 [1m│ [m  (no changes yet)                                                          [1m │[m
 [1m│ [m[2m/lease  1/3[m                                                                 [1m │[m
 [1m│ [m────────────────────────────────────────────────────────────────────────────[1m │[m
-[1m│ [m> [2mt[m[2mype a message and press enter to send[m[2m                                    [m[1m │[m
+[1m│ [m[2mNOR[m [2mpress tab to compose, esc for normal mode[m                               [1m │[m
 [1m└ [n]next match [N]prev match [esc]clear search [enter]send [tab]panel [d]diff ┘[m

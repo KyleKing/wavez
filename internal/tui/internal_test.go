@@ -215,8 +215,8 @@ func TestThreadKeys_AskLineForkAndDiff(t *testing.T) {
 	assert.Equal(t, "t1", fc.created[0].parent)
 }
 
-// A pending prompt still owns y/n/a from the input line, which is what the
-// new bindings must not break.
+// A pending prompt owns y/n/a from the transcript panel, where the
+// permission row lives. The composer never sees them: `a` there appends.
 func TestThreadKeys_PendingPromptStillOwnsAnswers(t *testing.T) {
 	t.Parallel()
 
@@ -237,7 +237,7 @@ func TestThreadKeys_PendingPromptStillOwnsAnswers(t *testing.T) {
 	}})
 	m.thread.activeID = "t1"
 	m.stack = append(m.stack, screenThread)
-	m.focus = focusInput
+	m.focus = focusTranscript
 
 	m = pressKey(t, m, 'a')
 	require.Len(t, fc.answered, 1)
@@ -261,7 +261,7 @@ func TestThreadSearch_LiveQueryOwnsTheStepKeys(t *testing.T) {
 
 			m.thread.activeID = "t1"
 			m.stack = append(m.stack, screenThread)
-			m.focus = focusInput
+			m.focus = focusTranscript
 			m.thread.search.query = query
 			m.appendEvent(event.Event{ThreadID: "t1", Kind: event.KindTool, Text: "read lease.go"})
 

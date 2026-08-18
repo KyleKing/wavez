@@ -23,6 +23,11 @@ type theme struct {
 	// searchHit is reverse video rather than a color so a search stays
 	// legible under NO_COLOR and on a monochrome terminal.
 	searchHit lipgloss.Style
+	// cursor is the composer's block cursor, drawn by wavez rather than by
+	// the terminal because the composer renders inside a frame the real
+	// cursor cannot be parked in. Reverse video for the same reason
+	// searchHit uses it.
+	cursor lipgloss.Style
 	// input carries the bubbles textinput styles, which default to hardcoded
 	// ANSI colors for the placeholder, blurred text, and cursor that no
 	// surrounding lipgloss style can suppress.
@@ -43,6 +48,7 @@ func newTheme(noColor bool) theme {
 			borderDim:   lipgloss.NewStyle().Faint(true),
 			borderFocus: lipgloss.NewStyle().Bold(true),
 			searchHit:   lipgloss.NewStyle().Reverse(true),
+			cursor:      lipgloss.NewStyle().Reverse(true),
 			input:       monoInputStyles(),
 		}
 	}
@@ -59,6 +65,7 @@ func newTheme(noColor bool) theme {
 		borderDim:   lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
 		borderFocus: lipgloss.NewStyle().Foreground(lipgloss.Color("111")).Bold(true),
 		searchHit:   lipgloss.NewStyle().Reverse(true),
+		cursor:      lipgloss.NewStyle().Reverse(true),
 		input:       textinput.DefaultDarkStyles(),
 	}
 }

@@ -127,6 +127,11 @@ func (m *Model) popOrClose() {
 
 		return
 	}
+	if m.top() == screenThread && m.focus == focusInput {
+		m.popComposer()
+
+		return
+	}
 	if m.top() == screenThread && m.thread.search.visible() {
 		m.clearSearch()
 
@@ -145,6 +150,24 @@ func (m *Model) popOrClose() {
 	}
 }
 
+// popComposer is Esc's ladder inside the composer: insert mode drops to
+// normal, fullscreen returns to the inline row, and normal mode hands focus
+// back to the transcript so the screen's verbs are one key away.
+func (m *Model) popComposer() {
+	switch {
+	case m.thread.input.mode == modeInsert:
+		m.thread.input.leaveInsert()
+	case m.thread.fullscreen:
+		m.thread.fullscreen = false
+	default:
+		m.focus = focusTranscript
+		m.thread.input.Blur()
+	}
+}
+
+// composing reports whether the fullscreen composer owns the frame.
+func (m Model) composing() bool { return m.top() == screenThread && m.thread.fullscreen }
+
 func (m Model) panelCount() int {
 	if m.top() == screenThread {
 		return focusInput + 1
@@ -159,7 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.ready = true
-		m.thread.input.SetWidth(fitInput(msg.Width, true))
+		m.thread.input.SetWidth(msg.Width - boxPad)
 		m.home.filterInput.SetWidth(fitInput(msg.Width, false))
 		m.thread.search.input.SetWidth(fitInput(msg.Width, false))
 		m.palette.input.SetWidth(fitInput(msg.Width, false))
@@ -276,12 +299,17 @@ func (m Model) handleGlobalKey(s string) (Model, tea.Cmd, bool) {
 		m.popOrClose()
 
 		return m, nil, true
-	case keyTab:
-		m.focus = (m.focus + 1) % m.panelCount()
+	case keyTab, "shift+tab":
+		if m.composing() {
+			return m, nil, true
+		}
 
-		return m.syncInputFocus(), nil, true
-	case "shift+tab":
-		m.focus = (m.focus - 1 + m.panelCount()) % m.panelCount()
+		step := 1
+		if s != keyTab {
+			step = -1
+		}
+
+		m.focus = (m.focus + step + m.panelCount()) % m.panelCount()
 
 		return m.syncInputFocus(), nil, true
 	}

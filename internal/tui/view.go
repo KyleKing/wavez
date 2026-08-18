@@ -31,6 +31,10 @@ func (m Model) render() string {
 		return m.renderRestore()
 	}
 
+	if m.composing() {
+		return m.renderCompose()
+	}
+
 	switch m.top() {
 	case screenHome:
 		return m.renderHome()

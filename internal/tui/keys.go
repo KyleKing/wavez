@@ -22,8 +22,12 @@ const (
 	keyJ     = "j"
 	keyK     = "k"
 	keyTab   = "tab"
+	keyHome  = "home"
 
 	labelBack   = "back"
+	labelHome   = "home"
+	labelPanel  = "panel"
+	labelSend   = "send"
 	labelCancel = "cancel"
 	labelHelp   = "help"
 	labelInbox  = "inbox"

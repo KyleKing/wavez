@@ -141,6 +141,26 @@ func inputScreens() []inputScreen {
 
 			return apply(t, m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyTab})
 		}},
+		{
+			name: "thread_composer_normal", wantReverse: true,
+			build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
+				t.Helper()
+
+				m := press(t, focusComposer(t, searchFixture(t, opts, w, h)), 'r', 'e', 'v')
+
+				return apply(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
+			},
+		},
+		{
+			name: "thread_composer_fullscreen", wantReverse: true,
+			build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
+				t.Helper()
+
+				m := apply(t, searchFixture(t, opts, w, h), composeKey())
+
+				return press(t, m, 'h', 'i')
+			},
+		},
 		{name: "thread_search_open", build: func(t *testing.T, opts tui.Options, w, h int) tui.Model {
 			t.Helper()
 

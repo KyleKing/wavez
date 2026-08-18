@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kyleking/wavez/internal/api"
@@ -20,19 +19,27 @@ const (
 	focusInput
 )
 
+// keyCompose expands the composer to the whole frame and back. It is a
+// chord rather than a letter because normal mode owns every letter, and
+// ctrl+f rather than ctrl+w or ctrl+u because those two delete text in
+// insert mode; the only vim binding it costs is a page-down the composer
+// has no use for.
+const keyCompose = "ctrl+f"
+
 // threadState is the active thread id, transcript scroll offset, and the
-// send input.
+// modal composer.
 type threadState struct {
 	activeID     string
-	input        textinput.Model
 	search       searchState
+	input        vimInput
 	scrollOffset int
 	diffCursor   int
+	fullscreen   bool
 }
 
 func newThreadState(th theme) threadState {
 	return threadState{
-		input:  th.newInput("type a message and press enter to send"),
+		input:  newVimInput("press tab to compose, esc for normal mode"),
 		search: newSearchState(th),
 	}
 }
@@ -47,9 +54,23 @@ func (m Model) activeThread() (api.ThreadInfo, bool) {
 	return api.ThreadInfo{}, false
 }
 
+// updateThreadKey routes one key on Thread view. Focus decides whether a
+// letter is a verb or a character: the composer owns every key while the
+// input panel holds focus, so `d` deletes there and opens the diff pane
+// from the other panels, and the screen's verbs need Tab or Esc to reach.
+// Modal editing does not change that rule, it only makes the composer's
+// half of it modal.
 func (m Model) updateThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 	if m.thread.search.editing {
 		return m.updateSearchKey(msg, s)
+	}
+
+	if s == keyCompose {
+		return m.toggleCompose(), nil
+	}
+
+	if m.focus == focusInput {
+		return m.updateComposerKey(msg, s)
 	}
 
 	if mm, cmd, handled := m.threadSearchKey(s); handled {
@@ -58,7 +79,7 @@ func (m Model) updateThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 
 	pending := m.pendingFor(m.thread.activeID)
 
-	if m.focus == focusInput && m.thread.input.Value() == "" && pending != nil && !pending.Question {
+	if m.focus == focusTranscript && pending != nil && !pending.Question {
 		if mm, cmd, handled := m.threadAnswerKey(s, *pending); handled {
 			return mm, cmd
 		}
@@ -72,28 +93,47 @@ func (m Model) updateThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 		return mm, nil
 	}
 
-	if s == keyEnter && m.focus == focusInput {
-		return m.sendThreadInput()
-	}
-
-	if m.focus != focusInput {
-		return m, nil
-	}
-
-	var cmd tea.Cmd
-	m.thread.input, cmd = m.thread.input.Update(msg)
-
-	return m, cmd
+	return m, nil
 }
 
-// threadNavKey handles the keys that move between threads and panels. Each
-// letter key is inert whenever the input panel holds focus, so a message
-// may start with any letter. Focus, not the input's contents, is the test:
-// keying off a non-empty value ate the first character of every message.
-func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
-	typing := m.focus == focusInput
+// updateComposerKey hands the composer everything the input panel receives.
+// Enter sends from the inline row and inserts a newline in fullscreen,
+// where the message being written is long enough to need one, and `:`
+// reaches the palette from normal mode because that is vim's command line.
+func (m Model) updateComposerKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
+	normal := m.thread.input.mode == modeNormal
 
-	if mm, cmd, handled := m.threadPinKey(s, typing); handled {
+	switch {
+	case s == keyEnter && !m.thread.fullscreen:
+		return m.sendThreadInput()
+	case s == ":" && normal:
+		m.palette.open = true
+
+		return m, m.palette.input.Focus()
+	}
+
+	m.thread.input.handleKey(msg, s)
+
+	return m, nil
+}
+
+// toggleCompose expands the composer to the whole frame and back, taking
+// focus with it so the key works from any panel. It leaves the mode alone
+// when the composer already had focus: resizing the frame is not a reason
+// to drop someone out of normal mode.
+func (m Model) toggleCompose() Model {
+	m.thread.fullscreen = !m.thread.fullscreen
+	if m.thread.fullscreen && m.focus != focusInput {
+		m.focus = focusInput
+		m.thread.input.Focus()
+	}
+
+	return m
+}
+
+// threadNavKey handles the keys that move between threads and panels.
+func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
+	if mm, cmd, handled := m.threadPinKey(s); handled {
 		return mm, cmd, true
 	}
 
@@ -107,10 +147,6 @@ func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
 
 		return mm, cmd, true
 	case "d":
-		if typing {
-			return m, nil, false
-		}
-
 		m.focus = focusDiff
 
 		return m, m.requestDiff(), true
@@ -121,18 +157,10 @@ func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
 
 		return m.askLine(), nil, true
 	case "f":
-		if typing {
-			return m, nil, false
-		}
-
 		mm, cmd := m.openNewThread(m.thread.activeID)
 
 		return mm, cmd, true
 	case "u":
-		if typing {
-			return m, nil, false
-		}
-
 		mm, cmd := m.requestRestore()
 
 		return mm, cmd, true
@@ -141,14 +169,8 @@ func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
 	}
 }
 
-// threadPinKey handles the two keys that pin how the next turn runs. They
-// are inert while a message is being typed, like every other letter verb on
-// this screen.
-func (m Model) threadPinKey(s string, typing bool) (Model, tea.Cmd, bool) {
-	if typing {
-		return m, nil, false
-	}
-
+// threadPinKey handles the two keys that pin how the next turn runs.
+func (m Model) threadPinKey(s string) (Model, tea.Cmd, bool) {
 	switch s {
 	case "t":
 		mm, cmd := m.cycleThinking()
@@ -182,8 +204,11 @@ func (m Model) threadScrollKey(s string) (Model, bool) {
 }
 
 // threadAnswerKey answers a pending permission prompt on the active thread
-// directly from y/n/a when the input line is empty, so a user does not have
-// to leave Thread view to unblock it.
+// directly from y/n/a, so a user does not have to leave Thread view to
+// unblock it. It reads only from the transcript panel, where the permission
+// row lives: on the composer `a` starts an append and would grant
+// allow-always instead, and widening a permission by mistyping is the one
+// outcome worth costing a Tab to prevent.
 func (m Model) threadAnswerKey(s string, pending api.PendingInfo) (Model, tea.Cmd, bool) {
 	switch s {
 	case "y":
@@ -290,7 +315,7 @@ func (m Model) renderThread() string {
 		spend(info.Spend), otherPendingBadge(m.pending, info.ID, m.ascii))
 
 	body := m.threadBody(info)
-	footer := footerHints(threadHints(m.thread.search), m.width-boxPad)
+	footer := footerHints(threadHints(m.thread.search, m.focus == focusInput), m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
 }
@@ -405,9 +430,32 @@ func (m Model) threadBody(info api.ThreadInfo) []string {
 		body = append(body, m.searchLine(inner))
 	}
 
-	body = append(body, sep, "> "+m.thread.input.View())
+	body = append(body, sep, m.thread.input.inlineView(m.th))
 
 	return body
+}
+
+// composeChrome is the rows renderCompose spends on the frame's border and
+// the composer's own status line.
+const composeChrome = 3
+
+// renderCompose is the fullscreen composer: the whole frame is the message
+// being written, with the same modal editing the inline row has.
+func (m Model) renderCompose() string {
+	title := "compose"
+	if info, ok := m.activeThread(); ok {
+		title = "compose · " + info.Name
+	}
+
+	body := m.thread.input.composeBody(m.th, m.width-boxPad, m.height-composeChrome)
+	footer := footerHints([]hint{
+		{keyCompose, "inline"},
+		{keyEnter, "newline"},
+		{keyEsc, "normal"},
+		{"i", "insert"},
+	}, m.width-boxPad)
+
+	return frame(m.width, title, body, footer, m.th)
 }
 
 func ledgerLine(info api.ThreadInfo) string {
@@ -480,13 +528,26 @@ func changeSummary(tr *transcript, width int) []string {
 // threadHintTail is the count of hints threadHints appends after its head.
 const threadHintTail = 9
 
-func threadHints(search searchState) []hint {
+// threadHints is priority ordered; footerHints drops from the tail. The
+// composer's own keys lead while it holds focus, the way a live search
+// query leads while one is set, because that is when they are reachable.
+func threadHints(search searchState, composing bool) []hint {
 	if search.editing {
 		return []hint{{keyEnter, "apply"}, {keyEsc, labelCancel}}
 	}
 
-	head := []hint{{keyEnter, "send"}, {keyTab, "panel"}, {"/", "search"}}
-	back := []hint{{keyEsc, "home"}}
+	if composing {
+		return []hint{
+			{keyEnter, labelSend},
+			{keyCompose, "fullscreen"},
+			{keyEsc, "normal mode"},
+			{keyTab, labelPanel},
+			{"?", labelHelp},
+		}
+	}
+
+	head := []hint{{keyEnter, labelSend}, {keyTab, labelPanel}, {"/", "search"}}
+	back := []hint{{keyEsc, labelHome}}
 
 	// A live query puts its keys first: footerHints drops from the tail, and
 	// Esc is the only way back out of the highlight.
@@ -495,8 +556,8 @@ func threadHints(search searchState) []hint {
 			{"n", "next match"},
 			{"N", "prev match"},
 			{keyEsc, "clear search"},
-			{keyEnter, "send"},
-			{keyTab, "panel"},
+			{keyEnter, labelSend},
+			{keyTab, labelPanel},
 		}
 		back = nil
 	}
