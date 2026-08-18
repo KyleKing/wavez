@@ -50,6 +50,8 @@ type pklConfig struct {
 	HookTimeoutMs    int      `pkl:"hookTimeoutMs"`
 	LocalPort        int      `pkl:"localPort"`
 	LocalStartSecs   int      `pkl:"localStartTimeoutSeconds"`
+
+	Routines map[string]pklRoutine `pkl:"routines"`
 }
 
 // Loader evaluates ".wavez.pkl" files through one long-lived pkl.Evaluator,
@@ -211,6 +213,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.DeadcodeAllow = p.DeadcodeAllow
 	cfg.PreToolUseHook = p.PreToolUseHook
 	cfg.PostToolUseHook = p.PostToolUseHook
+	cfg.Routines = routineDefinitions(p.Routines)
 
 	return cfg
 }

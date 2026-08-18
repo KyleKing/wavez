@@ -6,7 +6,11 @@
 // project's explicit Context list and a caller-supplied --with override.
 package config
 
-import "time"
+import (
+	"time"
+
+	"github.com/kyleking/wavez/internal/routine"
+)
 
 // DefaultLocalModel is the local model name used when no config overrides it.
 const DefaultLocalModel = "qwen3:8b"
@@ -73,8 +77,12 @@ type Config struct {
 	// no hook process.
 	PreToolUseHook  []string
 	PostToolUseHook []string
-	ContextWindow   int
-	GateDebounce    time.Duration
+	// Routines are the project's routine definitions, keyed by name, before
+	// they are compiled against an action registry. A routine named here
+	// replaces the built-in of the same name outright.
+	Routines      map[string]routine.Definition
+	ContextWindow int
+	GateDebounce  time.Duration
 	// AdmissionHeadroom is the free-memory fraction at or above which a turn
 	// on the local model and a gate run may overlap.
 	AdmissionHeadroom float64

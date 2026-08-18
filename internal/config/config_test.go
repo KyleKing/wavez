@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/routine"
 )
 
 func TestLoad_DefaultsWithNoConfigFile(t *testing.T) {
@@ -221,5 +222,80 @@ func writeFile(t *testing.T, path, content string) {
 
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+func TestLoad_RoutinesCompileAgainstTheActionRegistry(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, config.FileName), `
+amends ".wavez/Wavez.pkl"
+
+routines {
+  ["nightly"] {
+    triggers { "schedule" }
+    paths { "*.go" }
+    intervalSeconds = 3600
+    concurrencyKey = "heavy"
+    concurrency = "cancel-in-progress"
+    steps {
+      new {
+        name = "vet"
+        action = "run"
+        params { ["argv"] = new Listing { "go"; "vet"; "./..." } }
+      }
+      new {
+        name = "test"
+        action = "run"
+        parents { "vet" }
+        params { ["argv"] = new Listing { "go"; "test"; "./..." } }
+      }
+    }
+  }
+}
+`)
+
+	loader, err := config.NewLoader(context.Background())
+	if err != nil {
+		t.Fatalf("NewLoader: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := loader.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+
+	cfg, _, err := loader.Load(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	def, ok := cfg.Routines["nightly"]
+	if !ok {
+		t.Fatalf("Routines = %v, want a nightly routine", cfg.Routines)
+	}
+	if def.Interval != time.Hour || def.ConcurrencyKey != "heavy" ||
+		def.Concurrency != routine.CancelInProgress || !def.Enabled {
+		t.Errorf("nightly = %+v, want the file's schedule and concurrency", def)
+	}
+	if len(def.Steps) != 2 || len(def.Steps[1].Parents) != 1 {
+		t.Fatalf("steps = %+v, want a two-step DAG with one parent edge", def.Steps)
+	}
+
+	set, err := routine.CompileSet(cfg.Routines, routine.NewRegistry(routine.RunAction(root)), "hash")
+	if err != nil {
+		t.Fatalf("CompileSet: %v", err)
+	}
+
+	compiled, ok := set.Get("nightly")
+	if !ok {
+		t.Fatalf("compiled set has no nightly routine")
+	}
+	if len(compiled.Order) != 2 {
+		t.Errorf("Order = %v, want one wave per dependency level", compiled.Order)
+	}
+	if !compiled.MatchesPath("internal/lease.go") || compiled.MatchesPath("README.md") {
+		t.Errorf("MatchesPath does not honor the routine's path globs")
 	}
 }

@@ -100,3 +100,65 @@ postToolUseHook: Listing<String> = new Listing {}
 
 /// Milliseconds one hook process may run before it is killed.
 hookTimeoutMs: Int = 5000
+
+/// When a routine fires. "change" runs it on the same debounced batch the
+/// gates run on, "manual" only when a client asks, "schedule" every
+/// `intervalSeconds`, and the thread triggers on a thread's first turn
+/// starting and its last one finishing.
+typealias Trigger = "change"|"manual"|"schedule"|"thread-start"|"thread-finish"
+
+/// What happens to a run that arrives while its concurrency key is busy.
+/// "queue" waits its turn, "cancel-in-progress" stops the running instance
+/// and takes its place, and "round-robin" admits waiting routines in
+/// rotation so one firing repeatedly cannot starve another on the same key.
+typealias Concurrency = "queue"|"cancel-in-progress"|"round-robin"
+
+/// One node of a routine's DAG.
+class Step {
+  /// Unique within the routine, and the name other steps put in `parents`.
+  name: String
+
+  /// Registered action this step invokes. An unknown action, or one whose
+  /// parameters do not validate, fails the config load rather than the run.
+  action: String
+
+  /// Parameters for `action`, checked by that action's validator at load.
+  params: Mapping<String, Any> = new Mapping<String, Any> {}
+
+  /// Steps that must finish before this one starts. Steps with no
+  /// unfinished parent run concurrently.
+  parents: Listing<String> = new Listing<String> {}
+}
+
+/// A named DAG of actions. No model is involved in a routine.
+class Routine {
+  triggers: Listing<Trigger> = new Listing<Trigger> {}
+
+  /// Glob patterns, matched against a changed file's repo-relative path,
+  /// that narrow a "change" trigger. Empty matches every change.
+  paths: Listing<String> = new Listing<String> {}
+
+  /// Seconds between runs under the "schedule" trigger. Ignored otherwise.
+  intervalSeconds: Int = 0
+
+  steps: Listing<Step> = new Listing<Step> {}
+
+  /// Runs sharing a key never overlap. Empty means the routine's own name.
+  concurrencyKey: String = ""
+
+  concurrency: Concurrency = "queue"
+
+  /// A disabled routine stays readable in the file and never runs.
+  enabled: Boolean = true
+}
+
+/// Routines this project defines. Gates ship as built-in routines under
+/// their gate names, and a routine named here replaces the built-in of that
+/// name outright: to turn a gate off, declare it with `enabled = false` and
+/// no steps.
+///
+/// The typed constructor in the default is load-bearing. A `Mapping` or
+/// `Listing` default written as `new Mapping {}` loses its element type, and
+/// every `["name"] { ... }` an amending file writes then fails to evaluate
+/// as a `Dynamic`.
+routines: Mapping<String, Routine> = new Mapping<String, Routine> {}
