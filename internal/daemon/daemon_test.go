@@ -265,14 +265,10 @@ func TestPending_AnsweredFromSecondConnectionResolvesOnce(t *testing.T) {
 	watcher.hello()
 	th := watcher.newThread(nil)
 	watcher.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
-	if _, ok := watcher.recv(); !ok {
-		t.Fatalf("subscribe ack: connection closed")
-	}
+	watcher.recvFor("sub")
 
 	watcher.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
-	if _, ok := watcher.recv(); !ok {
-		t.Fatalf("send: connection closed")
-	}
+	watcher.recvFor("send")
 
 	pending := waitForEvent(t, watcher, func(rep api.Reply) bool {
 		return rep.Kind == api.RepPending && len(rep.Pending) == 1
@@ -453,14 +449,10 @@ func TestCancel_StopsInFlightTurn(t *testing.T) {
 	th := cl.newThread(nil)
 
 	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
-	if _, ok := cl.recv(); !ok {
-		t.Fatalf("subscribe ack: connection closed")
-	}
+	cl.recvFor("sub")
 
 	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
-	if _, ok := cl.recv(); !ok {
-		t.Fatalf("send: connection closed")
-	}
+	cl.recvFor("send")
 
 	// Let at least one chunk land so the turn is genuinely in flight before canceling.
 	waitForEvent(t, cl, func(rep api.Reply) bool {
@@ -544,14 +536,10 @@ func TestSend_RunErrorReachesTheThreadLog(t *testing.T) {
 	th := cl.newThread(nil)
 
 	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
-	if _, ok := cl.recv(); !ok {
-		t.Fatalf("subscribe ack: connection closed")
-	}
+	cl.recvFor("sub")
 
 	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
-	if _, ok := cl.recv(); !ok {
-		t.Fatalf("send: connection closed")
-	}
+	cl.recvFor("send")
 
 	waitForEvent(t, cl, func(rep api.Reply) bool {
 		return rep.Kind == api.RepEvent && rep.Event != nil &&
@@ -593,14 +581,10 @@ func TestList_NeverReportsStateOlderThanTheStream(t *testing.T) {
 	th := cl.newThread(nil)
 
 	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
-	if _, ok := cl.recv(); !ok {
-		t.Fatalf("subscribe ack: connection closed")
-	}
+	cl.recvFor("sub")
 
 	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
-	if _, ok := cl.recv(); !ok {
-		t.Fatalf("send: connection closed")
-	}
+	cl.recvFor("send")
 
 	waitForEvent(t, cl, func(rep api.Reply) bool {
 		return rep.Kind == api.RepEvent && rep.Event != nil &&

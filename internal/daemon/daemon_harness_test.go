@@ -153,11 +153,15 @@ func waitForSocket(t *testing.T, path string) {
 }
 
 // client is a minimal, deterministic test client over the daemon's
-// newline-delimited JSON protocol.
+// newline-delimited JSON protocol. Replies that a matcher passed over sit in
+// queue rather than being discarded, so a later matcher still sees them: an
+// event and the ack for the command that triggered it race for the wire, and
+// either can land first.
 type client struct {
-	t  *testing.T
-	c  net.Conn
-	sc *bufio.Scanner
+	t     *testing.T
+	c     net.Conn
+	sc    *bufio.Scanner
+	queue []api.Reply
 }
 
 func dial(t *testing.T, h *testHarness) *client {
@@ -194,7 +198,22 @@ func (cl *client) send(cmd api.Command) {
 	}
 }
 
+// recv returns the next reply for this connection: one stashed by an earlier
+// matcher, if any, or else the next one off the wire.
 func (cl *client) recv() (api.Reply, bool) {
+	cl.t.Helper()
+
+	if len(cl.queue) > 0 {
+		rep := cl.queue[0]
+		cl.queue = cl.queue[1:]
+
+		return rep, true
+	}
+
+	return cl.rawRecv()
+}
+
+func (cl *client) rawRecv() (api.Reply, bool) {
 	cl.t.Helper()
 
 	if err := cl.c.SetReadDeadline(time.Now().Add(testDeadline)); err != nil {
@@ -212,20 +231,40 @@ func (cl *client) recv() (api.Reply, bool) {
 	return rep, true
 }
 
-// recvFor reads replies until one echoes id, skipping any unsolicited
-// broadcast (Pending has no ID) that interleaves with it.
-func (cl *client) recvFor(id string) api.Reply {
+// takeMatching returns the first reply satisfying match, checking replies an
+// earlier call stashed before reading more off the wire. Anything read along
+// the way that match rejects is stashed in turn, so no caller's wait can
+// starve another's by consuming the reply it needed.
+func (cl *client) takeMatching(match func(api.Reply) bool) api.Reply {
 	cl.t.Helper()
 
-	for {
-		rep, ok := cl.recv()
-		if !ok {
-			cl.t.Fatalf("recvFor %q: connection closed", id)
-		}
-		if rep.ID == id {
+	for i := range cl.queue {
+		if match(cl.queue[i]) {
+			rep := cl.queue[i]
+			cl.queue = append(cl.queue[:i], cl.queue[i+1:]...)
+
 			return rep
 		}
 	}
+
+	for {
+		rep, ok := cl.rawRecv()
+		if !ok {
+			cl.t.Fatalf("takeMatching: connection closed before match")
+		}
+		if match(rep) {
+			return rep
+		}
+		cl.queue = append(cl.queue, rep)
+	}
+}
+
+// recvFor returns the reply that echoes id, skipping (and preserving) any
+// unsolicited broadcast or event that interleaves with it.
+func (cl *client) recvFor(id string) api.Reply {
+	cl.t.Helper()
+
+	return cl.takeMatching(func(rep api.Reply) bool { return rep.ID == id })
 }
 
 func (cl *client) hello() api.Reply {
@@ -255,15 +294,7 @@ func (cl *client) newThread(dirs []string) api.ThreadInfo {
 func waitForEvent(t *testing.T, cl *client, pred func(api.Reply) bool) api.Reply {
 	t.Helper()
 
-	for {
-		rep, ok := cl.recv()
-		if !ok {
-			t.Fatalf("waitForEvent: connection closed before match")
-		}
-		if pred(rep) {
-			return rep
-		}
-	}
+	return cl.takeMatching(pred)
 }
 
 func agentLoopForTest(t *testing.T, broker *daemon.Broker) *agent.Loop {
