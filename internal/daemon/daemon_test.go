@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -65,6 +67,35 @@ func TestThreads_CreateThenList(t *testing.T) {
 	}
 	if len(rep.Threads) != 1 || rep.Threads[0].ID != created.ID {
 		t.Fatalf("threads = %+v, want exactly %q", rep.Threads, created.ID)
+	}
+}
+
+// TestThreads_ListFailsWhenLogUnreadable guards the invariant sync exists to
+// hold: a thread whose log cannot be read must fail the request rather than
+// answer with a cached snapshot that may already be stale.
+func TestThreads_ListFailsWhenLogUnreadable(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	h := newHarness(t, fake.New("local"), withServerOptions(daemon.WithLogDir(logDir)))
+	cl := dial(t, h)
+	cl.hello()
+
+	created := cl.newThread([]string{"/repo/a"})
+
+	// A freshly created thread has appended nothing yet, so its log's ring is
+	// still empty and Since always reads the file on disk rather than
+	// memory, which is what makes corrupting the file on disk enough to
+	// force a read error on the very next sync.
+	logPath := filepath.Join(logDir, created.ID+".jsonl")
+	if err := os.WriteFile(logPath, []byte("not json\n"), 0o600); err != nil {
+		t.Fatalf("corrupting log: %v", err)
+	}
+
+	cl.send(api.Command{ID: "list", Kind: api.CmdList})
+	rep, ok := cl.recv()
+	if !ok || rep.Kind != api.RepError {
+		t.Fatalf("list reply = %+v (ok=%v), want an error rather than a stale thread list", rep, ok)
 	}
 }
 

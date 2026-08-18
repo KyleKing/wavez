@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -59,8 +60,10 @@ type managedThread struct {
 	running   bool
 }
 
-func (mt *managedThread) info() api.ThreadInfo {
-	mt.sync()
+func (mt *managedThread) info() (api.ThreadInfo, error) {
+	if err := mt.sync(); err != nil {
+		return api.ThreadInfo{}, fmt.Errorf("syncing thread %s: %w", mt.id, err)
+	}
 
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
@@ -87,7 +90,7 @@ func (mt *managedThread) info() api.ThreadInfo {
 		// The served window is the budget the router admits a turn against,
 		// so a thread over it is one the router has already escalated.
 		Window: router.LocalContextBudget,
-	}
+	}, nil
 }
 
 // sync folds every log event this cache has not yet seen into state, step,
@@ -96,18 +99,20 @@ func (mt *managedThread) info() api.ThreadInfo {
 // an event before it reaches any subscriber, so a sync call always catches
 // up to at least what a client subscribed to this thread has already been
 // sent, which is the ordering a reader like info relies on.
-func (mt *managedThread) sync() {
+func (mt *managedThread) sync() error {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
 	events, err := mt.th.Log().Since(mt.processed)
 	if err != nil {
-		return
+		return fmt.Errorf("reading thread log: %w", err)
 	}
 
 	for i := range events {
 		mt.apply(events[i])
 	}
+
+	return nil
 }
 
 // apply folds one log event into the cache. Callers must hold mt.mu.

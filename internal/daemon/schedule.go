@@ -28,7 +28,7 @@ type stateSample struct {
 }
 
 // schedule reports the fleet as the scheduler sees it.
-func (s *Server) schedule(ctx context.Context) api.Schedule {
+func (s *Server) schedule(ctx context.Context) (api.Schedule, error) {
 	snap := s.sched.Snapshot(ctx)
 
 	out := api.Schedule{
@@ -51,20 +51,32 @@ func (s *Server) schedule(ctx context.Context) api.Schedule {
 	}
 
 	now := time.Now()
-	infos := s.mgr.list()
+	infos, err := s.mgr.list()
+	if err != nil {
+		return api.Schedule{}, err
+	}
 	for i := range infos {
-		out.Lanes = append(out.Lanes, s.lane(infos[i], leases, now))
+		lane, err := s.lane(infos[i], leases, now)
+		if err != nil {
+			return api.Schedule{}, err
+		}
+		out.Lanes = append(out.Lanes, lane)
 	}
 
-	return out
+	return out, nil
 }
 
-func (s *Server) lane(info api.ThreadInfo, leases []lease.Lease, now time.Time) api.Lane {
+func (s *Server) lane(info api.ThreadInfo, leases []lease.Lease, now time.Time) (api.Lane, error) {
+	cells, err := s.laneCells(info, now)
+	if err != nil {
+		return api.Lane{}, err
+	}
+
 	lane := api.Lane{
 		ThreadID: info.ID,
 		Thread:   info.Name,
 		Step:     info.Step,
-		Cells:    s.laneCells(info, now),
+		Cells:    cells,
 	}
 
 	if info.State == event.StateGating {
@@ -79,19 +91,21 @@ func (s *Server) lane(info api.ThreadInfo, leases []lease.Lease, now time.Time) 
 		}
 	}
 
-	return lane
+	return lane, nil
 }
 
 // laneCells buckets a thread's state history into the lane's cells, oldest
 // first. A cell before the thread's first sample reads as idle, which is what
 // it was.
-func (s *Server) laneCells(info api.ThreadInfo, now time.Time) []event.State {
+func (s *Server) laneCells(info api.ThreadInfo, now time.Time) ([]event.State, error) {
 	mt, ok := s.mgr.get(info.ID)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	mt.sync()
+	if err := mt.sync(); err != nil {
+		return nil, fmt.Errorf("syncing thread %s: %w", info.ID, err)
+	}
 
 	mt.mu.Lock()
 	samples := append([]stateSample(nil), mt.samples...)
@@ -114,7 +128,7 @@ func (s *Server) laneCells(info api.ThreadInfo, now time.Time) []event.State {
 		}
 	}
 
-	return cells
+	return cells, nil
 }
 
 func (s *Server) threadName(id string) string {

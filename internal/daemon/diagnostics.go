@@ -28,8 +28,11 @@ var unmeasurableGauges = []api.Gauge{
 	api.GaugeHostedLatency,
 }
 
-func (s *Server) diagnostics() api.Diagnostics {
-	f := s.mgr.fleetStats()
+func (s *Server) diagnostics() (api.Diagnostics, error) {
+	f, err := s.mgr.fleetStats()
+	if err != nil {
+		return api.Diagnostics{}, err
+	}
 	counts := s.leases.Counts()
 
 	d := api.Diagnostics{
@@ -59,7 +62,7 @@ func (s *Server) diagnostics() api.Diagnostics {
 	s.applyMachine(&d)
 	s.applyModelDisk(&d)
 
-	return d
+	return d, nil
 }
 
 // applyUsage fills the local and hosted rows from what the threads reported.

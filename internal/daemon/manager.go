@@ -248,7 +248,7 @@ func (m *manager) get(id string) (*managedThread, bool) {
 	return mt, ok
 }
 
-func (m *manager) list() []api.ThreadInfo {
+func (m *manager) list() ([]api.ThreadInfo, error) {
 	m.mu.Lock()
 	order := append([]string(nil), m.order...)
 	m.mu.Unlock()
@@ -259,10 +259,14 @@ func (m *manager) list() []api.ThreadInfo {
 		if !ok {
 			continue
 		}
-		out = append(out, mt.info())
+		info, err := mt.info()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
 	}
 
-	return out
+	return out, nil
 }
 
 func (m *manager) count() int {
@@ -302,14 +306,16 @@ type fleetStats struct {
 	tokensSaved    int
 }
 
-func (m *manager) fleetStats() fleetStats {
+func (m *manager) fleetStats() (fleetStats, error) {
 	var (
 		out    fleetStats
 		latest time.Time
 	)
 
 	for _, mt := range m.snapshot() {
-		mt.sync()
+		if err := mt.sync(); err != nil {
+			return fleetStats{}, fmt.Errorf("syncing thread %s: %w", mt.id, err)
+		}
 
 		mt.mu.Lock()
 		u, lastAt := mt.usage, mt.lastAt
@@ -344,7 +350,7 @@ func (m *manager) fleetStats() fleetStats {
 
 	sort.Slice(out.perThread, func(i, j int) bool { return out.perThread[i].Name < out.perThread[j].Name })
 
-	return out
+	return out, nil
 }
 
 // localModel is the model the router serves local turns with, which is the

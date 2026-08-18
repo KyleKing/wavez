@@ -150,7 +150,20 @@ func errorReply(msg string) api.Reply {
 	return api.Reply{Kind: api.RepError, Error: msg}
 }
 
-func infoPtr(i api.ThreadInfo) *api.ThreadInfo { return &i }
+// replyThreadInfo answers cmd with mt's synced info, or with an error reply
+// when the thread's log could not be read. It reports whether it sent info,
+// so a caller with more work to do after the reply knows whether to proceed.
+func (c *conn) replyThreadInfo(id string, mt *managedThread) bool {
+	info, err := mt.info()
+	if err != nil {
+		c.reply(id, errorReply(err.Error()))
+
+		return false
+	}
+	c.reply(id, api.Reply{Kind: api.RepThread, Thread: &info})
+
+	return true
+}
 
 func (c *conn) handle(cmd api.Command) {
 	if c.handleThreadCommand(cmd) {
@@ -161,7 +174,13 @@ func (c *conn) handle(cmd api.Command) {
 	case api.CmdHello:
 		c.reply(cmd.ID, api.Reply{Kind: api.RepHello, Protocol: api.Protocol})
 	case api.CmdList:
-		c.reply(cmd.ID, api.Reply{Kind: api.RepThreads, Threads: c.srv.mgr.list()})
+		threads, err := c.srv.mgr.list()
+		if err != nil {
+			c.reply(cmd.ID, errorReply(err.Error()))
+
+			return
+		}
+		c.reply(cmd.ID, api.Reply{Kind: api.RepThreads, Threads: threads})
 	case api.CmdRoutines:
 		c.handleRoutines(cmd)
 	case api.CmdRunRoutine:
@@ -205,14 +224,35 @@ func (c *conn) handleThreadCommand(cmd api.Command) bool {
 func (c *conn) handleMachine(cmd api.Command) {
 	switch cmd.Kind {
 	case api.CmdDiag:
-		diag := c.srv.diagnostics()
+		diag, err := c.srv.diagnostics()
+		if err != nil {
+			c.reply(cmd.ID, errorReply(err.Error()))
+
+			return
+		}
 		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
 	case api.CmdSchedule:
-		schedule := c.srv.schedule(c.ctx)
+		schedule, err := c.srv.schedule(c.ctx)
+		if err != nil {
+			c.reply(cmd.ID, errorReply(err.Error()))
+
+			return
+		}
 		c.reply(cmd.ID, api.Reply{Kind: api.RepSchedule, Schedule: &schedule})
 	case api.CmdDiagReset:
-		c.srv.window.reset(c.srv.mgr.fleetStats().rows)
-		diag := c.srv.diagnostics()
+		stats, err := c.srv.mgr.fleetStats()
+		if err != nil {
+			c.reply(cmd.ID, errorReply(err.Error()))
+
+			return
+		}
+		c.srv.window.reset(stats.rows)
+		diag, err := c.srv.diagnostics()
+		if err != nil {
+			c.reply(cmd.ID, errorReply(err.Error()))
+
+			return
+		}
 		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})
 	case api.CmdModels, api.CmdModelCheck, api.CmdModelInstall, api.CmdModelRemove, api.CmdModelSettings:
 		c.handleModel(cmd)
@@ -253,7 +293,9 @@ func (c *conn) handleNew(cmd api.Command) {
 
 		return
 	}
-	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
+	if !c.replyThreadInfo(cmd.ID, mt) {
+		return
+	}
 
 	if cmd.Prompt == "" {
 		return
@@ -299,7 +341,7 @@ func (c *conn) handleRoute(cmd api.Command) {
 	if !ok {
 		return
 	}
-	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
+	c.replyThreadInfo(cmd.ID, mt)
 }
 
 func (c *conn) handleThink(cmd api.Command) {
@@ -313,7 +355,7 @@ func (c *conn) handleThink(cmd api.Command) {
 	if !ok {
 		return
 	}
-	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
+	c.replyThreadInfo(cmd.ID, mt)
 }
 
 func (c *conn) handleSend(cmd api.Command) {
@@ -327,7 +369,7 @@ func (c *conn) handleSend(cmd api.Command) {
 	if !ok {
 		return
 	}
-	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
+	c.replyThreadInfo(cmd.ID, mt)
 }
 
 func (c *conn) handleCancel(cmd api.Command) {
@@ -341,7 +383,7 @@ func (c *conn) handleCancel(cmd api.Command) {
 	if !ok {
 		return
 	}
-	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
+	c.replyThreadInfo(cmd.ID, mt)
 }
 
 func (c *conn) handleAnswer(cmd api.Command) {
@@ -361,12 +403,14 @@ func (c *conn) handleSubscribe(cmd api.Command) {
 		return
 	}
 
+	if !c.replyThreadInfo(cmd.ID, mt) {
+		return
+	}
+
 	c.subsMu.Lock()
 	already := c.subs[cmd.ThreadID]
 	c.subs[cmd.ThreadID] = true
 	c.subsMu.Unlock()
-
-	c.reply(cmd.ID, api.Reply{Kind: api.RepThread, Thread: infoPtr(mt.info())})
 
 	if !already {
 		c.wg.Add(1)

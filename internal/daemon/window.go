@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -109,7 +110,12 @@ func (s *Server) sample(ctx context.Context) {
 		case <-ticker.C:
 			// diagnostics bounds its own calls; the sampler's ctx only stops the loop.
 			//nolint:contextcheck // see the comment above
-			d := s.diagnostics()
+			d, err := s.diagnostics()
+			if err != nil {
+				slog.Warn("sampling diagnostics", "err", err)
+
+				continue
+			}
 			s.window.record(sparkSamples(d))
 		}
 	}
