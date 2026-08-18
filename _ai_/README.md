@@ -21,6 +21,7 @@ Research, notes, and demos behind [DESIGN.md](../DESIGN.md). Nothing here is sou
 | `ai-dispatch-plan.md` | Mobile dispatch: Tailscale identity, HMAC envelopes, kill switch, sandbox settings |
 | `merge-based-stacking.md`, `stacked-pr-review-skill.md` | Deferred VCS work: merge-forward stacks and review state that survives force-pushes |
 | `hunk-review-ideas.md` | Deferred VCS work: hunk-style review from Neovim over jj |
+| `nvim-prompt-editing.md` | Plan for `$EDITOR` handoff from the composer and a `wavez lsp` completion server for prompt buffers |
 
 ## Demos
 
