@@ -283,6 +283,9 @@ type PendingInfo struct {
 	Detail   string    `json:"detail,omitempty"`
 	// Reason is why approval is needed, carried from permission.Request.
 	Reason string `json:"reason,omitempty"`
+	// Step is what the thread was doing when this prompt parked it, as
+	// distinct from Detail, which is the prompt itself.
+	Step string `json:"step,omitempty"`
 	// Question is set when this is a question rather than a permission prompt,
 	// so the client shows a text field instead of yes/no/always.
 	Question bool `json:"question,omitempty"`

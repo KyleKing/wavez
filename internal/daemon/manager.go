@@ -472,7 +472,8 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 
 		return
 	}
-	defer release()
+	mt.setRelease(release)
+	defer mt.releaseAdmission()
 
 	route := router.Input{Override: override, Thinking: thinking}
 	expanded := m.expand(runCtx, mt, prompt)
@@ -611,6 +612,44 @@ func (m *manager) admit(ctx context.Context, threadID string, override router.Ch
 	}
 
 	return release, nil
+}
+
+// park gives back threadID's turn admission while it waits on a Broker
+// prompt, so a thread blocked on a human does not also hold the memory a
+// thread that could still work needs to be admitted. A thread with no
+// admission held (already parked, or never admitted) is left alone.
+func (m *manager) park(threadID string) error {
+	mt, ok := m.get(threadID)
+	if !ok {
+		return ErrThreadNotFound
+	}
+
+	mt.releaseAdmission()
+
+	return nil
+}
+
+// unpark re-admits threadID's turn once its Broker prompt is answered,
+// blocking on the same terms as its original admission (including behind a
+// gate run that now holds the machine) before the turn continues.
+func (m *manager) unpark(ctx context.Context, threadID string) error {
+	mt, ok := m.get(threadID)
+	if !ok {
+		return ErrThreadNotFound
+	}
+
+	mt.mu.Lock()
+	override := mt.override
+	mt.mu.Unlock()
+
+	release, err := m.admit(ctx, threadID, override)
+	if err != nil {
+		return err
+	}
+
+	mt.setRelease(release)
+
+	return nil
 }
 
 // expand resolves the prompt's mentions, logging each that did not so the

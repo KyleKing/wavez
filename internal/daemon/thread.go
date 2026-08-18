@@ -24,24 +24,30 @@ type managedThread struct {
 	th      *thread.Thread
 	cancel  context.CancelFunc
 	done    chan struct{}
-	name    string
-	model   string
-	parent  string
-	step    string
-	id      string
+	// release gives back this thread's turn admission. It is set while a
+	// turn holds the scheduler and cleared while parked (a Broker prompt is
+	// blocking the turn on an answer), so the same slot is never released
+	// twice and a re-admission after parking replaces it rather than adding
+	// a second one.
+	release  func()
+	thinking *bool
+	// cycle names the phased way of working this thread runs, empty for an
+	// ordinary thread, and phase is where it has reached.
+	cycle string
+	name  string
+	id    string
 	// baseline is the operation id captured before this thread's first
 	// turn, so a diff covers everything the thread did rather than only
 	// its most recent turn.
 	baseline string
-	// cycle names the phased way of working this thread runs, empty for an
-	// ordinary thread, and phase is where it has reached.
-	cycle string
-	phase string
+	parent   string
+	phase    string
 	// override pins every turn to one routing tier, empty for automatic
 	// routing.
 	override router.Choice
-	thinking *bool
+	model    string
 	state    event.State
+	step     string
 	// samples is the recent state history one schedule lane is drawn from,
 	// oldest first and bounded, since a lane covers minutes rather than a
 	// thread's whole life.
@@ -58,6 +64,32 @@ type managedThread struct {
 	processed uint64
 	mu        sync.Mutex
 	running   bool
+}
+
+// takeRelease clears and returns the thread's held admission release, nil
+// if it holds none. The caller becomes the only one that can release it.
+func (mt *managedThread) takeRelease() func() {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	release := mt.release
+	mt.release = nil
+
+	return release
+}
+
+func (mt *managedThread) setRelease(fn func()) {
+	mt.mu.Lock()
+	mt.release = fn
+	mt.mu.Unlock()
+}
+
+// releaseAdmission gives back whatever admission the thread currently
+// holds, or does nothing if it holds none.
+func (mt *managedThread) releaseAdmission() {
+	if release := mt.takeRelease(); release != nil {
+		release()
+	}
 }
 
 func (mt *managedThread) info() (api.ThreadInfo, error) {

@@ -8,12 +8,15 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
+	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
+	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/sched"
 	"github.com/kyleking/wavez/internal/sysinfo"
 	"github.com/kyleking/wavez/internal/tool"
@@ -255,4 +258,116 @@ func TestSchedule_HeldTurnSaysWhyInItsStep(t *testing.T) {
 	releaseGate()
 
 	waitForSchedule(t, cl, func(s api.Schedule) bool { return laneFor(s, th.ID).Step == "done" })
+}
+
+// The M2 park/unpark condition: a thread blocked on a permission prompt
+// gives back its turn admission rather than squatting on it, so a gate run
+// that needs the machine can go ahead while the thread waits on a human.
+// When the answer arrives, the thread re-admits, blocking behind that same
+// gate run if it still holds the machine, and shows the existing "waiting
+// to resume" step rather than a lock-wait glyph while it does.
+func TestSchedule_ParkedThreadFreesAdmissionAndReadmitsOnAnswer(t *testing.T) {
+	t.Parallel()
+
+	const total = 16 << 30
+
+	tight := func(context.Context) (sysinfo.Memory, error) {
+		return sysinfo.Memory{TotalBytes: total, UsedBytes: total - (2 << 30)}, nil
+	}
+	scheduler := sched.New(sched.WithMemory(tight))
+
+	local := fake.New("local",
+		fake.Turn{
+			ToolCalls:  []llm.ToolCall{{ID: "1", Name: "gated", Input: []byte(`{}`)}},
+			StopReason: llm.StopToolUse,
+		},
+		endTurn(),
+	)
+	h := newHarness(t, local,
+		withServerOptions(daemon.WithScheduler(scheduler)),
+		withTool(gatedTool{echoTool: echoTool{name: "gated"}, key: "gated-key"}))
+
+	watcher := dial(t, h)
+	watcher.hello()
+	th := watcher.newThread(nil)
+	watcher.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
+	watcher.recvFor("sub")
+
+	sendPrompt(t, watcher, th.ID)
+
+	pending := waitForEvent(t, watcher, func(rep api.Reply) bool {
+		return rep.Kind == api.RepPending && len(rep.Pending) == 1
+	})
+	promptID := pending.Pending[0].ID
+
+	// The thread parked: its own state is needs_input, distinct from a lock
+	// wait, and its admission is free for a gate run to take.
+	waitForState(t, watcher, th.ID, event.StateNeedsIn)
+
+	releaseGate := admitGateOrTimeout(t, scheduler)
+
+	watcher.send(api.Command{ID: "answer", Kind: api.CmdAnswer, PromptID: promptID, Decision: permission.Allow})
+	watcher.recvFor("answer")
+
+	// The gate run still holds the machine, so the thread's re-admission
+	// blocks and says so with the same words a plain held turn uses.
+	waitForSchedule(t, watcher, func(s api.Schedule) bool {
+		return strings.HasPrefix(laneFor(s, th.ID).Step, "held for a gate run")
+	})
+
+	releaseGate()
+
+	waitForSchedule(t, watcher, func(s api.Schedule) bool { return laneFor(s, th.ID).Step == "done" })
+}
+
+// admitGateOrTimeout proves a rival admission is actually free by racing it
+// against a deadline: a park bug that never releases the turn's slot would
+// otherwise hang this call rather than fail it.
+func admitGateOrTimeout(t *testing.T, scheduler *sched.Scheduler) func() {
+	t.Helper()
+
+	type result struct {
+		release func()
+		err     error
+	}
+
+	done := make(chan result, 1)
+	go func() {
+		release, err := scheduler.AdmitGate(t.Context())
+		done <- result{release, err}
+	}()
+
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("AdmitGate: %v", r.err)
+		}
+
+		return r.release
+	case <-time.After(2 * time.Second):
+		t.Fatal("AdmitGate did not admit while the parked thread should hold no admission")
+
+		return nil
+	}
+}
+
+// waitForState polls until threadID reports want, since a park is reached
+// on the thread's own goroutine and has no push equivalent.
+func waitForState(t *testing.T, cl *client, threadID string, want event.State) {
+	t.Helper()
+
+	for i := 0; ; i++ {
+		id := "list-" + string(rune('a'+i%26)) + string(rune('a'+i/26%26))
+		cl.send(api.Command{ID: id, Kind: api.CmdList})
+
+		rep := cl.recvFor(id)
+		if rep.Kind != api.RepThreads {
+			t.Fatalf("list: %+v", rep)
+		}
+		for i := range rep.Threads {
+			if rep.Threads[i].ID == threadID && rep.Threads[i].State == want {
+				return
+			}
+		}
+	}
 }

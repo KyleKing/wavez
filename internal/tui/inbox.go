@@ -149,11 +149,13 @@ func (m Model) renderInbox() string {
 
 		if i != m.cappedInboxCursor(len(rows)) {
 			body = append(body, m.th.fgDefault.Render("  "+line))
+			body = append(body, m.parkedStepLine(r.Step)...)
 
 			continue
 		}
 
 		body = append(body, m.th.accent.Render("> "+line))
+		body = append(body, m.parkedStepLine(r.Step)...)
 		if r.Reason != "" {
 			body = append(body, m.th.fgMuted.Render(truncate("    "+r.Reason, m.width-boxPad)))
 		}
@@ -166,6 +168,18 @@ func (m Model) renderInbox() string {
 	footer := footerHints([]hint{{keyEnter, "answer"}, {"o", labelOpen}, {keyEsc, labelBack}}, m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
+}
+
+// parkedStepLine renders what a row's thread was doing just before it
+// parked, a second muted line under the row (the row itself is already
+// full width with the thread name, tool, detail, and answers). A row with
+// no step (a question asked with none yet recorded) adds no line.
+func (m Model) parkedStepLine(step string) []string {
+	if step == "" {
+		return nil
+	}
+
+	return []string{m.th.fgMuted.Render(truncate("    "+step, m.width-boxPad))}
 }
 
 func (m Model) cappedInboxCursor(n int) int {

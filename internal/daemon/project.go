@@ -244,3 +244,23 @@ func (s *Server) appendState(id string, state event.State) error {
 
 	return p.mgr.appendState(id, state)
 }
+
+// park and unpark satisfy Broker's threadLookup the same way get and
+// appendState do, routing to id's project.
+func (s *Server) park(id string) error {
+	p, ok := s.findByThread(id)
+	if !ok {
+		return ErrThreadNotFound
+	}
+
+	return p.mgr.park(id)
+}
+
+func (s *Server) unpark(ctx context.Context, id string) error {
+	p, ok := s.findByThread(id)
+	if !ok {
+		return ErrThreadNotFound
+	}
+
+	return p.mgr.unpark(ctx, id)
+}

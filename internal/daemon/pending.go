@@ -43,6 +43,11 @@ type pendingItem struct {
 type threadLookup interface {
 	get(id string) (*managedThread, bool)
 	appendState(id string, state event.State) error
+	// park and unpark give back and reclaim a thread's turn admission
+	// around a Broker wait, so a thread blocked on a human does not also
+	// hold memory admission a working thread needs.
+	park(id string) error
+	unpark(ctx context.Context, id string) error
 }
 
 // Broker turns a permission request or a question from any thread into an
@@ -80,7 +85,15 @@ type PermissionGate struct{ b *Broker }
 func (g PermissionGate) Ask(ctx context.Context, req permission.Request) (permission.Decision, error) {
 	g.b.asked.Add(1)
 
-	cmd, err := g.b.wait(ctx, req.ThreadID, api.PendingInfo{
+	// The daemon's own turn context carries the thread id (set once, in
+	// manager.runTurn); req.ThreadID exists for a caller outside that flow
+	// and is used only when ctx carries none.
+	threadID := req.ThreadID
+	if id, ok := threadIDFromContext(ctx); ok {
+		threadID = id
+	}
+
+	cmd, err := g.b.wait(ctx, threadID, api.PendingInfo{
 		Tool:   req.Tool,
 		Action: req.Action,
 		Detail: req.Detail,
@@ -136,7 +149,10 @@ func (b *Broker) wait(ctx context.Context, threadID string, info api.PendingInfo
 	if lookup != nil {
 		if mt, ok := lookup.get(threadID); ok {
 			mt.mu.Lock()
-			info.Thread, info.Dir = mt.name, firstDir(mt.dirs)
+			// Step is what the thread was doing just before this prompt
+			// parked it, captured ahead of the state transition below,
+			// which would otherwise overwrite it with "needs input".
+			info.Thread, info.Dir, info.Step = mt.name, firstDir(mt.dirs), mt.step
 			mt.mu.Unlock()
 		}
 	}
@@ -147,6 +163,7 @@ func (b *Broker) wait(ctx context.Context, threadID string, info api.PendingInfo
 	b.mu.Unlock()
 
 	b.setState(threadID, event.StateNeedsIn)
+	parkThread(lookup, threadID)
 	b.fireChange()
 
 	defer func() {
@@ -159,10 +176,39 @@ func (b *Broker) wait(ctx context.Context, threadID string, info api.PendingInfo
 
 	select {
 	case cmd := <-item.ch:
+		if err := unparkThread(ctx, lookup, threadID); err != nil {
+			return api.Command{}, err
+		}
+
 		return cmd, nil
 	case <-ctx.Done():
 		return api.Command{}, fmt.Errorf("waiting for answer: %w", ctx.Err())
 	}
+}
+
+// parkThread gives back threadID's turn admission for the duration of the
+// wait, so the scheduler can admit a thread that is not blocked on a human.
+// It is best-effort: a lookup-less Broker (a test built without one) parks
+// nothing, and a thread the lookup no longer knows about (already gone) has
+// nothing left to release.
+func parkThread(lookup threadLookup, threadID string) {
+	if lookup == nil {
+		return
+	}
+
+	if err := lookup.park(threadID); err != nil {
+		return
+	}
+}
+
+// unparkThread re-admits threadID before the turn that was waiting on this
+// prompt continues, blocking on the same terms as any other admission.
+func unparkThread(ctx context.Context, lookup threadLookup, threadID string) error {
+	if lookup == nil {
+		return nil
+	}
+
+	return lookup.unpark(ctx, threadID)
 }
 
 // Answer resolves the pending prompt named by cmd.PromptID, reporting

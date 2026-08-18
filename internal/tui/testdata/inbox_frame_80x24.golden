@@ -1,0 +1,5 @@
+[1m┌ inbox · 2 waiting ───────────────────────────────────────────────────────────┐[m
+[1m│ [m[1m> ! docs-pass                shell    rm -rf .testmondata  [y] [n] [a][m      [1m │[m
+[1m│ [m[2m    editing internal/lease.go[m                                               [1m │[m
+[1m│ [m  ! add-jj-backend                                         > colocate or pu…[1m │[m
+[1m└ [enter]answer [o]open [esc]back ─────────────────────────────────────────────┘[m
