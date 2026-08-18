@@ -70,7 +70,19 @@ func WithMaxReviewRounds(n int) Option { return func(o *Options) { o.MaxReviewRo
 // hands the objection to the model as a new turn, once. A run whose second
 // review still objects completes carrying the objection, because a reviewer's
 // disagreement is judgment and the user is the one who settles it.
+//
+// A run that called an edit tool and left no net Change follows the same
+// escalate-then-stop rule, since completing would report the model's belief
+// that it acted rather than whether it did.
 func (r *run) reviewOrComplete(ctx context.Context) (bool, Outcome, error) {
+	if len(r.changes) == 0 && r.editAttempted {
+		return r.handleTalkedNotActed(ctx, StopStagnant,
+			"the model called an edit tool but left no file changed again after escalating",
+			"That turn ended with no files changed even though an edit tool was called. Read "+
+				"the last tool result, fix whatever made the edit not apply, and make the edit "+
+				"before reporting anything finished.")
+	}
+
 	if r.loop.options.Reviewer == nil || len(r.changes) == 0 {
 		return r.complete(ctx)
 	}

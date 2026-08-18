@@ -54,6 +54,12 @@ const (
 	million = 1_000_000.0
 )
 
+// editToolNames are the tools that leave a tool.Change on success.
+var editToolNames = map[string]struct{}{
+	"str_replace": {},
+	"write":       {},
+}
+
 // ModelPricing prices one model's hosted usage in dollars per million tokens.
 type ModelPricing struct {
 	InputPerMillion  float64
@@ -91,7 +97,9 @@ const (
 	// call's name and input.
 	StopLoopDetected Stop = "loop_detected"
 	// StopStagnant means a configured number of consecutive tool-call
-	// results returned an error, regardless of whether their inputs matched.
+	// results returned an error, regardless of whether their inputs matched,
+	// or the run reached its end having called an edit tool but left no
+	// file changed.
 	StopStagnant Stop = "stagnant"
 	// StopDeadline means Run reached the absolute wall-clock deadline
 	// computed once at entry.
@@ -444,6 +452,7 @@ type run struct {
 	turnToolCalls     int
 	consecutiveErrors int
 	localFailed       bool
+	editAttempted     bool
 }
 
 func (r *run) drive(ctx context.Context) (Outcome, error) {
@@ -687,6 +696,10 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 
 			return true, out, err
 		}
+		if _, ok := editToolNames[call.Name]; ok {
+			r.editAttempted = true
+		}
+
 		if r.lastCall != nil && r.lastCall.Name == call.Name && bytes.Equal(r.lastCall.Input, call.Input) {
 			return r.handleRepeatedCall(ctx, call)
 		}

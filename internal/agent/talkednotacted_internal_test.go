@@ -50,6 +50,13 @@ func TestLooksLikeAnnouncedAction(t *testing.T) {
 		},
 		{name: "let me", text: "Let me check the test output first.", want: true},
 		{
+			name: "let me try again",
+			text: "That edit failed.\n\nLet me try again with a wider anchor.",
+			want: true,
+		},
+		{name: "trying again", text: "The build still fails.\n\nTrying again with a different approach.", want: true},
+		{name: "retrying", text: "str_replace errored again.\n\nRetrying the call.", want: true},
+		{
 			name: "an announcement that does not open the closing line",
 			text: "Fixed in lease.go, and I'll stop there.",
 			want: false,

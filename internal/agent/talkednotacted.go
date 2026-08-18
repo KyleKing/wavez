@@ -16,8 +16,10 @@ var offerPhrases = []string{
 }
 
 // announcePrefixes are how a model commits to a next action and then ends
-// its turn without taking it. Matched only as a prefix of the closing line,
-// since the same words mid-paragraph usually precede the action itself.
+// its turn without taking it, including a retry it names but does not make
+// ("let me try again", "trying again"). Matched only as a prefix of the
+// closing line, since the same words mid-paragraph usually precede the
+// action itself.
 var announcePrefixes = []string{
 	"i'll ",
 	"i will ",
@@ -25,6 +27,8 @@ var announcePrefixes = []string{
 	"now i'll ",
 	"next, i",
 	"let's ",
+	"trying again",
+	"retrying",
 }
 
 // looksLikeQuestionToUser reports whether text ends by offering the user

@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/agent"
@@ -111,5 +112,63 @@ func TestRun_OfferingToActIsNotSuccess(t *testing.T) {
 				t.Errorf("Stop = %q, want %q", out.Stop, tt.wantStop)
 			}
 		})
+	}
+}
+
+// TestRun_EditAttemptedWithNoChangeIsNotComplete pins the shape from
+// dogfood.md: a run whose edit tool errored on every call and whose closing
+// turn reported success anyway, having changed nothing, must not report
+// StopComplete on the model's own account of itself.
+func TestRun_EditAttemptedWithNoChangeIsNotComplete(t *testing.T) {
+	t.Parallel()
+
+	editCall := llm.ToolCall{ID: "1", Name: "str_replace", Input: json.RawMessage(`{"path":"x.go"}`)}
+	claimsDone := fake.Turn{
+		Text:       []string{"The rename is applied across the package."},
+		StopReason: llm.StopEndTurn,
+	}
+
+	local := fake.New("local",
+		fake.Turn{ToolCalls: []llm.ToolCall{editCall}, StopReason: llm.StopToolUse},
+		claimsDone,
+	)
+	hosted := fake.New("hosted", claimsDone)
+	reg := tool.NewRegistry(erroringTool{echoTool: echoTool{name: "str_replace"}})
+	loop := agent.New(local, hosted, reg, permission.AllowAll())
+
+	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "rename DefaultTTL to TTL", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if out.Stop != agent.StopStagnant {
+		t.Errorf("Stop = %q, want %q", out.Stop, agent.StopStagnant)
+	}
+}
+
+// TestRun_QuestionTaskCompletesWithZeroChanges proves the new zero-change
+// check does not fire on a task that never asked for an edit: reading a
+// file to answer a question changes nothing, and that is success, not a
+// stagnant run.
+func TestRun_QuestionTaskCompletesWithZeroChanges(t *testing.T) {
+	t.Parallel()
+
+	searchCall := llm.ToolCall{ID: "1", Name: "search", Input: json.RawMessage(`{"query":"guard rules"}`)}
+	local := fake.New("local",
+		fake.Turn{ToolCalls: []llm.ToolCall{searchCall}, StopReason: llm.StopToolUse},
+		fake.Turn{Text: []string{"internal/agent/loop.go defines the guard rules."}, StopReason: llm.StopEndTurn},
+	)
+	hosted := fake.New("hosted")
+	reg := tool.NewRegistry(echoTool{name: "search"})
+	loop := agent.New(local, hosted, reg, permission.AllowAll())
+
+	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "which file defines the guard rules",
+		router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if out.Stop != agent.StopComplete {
+		t.Errorf("Stop = %q, want %q", out.Stop, agent.StopComplete)
 	}
 }
