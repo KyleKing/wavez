@@ -37,6 +37,7 @@ var (
 	errNothingToUndo     = errors.New("nothing has changed since the checkpoint")
 	errRestoreIncomplete = errors.New("restore left the working copy changed")
 	errStoppedEarly      = errors.New("thread stopped early")
+	errUnreachableCode   = errors.New("unreachable code found")
 	errUnknownModel      = errors.New("unknown -model: want local or hosted")
 )
 
@@ -64,6 +65,7 @@ type options struct {
 	mutate              bool
 	jsonOut             bool
 	plan                bool
+	deadcode            bool
 }
 
 func main() {
@@ -106,6 +108,8 @@ func run(args []string) error {
 		"run with read-only tools, so the thread can investigate but not edit")
 	fs.BoolVar(&opt.jsonOut, "json", false,
 		"with -p, print one JSON object on stdout instead of the result text")
+	fs.BoolVar(&opt.deadcode, "deadcode", false,
+		"report functions no main reaches, an orphan check the compiler cannot do")
 	fs.BoolVar(&opt.mutate, "mutate", false,
 		"mutate the working copy's changed lines and report the mutants the tests missed")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
@@ -121,22 +125,8 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if opt.undo != "" {
-		root, err := resolveRoot(ctx, opt.dir)
-		if err != nil {
-			return err
-		}
-
-		return undo(ctx, root, opt.undo)
-	}
-
-	if opt.mutate {
-		root, err := resolveRoot(ctx, opt.dir)
-		if err != nil {
-			return err
-		}
-
-		return mutationCheck(ctx, root)
+	if handled, err := runSubcommand(ctx, opt); handled {
+		return err
 	}
 
 	if opt.prompt == "" {
@@ -206,6 +196,33 @@ func appOptions(opt options) []app.Option {
 	}
 
 	return out
+}
+
+// runSubcommand dispatches the flags that do one job and exit instead of
+// opening a thread. It reports handled=false when none applies.
+func runSubcommand(ctx context.Context, opt options) (bool, error) {
+	if opt.undo == "" && !opt.deadcode && !opt.mutate {
+		return false, nil
+	}
+
+	root, err := resolveRoot(ctx, opt.dir)
+	if err != nil {
+		return true, err
+	}
+
+	switch {
+	case opt.undo != "":
+		return true, undo(ctx, root, opt.undo)
+	case opt.deadcode:
+		cfg, cerr := loadConfig(ctx, root, opt.with)
+		if cerr != nil {
+			return true, cerr
+		}
+
+		return true, deadcodeCheck(ctx, root, cfg)
+	default:
+		return true, mutationCheck(ctx, root)
+	}
 }
 
 func headless(ctx context.Context, opt options) error {
@@ -468,6 +485,7 @@ Flags:
   -allow-all      approve every permission prompt without asking
   -strict-scope   refuse an edit to a file this run never read or created
   -mutate         mutate the working copy's changed lines and report what the tests missed
+  -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn
   -max-stagnant-errors <n>      cap consecutive erroring tool-call results

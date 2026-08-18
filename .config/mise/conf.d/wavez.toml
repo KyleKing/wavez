@@ -1,3 +1,7 @@
+[tasks.deadcode]
+description = "Report functions no main reaches (wavez -deadcode)"
+run = "go run ./cmd/wavez -deadcode"
+
 [tasks.daemon]
 description = "Run wavezd from source (owns the socket the TUI/CLI dial into)"
 run = "go run ./cmd/wavezd"
@@ -7,3 +11,7 @@ raw_args = true
 # between a laptop and a CI runner, and the check then fails only in CI.
 [tools]
 tombi = "1.4.0"
+# Reachability from main, which is the orphan check `unused` cannot do for a
+# module that is all internal/: every symbol there is exported API to the
+# compiler, and a test counts as a use.
+"go:golang.org/x/tools/cmd/deadcode" = "latest"

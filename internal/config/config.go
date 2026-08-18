@@ -25,8 +25,8 @@ const DefaultContextWindow = 8000
 const DefaultLocalPort = 8080
 
 // DefaultLocalStartTimeout bounds one llama-server start. Cold start
-// measured 1.6 s to first token on this laptop (_ai_/demos/local-runtime);
-// the rest of the budget covers reading a 5 GB blob past a cold page cache.
+// measured 1.6 s to first token on this laptop; the rest of the budget
+// covers reading a 5 GB blob past a cold page cache.
 const DefaultLocalStartTimeout = 60 * time.Second
 
 // DefaultGateDebounce is how long a Runner waits after the last change in a
@@ -53,6 +53,7 @@ type Config struct {
 	Context          []string
 	ExtraDirs        []string
 	AstGrepRules     []string
+	DeadcodeAllow    []string
 	// PreToolUseHook and PostToolUseHook are argv slices, program first,
 	// executed directly rather than through a shell. Empty means no hook, and
 	// no hook process.

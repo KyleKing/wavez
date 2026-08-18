@@ -37,6 +37,7 @@ type pklConfig struct {
 	Context          []string `pkl:"context"`
 	ExtraDirs        []string `pkl:"extraDirs"`
 	AstGrepRules     []string `pkl:"astGrepRules"`
+	DeadcodeAllow    []string `pkl:"deadcodeAllow"`
 	PreToolUseHook   []string `pkl:"preToolUseHook"`
 	PostToolUseHook  []string `pkl:"postToolUseHook"`
 	ContextWindow    int      `pkl:"contextWindow"`
@@ -192,6 +193,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.Context = p.Context
 	cfg.ExtraDirs = p.ExtraDirs
 	cfg.AstGrepRules = p.AstGrepRules
+	cfg.DeadcodeAllow = p.DeadcodeAllow
 	cfg.PreToolUseHook = p.PreToolUseHook
 	cfg.PostToolUseHook = p.PostToolUseHook
 
