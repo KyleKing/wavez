@@ -586,6 +586,7 @@ Features nobody praises and everybody misses. Copied from Claude Code, Codex, Op
 - A hook runs after the guard and the permission gate, never instead of them, so it may object to a call they allowed and can never admit one they withheld. Its output goes to the thread log and not to the model: a refusal reaches the model as a fixed string, because a hook's own text steering the next turn would be the policy-input channel the Safety section rules out
 - Model switch and thinking toggle mid-thread (`m` and `t` on the thread view, and palette verbs), cost and token counters in the header. A pinned tier is named in the header instead of the model, because a pin is not recoverable from a model name, and a failure while pinned says so with the way out: routing never retries a pinned tier that just failed, so a user left on a dead one would otherwise be stuck
 - Thinking is a per-request field rather than a server flag. `--chat-template-kwargs` sets llama-server's default in both directions, and the chat-completions body overrides it either way, so the toggle costs no model reload. Measured on qwen3:8b: replying "OK" costs 79 completion tokens with the reasoning trace on and 2 with it off. Nil is not false, since a request omitting the field must not silently flip whatever the server was started with
+- Snippets: a phrase the user retypes into prompts ("use the question tool liberally", the house rule for resolving merge conflicts) saved once and completed with `Tab` in the composer's insert mode, matched the way the palette matches. `Tab` is free there because the panel cycle already ignores it while composing, so the completion costs no existing binding. Stored as JSON rather than pkl, because the composer writes them back and pkl is for configuration a human authors by hand. Two files, per laptop in the user config and per repo beside `.wavez.pkl`, so a project's conventions travel with the project and personal habits do not. A snippet expands to literal text in the composer before the prompt is sent, never to a reference the model resolves later, since a phrase the user cannot read before sending is one they cannot correct. It reaches the model as part of the prompt and carries no standing beyond it, so nothing a snippet says can widen what a tool is allowed to do (M2)
 - Image and screenshot input (M2), notifications on needs-input and done (M2)
 - Repo map from the store as cheap default context, after Aider (M2)
 - MCP client, connected per thread on demand from an allowlist in `.wavez.pkl`, never all up front (M3)
@@ -682,16 +683,16 @@ done when its condition holds, and nothing here promises a release number.
 
 Ordered by what unblocks daily use soonest, from the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood rows. Each names what closes it.
 
-1. Read the reply. Transcript rows get a cursor, `Enter` expands and collapses, and agent prose is typed `answer` vs `note` per Thread view, so a reply longer than one row can be read at all. Empty `state` and empty `agent` rows stop rendering
-2. Finish the timed comparison. Hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, on a quiet machine, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows
-3. A run that changed nothing on a task that asked for a change never reports `complete`. Extend the announcement and offer detectors to "let me try again" shapes and to a zero-change outcome against an edit-shaped task
-4. One daemon per laptop with projects loaded lazily per root, then fleet Home with `w` scope, so the design's one-API claim holds and the M4 phone client has one thing to attach to
+1. A run that changed nothing on a task that asked for a change never reports `complete`. Extend the announcement and offer detectors to "let me try again" shapes and to a zero-change outcome against an edit-shaped task
+2. One daemon per laptop with projects loaded lazily per root, then fleet Home with `w` scope, so the design's one-API claim holds and the M4 phone client has one thing to attach to
+3. Snippets in the composer, per Table stakes, so a phrase the user retypes into every prompt is typed once
+4. The owner's asks now in the design: idle toast and push, progress line and estimate (after the `progress-estimate` spike), auto-linked identifiers, parked-work inbox
 5. Probe the M4 Pro (steps in the audit) and re-run the five-task edit harness against `localBaseURL`, which decides whether local writing is a property of 8B models or of local inference
-6. The owner's asks now in the design: idle toast and push, progress line and estimate (after the `progress-estimate` spike), history by kind, auto-linked identifiers, parked-work inbox
-7. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
-8. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
-9. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
-10. The efficiency spikes, in the order their numbers would change a decision: `kv-slots`, `trim-turns`, `prefix-tokens`, `thinking-budget`, `fork-shape`, then the rest
+6. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
+7. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
+8. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
+9. The efficiency spikes, in the order their numbers would change a decision: `kv-slots`, `trim-turns`, `prefix-tokens`, `thinking-budget`, `fork-shape`, then the rest
+10. Finish the timed comparison. Hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows. Last because it is blocked on a quiet machine rather than on work, and the daily-use items above are not
 
 ## Considered and deferred
 
@@ -750,4 +751,5 @@ No:
 - How the scheduler surfaces a deep DAG without a graph widget (current answer: one row per thread, drill in)
 - Whether Ask-a-line threads persist across sessions as review comments do
 - Web search API and version-pinning strategy
+- Snippets: what triggers the completion. `Tab` on a bare prefix competes with nothing today but offers no way to browse what exists, where a sigil (`:name`, as `@file` already does for mentions) is discoverable and costs a character. Whether an expanded snippet stays editable text or becomes a chip the composer tracks is the same question one layer down
 - Progress estimate: how well a thread's own turn and gate-round durations predict its remaining wall clock, and whether the project's history for the same shape of work improves it enough to be worth storing. Spike: `_ai_/demos/progress-estimate`, replaying the thread logs already on disk
