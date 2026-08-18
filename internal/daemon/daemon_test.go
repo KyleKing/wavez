@@ -2,11 +2,14 @@ package daemon_test
 
 import (
 	"context"
+	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/event"
@@ -519,5 +522,54 @@ func TestListen_StaleSocketFileIsReplaced(t *testing.T) {
 	}
 	if err := c.Close(); err != nil {
 		t.Errorf("closing connection: %v", err)
+	}
+}
+
+var errNoJJRepo = errors.New("capturing checkpoint: /x is not a jj repository")
+
+type failingCheckpointer struct{ err error }
+
+func (f failingCheckpointer) Capture(context.Context, string) (string, error) { return "", f.err }
+func (f failingCheckpointer) Restore(context.Context, string, string) error   { return f.err }
+
+func TestSend_RunErrorReachesTheThreadLog(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local", fake.Turn{Text: []string{"never"}, StopReason: llm.StopEndTurn})
+	cp := failingCheckpointer{err: errNoJJRepo}
+	h := newHarnessWith(t, local, []agent.Option{agent.WithCheckpointer(cp, "/x")})
+
+	cl := dial(t, h)
+	cl.hello()
+	th := cl.newThread(nil)
+
+	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
+	if _, ok := cl.recv(); !ok {
+		t.Fatalf("subscribe ack: connection closed")
+	}
+
+	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
+	if _, ok := cl.recv(); !ok {
+		t.Fatalf("send: connection closed")
+	}
+
+	waitForEvent(t, cl, func(rep api.Reply) bool {
+		return rep.Kind == api.RepEvent && rep.Event != nil &&
+			rep.Event.Kind == event.KindState && rep.Event.State == event.StateFailed
+	})
+	errEv := waitForEvent(t, cl, func(rep api.Reply) bool {
+		return rep.Kind == api.RepEvent && rep.Event != nil && rep.Event.Kind == event.KindError
+	})
+	if !strings.Contains(errEv.Event.Text, "not a jj repository") {
+		t.Fatalf("error event text = %q, want the checkpoint failure", errEv.Event.Text)
+	}
+
+	cl.send(api.Command{ID: "list", Kind: api.CmdList})
+	rep := cl.recvFor("list")
+	if len(rep.Threads) != 1 {
+		t.Fatalf("threads = %+v, want one", rep.Threads)
+	}
+	if got := rep.Threads[0]; got.State != event.StateFailed || !strings.Contains(got.Step, "not a jj repository") {
+		t.Fatalf("thread info after a failed run = %+v", got)
 	}
 }

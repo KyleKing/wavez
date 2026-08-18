@@ -54,11 +54,18 @@ type testHarness struct {
 func newHarness(t *testing.T, local *fake.Provider, extraTools ...tool.Tool) *testHarness {
 	t.Helper()
 
+	return newHarnessWith(t, local, nil, extraTools...)
+}
+
+func newHarnessWith(t *testing.T, local *fake.Provider, loopOpts []agent.Option, extraTools ...tool.Tool) *testHarness {
+	t.Helper()
+
 	broker := daemon.NewBroker()
 	tools := append([]tool.Tool{echoTool{name: "echo"}}, extraTools...)
 	reg := tool.NewRegistry(tools...)
 	hosted := fake.New("hosted")
-	loop := agent.New(local, hosted, reg, broker.Gate(), agent.WithLocalModel("qwen3:8b"))
+	opts := append([]agent.Option{agent.WithLocalModel("qwen3:8b")}, loopOpts...)
+	loop := agent.New(local, hosted, reg, broker.Gate(), opts...)
 
 	sockPath := shortSockPath(t)
 	srv, err := daemon.New(sockPath,

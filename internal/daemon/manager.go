@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -427,6 +428,10 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	}
 	m.spend.add(outcome.HostedSpendUSD)
 
+	if err != nil && !errors.Is(err, context.Canceled) {
+		reportRunError(mt, err)
+	}
+
 	mt.mu.Lock()
 	mt.running = false
 	mt.cancel = nil
@@ -438,6 +443,20 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	}
 
 	mt.mu.Unlock()
+}
+
+// reportRunError puts a run that failed before the loop could describe it
+// (a checkpoint that could not be captured, a thread I/O error) on the
+// thread's own log, so every client sees the reason instead of an idle
+// thread with an empty transcript.
+func reportRunError(mt *managedThread, err error) {
+	log := mt.th.Log()
+	if _, aerr := log.Append(event.Event{Kind: event.KindState, State: event.StateFailed}); aerr != nil {
+		slog.Warn("recording run failure state", "thread", mt.id, "err", aerr)
+	}
+	if _, aerr := log.Append(event.Event{Kind: event.KindError, Text: err.Error()}); aerr != nil {
+		slog.Warn("recording run error", "thread", mt.id, "err", aerr)
+	}
 }
 
 // expand resolves the prompt's mentions, logging each that did not so the
