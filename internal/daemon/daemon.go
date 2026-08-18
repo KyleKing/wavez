@@ -68,6 +68,7 @@ type config struct {
 	differ        Differ
 	restorer      Restorer
 	expander      Expander
+	routines      RoutineSource
 	logDir        string
 	root          string
 	prefix        agent.Prefix
@@ -162,6 +163,7 @@ type Server struct {
 	stats      StatsSource
 	leases     *lease.Manager
 	sched      *sched.Scheduler
+	routines   RoutineSource
 	differ     Differ
 	restorer   Restorer
 	ln         net.Listener
@@ -205,6 +207,7 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 		sched:    c.scheduler,
 		differ:   c.differ,
 		restorer: c.restorer,
+		routines: c.routines,
 		sockPath: sockPath,
 		grace:    c.shutdownGrace,
 		conns:    make(map[*conn]struct{}),

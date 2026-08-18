@@ -58,8 +58,8 @@ func newHarness(t *testing.T, local *fake.Provider, extraTools ...tool.Tool) *te
 }
 
 // newHarnessWith is newHarness with extra loop and daemon options, for a
-// test that injects a checkpointer, or wires a lease manager or scheduler
-// the tools it passes were built with.
+// test that injects a checkpointer, or wires a lease manager, scheduler, or
+// routine source the tools it passes were built with.
 func newHarnessWith(
 	t *testing.T, local *fake.Provider, loopOpts []agent.Option, extra []daemon.Option, extraTools ...tool.Tool,
 ) *testHarness {

@@ -37,6 +37,12 @@ const (
 	// CmdThink turns a hybrid model's reasoning trace on or off for a
 	// thread's next turn.
 	CmdThink CommandKind = "think"
+	// CmdRoutines lists the project's routines with their triggers and
+	// recent runs.
+	CmdRoutines CommandKind = "routines"
+	// CmdRunRoutine runs one routine by name and answers with that
+	// routine's refreshed row, the completed run included.
+	CmdRunRoutine CommandKind = "run_routine"
 )
 
 // Command is one request. ID correlates the Reply and is chosen by the client.
@@ -69,6 +75,8 @@ type Command struct {
 	Dirs []string `json:"dirs,omitempty"`
 	// From resumes a subscription after the client's last seen Seq.
 	From uint64 `json:"from,omitempty"`
+	// Routine names the routine run_routine executes.
+	Routine string `json:"routine,omitempty"`
 	// Confirm performs a restore instead of previewing what it would
 	// discard, since destroying uncommitted work without asking is worse
 	// than leaving it.
@@ -93,6 +101,9 @@ const (
 	// RepLagged reports that a subscription dropped events. The client must
 	// resubscribe from its last seen Seq rather than assume continuity.
 	RepLagged ReplyKind = "lagged"
+	// RepRoutines carries the project's routines. A run_routine reply
+	// carries the single routine it ran.
+	RepRoutines ReplyKind = "routines"
 )
 
 // Reply is one message from the daemon. ID echoes the Command that caused it,
@@ -109,6 +120,7 @@ type Reply struct {
 	Diff     *Diff         `json:"diff,omitempty"`
 	Restore  *Restore      `json:"restore,omitempty"`
 	Threads  []ThreadInfo  `json:"threads,omitempty"`
+	Routines []RoutineInfo `json:"routines,omitempty"`
 	Pending  []PendingInfo `json:"pending,omitempty"`
 	Protocol int           `json:"protocol,omitempty"`
 	LastSeq  uint64        `json:"last_seq,omitempty"`
@@ -142,6 +154,29 @@ type ThreadInfo struct {
 	Context int         `json:"context"`
 	Window  int         `json:"window"`
 	Seq     uint64      `json:"seq"`
+}
+
+// RoutineInfo is one row in the routines panel: what fires the routine,
+// what it does, and how its recent runs went.
+type RoutineInfo struct {
+	Name     string   `json:"name"`
+	Triggers []string `json:"triggers,omitempty"`
+	Steps    []string `json:"steps,omitempty"`
+	// Runs are the routine's recent runs, oldest first, which is what the
+	// panel's duration sparkline and its history view read.
+	Runs    []RoutineRun `json:"runs,omitempty"`
+	Enabled bool         `json:"enabled"`
+}
+
+// RoutineRun is one recorded run of a routine.
+type RoutineRun struct {
+	Started time.Time `json:"started"`
+	Trigger string    `json:"trigger"`
+	// Failed names the steps that did not pass, so a client can say what
+	// broke without carrying every step's trimmed output.
+	Failed   []string      `json:"failed,omitempty"`
+	Duration time.Duration `json:"duration"`
+	Pass     bool          `json:"pass"`
 }
 
 // PendingInfo is one row in the inbox: a permission prompt or a question.

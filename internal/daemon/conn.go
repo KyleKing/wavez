@@ -176,6 +176,10 @@ func (c *conn) handle(cmd api.Command) {
 		c.handleRoute(cmd)
 	case api.CmdThink:
 		c.handleThink(cmd)
+	case api.CmdRoutines:
+		c.handleRoutines(cmd)
+	case api.CmdRunRoutine:
+		c.handleRunRoutine(cmd)
 	case api.CmdDiag:
 		diag := c.srv.diagnostics()
 		c.reply(cmd.ID, api.Reply{Kind: api.RepDiag, Diag: &diag})

@@ -111,6 +111,7 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithRoot(root),
 		daemon.WithLeases(a.Leases),
 		daemon.WithScheduler(a.Scheduler),
+		daemon.WithRoutines(a.Routines),
 	)
 	if err != nil {
 		return fmt.Errorf("starting daemon: %w", err)

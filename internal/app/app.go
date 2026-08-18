@@ -27,6 +27,7 @@ import (
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/routine"
 	"github.com/kyleking/wavez/internal/runtime"
 	"github.com/kyleking/wavez/internal/sched"
 	"github.com/kyleking/wavez/internal/thread"
@@ -89,6 +90,7 @@ type App struct {
 	GateRunner      *gate.Runner
 	ChangeGate      *ChangeGate
 	CoverageAdapter *gate.CoverageAdapter
+	Routines        *RoutineService
 	Store           *codeintel.Store
 	Indexer         *codeintel.Indexer
 	Leases          *lease.Manager
@@ -244,11 +246,13 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	lspPool := lsp.NewPool(root)
 
-	runner, adapter, verifier, err := buildGates(root, store, gateLog, cfg, graph, lspPool, scheduler)
+	bundle, err := buildGates(root, stateDir, store, gateLog, cfg, graph, lspPool, scheduler)
 	if err != nil {
 		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
 		return nil, err
 	}
+
+	runner, adapter, verifier := bundle.runner, bundle.adapter, bundle.verifier
 
 	reviewer := NewModelReviewer(root, vcs.NewJj(), local, hosted, cfg.LocalModel, cfg.HostedModel)
 	changeGate := NewChangeGate(runner)
@@ -290,6 +294,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		GateRunner:      runner,
 		ChangeGate:      changeGate,
 		CoverageAdapter: adapter,
+		Routines:        bundle.routines.service,
 		Permission:      permGate,
 		SandboxDir:      sandboxDir,
 		SystemPrefix:    systemPrefix(prefix),
@@ -503,12 +508,12 @@ func rootedGlobs(root string, patterns []string) []string {
 // buildGates loads the project's convention rules and assembles both gate
 // pipelines against them.
 func buildGates(
-	root string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config, graph *gate.ImportGraph,
+	root, stateDir string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config, graph *gate.ImportGraph,
 	lspPool *lsp.Pool, scheduler *sched.Scheduler,
-) (*gate.Runner, *gate.CoverageAdapter, *GateVerifier, error) {
+) (gateBundle, error) {
 	rules, err := loadConventionRules(root, cfg.AstGrepRules)
 	if err != nil {
-		return nil, nil, nil, err
+		return gateBundle{}, err
 	}
 
 	// DESIGN.md's gate order: formatter, then convention rules, then the
@@ -531,10 +536,19 @@ func buildGates(
 	// round with the slower checks.
 	gates := append(conventionGates(gate.NewFormatGate(root), convention),
 		gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root))
+
+	routines, err := buildRoutines(root, stateDir, cfg, resources,
+		append(append([]gate.Gate(nil), gates...), gate.NewBuildGate(root)))
+	if err != nil {
+		return gateBundle{}, err
+	}
+
 	// The adapter, not the store, is what selection reads: only the thing
 	// building the map knows whether the map is finished.
-	runFunc := gate.BuildRunFunc(gate.RealClock{}, adapter, graph, gates, gateLog, root, resources)
-	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce, admitted(scheduler, runFunc))
+	runFunc := gate.BuildRunFunc(gate.RealClock{}, adapter, graph,
+		enabledGates(gates, routines.set.DisabledGates()), gateLog, root, resources)
+	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce,
+		admitted(scheduler, routine.ChangeRunFunc(root, runFunc, routines.runner, routines.compiled)))
 
 	// fail-to-pass runs after go-test because it assumes the suite is green
 	// on the tree as written; without that a merely broken test reads as one
@@ -545,7 +559,31 @@ func buildGates(
 		gate.NewFailToPassGate(root, jj, jj))
 	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources)
 
-	return runner, adapter, verifier, nil
+	return gateBundle{runner: runner, adapter: adapter, verifier: verifier, routines: routines}, nil
+}
+
+// enabledGates drops the gates a project turned off by disabling their
+// built-in routine, DESIGN.md's "gates are shipped as built-in routines the
+// user can override or disable there".
+func enabledGates(gates []gate.Gate, disabled []string) []gate.Gate {
+	if len(disabled) == 0 {
+		return gates
+	}
+
+	off := make(map[string]struct{}, len(disabled))
+	for _, name := range disabled {
+		off[name] = struct{}{}
+	}
+
+	out := make([]gate.Gate, 0, len(gates))
+
+	for _, g := range gates {
+		if _, skip := off[g.Name()]; !skip {
+			out = append(out, g)
+		}
+	}
+
+	return out
 }
 
 // admitted holds a gate run until the scheduler says the machine has room
