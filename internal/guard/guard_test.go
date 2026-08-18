@@ -17,6 +17,10 @@ type classifyCase struct {
 	wantFrag    string
 }
 
+// testEnv is the machine context every case is judged against, fixed so a
+// verdict does not depend on the machine running the suite.
+var testEnv = guard.Env{ProjectRoot: root, Home: "/home/u", TempDir: "/tmp"}
+
 func runClassifyCases(t *testing.T, tests []classifyCase) {
 	t.Helper()
 
@@ -24,7 +28,7 @@ func runClassifyCases(t *testing.T, tests []classifyCase) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := guard.Classify(tt.command, root)
+			got := guard.Classify(tt.command, testEnv)
 
 			if got.Verdict != tt.wantVerdict {
 				t.Errorf("Classify(%q) verdict = %s, want %s (reason=%q fragment=%q)",

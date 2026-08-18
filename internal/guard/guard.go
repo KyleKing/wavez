@@ -62,8 +62,8 @@ type finding = Result
 // `&&`, `||`, a pipe, backgrounding, or command substitution. A fragment
 // Classify cannot confidently parse yields NeedsApproval, never Allow: this
 // guard fails closed.
-func Classify(command, projectRoot string) Result {
-	root := cleanRoot(projectRoot)
+func Classify(command string, env Env) Result {
+	env.ProjectRoot = cleanRoot(env.ProjectRoot)
 
 	trimmed := strings.TrimSpace(command)
 	if trimmed == "" {
@@ -79,10 +79,10 @@ func Classify(command, projectRoot string) Result {
 
 	var findings []finding
 	for _, seq := range splitSequence(outer) {
-		findings = append(findings, classifyPipeline(seq, root)...)
+		findings = append(findings, classifyPipeline(seq, env)...)
 	}
 	for _, sub := range subs {
-		inner := Classify(sub, projectRoot)
+		inner := Classify(sub, env)
 		if inner.Verdict == Allow {
 			continue
 		}
@@ -107,7 +107,7 @@ func worst(findings []finding, whole string) Result {
 	return best
 }
 
-func classifyPipeline(pipeline, root string) []finding {
+func classifyPipeline(pipeline string, env Env) []finding {
 	trimmed := strings.TrimSpace(pipeline)
 	if trimmed == "" {
 		return nil
@@ -123,7 +123,7 @@ func classifyPipeline(pipeline, root string) []finding {
 		if stage == "" {
 			continue
 		}
-		findings = append(findings, classifyCommand(stage, root))
+		findings = append(findings, classifyCommand(stage, env))
 	}
 
 	return findings

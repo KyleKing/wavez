@@ -22,8 +22,8 @@ var interpreters = map[string]bool{
 // function of that text. A caller that wants to know what those scripts
 // *do* reads them and calls Classify on their contents, which is where the
 // filesystem access belongs.
-func ExecutedScripts(command, projectRoot string) []string {
-	root := cleanRoot(projectRoot)
+func ExecutedScripts(command string, env Env) []string {
+	root := cleanRoot(env.ProjectRoot)
 
 	var out []string
 

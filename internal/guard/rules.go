@@ -57,7 +57,7 @@ func isForkBomb(cmd string) bool {
 // of them: a command can trip more than one pattern (rm -rf on a .git path
 // is both a scoped delete and a git-internals write), and picking only the
 // first match risks under-reporting the real severity.
-func classifyCommand(cmd, root string) finding {
+func classifyCommand(cmd string, env Env) finding {
 	tokens := tokenize(cmd)
 	if len(tokens) == 0 {
 		return finding{Verdict: NeedsApproval, Reason: "empty command could not be classified", Fragment: cmd}
@@ -78,11 +78,11 @@ func classifyCommand(cmd, root string) finding {
 	name := baseName(tokens[0])
 	switch name {
 	case "rm":
-		candidates = append(candidates, classifyRM(cmd, tokens, root))
+		candidates = append(candidates, classifyRM(cmd, tokens, env))
 	case "git":
 		candidates = append(candidates, classifyGit(cmd, tokens))
 	case "chmod", "chown":
-		candidates = append(candidates, classifyChmodChown(cmd, tokens, root))
+		candidates = append(candidates, classifyChmodChown(cmd, tokens, env))
 	case "dd":
 		candidates = append(candidates, classifyDD(cmd, tokens))
 	case "diskutil":
@@ -90,7 +90,7 @@ func classifyCommand(cmd, root string) finding {
 	case "kill":
 		candidates = append(candidates, classifyKill(cmd, tokens))
 	case "xargs":
-		candidates = append(candidates, classifyXargs(cmd, tokens, root))
+		candidates = append(candidates, classifyXargs(cmd, tokens, env))
 	}
 	if strings.HasPrefix(name, "mkfs") {
 		candidates = append(candidates, finding{Verdict: Refuse, Reason: "formats a filesystem", Fragment: cmd})
@@ -111,7 +111,7 @@ func classifyCommand(cmd, root string) finding {
 // skipping xargs' own flags. Without a concrete argument (the common case,
 // since xargs' targets come from stdin) rules like rm -rf fall back to
 // NeedsApproval for lack of a target to check.
-func classifyXargs(cmd string, tokens []string, root string) finding {
+func classifyXargs(cmd string, tokens []string, env Env) finding {
 	inner := tokens[1:]
 	for len(inner) > 0 && strings.HasPrefix(inner[0], "-") {
 		inner = inner[1:]
@@ -120,10 +120,10 @@ func classifyXargs(cmd string, tokens []string, root string) finding {
 		return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
 	}
 
-	return classifyCommand(strings.Join(inner, " "), root)
+	return classifyCommand(strings.Join(inner, " "), env)
 }
 
-func classifyRM(cmd string, tokens []string, root string) finding {
+func classifyRM(cmd string, tokens []string, env Env) finding {
 	if !hasRecursiveForce(tokens) {
 		return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
 	}
@@ -139,11 +139,25 @@ func classifyRM(cmd string, tokens []string, root string) finding {
 		return finding{Verdict: NeedsApproval, Reason: "rm -rf with no resolvable target", Fragment: cmd}
 	}
 
+	// Expansion happens before the containment test, because an unexpanded
+	// `$HOME/x` joins onto the project root and reads as inside it, which
+	// is how `rm -rf $HOME/thing` came to be allowed. A target that will
+	// not resolve is approval-worthy rather than allowed, for the reason
+	// the package doc gives: this guard fails closed.
 	for _, target := range targets {
-		if isOutsideOrAtRoot(target, root) {
+		expanded, resolved := env.expandPath(target)
+		if !resolved {
+			return finding{
+				Verdict:  NeedsApproval,
+				Reason:   "rm -rf targets " + target + ", which does not resolve to one location",
+				Fragment: cmd,
+			}
+		}
+
+		if isOutsideOrAtRoot(expanded, env.ProjectRoot) {
 			return finding{
 				Verdict:  Refuse,
-				Reason:   "rm -rf targets " + target + ", which is at or outside the project root",
+				Reason:   "rm -rf targets " + expanded + ", which is at or outside the project root",
 				Fragment: cmd,
 			}
 		}
@@ -243,7 +257,7 @@ func touchesGitDir(path string) bool {
 	return false
 }
 
-func classifyChmodChown(cmd string, tokens []string, root string) finding {
+func classifyChmodChown(cmd string, tokens []string, env Env) finding {
 	var targets []string
 	for _, tok := range tokens[1:] {
 		if strings.HasPrefix(tok, "-") {
@@ -255,10 +269,20 @@ func classifyChmodChown(cmd string, tokens []string, root string) finding {
 		return finding{Verdict: NeedsApproval, Reason: "chmod/chown with no resolvable target", Fragment: cmd}
 	}
 	target := targets[len(targets)-1]
-	if isOutsideOrAtRoot(target, root) {
+
+	expanded, resolved := env.expandPath(target)
+	if !resolved {
+		return finding{
+			Verdict:  NeedsApproval,
+			Reason:   tokens[0] + " targets " + target + ", which does not resolve to one location",
+			Fragment: cmd,
+		}
+	}
+
+	if isOutsideOrAtRoot(expanded, env.ProjectRoot) {
 		return finding{
 			Verdict:  Refuse,
-			Reason:   tokens[0] + " targets " + target + ", which is outside the project root",
+			Reason:   tokens[0] + " targets " + expanded + ", which is outside the project root",
 			Fragment: cmd,
 		}
 	}

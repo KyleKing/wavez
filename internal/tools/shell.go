@@ -41,6 +41,7 @@ const reasonNoScript = "names no readable file in the project"
 // nothing runs before both checks have cleared it.
 type Shell struct {
 	gate       permission.Gate
+	env        guard.Env
 	root       string
 	sessionTmp string
 	threadID   string
@@ -50,7 +51,18 @@ type Shell struct {
 // approval-worthy commands through gate. The threadID identifies the
 // thread in permission.Request.
 func NewShell(root, sessionTmp, threadID string, gate permission.Gate) *Shell {
-	return &Shell{root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate}
+	// Read once here rather than inside the guard: a verdict has to be a
+	// function of its inputs, so the machine's home and temp directory are
+	// arguments to it and not something it looks up for itself.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+
+	return &Shell{
+		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate,
+		env: guard.Env{ProjectRoot: root, Home: home, TempDir: os.TempDir()},
+	}
 }
 
 // Name implements tool.Tool.
@@ -129,12 +141,12 @@ const maxScriptBytes = 64 * 1024
 // A script the guard cannot read is approval-worthy rather than allowed,
 // for the same reason an unparsable fragment is: this guard fails closed.
 func (s *Shell) classify(command string) guard.Result {
-	verdict := guard.Classify(command, s.root)
+	verdict := guard.Classify(command, s.env)
 	if verdict.Verdict == guard.Refuse {
 		return verdict
 	}
 
-	for _, rel := range guard.ExecutedScripts(command, s.root) {
+	for _, rel := range guard.ExecutedScripts(command, s.env) {
 		inner := s.classifyScript(rel)
 		if inner.Verdict.Worse(verdict.Verdict) {
 			verdict = inner
@@ -172,7 +184,7 @@ func (s *Shell) classifyScript(rel string) guard.Result {
 		}
 	}
 
-	inner := guard.Classify(string(body), s.root)
+	inner := guard.Classify(string(body), s.env)
 	if inner.Verdict == guard.Allow {
 		return inner
 	}
