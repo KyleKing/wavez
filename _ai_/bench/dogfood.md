@@ -219,3 +219,20 @@ for details, the second round failed the same way, and the run ended
 when no Go file changed, and a failure whose frames were all trimmed still
 names its package and says why it cannot say more (the change-triggered path
 already did this, the verification path did not).
+
+## 2026-08-18, driving the TUI
+
+At 120x36 in tmux against the main-tree daemon, before the M2 lanes merged.
+
+- Question-only thread ("which file defines the guard rules") answered correctly in ~40 s: two `search` calls, one answer, one verification round with nothing to gate. Answer text is truncated with `…` at the row width and there is no way to read it: the transcript has no row cursor, `j`/`k` show nothing, `Enter` expands nothing (DESIGN.md says rows are collapsible with Enter and permission rows take focus). Only the diff pane has a selected row. P0 for daily use: the one thing a user reads is the agent's reply
+- `state` rows render as an empty label under a muted heading. Two of them per turn, pure noise; either render the state text or hide the row
+- Empty `▸ agent` rows appear where a turn produced only tool calls
+- Home frame is 4 rows tall in a 36 row terminal (content-height, not full-frame). Thread view fills the frame. Inconsistent, and Home wastes the screen
+- Header of the thread view lacks the diagnostics strip (memory, needs-input badge) that DESIGN.md says is always in the header; Home has memory but not needs-input
+- Tab from the transcript lands in the composer in insert mode, and Esc steps insert to normal to transcript, as designed. The "NOR press tab to compose" hint line reads as debug output rather than a status line
+- Home column `step` for a finished thread says `done`, and `age` counts up since last event. Good
+- Sending "jj" by accident re-ran the whole prompt and got the same answer again; the model does not react to a nonsense follow-up. Harness could refuse or confirm a sub-3-character prompt
+- Diagnostics panel is six lines: tok/s and prefix hit are dashes (client does not parse `timings`), model resident is a dash. Honest, and thin
+- Palette lacks `new`, `fork`, `kill`, `scope`, `pause` verbs that DESIGN.md lists; it has route and think verbs the design does not mention. Fuzzy filter typing works
+- Home directory group header prints the full absolute path; the mock abbreviates to the repo name with a trailing slash. At 80 columns the header truncates the memory badge with `…`
+- "1 threads" (no singular)

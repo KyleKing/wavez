@@ -36,7 +36,10 @@ directory goes and `DESIGN.md` carries the numbers.
 | `demos/pkl-routines/` | `hk.pkl` can import `.wavez.pkl` so a hook runs the agent's routine; ~130 µs warm, 10-14 ms cold | Routines (M2) |
 
 `bench/` is where the M3 benchmark harness writes its tables. `bench/dogfood.md` holds
-the failures found running wavez against itself.
+the failures found running wavez against itself. `bench/audit-2026-08-18.md` is the
+capability, cost, model, hosting, and TUI audit, and `research/2026-08-efficiency-frontier.md`
+compares the design's four efficiency boundaries against August 2026 prior art and lists
+the spikes that would settle them.
 
 ## Relocated projects
 
