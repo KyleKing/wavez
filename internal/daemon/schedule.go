@@ -27,40 +27,45 @@ type stateSample struct {
 	state event.State
 }
 
-// schedule reports the fleet as the scheduler sees it.
+// schedule reports the fleet as the scheduler sees it: one shared scheduler
+// answering for the whole laptop, but leases and lanes are gathered project
+// by project, since a lease is scoped to one project's directory tree.
 func (s *Server) schedule(ctx context.Context) (api.Schedule, error) {
 	snap := s.sched.Snapshot(ctx)
 
 	out := api.Schedule{
 		Phase:         string(snap.Phase),
-		LocalModel:    s.mgr.localModel(),
+		LocalModel:    s.localModel(),
 		Headroom:      snap.Headroom,
 		MemMeasured:   snap.MemoryMeasured,
 		MemUsedBytes:  snap.Memory.UsedBytes,
 		MemTotalBytes: snap.Memory.TotalBytes,
 	}
 
-	leases := s.leases.List()
-	for _, l := range leases {
-		out.Leases = append(out.Leases, api.Lease{
-			Subtree: l.Subtree,
-			Holder:  s.threadName(l.Holder),
-			State:   string(l.State),
-			Waiters: s.threadNames(l.Waiters),
-		})
-	}
-
 	now := time.Now()
-	infos, err := s.mgr.list()
-	if err != nil {
-		return api.Schedule{}, err
-	}
-	for i := range infos {
-		lane, err := s.lane(infos[i], leases, now)
+
+	for _, p := range s.projectsSnapshot() {
+		leases := p.leases.List()
+		for _, l := range leases {
+			out.Leases = append(out.Leases, api.Lease{
+				Subtree: l.Subtree,
+				Holder:  s.threadName(l.Holder),
+				State:   string(l.State),
+				Waiters: s.threadNames(l.Waiters),
+			})
+		}
+
+		infos, err := p.mgr.list()
 		if err != nil {
 			return api.Schedule{}, err
 		}
-		out.Lanes = append(out.Lanes, lane)
+		for i := range infos {
+			lane, err := s.lane(infos[i], leases, now)
+			if err != nil {
+				return api.Schedule{}, err
+			}
+			out.Lanes = append(out.Lanes, lane)
+		}
 	}
 
 	return out, nil
@@ -98,7 +103,7 @@ func (s *Server) lane(info api.ThreadInfo, leases []lease.Lease, now time.Time) 
 // first. A cell before the thread's first sample reads as idle, which is what
 // it was.
 func (s *Server) laneCells(info api.ThreadInfo, now time.Time) ([]event.State, error) {
-	mt, ok := s.mgr.get(info.ID)
+	mt, ok := s.get(info.ID)
 	if !ok {
 		return nil, nil
 	}
@@ -136,7 +141,7 @@ func (s *Server) threadName(id string) string {
 		return ""
 	}
 
-	mt, ok := s.mgr.get(id)
+	mt, ok := s.get(id)
 	if !ok {
 		return id
 	}
@@ -163,7 +168,7 @@ func (s *Server) threadNames(ids []string) []string {
 // noteLeaseWait puts a thread's lock wait where every screen already looks
 // for what a thread is doing: its own event log, and so its step column.
 func (s *Server) noteLeaseWait(w lease.Wait) {
-	mt, ok := s.mgr.get(w.Holder)
+	mt, ok := s.get(w.Holder)
 	if !ok {
 		return
 	}
@@ -180,7 +185,7 @@ func (s *Server) noteLeaseWait(w lease.Wait) {
 // noteHold says why a thread admitted nowhere is also doing nothing, which
 // is otherwise indistinguishable from a thread that is merely slow.
 func (s *Server) noteHold(h sched.Hold) {
-	mt, ok := s.mgr.get(h.Holder)
+	mt, ok := s.get(h.Holder)
 	if !ok {
 		return
 	}

@@ -293,6 +293,10 @@ func (m *manager) snapshot() []*managedThread {
 // that belong to one thread rather than to the fleet (the occupied context
 // window and the runtime's last timings).
 type fleetStats struct {
+	// latestAt is when context, window, and timings were captured, so a
+	// caller merging several projects' fleetStats can tell whose reading
+	// is the most recent rather than adding readings that do not add up.
+	latestAt  time.Time
 	timings   *llm.Timings
 	perThread []api.ThreadDiag
 	usage     usage
@@ -349,6 +353,7 @@ func (m *manager) fleetStats() (fleetStats, error) {
 	}
 
 	sort.Slice(out.perThread, func(i, j int) bool { return out.perThread[i].Name < out.perThread[j].Name })
+	out.latestAt = latest
 
 	return out, nil
 }

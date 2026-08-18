@@ -1,5 +1,7 @@
-// Package main is the wavez daemon. It owns the threads, the agent loop, and
-// the project's stores, and serves every client over one unix socket.
+// Package main is the wavez daemon. One process serves every project on
+// this laptop over one unix socket: it holds each project's threads, agent
+// loop, and stores, loading a project the first time a client names its
+// root.
 package main
 
 import (
@@ -10,10 +12,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -25,6 +25,7 @@ import (
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/ollama"
+	"github.com/kyleking/wavez/internal/sched"
 	"github.com/kyleking/wavez/internal/sysinfo"
 	"github.com/kyleking/wavez/internal/vcs"
 )
@@ -53,8 +54,8 @@ func run(args []string) error {
 		sock        string
 		showVersion bool
 	)
-	fs.StringVar(&dir, "dir", "", "project root (defaults to the enclosing repo, then cwd)")
-	fs.StringVar(&sock, "socket", "", "unix socket path (defaults to <root>/.wavez/d.sock)")
+	fs.StringVar(&dir, "dir", "", "a project root to load at startup (none preloads nothing)")
+	fs.StringVar(&sock, "socket", "", "unix socket path (defaults to the per-laptop user config dir)")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -72,54 +73,51 @@ func run(args []string) error {
 	return serve(ctx, dir, sock)
 }
 
+// serve starts one daemon for the whole laptop. It loads no project at all
+// until a client names a root, except dir, which is preloaded so the first
+// thread in that project does not pay to load it.
 func serve(ctx context.Context, dir, sock string) error {
-	root, err := resolveRoot(ctx, dir)
-	if err != nil {
-		return err
+	if sock == "" {
+		var err error
+
+		sock, err = config.UserSocketPath()
+		if err != nil {
+			return fmt.Errorf("resolving default socket path: %w", err)
+		}
 	}
 
-	cfg, err := loadConfig(ctx, root)
+	userDir, err := config.UserDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving user config dir: %w", err)
 	}
 
 	broker := daemon.NewBroker()
-
-	a, err := app.New(ctx, root, cfg, broker.Gate(), app.WithAsker(broker.Asker()), app.WithManagedLocalServer())
-	if err != nil {
-		return fmt.Errorf("building project: %w", err)
-	}
-	// Close takes no context on purpose: a run canceled by ctrl-c must
-	// still stop the llama-server it started, and a canceled context would
-	// skip exactly that.
-	//nolint:contextcheck // see the comment above: shutdown must outlive the run's context
-	defer func() {
-		if cerr := a.Close(); cerr != nil {
-			fmt.Fprintf(os.Stderr, "wavezd: shutdown: %v\n", cerr)
-		}
-	}()
-
-	if sock == "" {
-		sock = filepath.Join(root, ".wavez", "d.sock")
-	}
+	// Memory admission answers for the whole laptop: one scheduler, shared
+	// by every project this daemon loads, built once against the fixed
+	// default headroom rather than any one project's ".wavez.pkl", which a
+	// per-project Scheduler could otherwise read.
+	scheduler := sched.New(sched.WithHeadroom(config.DefaultAdmissionHeadroom))
 
 	srv, err := daemon.New(sock,
-		daemon.WithLoop(a.Loop),
 		daemon.WithBroker(broker),
-		daemon.WithLogDir(filepath.Join(root, ".wavez", "threads")),
-		daemon.WithPrefix(prefix(a)),
+		daemon.WithLoader(projectLoader(broker, scheduler)),
 		daemon.WithStatsSource(&machineStats{ctx: ctx}),
 		daemon.WithModelStore(ollama.New()),
-		daemon.WithDiffer(vcs.NewJj()),
-		daemon.WithRestorer(vcs.NewJj()), daemon.WithExpander(a.Mentions),
-		daemon.WithRoot(root),
-		daemon.WithLeases(a.Leases),
-		daemon.WithScheduler(a.Scheduler),
-		daemon.WithRoutines(a.Routines),
-		daemon.WithCycles(a),
+		daemon.WithScheduler(scheduler),
+		daemon.WithModelSettingsPath(filepath.Join(userDir, "models.json")),
 	)
 	if err != nil {
 		return fmt.Errorf("starting daemon: %w", err)
+	}
+
+	if dir != "" {
+		abs, aerr := filepath.Abs(dir)
+		if aerr != nil {
+			return fmt.Errorf("resolving -dir: %w", aerr)
+		}
+		if perr := srv.Preload(ctx, abs); perr != nil {
+			return fmt.Errorf("preloading %s: %w", abs, perr)
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "wavezd listening on %s\n", sock)
@@ -129,6 +127,48 @@ func serve(ctx context.Context, dir, sock string) error {
 	}
 
 	return nil
+}
+
+// projectLoader builds the daemon.Loader that turns a root a client named
+// into a daemon.Project: one project's full object graph via app.New,
+// sharing broker and scheduler with every other project this daemon loads.
+func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler) daemon.Loader {
+	return func(ctx context.Context, root string) (*daemon.Project, error) {
+		cfg, err := loadConfig(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+
+		a, err := app.New(ctx, root, cfg, broker.Gate(),
+			app.WithAsker(broker.Asker()), app.WithManagedLocalServer(), app.WithScheduler(scheduler))
+		if err != nil {
+			return nil, fmt.Errorf("building project %s: %w", root, err)
+		}
+
+		p, err := daemon.NewProject(root, daemon.ProjectConfig{
+			Loop:      a.Loop,
+			Cycles:    a,
+			Expander:  a.Mentions,
+			Scheduler: scheduler,
+			Leases:    a.Leases,
+			Differ:    vcs.NewJj(),
+			Restorer:  vcs.NewJj(),
+			Routines:  a.Routines,
+			Prefix:    prefix(a),
+			LogDir:    filepath.Join(root, ".wavez", "threads"),
+			Closer:    a.Close,
+		})
+		if err != nil {
+			//nolint:contextcheck // shutdown must outlive the load's context the same way serve's does
+			if cerr := a.Close(); cerr != nil {
+				fmt.Fprintf(os.Stderr, "wavezd: closing %s after a failed load: %v\n", root, cerr)
+			}
+
+			return nil, fmt.Errorf("assembling daemon project %s: %w", root, err)
+		}
+
+		return p, nil
+	}
 }
 
 // llamaServerCommand is the process the local model's footprint and CPU are
@@ -226,38 +266,19 @@ func loadConfig(ctx context.Context, root string) (config.Config, error) {
 	return cfg, nil
 }
 
-func resolveRoot(ctx context.Context, dir string) (string, error) {
-	if dir != "" {
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			return "", fmt.Errorf("resolving -dir: %w", err)
-		}
-
-		return abs, nil
-	}
-
-	if out, err := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel").Output(); err == nil {
-		return strings.TrimSpace(string(out)), nil
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("resolving cwd: %w", err)
-	}
-
-	return cwd, nil
-}
-
 func printHelp(w io.Writer) {
 	//nolint:errcheck // best-effort usage output
 	fmt.Fprint(w, `wavezd - the wavez daemon
+
+One daemon serves every project on this laptop over one socket, loading a
+project the first time a client names its root.
 
 Usage:
   wavezd [-dir <path>] [-socket <path>]
 
 Flags:
-  -dir <path>     project root (defaults to the enclosing repo, then cwd)
-  -socket <path>  unix socket path (defaults to <root>/.wavez/d.sock)
+  -dir <path>     a project root to load at startup (none preloads nothing)
+  -socket <path>  unix socket path (defaults to the per-laptop user config dir)
   -v              print version information
 `)
 }

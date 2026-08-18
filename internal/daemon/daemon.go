@@ -43,6 +43,14 @@ var (
 	ErrAlreadyServing         = errors.New("daemon: already serving")
 	ErrNotServing             = errors.New("daemon: not serving")
 	ErrDaemonAlreadyListening = errors.New("daemon: a daemon is already listening on this socket")
+	// ErrRootRequired reports a "new" (or a routines request with no
+	// default project) that named no root: a daemon serving several
+	// projects has no scope to fall back to, unlike the single-project
+	// sugar WithLoop builds.
+	ErrRootRequired = errors.New("daemon: root is required")
+	// ErrProjectNotLoaded reports a root a Server has neither loaded nor
+	// can load, because it was built without a Loader.
+	ErrProjectNotLoaded = errors.New("daemon: project not loaded")
 )
 
 // StatsSource supplies the memory and model numbers Diagnostics cannot
@@ -80,29 +88,57 @@ type CycleSource interface {
 }
 
 type config struct {
-	loop          *agent.Loop
-	cycles        CycleSource
-	broker        *Broker
-	leases        *lease.Manager
-	scheduler     *sched.Scheduler
-	stats         StatsSource
-	differ        Differ
-	restorer      Restorer
-	expander      Expander
-	routines      RoutineSource
-	models        ModelStore
-	logDir        string
-	root          string
-	prefix        agent.Prefix
-	shutdownGrace time.Duration
+	loop              *agent.Loop
+	cycles            CycleSource
+	broker            *Broker
+	leases            *lease.Manager
+	scheduler         *sched.Scheduler
+	stats             StatsSource
+	differ            Differ
+	restorer          Restorer
+	expander          Expander
+	routines          RoutineSource
+	models            ModelStore
+	loader            Loader
+	logDir            string
+	root              string
+	modelSettingsPath string
+	prefix            agent.Prefix
+	shutdownGrace     time.Duration
 }
 
 // Option configures a Server at New.
 type Option func(*config)
 
-// WithLoop sets the agent.Loop every thread's turns run against. Required.
+// WithLoop sets the agent.Loop every thread's turns run against, and is the
+// single-project sugar over WithLoader: a Server built with it loads one
+// project (root from WithRoot, or unnamed) at New rather than lazily. A
+// Server serving several projects behind one socket uses WithLoader instead
+// and builds each Project as a request first names its root.
 func WithLoop(loop *agent.Loop) Option {
 	return func(c *config) { c.loop = loop }
+}
+
+// Loader builds a Project the first time a request names its root. A
+// Server caches what it returns for the root's lifetime: this lane never
+// unloads a project. The daemon binary wires this to app.New, and a test
+// wires it to a fixture that needs neither a model nor a pkl evaluator.
+type Loader func(ctx context.Context, root string) (*Project, error)
+
+// WithLoader sets the function that loads a project the first time a
+// request names its root, letting one Server serve several project roots
+// behind one socket. A CmdNew or CmdList naming no root falls back to the
+// project WithLoop built, if any; otherwise ErrRootRequired.
+func WithLoader(l Loader) Option {
+	return func(c *config) { c.loader = l }
+}
+
+// WithModelSettingsPath sets where per-model runtime settings persist. It
+// answers for the whole laptop, not one project, so a Server serving
+// several projects sets this once instead of taking it from any one
+// project's directory. Unset, settings are held in memory only.
+func WithModelSettingsPath(path string) Option {
+	return func(c *config) { c.modelSettingsPath = path }
 }
 
 // WithCycles lets a thread run a named Cycle instead of a single loop. A
@@ -120,8 +156,8 @@ func WithBroker(b *Broker) Option {
 	return func(c *config) { c.broker = b }
 }
 
-// WithLogDir sets the directory each thread's event log is opened under.
-// Required.
+// WithLogDir sets the directory each thread's event log is opened under,
+// for the project WithLoop builds. Required alongside WithLoop.
 func WithLogDir(dir string) Option {
 	return func(c *config) { c.logDir = dir }
 }
@@ -193,28 +229,32 @@ func WithShutdownGrace(d time.Duration) Option {
 }
 
 // Server is the daemon side of the socket API. It accepts connections on a
-// unix socket, holds every live thread through an internal manager, and
-// answers pending prompts from any connected client.
+// unix socket, holds every loaded project's threads, and answers pending
+// prompts from any connected client. Its sched field is the one
+// memory-aware scheduler shared by every project, since admission answers
+// for the whole laptop rather than for one project.
 type Server struct {
-	stats      StatsSource
-	leases     *lease.Manager
-	sched      *sched.Scheduler
-	routines   RoutineSource
-	differ     Differ
-	restorer   Restorer
-	modelStore ModelStore
-	modelReg   *modelRegistry
-	window     *sampleWindow
-	ln         net.Listener
-	mgr        *manager
-	broker     *Broker
-	conns      map[*conn]struct{}
-	acceptDone chan struct{}
-	sockPath   string
-	connsWG    sync.WaitGroup
-	grace      time.Duration
-	mu         sync.Mutex
-	serving    bool
+	//nolint:containedctx // scopes connection handling, independent of any one project's lifetime
+	ctx            context.Context
+	cancelAll      context.CancelFunc
+	stats          StatsSource
+	sched          *sched.Scheduler
+	modelStore     ModelStore
+	modelReg       *modelRegistry
+	window         *sampleWindow
+	ln             net.Listener
+	broker         *Broker
+	loader         Loader
+	defaultProject *Project
+	projects       map[string]*Project
+	threadIndex    map[string]*Project
+	conns          map[*conn]struct{}
+	acceptDone     chan struct{}
+	sockPath       string
+	connsWG        sync.WaitGroup
+	grace          time.Duration
+	mu             sync.Mutex
+	serving        bool
 }
 
 // New builds a Server bound to sockPath. It does not listen until Serve is
@@ -224,41 +264,38 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	if c.loop == nil {
-		return nil, ErrLoopRequired
-	}
 	if c.broker == nil {
 		return nil, ErrBrokerRequired
 	}
-	if c.logDir == "" {
-		return nil, ErrLogDirRequired
+
+	settingsPath := c.modelSettingsPath
+	if settingsPath == "" && c.logDir != "" {
+		settingsPath = modelSettingsPath(c.logDir)
 	}
 
-	mgr := newManager(c.logDir, c.loop, c.prefix)
-	mgr.mentions = c.expander
-	mgr.cycles = c.cycles
-	mgr.defaultDirs = defaultDirs(c.root)
-	mgr.scheduler = c.scheduler
+	ctx, cancelAll := context.WithCancel(context.Background())
 	s := &Server{
-		mgr:        mgr,
-		broker:     c.broker,
-		stats:      c.stats,
-		differ:     c.differ,
-		restorer:   c.restorer,
-		modelStore: c.models,
-		modelReg:   newModelRegistry(modelSettingsPath(c.logDir)),
-		window:     newSampleWindow(time.Now),
-		sockPath:   sockPath,
-		grace:      c.shutdownGrace,
-		conns:      make(map[*conn]struct{}),
-		leases:     c.leases,
-		sched:      c.scheduler,
-		routines:   c.routines,
+		ctx:         ctx,
+		cancelAll:   cancelAll,
+		broker:      c.broker,
+		stats:       c.stats,
+		modelStore:  c.models,
+		modelReg:    newModelRegistry(settingsPath),
+		window:      newSampleWindow(time.Now),
+		sockPath:    sockPath,
+		grace:       c.shutdownGrace,
+		conns:       make(map[*conn]struct{}),
+		sched:       c.scheduler,
+		loader:      c.loader,
+		projects:    make(map[string]*Project),
+		threadIndex: make(map[string]*Project),
 	}
-	c.broker.attach(mgr, s.wakePending)
+	c.broker.attach(s, s.wakePending)
 
-	if c.leases != nil {
-		c.leases.OnWait(s.noteLeaseWait)
+	if c.loop != nil {
+		if err := s.buildDefaultProject(c); err != nil {
+			return nil, err
+		}
 	}
 
 	if c.scheduler != nil {
@@ -266,6 +303,34 @@ func New(sockPath string, opts ...Option) (*Server, error) {
 	}
 
 	return s, nil
+}
+
+// buildDefaultProject builds and registers the single-project sugar
+// WithLoop configures, and is only called once c.loop is known non-nil.
+func (s *Server) buildDefaultProject(c config) error {
+	p, err := NewProject(c.root, ProjectConfig{
+		Loop: c.loop, Cycles: c.cycles, Expander: c.expander, Scheduler: c.scheduler,
+		Leases: c.leases, Differ: c.differ, Restorer: c.restorer, Routines: c.routines,
+		Prefix: c.prefix, LogDir: c.logDir,
+	})
+	if err != nil {
+		return err
+	}
+	s.defaultProject = p
+
+	if c.root != "" {
+		key, err := canonicalRoot(c.root)
+		if err != nil {
+			return err
+		}
+		s.projects[key] = p
+	}
+
+	if c.leases != nil {
+		c.leases.OnWait(s.noteLeaseWait)
+	}
+
+	return nil
 }
 
 // Serve accepts connections until ctx is done or Shutdown is called, and
@@ -382,11 +447,41 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	graceCtx, cancel := context.WithTimeout(ctx, s.grace)
 	defer cancel()
-	s.mgr.waitIdle(graceCtx)
-	s.mgr.closeAll()
+	s.cancelAll()
+
+	if err := s.closeProjects(graceCtx); err != nil {
+		return err
+	}
 
 	if err := os.Remove(s.sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing socket: %w", err)
+	}
+
+	return nil
+}
+
+// closeProjects waits for every loaded project's in-flight turns to finish
+// (or graceCtx to expire, whichever comes first), then closes each
+// project's threads and, for a project a Loader built, releases whatever
+// it built alongside them.
+func (s *Server) closeProjects(graceCtx context.Context) error {
+	projects := s.projectsSnapshot()
+	for _, p := range projects {
+		p.mgr.waitIdle(graceCtx)
+	}
+
+	var projectErrs []error
+	for _, p := range projects {
+		p.mgr.closeAll()
+		if p.closer == nil {
+			continue
+		}
+		if err := p.closer(); err != nil {
+			projectErrs = append(projectErrs, err)
+		}
+	}
+	if err := errors.Join(projectErrs...); err != nil {
+		return fmt.Errorf("closing projects: %w", err)
 	}
 
 	return nil

@@ -164,7 +164,7 @@ func (s *Server) modelInfos(ctx context.Context) ([]api.ModelInfo, error) {
 	}
 
 	total := s.memTotal()
-	loaded := s.mgr.localModel()
+	loaded := s.localModel()
 
 	out := make([]api.ModelInfo, 0, len(installed))
 	for _, m := range installed {

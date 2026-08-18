@@ -126,6 +126,7 @@ type App struct {
 type Options struct {
 	Local, Hosted       llm.Provider
 	Asker               tools.Asker
+	Scheduler           *sched.Scheduler
 	MaxTurns            int
 	MaxToolCallsPerTurn int
 	MaxStagnantErrors   int
@@ -194,6 +195,16 @@ func WithAsker(asker tools.Asker) Option {
 	return func(o *Options) { o.Asker = asker }
 }
 
+// WithScheduler shares one memory-aware admission scheduler across every
+// App built with it, instead of each App building its own. Memory
+// admission answers for the whole laptop, not one project, so a daemon
+// serving several projects must pass the same *sched.Scheduler to each
+// App it loads or a turn in one project and a gate run in another can
+// admit past each other.
+func WithScheduler(s *sched.Scheduler) Option {
+	return func(o *Options) { o.Scheduler = s }
+}
+
 // New builds the full object graph for the project at root, configured by
 // cfg. PermGate is consulted for any tool call that needs approval; a
 // headless run and the TUI each supply a different one. The returned App
@@ -222,7 +233,10 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 	scope := tools.NewScope(options.StrictScope)
 	leases := lease.New(root, lease.WithTTL(cfg.LeaseTTL))
-	scheduler := sched.New(sched.WithHeadroom(cfg.AdmissionHeadroom))
+	scheduler := options.Scheduler
+	if scheduler == nil {
+		scheduler = sched.New(sched.WithHeadroom(cfg.AdmissionHeadroom))
+	}
 	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker, leases)
 
 	p := buildProviders(ctx, cfg, options)

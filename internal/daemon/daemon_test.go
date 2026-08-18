@@ -18,6 +18,8 @@ import (
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/router"
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 func TestHandshake_ProtocolMismatchRefused(t *testing.T) {
@@ -96,6 +98,97 @@ func TestThreads_ListFailsWhenLogUnreadable(t *testing.T) {
 	rep, ok := cl.recv()
 	if !ok || rep.Kind != api.RepError {
 		t.Fatalf("list reply = %+v (ok=%v), want an error rather than a stale thread list", rep, ok)
+	}
+}
+
+// TestProjects_LoaderRoutesByRoot is the fleet lane's core claim: one Server
+// built with a Loader (no WithLoop) serves several project roots, loading
+// each lazily the first time a thread names it, keeping every root's
+// threads apart, and routing a command naming only a thread id to that
+// thread's own project without the caller repeating the root.
+func TestProjects_LoaderRoutesByRoot(t *testing.T) {
+	t.Parallel()
+
+	rootA, rootB := t.TempDir(), t.TempDir()
+
+	broker := daemon.NewBroker()
+	loop := agent.New(fake.New("local"), fake.New("hosted"),
+		tool.NewRegistry(echoTool{name: "echo"}), broker.Gate(), agent.WithLocalModel("qwen3:8b"))
+
+	var (
+		mu     sync.Mutex
+		loaded []string
+	)
+	loader := func(_ context.Context, root string) (*daemon.Project, error) {
+		mu.Lock()
+		loaded = append(loaded, root)
+		mu.Unlock()
+
+		return daemon.NewProject(root, daemon.ProjectConfig{Loop: loop, LogDir: filepath.Join(root, "threads")})
+	}
+
+	sockPath := shortSockPath(t)
+	srv, err := daemon.New(sockPath,
+		daemon.WithBroker(broker), daemon.WithLoader(loader), daemon.WithShutdownGrace(2*time.Second))
+	if err != nil {
+		t.Fatalf("daemon.New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-serveErr; err != nil {
+			t.Errorf("Serve: %v", err)
+		}
+	})
+	waitForSocket(t, sockPath)
+
+	cl := dial(t, &testHarness{server: srv, broker: broker, sockPath: sockPath})
+	cl.hello()
+
+	cl.send(api.Command{ID: "newA", Kind: api.CmdNew, Root: rootA, Dirs: []string{rootA}})
+	threadA := cl.recvFor("newA")
+	cl.send(api.Command{ID: "newB", Kind: api.CmdNew, Root: rootB, Dirs: []string{rootB}})
+	threadB := cl.recvFor("newB")
+
+	if threadA.Thread == nil || threadA.Thread.Root != rootA {
+		t.Fatalf("thread A root = %+v, want %q", threadA.Thread, rootA)
+	}
+	if threadB.Thread == nil || threadB.Thread.Root != rootB {
+		t.Fatalf("thread B root = %+v, want %q", threadB.Thread, rootB)
+	}
+	if threadA.Thread.ID == threadB.Thread.ID {
+		t.Fatalf("two projects issued the same thread id %q", threadA.Thread.ID)
+	}
+
+	cl.send(api.Command{ID: "listAll", Kind: api.CmdList})
+	all := cl.recvFor("listAll")
+	if len(all.Threads) != 2 {
+		t.Fatalf("list with no root filter = %d threads, want 2", len(all.Threads))
+	}
+
+	cl.send(api.Command{ID: "listA", Kind: api.CmdList, Root: rootA})
+	onlyA := cl.recvFor("listA")
+	if len(onlyA.Threads) != 1 || onlyA.Threads[0].ID != threadA.Thread.ID {
+		t.Fatalf("list filtered by root A = %+v, want only %q", onlyA.Threads, threadA.Thread.ID)
+	}
+
+	// A command naming only the thread id, never the root, must still reach
+	// the right project: threadB's id resolves through the daemon's own
+	// thread-to-project index, not through anything this call passes in.
+	cl.send(api.Command{ID: "route", Kind: api.CmdRoute, ThreadID: threadB.Thread.ID, Override: router.ChoiceLocal})
+	routed := cl.recvFor("route")
+	if routed.Thread == nil || routed.Thread.Root != rootB || routed.Thread.ID != threadB.Thread.ID {
+		t.Fatalf("routed reply = %+v, want thread %q in root %q", routed.Thread, threadB.Thread.ID, rootB)
+	}
+
+	mu.Lock()
+	gotLoads := append([]string(nil), loaded...)
+	mu.Unlock()
+	if len(gotLoads) != 2 {
+		t.Fatalf("loader ran %d time(s), want exactly 2 (one per root, cached after)", len(gotLoads))
 	}
 }
 

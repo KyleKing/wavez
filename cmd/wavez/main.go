@@ -95,7 +95,7 @@ func run(args []string) error {
 	fs.StringVar(&opt.dir, "dir", "", "project root (defaults to the enclosing repo, then cwd)")
 	fs.StringVar(&opt.model, "model", "", "force a tier for every turn: local or hosted")
 	fs.StringVar(&opt.with, "with", "", "add one file to the stable prefix for this run only")
-	fs.StringVar(&opt.socket, "socket", "", "daemon socket path (defaults to <root>/.wavez/d.sock)")
+	fs.StringVar(&opt.socket, "socket", "", "daemon socket path (defaults to the per-laptop user config dir)")
 	fs.StringVar(&opt.resume, "resume", "", "continue an existing thread by id instead of starting a new one")
 	fs.StringVar(&opt.undo, "undo", "",
 		"restore the working copy to a run's checkpoint operation id, discarding everything since")
@@ -150,12 +150,12 @@ func launchTUI(ctx context.Context, opt options) error {
 		return err
 	}
 
-	sock := opt.socket
-	if sock == "" {
-		sock = filepath.Join(root, ".wavez", "d.sock")
+	sock, err := resolveSocket(opt.socket)
+	if err != nil {
+		return err
 	}
 
-	client, err := api.Dial(ctx, sock)
+	client, err := api.Dial(ctx, sock, api.WithDefaultRoot(root))
 	if err != nil {
 		return fmt.Errorf("no daemon at %s: %w (start one with `wavezd`)", sock, err)
 	}
@@ -500,6 +500,21 @@ func finalText(th *thread.Thread) string {
 	return ""
 }
 
+// resolveSocket returns explicit, falling back to the per-laptop daemon
+// socket every wavezd listens on by default.
+func resolveSocket(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+
+	sock, err := config.UserSocketPath()
+	if err != nil {
+		return "", fmt.Errorf("resolving default socket path: %w", err)
+	}
+
+	return sock, nil
+}
+
 func resolveRoot(ctx context.Context, dir string) (string, error) {
 	if dir != "" {
 		abs, err := filepath.Abs(dir)
@@ -540,7 +555,7 @@ Flags:
   -with <file>    add one file to the stable prefix for this run only
   -resume <id>    continue an existing thread instead of starting a new one
   -undo <op>      restore the working copy to a run's checkpoint and print what it discarded
-  -socket <path>  daemon socket path (defaults to <root>/.wavez/d.sock)
+  -socket <path>  daemon socket path (defaults to the per-laptop user config dir)
   -allow-all      approve every permission prompt without asking
   -strict-scope   refuse an edit to a file this run never read or created
   -mutate         mutate the working copy's changed lines and report what the tests missed

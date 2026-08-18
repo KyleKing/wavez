@@ -70,6 +70,13 @@ type Command struct {
 
 	// ThreadID targets an existing thread for send, subscribe, answer, cancel.
 	ThreadID string `json:"thread_id,omitempty"`
+	// Root names the project a thread belongs to: required on new (the
+	// daemon loads it lazily on first use), an optional filter on list, and
+	// which project routines and run_routine reach when the daemon has no
+	// default project. Every other thread command already carries
+	// ThreadID, which the daemon uses to find the thread's project on its
+	// own.
+	Root string `json:"root,omitempty"`
 	// Prompt carries the text for new and send.
 	Prompt string `json:"prompt,omitempty"`
 	// Model overrides the router for this thread.
@@ -202,9 +209,14 @@ type ThreadInfo struct {
 	LastEvent time.Time `json:"last_event"`
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	Dir       string    `json:"dir"`
-	Parent    string    `json:"parent,omitempty"`
-	Model     string    `json:"model,omitempty"`
+	// Root is the project this thread belongs to (the daemon-loaded root
+	// key), always set. Dir is the thread's first working directory from
+	// its own Dirs, which a caller may point elsewhere within or beside
+	// Root, so the two are not interchangeable.
+	Root   string `json:"root"`
+	Dir    string `json:"dir"`
+	Parent string `json:"parent,omitempty"`
+	Model  string `json:"model,omitempty"`
 	// Override is the routing tier this thread is pinned to, empty when it
 	// routes automatically. A client renders it because a pinned tier is not
 	// recoverable from the model name alone.

@@ -36,13 +36,22 @@ type pendingItem struct {
 	info api.PendingInfo
 }
 
+// threadLookup finds a thread's cached info and records a state transition
+// on its log, by id alone: a Broker knows a pending prompt's thread id, not
+// which project loaded it. *Server satisfies this by routing through its
+// thread index.
+type threadLookup interface {
+	get(id string) (*managedThread, bool)
+	appendState(id string, state event.State) error
+}
+
 // Broker turns a permission request or a question from any thread into an
 // api.PendingInfo answerable from any connected client, and resolves the
 // waiting Gate or Asker call exactly once no matter how many clients race to
 // answer it. It is safe for concurrent use.
 type Broker struct {
 	onChange func()
-	mgr      *manager
+	lookup   threadLookup
 	items    map[string]*pendingItem
 	asked    atomic.Int64
 	denied   atomic.Int64
@@ -56,9 +65,9 @@ func NewBroker() *Broker {
 	return &Broker{items: make(map[string]*pendingItem)}
 }
 
-func (b *Broker) attach(mgr *manager, onChange func()) {
+func (b *Broker) attach(lookup threadLookup, onChange func()) {
 	b.mu.Lock()
-	b.mgr = mgr
+	b.lookup = lookup
 	b.onChange = onChange
 	b.mu.Unlock()
 }
@@ -122,10 +131,10 @@ func (b *Broker) wait(ctx context.Context, threadID string, info api.PendingInfo
 	info.Asked = time.Now()
 
 	b.mu.Lock()
-	mgr := b.mgr
+	lookup := b.lookup
 	b.mu.Unlock()
-	if mgr != nil {
-		if mt, ok := mgr.get(threadID); ok {
+	if lookup != nil {
+		if mt, ok := lookup.get(threadID); ok {
 			mt.mu.Lock()
 			info.Thread, info.Dir = mt.name, firstDir(mt.dirs)
 			mt.mu.Unlock()
@@ -210,12 +219,12 @@ func (b *Broker) deniedCount() int { return int(b.denied.Load()) }
 
 func (b *Broker) setState(threadID string, state event.State) {
 	b.mu.Lock()
-	mgr := b.mgr
+	lookup := b.lookup
 	b.mu.Unlock()
-	if mgr == nil {
+	if lookup == nil {
 		return
 	}
-	if err := mgr.appendState(threadID, state); err != nil {
+	if err := lookup.appendState(threadID, state); err != nil {
 		return
 	}
 }

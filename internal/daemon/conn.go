@@ -37,7 +37,7 @@ type conn struct {
 func (s *Server) handleConn(nc net.Conn) {
 	defer s.connsWG.Done()
 
-	ctx, cancel := context.WithCancel(s.mgr.ctx)
+	ctx, cancel := context.WithCancel(s.ctx)
 
 	c := &conn{
 		c:    nc,
@@ -150,19 +150,34 @@ func errorReply(msg string) api.Reply {
 	return api.Reply{Kind: api.RepError, Error: msg}
 }
 
-// replyThreadInfo answers cmd with mt's synced info, or with an error reply
-// when the thread's log could not be read. It reports whether it sent info,
-// so a caller with more work to do after the reply knows whether to proceed.
-func (c *conn) replyThreadInfo(id string, mt *managedThread) bool {
+// replyThreadInfo answers cmd with mt's synced info stamped with p's root,
+// or with an error reply when the thread's log could not be read. It
+// reports whether it sent info, so a caller with more work to do after the
+// reply knows whether to proceed.
+func (c *conn) replyThreadInfo(id string, p *Project, mt *managedThread) bool {
 	info, err := mt.info()
 	if err != nil {
 		c.reply(id, errorReply(err.Error()))
 
 		return false
 	}
+	info.Root = p.root
 	c.reply(id, api.Reply{Kind: api.RepThread, Thread: &info})
 
 	return true
+}
+
+// projectForThread answers cmd.ThreadID's Project, replying with an error
+// and reporting false when no project has that thread.
+func (c *conn) projectForThread(cmd api.Command) (*Project, bool) {
+	p, ok := c.srv.findByThread(cmd.ThreadID)
+	if !ok {
+		c.reply(cmd.ID, errorReply("unknown thread"))
+
+		return nil, false
+	}
+
+	return p, true
 }
 
 func (c *conn) handle(cmd api.Command) {
@@ -174,7 +189,7 @@ func (c *conn) handle(cmd api.Command) {
 	case api.CmdHello:
 		c.reply(cmd.ID, api.Reply{Kind: api.RepHello, Protocol: api.Protocol})
 	case api.CmdList:
-		threads, err := c.srv.mgr.list()
+		threads, err := c.srv.listThreads(cmd.Root)
 		if err != nil {
 			c.reply(cmd.ID, errorReply(err.Error()))
 
@@ -240,7 +255,7 @@ func (c *conn) handleMachine(cmd api.Command) {
 		}
 		c.reply(cmd.ID, api.Reply{Kind: api.RepSchedule, Schedule: &schedule})
 	case api.CmdDiagReset:
-		stats, err := c.srv.mgr.fleetStats()
+		stats, err := c.srv.aggregateFleetStats()
 		if err != nil {
 			c.reply(cmd.ID, errorReply(err.Error()))
 
@@ -285,7 +300,14 @@ func (c *conn) handleModel(cmd api.Command) {
 }
 
 func (c *conn) handleNew(cmd api.Command) {
-	mt, err := c.srv.mgr.create(createParams{
+	p, err := c.srv.resolveProject(c.ctx, cmd.Root)
+	if err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	mt, err := p.mgr.create(createParams{
 		Dirs: cmd.Dirs, Model: cmd.Model, Parent: cmd.Parent, Prompt: cmd.Prompt, Cycle: cmd.Cycle,
 	})
 	if err != nil {
@@ -293,20 +315,27 @@ func (c *conn) handleNew(cmd api.Command) {
 
 		return
 	}
-	if !c.replyThreadInfo(cmd.ID, mt) {
+	c.srv.registerThread(mt.id, p)
+
+	if !c.replyThreadInfo(cmd.ID, p, mt) {
 		return
 	}
 
 	if cmd.Prompt == "" {
 		return
 	}
-	if err := c.srv.mgr.send(mt.id, cmd.Prompt); err != nil {
+	if err := p.mgr.send(mt.id, cmd.Prompt); err != nil {
 		c.reply("", errorReply(err.Error()))
 	}
 }
 
 func (c *conn) handleDiff(cmd api.Command) {
-	unified, err := c.srv.mgr.diff(context.Background(), c.srv.differ, cmd.ThreadID)
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+
+	unified, err := p.mgr.diff(context.Background(), p.differ, cmd.ThreadID)
 	if err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
@@ -320,7 +349,12 @@ func (c *conn) handleDiff(cmd api.Command) {
 }
 
 func (c *conn) handleRestore(cmd api.Command) {
-	res, err := c.srv.mgr.restore(c.ctx, c.srv.restorer, cmd.ThreadID, cmd.Confirm)
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+
+	res, err := p.mgr.restore(c.ctx, p.restorer, cmd.ThreadID, cmd.Confirm)
 	if err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
@@ -331,59 +365,75 @@ func (c *conn) handleRestore(cmd api.Command) {
 }
 
 func (c *conn) handleRoute(cmd api.Command) {
-	if err := c.srv.mgr.setOverride(cmd.ThreadID, cmd.Override); err != nil {
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+	if err := p.mgr.setOverride(cmd.ThreadID, cmd.Override); err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
 		return
 	}
 
-	mt, ok := c.srv.mgr.get(cmd.ThreadID)
+	mt, ok := p.mgr.get(cmd.ThreadID)
 	if !ok {
 		return
 	}
-	c.replyThreadInfo(cmd.ID, mt)
+	c.replyThreadInfo(cmd.ID, p, mt)
 }
 
 func (c *conn) handleThink(cmd api.Command) {
-	if err := c.srv.mgr.setThinking(cmd.ThreadID, cmd.Thinking); err != nil {
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+	if err := p.mgr.setThinking(cmd.ThreadID, cmd.Thinking); err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
 		return
 	}
 
-	mt, ok := c.srv.mgr.get(cmd.ThreadID)
+	mt, ok := p.mgr.get(cmd.ThreadID)
 	if !ok {
 		return
 	}
-	c.replyThreadInfo(cmd.ID, mt)
+	c.replyThreadInfo(cmd.ID, p, mt)
 }
 
 func (c *conn) handleSend(cmd api.Command) {
-	if err := c.srv.mgr.send(cmd.ThreadID, cmd.Prompt); err != nil {
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+	if err := p.mgr.send(cmd.ThreadID, cmd.Prompt); err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
 		return
 	}
 
-	mt, ok := c.srv.mgr.get(cmd.ThreadID)
+	mt, ok := p.mgr.get(cmd.ThreadID)
 	if !ok {
 		return
 	}
-	c.replyThreadInfo(cmd.ID, mt)
+	c.replyThreadInfo(cmd.ID, p, mt)
 }
 
 func (c *conn) handleCancel(cmd api.Command) {
-	if err := c.srv.mgr.cancel(cmd.ThreadID); err != nil {
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+	if err := p.mgr.cancel(cmd.ThreadID); err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
 		return
 	}
 
-	mt, ok := c.srv.mgr.get(cmd.ThreadID)
+	mt, ok := p.mgr.get(cmd.ThreadID)
 	if !ok {
 		return
 	}
-	c.replyThreadInfo(cmd.ID, mt)
+	c.replyThreadInfo(cmd.ID, p, mt)
 }
 
 func (c *conn) handleAnswer(cmd api.Command) {
@@ -396,14 +446,19 @@ func (c *conn) handleAnswer(cmd api.Command) {
 }
 
 func (c *conn) handleSubscribe(cmd api.Command) {
-	mt, ok := c.srv.mgr.get(cmd.ThreadID)
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+
+	mt, ok := p.mgr.get(cmd.ThreadID)
 	if !ok {
 		c.reply(cmd.ID, errorReply("unknown thread"))
 
 		return
 	}
 
-	if !c.replyThreadInfo(cmd.ID, mt) {
+	if !c.replyThreadInfo(cmd.ID, p, mt) {
 		return
 	}
 

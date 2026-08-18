@@ -29,24 +29,24 @@ var unmeasurableGauges = []api.Gauge{
 }
 
 func (s *Server) diagnostics() (api.Diagnostics, error) {
-	f, err := s.mgr.fleetStats()
+	f, err := s.aggregateFleetStats()
 	if err != nil {
 		return api.Diagnostics{}, err
 	}
-	counts := s.leases.Counts()
+	counts := s.aggregateLeaseCounts()
 
 	d := api.Diagnostics{
 		LeasesHeld:     counts.Held,
 		LeasesWaiting:  counts.Waiting,
-		LocalModel:     s.mgr.localModel(),
-		Threads:        s.mgr.count(),
+		LocalModel:     s.localModel(),
+		Threads:        s.aggregateThreadCount(),
 		NeedsInput:     f.needsInput,
 		GateQueue:      s.broker.gateQueueCount(),
 		GateRuns:       s.broker.askedCount(),
 		GateFailures:   s.broker.deniedCount(),
-		ToolCalls:      s.mgr.toolCallCount(),
-		Malformed:      s.mgr.malformedCount(),
-		SpendToday:     s.mgr.spend.today(),
+		ToolCalls:      s.aggregateToolCalls(),
+		Malformed:      s.aggregateMalformed(),
+		SpendToday:     s.aggregateSpendToday(),
 		ContextUsed:    f.context,
 		ContextWindow:  f.window,
 		TranscriptRows: f.rows,

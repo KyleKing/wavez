@@ -22,13 +22,19 @@ func WithRoutines(r RoutineSource) Option {
 }
 
 func (c *conn) handleRoutines(cmd api.Command) {
-	if c.srv.routines == nil {
-		c.reply(cmd.ID, errorReply("this daemon has no routines configured"))
+	p, err := c.srv.resolveProject(c.ctx, cmd.Root)
+	if err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+	if p.routines == nil {
+		c.reply(cmd.ID, errorReply("this project has no routines configured"))
 
 		return
 	}
 
-	infos, err := c.srv.routines.List()
+	infos, err := p.routines.List()
 	if err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
@@ -43,13 +49,19 @@ func (c *conn) handleRoutines(cmd api.Command) {
 // command's, so a client that disconnects mid-run stops it instead of
 // leaving a build running with nobody to read it.
 func (c *conn) handleRunRoutine(cmd api.Command) {
-	if c.srv.routines == nil {
-		c.reply(cmd.ID, errorReply("this daemon has no routines configured"))
+	p, err := c.srv.resolveProject(c.ctx, cmd.Root)
+	if err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+	if p.routines == nil {
+		c.reply(cmd.ID, errorReply("this project has no routines configured"))
 
 		return
 	}
 
-	info, err := c.srv.routines.Run(c.ctx, cmd.Routine)
+	info, err := p.routines.Run(c.ctx, cmd.Routine)
 	if err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 

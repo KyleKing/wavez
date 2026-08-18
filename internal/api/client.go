@@ -29,10 +29,11 @@ type Client struct {
 	pending map[string]chan Reply
 	done    chan struct{}
 
-	err    atomic.Pointer[error]
-	seq    atomic.Uint64
-	mu     sync.Mutex
-	closed atomic.Bool
+	err         atomic.Pointer[error]
+	defaultRoot string
+	seq         atomic.Uint64
+	mu          sync.Mutex
+	closed      atomic.Bool
 }
 
 // closeQuietly drops a half-built client; the dial error is the one to report.
@@ -42,10 +43,21 @@ func closeQuietly(c *Client) {
 	}
 }
 
+// DialOption configures a Client at Dial.
+type DialOption func(*Client)
+
+// WithDefaultRoot stamps root onto every "new" and "list" command whose own
+// Root is empty. A daemon now serves several projects over one socket, so a
+// client with a fixed project in scope (the TUI, a headless run) sets this
+// once instead of threading Root through every call site.
+func WithDefaultRoot(root string) DialOption {
+	return func(c *Client) { c.defaultRoot = root }
+}
+
 // Dial connects to the daemon's socket and completes the handshake, failing
 // with ErrProtocol rather than letting a version gap surface later as a
 // confusing decode error.
-func Dial(ctx context.Context, sockPath string) (*Client, error) {
+func Dial(ctx context.Context, sockPath string, opts ...DialOption) (*Client, error) {
 	var d net.Dialer
 
 	conn, err := d.DialContext(ctx, "unix", sockPath)
@@ -59,6 +71,9 @@ func Dial(ctx context.Context, sockPath string) (*Client, error) {
 		events:  make(chan Reply, eventBuffer),
 		pending: make(map[string]chan Reply),
 		done:    make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(c)
 	}
 	go c.read()
 
@@ -92,6 +107,9 @@ func (c *Client) Do(ctx context.Context, cmd Command) (Reply, error) {
 	if cmd.ID == "" {
 		cmd.ID = "c" + strconv.FormatUint(c.seq.Add(1), 36)
 	}
+	if cmd.Root == "" && c.defaultRoot != "" && rootCarryingCommand(cmd.Kind) {
+		cmd.Root = c.defaultRoot
+	}
 
 	waiter := make(chan Reply, 1)
 	c.mu.Lock()
@@ -119,6 +137,17 @@ func (c *Client) Do(ctx context.Context, cmd Command) (Reply, error) {
 		return Reply{}, c.readErr()
 	case <-ctx.Done():
 		return Reply{}, fmt.Errorf("waiting for %s: %w", cmd.Kind, ctx.Err())
+	}
+}
+
+// rootCarryingCommand reports whether kind is one WithDefaultRoot's default
+// applies to: the commands whose Root names a project rather than nothing.
+func rootCarryingCommand(kind CommandKind) bool {
+	switch kind {
+	case CmdNew, CmdList, CmdRoutines, CmdRunRoutine:
+		return true
+	default:
+		return false
 	}
 }
 
