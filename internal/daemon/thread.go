@@ -52,11 +52,16 @@ type managedThread struct {
 	// which is the only place the saving is recorded.
 	compactions int
 	tokensSaved int
-	mu          sync.Mutex
-	running     bool
+	// processed is the Seq of the last log event folded into this cache, so
+	// sync knows where to resume and never applies the same event twice.
+	processed uint64
+	mu        sync.Mutex
+	running   bool
 }
 
 func (mt *managedThread) info() api.ThreadInfo {
+	mt.sync()
+
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
@@ -85,45 +90,54 @@ func (mt *managedThread) info() api.ThreadInfo {
 	}
 }
 
-// watch keeps state, step, and lastAt current by following the thread's own
-// event log, reusing eventlog's subscription rather than reading
-// thread.Thread's fields from a second goroutine while a turn may be
-// writing them.
-func (mt *managedThread) watch(ctx context.Context) {
-	updates, err := mt.th.Log().Subscribe(ctx, 0)
+// sync folds every log event this cache has not yet seen into state, step,
+// lastAt, and the other derived fields, reading straight from the thread's
+// own event log rather than a second goroutine's copy of it. Append persists
+// an event before it reaches any subscriber, so a sync call always catches
+// up to at least what a client subscribed to this thread has already been
+// sent, which is the ordering a reader like info relies on.
+func (mt *managedThread) sync() {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	events, err := mt.th.Log().Since(mt.processed)
 	if err != nil {
 		return
 	}
 
-	for u := range updates {
-		if u.Lagged {
-			continue
-		}
+	for i := range events {
+		mt.apply(events[i])
+	}
+}
 
-		mt.mu.Lock()
-		mt.lastAt = u.Event.At
-		if u.Event.Kind == event.KindState {
-			mt.state = u.Event.State
-			mt.samples = append(mt.samples, stateSample{at: u.Event.At, state: u.Event.State})
+// apply folds one log event into the cache. Callers must hold mt.mu.
+func (mt *managedThread) apply(ev event.Event) {
+	if ev.Seq <= mt.processed {
+		return
+	}
+	mt.processed = ev.Seq
 
-			if len(mt.samples) > laneSamples {
-				mt.samples = mt.samples[len(mt.samples)-laneSamples:]
-			}
+	mt.lastAt = ev.At
+	if ev.Kind == event.KindState {
+		mt.state = ev.State
+		mt.samples = append(mt.samples, stateSample{at: ev.At, state: ev.State})
+
+		if len(mt.samples) > laneSamples {
+			mt.samples = mt.samples[len(mt.samples)-laneSamples:]
 		}
-		if v, ok := usageFromEvent(u.Event); ok {
-			mt.usage.add(v)
-		}
-		if saved, ok := compactionFromEvent(u.Event); ok {
-			mt.compactions++
-			mt.tokensSaved += saved
-		}
-		if step := stepText(u.Event); step != "" {
-			mt.step = step
-		}
-		if phase, ok := phaseOf(u.Event); ok {
-			mt.phase = phase
-		}
-		mt.mu.Unlock()
+	}
+	if v, ok := usageFromEvent(ev); ok {
+		mt.usage.add(v)
+	}
+	if saved, ok := compactionFromEvent(ev); ok {
+		mt.compactions++
+		mt.tokensSaved += saved
+	}
+	if step := stepText(ev); step != "" {
+		mt.step = step
+	}
+	if phase, ok := phaseOf(ev); ok {
+		mt.phase = phase
 	}
 }
 

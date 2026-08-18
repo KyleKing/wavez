@@ -173,8 +173,6 @@ func (m *manager) create(p createParams) (*managedThread, error) {
 		}
 	}
 
-	go mt.watch(m.ctx)
-
 	m.mu.Lock()
 	m.threads[id] = mt
 	m.order = append(m.order, id)
@@ -311,6 +309,8 @@ func (m *manager) fleetStats() fleetStats {
 	)
 
 	for _, mt := range m.snapshot() {
+		mt.sync()
+
 		mt.mu.Lock()
 		u, lastAt := mt.usage, mt.lastAt
 		out.compactionRuns += mt.compactions

@@ -573,3 +573,48 @@ func TestSend_RunErrorReachesTheThreadLog(t *testing.T) {
 		t.Fatalf("thread info after a failed run = %+v", got)
 	}
 }
+
+// TestList_NeverReportsStateOlderThanTheStream guards the ordering invariant
+// every client relies on: once an event is visible to a subscriber, any
+// subsequent command answered by the daemon must reflect at least that much
+// state. It issues CmdList on a second, freshly dialed connection the moment
+// the first connection's subscription delivers the terminal state, with no
+// wait in between, so a list answered from a cache that lags the log shows up
+// as State:idle rather than the failed state the stream already reported.
+func TestList_NeverReportsStateOlderThanTheStream(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local", fake.Turn{Text: []string{"never"}, StopReason: llm.StopEndTurn})
+	cp := failingCheckpointer{err: errNoJJRepo}
+	h := newHarness(t, local, withLoopOptions(agent.WithCheckpointer(cp, "/x")))
+
+	cl := dial(t, h)
+	cl.hello()
+	th := cl.newThread(nil)
+
+	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
+	if _, ok := cl.recv(); !ok {
+		t.Fatalf("subscribe ack: connection closed")
+	}
+
+	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
+	if _, ok := cl.recv(); !ok {
+		t.Fatalf("send: connection closed")
+	}
+
+	waitForEvent(t, cl, func(rep api.Reply) bool {
+		return rep.Kind == api.RepEvent && rep.Event != nil &&
+			rep.Event.Kind == event.KindState && rep.Event.State == event.StateFailed
+	})
+
+	other := dial(t, h)
+	other.hello()
+	other.send(api.Command{ID: "list", Kind: api.CmdList})
+	rep := other.recvFor("list")
+	if len(rep.Threads) != 1 {
+		t.Fatalf("threads = %+v, want one", rep.Threads)
+	}
+	if got := rep.Threads[0].State; got != event.StateFailed {
+		t.Fatalf("state on a fresh connection's list = %q, want %q (already on the stream)", got, event.StateFailed)
+	}
+}

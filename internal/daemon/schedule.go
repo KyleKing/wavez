@@ -91,6 +91,8 @@ func (s *Server) laneCells(info api.ThreadInfo, now time.Time) []event.State {
 		return nil
 	}
 
+	mt.sync()
+
 	mt.mu.Lock()
 	samples := append([]stateSample(nil), mt.samples...)
 	mt.mu.Unlock()
