@@ -596,6 +596,12 @@ func (m *Model) notePinnedFailure(prev, next api.ThreadInfo) {
 	m.status = next.Name + " failed while pinned to " + routeLabel(next.Override) + "; press m to reroute"
 }
 
+// appendEvent folds e into its thread's transcript. When e lands on the
+// active thread and the reader has scrolled away from the live bottom
+// (scrollOffset > 0), the offset grows by however many rendered lines e
+// added, so the reader's absolute window holds still instead of sliding
+// down as the transcript grows underneath it; scrollOffset == 0 already
+// keeps the window pinned to the bottom without any adjustment.
 func (m *Model) appendEvent(e event.Event) {
 	tr := m.transcripts[e.ThreadID]
 	if tr == nil {
@@ -603,5 +609,16 @@ func (m *Model) appendEvent(e event.Event) {
 		m.transcripts[e.ThreadID] = tr
 	}
 
+	if e.ThreadID != m.thread.activeID || m.thread.scrollOffset == 0 {
+		tr.append(e)
+
+		return
+	}
+
+	width := m.transcriptWidth()
+	before := tr.lineCount(width)
+
 	tr.append(e)
+
+	m.thread.scrollOffset += tr.lineCount(width) - before
 }

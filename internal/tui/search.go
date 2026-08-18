@@ -134,24 +134,41 @@ func (m Model) stepMatch(delta int) Model {
 
 // focusMatch scrolls the transcript only when the current match is off
 // screen, so stepping between matches already in view does not jump. The
-// match lands on the last visible line except near the top of the log,
-// where the offset is capped so the window stays full.
+// match lands on its row's last visible line except near the top of the
+// log, where the offset is capped so the window stays full. It works in
+// rendered lines rather than rows, since an expanded or wrapped row can
+// span more than one line and a row-counted offset would land on the wrong
+// line whenever that happens.
 func (m Model) focusMatch() Model {
 	matches := m.searchMatches()
 	if len(matches) == 0 {
 		return m
 	}
 
-	idx := matches[min(m.thread.search.cursor, len(matches)-1)]
-	total := len(m.transcripts[m.thread.activeID].rows)
-	height := m.transcriptHeight()
-	end := total - m.thread.scrollOffset
-
-	if idx >= end-height && idx < end {
+	tr := m.transcripts[m.thread.activeID]
+	if tr == nil {
 		return m
 	}
 
-	m.thread.scrollOffset = max(min(total-1-idx, total-height), 0)
+	idx := matches[min(m.thread.search.cursor, len(matches)-1)]
+	width := m.transcriptWidth()
+	height := m.transcriptHeight()
+	lineCount := tr.lineCount(width)
+
+	lo, hi := rowLineSpan(tr, width, idx, lineCount)
+	if lo >= hi {
+		return m
+	}
+
+	end := lineCount - m.thread.scrollOffset
+	start := max(end-height, 0)
+
+	if lo >= start && hi <= end {
+		return m
+	}
+
+	maxOffset := max(lineCount-height, 0)
+	m.thread.scrollOffset = min(max(lineCount-hi, 0), maxOffset)
 
 	return m
 }

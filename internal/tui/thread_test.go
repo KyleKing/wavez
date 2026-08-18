@@ -277,6 +277,133 @@ func TestThread_UndoConfirmationShowsWhatItDiscards(t *testing.T) {
 	assert.Contains(t, out, "[y]es")
 }
 
+// toolRows appends n single-line KindTool events named "row 0".."row n-1".
+func toolRows(t *testing.T, m tui.Model, n int) tui.Model {
+	t.Helper()
+
+	msgs := make([]tea.Msg, 0, n)
+	for i := range n {
+		msgs = append(msgs, api.Reply{Kind: api.RepEvent, Event: &event.Event{
+			ThreadID: "t1", Kind: event.KindTool, Text: "row " + strconv.Itoa(i), Seq: uint64(i),
+		}})
+	}
+
+	return apply(t, m, msgs...)
+}
+
+// markedRow is the ">" prefix render puts on the cursor's row, immediately
+// before its label; a folded, unselected row gets two spaces instead.
+func markedRow(text string) string { return "> ▸ tool   " + text }
+
+func TestThreadCursor_MovesAndClampsAtBothEnds(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []struct{ w, h int }{{100, 30}, {80, 24}} {
+		t.Run(strconv.Itoa(size.w), func(t *testing.T) {
+			t.Parallel()
+
+			m := newSized(t, tui.Options{NoColor: true}, size.w, size.h)
+			m = openThread(t, m, sampleThreads()[:1])
+			m = toolRows(t, m, 5)
+
+			// The first j lands on the bottom row without moving further.
+			m = apply(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
+			assert.Contains(t, m.View().Content, markedRow("row 4"))
+
+			// k steps up through every row and clamps at the first.
+			for _, want := range []string{"row 3", "row 2", "row 1", "row 0", "row 0"} {
+				m = apply(t, m, tea.KeyPressMsg{Code: 'k', Text: "k"})
+				assert.Contains(t, m.View().Content, markedRow(want))
+			}
+
+			// The down arrow steps back down and clamps at the last row.
+			for _, want := range []string{"row 1", "row 2", "row 3", "row 4", "row 4"} {
+				m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyDown, Text: "down"})
+				assert.Contains(t, m.View().Content, markedRow(want))
+			}
+
+			assert.Len(t, linesContaining(m.View().Content, "> ▸"), 1, "only one row is ever marked")
+		})
+	}
+}
+
+func TestThreadCursor_EnterTogglesFoldOnCursorRow(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{NoColor: true}, 100, 30)
+	m = openThread(t, m, sampleThreads()[:1])
+
+	long := strings.Repeat("word ", 60) + "TAILMARK"
+	m = apply(t, m, api.Reply{Kind: api.RepEvent, Event: &event.Event{
+		ThreadID: "t1", Kind: event.KindTool, Text: long, Seq: 0,
+	}})
+
+	m = apply(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.NotContains(t, m.View().Content, "TAILMARK", "a tool row folds by default")
+
+	m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Contains(t, m.View().Content, "TAILMARK", "enter expands the row under the cursor")
+
+	m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.NotContains(t, m.View().Content, "TAILMARK", "enter again folds it back")
+}
+
+// A row wider than the whole panel must show from its own top rather than
+// leaving the cursor's row scrolled past entirely.
+func TestThreadCursor_ExpandedRowTallerThanPanelShowsFromTop(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{NoColor: true}, 80, 24)
+	m = openThread(t, m, sampleThreads()[:1])
+
+	long := "HEADMARK " + strings.Repeat("word ", 200) + "TAILMARK"
+	m = apply(t, m, api.Reply{Kind: api.RepEvent, Event: &event.Event{
+		ThreadID: "t1", Kind: event.KindTool, Text: long, Seq: 0,
+	}})
+
+	m = apply(t, m, tea.KeyPressMsg{Code: 'j', Text: "j"})
+	m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	out := m.View().Content
+	assert.Contains(t, out, "HEADMARK", "the row's own top stays visible rather than being scrolled past")
+	assert.NotContains(t, out, "TAILMARK", "the row is taller than the panel so its tail runs off screen")
+}
+
+// A reader pinned to the bottom keeps seeing new events, and one who has
+// scrolled up must not be yanked back down when more arrive.
+func TestThread_TailFollowHoldsUntilTheReaderScrolls(t *testing.T) {
+	t.Parallel()
+
+	const rowCount = 30
+
+	m := newSized(t, tui.Options{NoColor: true}, 100, 24)
+	m = openThread(t, m, sampleThreads()[:1])
+	m = toolRows(t, m, rowCount)
+
+	require.Contains(t, m.View().Content, "row 29", "tail-follow shows the newest event by default")
+
+	m = apply(t, m, api.Reply{Kind: api.RepEvent, Event: &event.Event{
+		ThreadID: "t1", Kind: event.KindTool, Text: "row 30", Seq: rowCount,
+	}})
+	assert.Contains(t, m.View().Content, "row 30", "a reader at the bottom follows new events")
+
+	// Scroll away from the bottom by walking the cursor up past the window.
+	for range 20 {
+		m = apply(t, m, tea.KeyPressMsg{Code: 'k', Text: "k"})
+	}
+
+	before := m.View().Content
+	require.NotContains(t, before, "row 31", "sanity: row 31 does not exist yet")
+
+	m = apply(t, m, api.Reply{Kind: api.RepEvent, Event: &event.Event{
+		ThreadID: "t1", Kind: event.KindTool, Text: "row 31", Seq: rowCount + 1,
+	}})
+	after := m.View().Content
+
+	assert.NotContains(t, after, "row 31", "a scrolled-up reader is not yanked to the new bottom")
+	assert.Equal(t, before, after, "the reader's absolute window holds still while new events stream in")
+}
+
 // The header is the only standing surface that says which tier a thread is
 // pinned to, so a pin that does not reach it is invisible between turns.
 func TestThread_HeaderNamesThePinnedTier(t *testing.T) {

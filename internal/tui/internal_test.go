@@ -49,6 +49,159 @@ func TestTranscript_VisibleWindow(t *testing.T) {
 	assert.Equal(t, uint64(494), scrolled[len(scrolled)-1].seq)
 }
 
+func TestTranscript_DropsEmptyStateAndAgentRows(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindState, State: event.StateWorking})
+	tr.append(event.Event{Kind: event.KindAgent, Text: ""})
+	tr.append(event.Event{Kind: event.KindState, State: event.StateGating, Text: "queued for review"})
+	tr.append(event.Event{Kind: event.KindTool, Text: "ran gofmt"})
+
+	require.Len(t, tr.rows, 2)
+	assert.Equal(t, event.KindState, tr.rows[0].kind)
+	assert.Equal(t, "queued for review", tr.rows[0].text)
+	assert.Equal(t, event.KindTool, tr.rows[1].kind)
+}
+
+func TestTranscript_RoleMarkerTypesPrecedingRowWithoutAddingOne(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindAgent, Text: "done, no more calls needed."})
+	tr.append(event.Event{Kind: event.KindAgent, Role: event.RoleAnswer})
+
+	require.Len(t, tr.rows, 1)
+	assert.Equal(t, event.RoleAnswer, tr.rows[0].role)
+	assert.True(t, tr.rows[0].expanded, "an answer row expands by default")
+}
+
+func TestTranscript_ToggleKeepsUserChoiceAcrossRoleArrival(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindAgent, Text: "about to call a tool."})
+	require.True(t, tr.toggle(0))
+	assert.True(t, tr.rows[0].expanded)
+
+	tr.append(event.Event{Kind: event.KindAgent, Role: event.RoleNote})
+
+	assert.Equal(t, event.RoleNote, tr.rows[0].role)
+	assert.True(t, tr.rows[0].expanded, "a user toggle survives a later role marker")
+}
+
+func TestTranscript_ToggleReportsWhetherIndexNamedARow(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindTool, Text: "ran gofmt"})
+
+	assert.True(t, tr.toggle(0))
+	assert.False(t, tr.toggle(1))
+	assert.False(t, tr.toggle(-1))
+	assert.Equal(t, 1, tr.count())
+}
+
+func TestTranscript_RenderExpandsAnswerAndFoldsNote(t *testing.T) {
+	t.Parallel()
+
+	th := newTheme(true)
+
+	longAnswer := "This reply runs on well past a single row so it needs to wrap " +
+		"across several lines to be read in full."
+	longNote := "Quick note before the next tool call, also long enough to wrap " +
+		"if it were expanded."
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindAgent, Text: longAnswer})
+	tr.append(event.Event{Kind: event.KindAgent, Role: event.RoleAnswer})
+	tr.append(event.Event{Kind: event.KindAgent, Text: longNote})
+	tr.append(event.Event{Kind: event.KindAgent, Role: event.RoleNote})
+
+	require.Len(t, tr.rows, 2)
+
+	const width = 40
+
+	answerLines := renderRowLines(tr.rows[0], width, th, "", false)
+	noteLines := renderRowLines(tr.rows[1], width, th, "", false)
+
+	assert.Greater(t, len(answerLines), 1, "an expanded answer wraps across multiple lines")
+	assert.Len(t, noteLines, 1, "a folded note stays one line")
+}
+
+func TestTranscript_LineCountChangesWithToggle(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindAgent, Text: strings.Repeat("word ", 40)})
+	tr.append(event.Event{Kind: event.KindAgent, Role: event.RoleNote})
+
+	const width = 30
+
+	folded := tr.lineCount(width)
+	require.True(t, tr.toggle(0))
+	expanded := tr.lineCount(width)
+
+	assert.Equal(t, 1, folded)
+	assert.Greater(t, expanded, folded)
+}
+
+func TestTranscript_RowAtLineRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindAgent, Text: strings.Repeat("word ", 40)})
+	tr.append(event.Event{Kind: event.KindAgent, Role: event.RoleAnswer})
+	tr.append(event.Event{Kind: event.KindTool, Text: "ran gofmt", Seq: 1})
+
+	const width = 24
+
+	total := tr.lineCount(width)
+	require.Greater(t, total, 1)
+
+	for line := range total {
+		row := tr.rowAtLine(width, line)
+		require.GreaterOrEqual(t, row, 0)
+		require.Less(t, row, tr.count())
+	}
+
+	assert.Equal(t, 1, tr.rowAtLine(width, total-1), "the last line belongs to the trailing tool row")
+	assert.Equal(t, -1, tr.rowAtLine(width, total))
+	assert.Equal(t, -1, tr.rowAtLine(width, -1))
+}
+
+func TestTranscript_RenderWindowsOffsetInLinesAtTopAndBottom(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{Kind: event.KindAgent, Text: strings.Repeat("word ", 40)})
+	tr.append(event.Event{Kind: event.KindAgent, Role: event.RoleAnswer})
+
+	const width = 30
+
+	total := tr.lineCount(width)
+	require.Greater(t, total, 3)
+
+	th := newTheme(true)
+
+	bottom := tr.render(renderOpts{width: width, height: 2, offset: 0, cursor: -1, theme: th})
+	require.Len(t, bottom, 2)
+
+	all := tr.render(renderOpts{width: width, height: total, offset: 0, cursor: -1, theme: th})
+	require.Len(t, all, total)
+	assert.Equal(t, all[len(all)-2:], bottom, "a zero offset windows from the very bottom")
+
+	const window = 2
+
+	top := tr.render(renderOpts{width: width, height: window, offset: total - window, cursor: -1, theme: th})
+	assert.Equal(t, all[:window], top, "the offset that reaches the top shows the first lines")
+
+	overshoot := tr.render(renderOpts{width: width, height: window, offset: total + 10, cursor: -1, theme: th})
+	assert.Equal(t, top, overshoot, "an offset past the top clamps to the top instead of going empty")
+
+	assert.Equal(t, 0, tr.rowAtLine(width+10, 0), "rowAtLine tracks a rewrap at a different width")
+}
+
 func TestFooterHints_DropsLowestPriorityAsWidthShrinks(t *testing.T) {
 	t.Parallel()
 
@@ -66,6 +219,7 @@ type fakeClient struct {
 	answered    []answered
 	diffed      []string
 	created     []created
+	sent        []sentMsg
 	restores    []restoreCall
 	routes      []routeCall
 	thinks      []thinkCall
@@ -106,6 +260,11 @@ type answered struct {
 	decision permission.Decision
 }
 
+type sentMsg struct {
+	threadID string
+	text     string
+}
+
 func (f *fakeClient) routines() tea.Cmd {
 	f.listed++
 
@@ -123,7 +282,12 @@ func (f *fakeClient) subscribe(id string) tea.Cmd {
 
 	return nil
 }
-func (*fakeClient) send(string, string) tea.Cmd { return nil }
+
+func (f *fakeClient) send(threadID, text string) tea.Cmd {
+	f.sent = append(f.sent, sentMsg{threadID: threadID, text: text})
+
+	return nil
+}
 
 func (f *fakeClient) restore(threadID string, confirm bool) tea.Cmd {
 	f.restores = append(f.restores, restoreCall{threadID: threadID, confirm: confirm})
@@ -290,6 +454,73 @@ func TestThreadKeys_PendingPromptStillOwnsAnswers(t *testing.T) {
 	assert.Empty(t, fc.created)
 }
 
+// Enter has no answer role of its own: from the transcript it only ever
+// toggles the row under the cursor, so a pending permission still needs
+// y/n/a and is never resolved by mistake.
+func TestThreadKeys_EnterDoesNotAnswerAPendingPermission(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	m := New(Options{Now: func() time.Time { return time.Unix(0, 0) }})
+	m.client = fc
+
+	resized, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	rm, ok := resized.(Model)
+	require.True(t, ok)
+	m = rm
+
+	m.applyReply(api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{
+		{ID: "t1", Name: "fix-lock", Dir: "wavez", State: event.StateNeedsIn},
+	}})
+	m.applyReply(api.Reply{Kind: api.RepPending, Pending: []api.PendingInfo{
+		{ID: "p1", ThreadID: "t1", Tool: "shell", Action: "rm -rf .testmondata"},
+	}})
+	m.thread.activeID = "t1"
+	m.stack = append(m.stack, screenThread)
+	m.focus = focusTranscript
+
+	m = pressKey(t, m, 0, "enter")
+	assert.Empty(t, fc.answered, "enter must not answer a pending permission")
+
+	m = pressKey(t, m, 'y')
+	require.Len(t, fc.answered, 1)
+	assert.Equal(t, permission.Allow, fc.answered[0].decision)
+}
+
+// Enter only sends from the composer; the transcript's own Enter toggles a
+// row instead, so this is the one path that must keep sending.
+func TestThreadCompose_EnterSendsFromComposer(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	m := New(Options{Now: func() time.Time { return time.Unix(0, 0) }})
+	m.client = fc
+
+	resized, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	rm, ok := resized.(Model)
+	require.True(t, ok)
+	m = rm
+
+	m.applyReply(api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{
+		{ID: "t1", Name: "fix-lock", Dir: "wavez", State: event.StateWorking},
+	}})
+	m.thread.activeID = "t1"
+	m.stack = append(m.stack, screenThread)
+	m.focus = focusInput
+	m.thread.input.Focus()
+
+	for _, r := range "hi" {
+		m = pressKey(t, m, r)
+	}
+
+	m = pressKey(t, m, 0, "enter")
+
+	require.Len(t, fc.sent, 1)
+	assert.Equal(t, "t1", fc.sent[0].threadID)
+	assert.Equal(t, "hi", fc.sent[0].text)
+	assert.Empty(t, m.thread.input.Value(), "the composer clears after sending")
+}
+
 // `n` denies a focused prompt, and a live search query takes it back:
 // stepping a match costs nothing, denying a prompt the user never read does.
 func TestThreadSearch_LiveQueryOwnsTheStepKeys(t *testing.T) {
@@ -336,6 +567,8 @@ func pressKey(t *testing.T, m Model, r rune, name ...string) Model {
 		switch name[0] {
 		case "down":
 			msg.Code = tea.KeyDown
+		case "up":
+			msg.Code = tea.KeyUp
 		case "enter":
 			msg.Code = tea.KeyEnter
 		}
@@ -538,4 +771,33 @@ func TestModelScreen_EscClosesOverlaysBeforeLeavingTheScreen(t *testing.T) {
 	if m.top() == screenModels {
 		t.Fatal("third esc should leave the screen")
 	}
+}
+
+func TestThreadHints_NameEnterOnlyWhereItBinds(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		want  string
+		focus int
+	}{
+		{"composer sends", "[enter]send", focusInput},
+		{"transcript toggles", "[enter]toggle", focusTranscript},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := footerHints(threadHints(searchState{}, tc.focus), 200)
+			assert.Contains(t, got, tc.want)
+		})
+	}
+
+	t.Run("diff pane names no enter", func(t *testing.T) {
+		t.Parallel()
+
+		got := footerHints(threadHints(searchState{}, focusDiff), 200)
+		assert.NotContains(t, got, "[enter]")
+	})
 }

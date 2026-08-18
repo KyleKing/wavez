@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,14 +34,19 @@ type threadState struct {
 	search       searchState
 	input        vimInput
 	scrollOffset int
-	diffCursor   int
-	fullscreen   bool
+	// cursor is the transcript row the reader has selected, or -1 when
+	// nothing has been selected yet, which keeps the view pinned to the
+	// bottom as new events stream in until the reader moves it.
+	cursor     int
+	diffCursor int
+	fullscreen bool
 }
 
 func newThreadState(th theme) threadState {
 	return threadState{
 		input:  newVimInput("press tab to compose, esc for normal mode"),
 		search: newSearchState(th),
+		cursor: -1,
 	}
 }
 
@@ -83,6 +89,10 @@ func (m Model) updateThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 		if mm, cmd, handled := m.threadAnswerKey(s, *pending); handled {
 			return mm, cmd
 		}
+	}
+
+	if m.focus == focusTranscript && s == keyEnter {
+		return m.toggleCursorRow()
 	}
 
 	if mm, cmd, handled := m.threadNavKey(s); handled {
@@ -185,15 +195,19 @@ func (m Model) threadPinKey(s string) (Model, tea.Cmd, bool) {
 	}
 }
 
-// threadScrollKey moves whichever pane has focus.
+// threadScrollKey moves whichever pane has focus. The transcript no longer
+// scrolls directly: j/k and the arrows move a row cursor, and the offset
+// follows it so a wrapped or expanded row's lines land inside the window
+// together rather than a row-blind scroll stranding most of a long row off
+// screen.
 func (m Model) threadScrollKey(s string) (Model, bool) {
 	switch {
-	case s == "up" && m.focus == focusTranscript:
-		m.thread.scrollOffset++
-	case s == "up" && m.focus == focusDiff:
+	case (s == keyUp || s == keyK) && m.focus == focusTranscript:
+		return m.moveCursor(-1), true
+	case (s == keyDown || s == keyJ) && m.focus == focusTranscript:
+		return m.moveCursor(1), true
+	case s == keyUp && m.focus == focusDiff:
 		m.thread.diffCursor = max(m.thread.diffCursor-1, 0)
-	case s == keyDown && m.focus == focusTranscript:
-		m.thread.scrollOffset = max(m.thread.scrollOffset-1, 0)
 	case s == keyDown && m.focus == focusDiff:
 		m.thread.diffCursor = min(m.thread.diffCursor+1, max(len(m.diffs[m.thread.activeID])-1, 0))
 	default:
@@ -201,6 +215,104 @@ func (m Model) threadScrollKey(s string) (Model, bool) {
 	}
 
 	return m, true
+}
+
+// moveCursor steps the transcript cursor by delta rows, clamping at both
+// ends. The first move from no cursor lands on the last row rather than
+// applying delta from an assumed position, since that is the row the
+// reader is already looking at while the view is pinned to the bottom.
+func (m Model) moveCursor(delta int) Model {
+	tr := m.transcripts[m.thread.activeID]
+	if tr == nil || tr.count() == 0 {
+		return m
+	}
+
+	if m.thread.cursor < 0 {
+		m.thread.cursor = tr.count() - 1
+	} else {
+		m.thread.cursor = min(max(m.thread.cursor+delta, 0), tr.count()-1)
+	}
+
+	return m.clampCursorVisible(tr)
+}
+
+// toggleCursorRow folds or unfolds the row under the transcript cursor and
+// keeps it fully visible either way.
+func (m Model) toggleCursorRow() (Model, tea.Cmd) {
+	tr := m.transcripts[m.thread.activeID]
+	if tr == nil || m.thread.cursor < 0 || !tr.toggle(m.thread.cursor) {
+		return m, nil
+	}
+
+	return m.clampCursorVisible(tr), nil
+}
+
+// transcriptWidth is the column budget transcript rows wrap into, matching
+// threadBody's inner width so line counts computed for scrolling agree
+// with what actually renders.
+func (m Model) transcriptWidth() int {
+	return max(m.width-boxPad, 0)
+}
+
+// clampCursorVisible adjusts scrollOffset so every rendered line of the
+// cursor's row sits inside the transcript window, moving it as little as
+// possible.
+func (m Model) clampCursorVisible(tr *transcript) Model {
+	width := m.transcriptWidth()
+	height := m.transcriptHeight()
+	lineCount := tr.lineCount(width)
+
+	lo, hi := rowLineSpan(tr, width, m.thread.cursor, lineCount)
+	if lo >= hi {
+		return m
+	}
+
+	m.thread.scrollOffset = clampOffsetToRow(m.thread.scrollOffset, height, lineCount, lo, hi)
+
+	return m
+}
+
+// rowLineSpan finds the [lo, hi) rendered-line range row occupies at
+// width. It binary-searches rather than scanning every line, since
+// rowAtLine reports rows in non-decreasing order as line grows and a
+// transcript can run to hundreds of rows.
+//
+//nolint:gocritic // named returns are forbidden
+func rowLineSpan(tr *transcript, width, row, lineCount int) (int, int) {
+	lo := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, i) >= row })
+	hi := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, i) > row })
+
+	return lo, hi
+}
+
+// clampOffsetToRow nudges a bottom-relative line offset just enough to
+// bring [lo, hi) fully into a window of height lines out of lineCount
+// total, leaving it unchanged when the range is already visible. A range
+// taller than the window shows from lo rather than being scrolled past.
+func clampOffsetToRow(offset, height, lineCount, lo, hi int) int {
+	if height <= 0 || lineCount <= 0 {
+		return 0
+	}
+
+	maxOffset := max(lineCount-height, 0)
+
+	if hi-lo >= height {
+		return min(max(lineCount-lo-height, 0), maxOffset)
+	}
+
+	end := lineCount - offset
+	start := max(end-height, 0)
+
+	switch {
+	case lo < start:
+		end = lo + height
+	case hi > end:
+		end = hi
+	default:
+		return min(max(offset, 0), maxOffset)
+	}
+
+	return min(max(lineCount-end, 0), maxOffset)
 }
 
 // threadAnswerKey answers a pending permission prompt on the active thread
@@ -246,6 +358,7 @@ func (m Model) switchThread(delta int) (Model, tea.Cmd) {
 	idx = (idx + delta + len(m.threads)) % len(m.threads)
 	m.thread.activeID = m.threads[idx].ID
 	m.thread.scrollOffset = 0
+	m.thread.cursor = -1
 	m.thread.diffCursor = 0
 	m.clearSearch()
 
@@ -315,7 +428,7 @@ func (m Model) renderThread() string {
 		spend(info.Spend), otherPendingBadge(m.pending, info.ID, m.ascii))
 
 	body := m.threadBody(info)
-	footer := footerHints(threadHints(m.thread.search, m.focus == focusInput), m.width-boxPad)
+	footer := footerHints(threadHints(m.thread.search, m.focus), m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
 }
@@ -414,9 +527,10 @@ func (m Model) threadBody(info api.ThreadInfo) []string {
 
 	tr := m.transcripts[info.ID]
 	if tr != nil {
-		for _, r := range tr.visible(m.transcriptHeight(), m.thread.scrollOffset) {
-			body = append(body, renderRow(r, inner, m.th, m.thread.search.query))
-		}
+		body = append(body, tr.render(renderOpts{
+			width: inner, height: m.transcriptHeight(), offset: m.thread.scrollOffset,
+			cursor: m.thread.cursor, theme: m.th, query: m.thread.search.query,
+		})...)
 	}
 
 	sep := strings.Repeat("─", max(inner, 0))
@@ -531,12 +645,16 @@ const threadHintTail = 9
 // threadHints is priority ordered; footerHints drops from the tail. The
 // composer's own keys lead while it holds focus, the way a live search
 // query leads while one is set, because that is when they are reachable.
-func threadHints(search searchState, composing bool) []hint {
+// Enter's own meaning is per-panel: it sends from the composer and toggles
+// the row under the cursor from the transcript, so the hint names whichever
+// is true of the panel that is actually focused. It binds to nothing on the
+// diff pane, where no hint names it.
+func threadHints(search searchState, focus int) []hint {
 	if search.editing {
 		return []hint{{keyEnter, labelApply}, {keyEsc, labelCancel}}
 	}
 
-	if composing {
+	if focus == focusInput {
 		return []hint{
 			{keyEnter, labelSend},
 			{keyCompose, "fullscreen"},
@@ -546,19 +664,27 @@ func threadHints(search searchState, composing bool) []hint {
 		}
 	}
 
-	head := []hint{{keyEnter, labelSend}, {keyTab, labelPanel}, {"/", "search"}}
+	var enter []hint
+	if focus == focusTranscript {
+		enter = []hint{{keyEnter, "toggle"}}
+	}
+
+	head := make([]hint, 0, len(enter)+2)
+	head = append(head, enter...)
+	head = append(head, hint{keyTab, labelPanel}, hint{"/", "search"})
 	back := []hint{{keyEsc, labelHome}}
 
 	// A live query puts its keys first: footerHints drops from the tail, and
 	// Esc is the only way back out of the highlight.
 	if search.query != "" {
-		head = []hint{
-			{"n", "next match"},
-			{"N", "prev match"},
-			{keyEsc, "clear search"},
-			{keyEnter, labelSend},
-			{keyTab, labelPanel},
-		}
+		head = make([]hint, 0, len(enter)+4)
+		head = append(head,
+			hint{"n", "next match"},
+			hint{"N", "prev match"},
+			hint{keyEsc, "clear search"},
+		)
+		head = append(head, enter...)
+		head = append(head, hint{keyTab, labelPanel})
 		back = nil
 	}
 

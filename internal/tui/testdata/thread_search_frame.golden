@@ -1,13 +1,13 @@
 [1m┌ calcipy · fix-lock-timeout · - 0.0k/0.0k · $0.00 ────────────────────────────┐[m
 [1m│ [m[2mledger  editing internal/lease.go[m                                           [1m │[m
-[1m│ [m▸ tool   make the [7mlease[m TTL configurable                                    [1m │[m
-[1m│ [m▸ tool   renamed the default                                                [1m │[m
-[1m│ [m▸ tool   [7mlease[m-check ran the gate                                           [1m │[m
-[1m│ [m▸ tool   wrote [7mLEASE[m.md                                                     [1m │[m
-[1m│ [m▸ tool   gates green                                                        [1m │[m
+[1m│ [m  ▸ tool   make the [7mlease[m TTL configurable                                  [1m │[m
+[1m│ [m  ▸ tool   renamed the default                                              [1m │[m
+[1m│ [m  ▸ tool   [7mlease[m-check ran the gate                                         [1m │[m
+[1m│ [m  ▸ tool   wrote [7mLEASE[m.md                                                   [1m │[m
+[1m│ [m  ▸ tool   gates green                                                      [1m │[m
 [1m│ [m────────────────────────────────────────────────────────────────────────────[1m │[m
 [1m│ [m  (no changes yet)                                                          [1m │[m
 [1m│ [m[2m/lease  1/3[m                                                                 [1m │[m
 [1m│ [m────────────────────────────────────────────────────────────────────────────[1m │[m
 [1m│ [m[2mNOR[m [2mpress tab to compose, esc for normal mode[m                               [1m │[m
-[1m└ [n]next match [N]prev match [esc]clear search [enter]send [tab]panel [d]diff ┘[m
+[1m└ [n]next match [N]prev match [esc]clear search [enter]toggle [tab]panel ──────┘[m

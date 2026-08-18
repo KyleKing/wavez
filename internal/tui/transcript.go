@@ -13,11 +13,14 @@ import (
 // coalesce into a single row (a streamed sentence otherwise arrives as
 // dozens of one-token events), so row count is not event count.
 type row struct {
-	kind    event.Kind
-	text    string
-	tool    string
-	changes []tool.Change
-	seq     uint64
+	kind     event.Kind
+	text     string
+	tool     string
+	role     event.Role
+	changes  []tool.Change
+	seq      uint64
+	expanded bool
+	toggled  bool
 }
 
 // transcript is a thread's virtualized, coalesced event view. Its visible
@@ -28,18 +31,81 @@ type transcript struct {
 }
 
 // append adds e to the transcript, coalescing it into the previous row when
-// both are agent text.
+// both are agent text. A KindState or KindAgent event with no Text renders
+// nothing on its own, so it is dropped rather than appended as a blank row;
+// the one exception is a KindAgent event carrying a Role, which is a marker
+// that types the preceding agent row instead of becoming a row itself.
 func (t *transcript) append(e event.Event) {
+	if e.Kind == event.KindAgent && e.Role != "" && e.Text == "" {
+		t.applyRole(e.Role)
+
+		return
+	}
+
+	if e.Kind == event.KindState && e.Text == "" {
+		return
+	}
+
+	if e.Kind == event.KindAgent && e.Text == "" {
+		return
+	}
+
 	if e.Kind == event.KindAgent && len(t.rows) > 0 {
 		last := &t.rows[len(t.rows)-1]
-		if last.kind == event.KindAgent {
+		if last.kind == event.KindAgent && last.role == "" {
 			last.text += e.Text
 
 			return
 		}
 	}
 
-	t.rows = append(t.rows, row{kind: e.Kind, text: e.Text, tool: e.Tool, seq: e.Seq, changes: e.Changes})
+	t.rows = append(t.rows, row{
+		kind: e.Kind, text: e.Text, tool: e.Tool, seq: e.Seq, changes: e.Changes,
+		expanded: defaultExpanded(e.Kind, e.Role),
+	})
+}
+
+// applyRole types the last row with role, when it is an agent row and the
+// reader has not already chosen a fold state for it.
+func (t *transcript) applyRole(role event.Role) {
+	if len(t.rows) == 0 {
+		return
+	}
+
+	last := &t.rows[len(t.rows)-1]
+	if last.kind != event.KindAgent {
+		return
+	}
+
+	last.role = role
+	if !last.toggled {
+		last.expanded = defaultExpanded(last.kind, last.role)
+	}
+}
+
+// defaultExpanded is the fold state a row starts in before the reader
+// toggles it: an answer is unfolded so it can be read in full, everything
+// else (including a note, and an agent row awaiting its role) folds to one
+// line per DESIGN.md's Thread view.
+func defaultExpanded(k event.Kind, r event.Role) bool {
+	return k == event.KindAgent && r == event.RoleAnswer
+}
+
+// count reports how many rows the transcript holds.
+func (t *transcript) count() int {
+	return len(t.rows)
+}
+
+// toggle flips row i's folded state, reporting whether i named a row.
+func (t *transcript) toggle(i int) bool {
+	if i < 0 || i >= len(t.rows) {
+		return false
+	}
+
+	t.rows[i].expanded = !t.rows[i].expanded
+	t.rows[i].toggled = true
+
+	return true
 }
 
 // changeStats aggregates every row's file changes by path, in first-seen
@@ -66,7 +132,9 @@ func (t *transcript) changeStats() ([]string, map[string][2]int) { //nolint:gocr
 }
 
 // visible returns the window of rows that fits height, scrolled up from the
-// bottom by offset rows.
+// bottom by offset rows. It predates rows spanning more than one rendered
+// line and stays row-counted for Home's peek preview; render is the
+// line-accurate equivalent for Thread view's transcript panel.
 func (t *transcript) visible(height, offset int) []row {
 	if height < 0 {
 		height = 0
@@ -88,24 +156,145 @@ func (t *transcript) visible(height, offset int) []row {
 	return t.rows[start:end]
 }
 
-// renderRow formats one transcript row per its kind, matching Thread view's
-// typed-row shape in DESIGN.md.
-func renderRow(r row, width int, th theme, query string) string {
+// renderOpts configures transcript.render. Offset counts rendered lines
+// scrolled up from the bottom, not rows, since an expanded row can span
+// several lines and a row-counted offset would jump the window by an
+// unpredictable amount as rows fold and unfold.
+type renderOpts struct {
+	query  string
+	theme  theme
+	width  int
+	height int
+	offset int
+	// cursor is the row index under the cursor, or -1 for none.
+	cursor int
+}
+
+// render returns at most o.height lines, windowed from the bottom by
+// o.offset lines, with the cursor row marked.
+func (t *transcript) render(o renderOpts) []string {
+	lines, _ := t.renderLines(o.width, o.theme, o.query, o.cursor)
+
+	height := max(o.height, 0)
+
+	maxOffset := max(len(lines)-height, 0)
+	offset := min(max(o.offset, 0), maxOffset)
+
+	end := len(lines) - offset
+	start := max(end-height, 0)
+
+	return lines[start:end]
+}
+
+// lineCount reports the transcript's total rendered height at width, which
+// is what bounds a scroll offset once a row can occupy more than one line.
+func (t *transcript) lineCount(width int) int {
+	lines, _ := t.renderLines(width, theme{}, "", -1)
+
+	return len(lines)
+}
+
+// rowAtLine maps a rendered line index to its row index.
+func (t *transcript) rowAtLine(width, line int) int {
+	_, rowOf := t.renderLines(width, theme{}, "", -1)
+	if line < 0 || line >= len(rowOf) {
+		return -1
+	}
+
+	return rowOf[line]
+}
+
+// renderLines renders every row in order, folded rows to one line and
+// expanded rows wrapped over as many lines as their text needs, and returns
+// the flattened line list alongside a parallel slice naming each line's
+// source row index.
+//
+//nolint:gocritic // named returns are forbidden
+func (t *transcript) renderLines(
+	width int, th theme, query string, cursor int,
+) ([]string, []int) {
+	var lines []string
+
+	var rowOf []int
+
+	for i, r := range t.rows {
+		rl := renderRowLines(r, width, th, query, i == cursor)
+		lines = append(lines, rl...)
+
+		for range rl {
+			rowOf = append(rowOf, i)
+		}
+	}
+
+	return lines, rowOf
+}
+
+// renderRowLines renders row r as one or more display lines: folded (the
+// default for everything but an answer) truncates to one line with an
+// ellipsis affordance when content was cut, so a folded row that has more
+// to read looks different from one that does not; expanded wraps the full
+// text at width instead of cutting it.
+func renderRowLines(r row, width int, th theme, query string, marked bool) []string {
 	label, style := rowLabel(r.kind, th)
 
+	switch r.role {
+	case event.RoleAnswer:
+		style = th.fgEmphasis
+	case event.RoleNote:
+		style = th.fgMuted
+	}
+
+	prefix := "  "
+	if marked {
+		prefix = "> "
+	}
+
+	indent := lipgloss.Width(prefix) + lipgloss.Width(label) + 1
+	pad := strings.Repeat(" ", max(indent, 0))
+
+	text := rowText(r)
+
+	if !r.expanded {
+		line := truncate(text, width-indent)
+
+		return []string{prefix + style.Render(label) + " " + highlightMatches(line, query, th.searchHit)}
+	}
+
+	wrapped := strings.Split(lipgloss.Wrap(text, max(width-indent, 1), ""), "\n")
+
+	out := make([]string, 0, len(wrapped))
+
+	for i, w := range wrapped {
+		highlighted := highlightMatches(w, query, th.searchHit)
+		if i == 0 {
+			out = append(out, prefix+style.Render(label)+" "+highlighted)
+
+			continue
+		}
+
+		out = append(out, pad+highlighted)
+	}
+
+	return out
+}
+
+// rowText is a row's normalized, single-line content: a tool row is
+// prefixed by its tool name to match the label, per DESIGN.md's mock
+// ("▸ tool  ran gofmt").
+func rowText(r row) string {
 	text := flatten(r.text)
 	if r.tool != "" && r.kind == event.KindTool {
 		text = r.tool + " " + text
 	}
 
-	text = truncate(text, width-len(label)-1)
-
-	return style.Render(label) + " " + highlightMatches(text, query, th.searchHit)
+	return text
 }
 
-// flatten collapses a row's text to one line. A transcript row is one line
-// by construction, so a tool result carrying a whole file would otherwise
-// print its newlines straight through the frame and destroy the layout.
+// flatten collapses a row's text to one line. A transcript row's fold state
+// is what controls how many lines it spans, so text destined for either a
+// folded or an expanded row is normalized the same way first: a tool result
+// carrying a whole file would otherwise print its newlines straight through
+// the frame and destroy the layout.
 func flatten(s string) string {
 	if !strings.ContainsAny(s, "\n\r\t") {
 		return s
