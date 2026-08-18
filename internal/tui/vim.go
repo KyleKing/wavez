@@ -552,6 +552,50 @@ func (v *vimInput) splitLine() {
 	v.cur = pos{v.cur.row + 1, 0}
 }
 
+// wordBeforeCursor returns the word-class run before the cursor and the
+// column it starts at.
+//
+//nolint:gocritic // named returns would trip nonamedreturns; the doc comment names them
+func (v vimInput) wordBeforeCursor() (int, string) {
+	line := v.line()
+	start := v.cur.col
+
+	for start > 0 && classOf(line[start-1]) == classWord {
+		start--
+	}
+
+	return start, string(line[start:v.cur.col])
+}
+
+// replaceSpan splices text over [from, to) on the current line, splitting
+// on newlines into new buffer lines, and leaves the cursor after it.
+func (v *vimInput) replaceSpan(from, to int, text string) {
+	line := v.line()
+	from = min(max(from, 0), len(line))
+	to = min(max(to, from), len(line))
+
+	head := append([]rune(nil), line[:from]...)
+	tail := append([]rune(nil), line[to:]...)
+
+	parts := strings.Split(text, "\n")
+	inserted := make([][]rune, len(parts))
+
+	for i, p := range parts {
+		inserted[i] = []rune(p)
+	}
+
+	inserted[0] = append(head, inserted[0]...)
+	lastIdx := len(inserted) - 1
+	cursorCol := len(inserted[lastIdx])
+	inserted[lastIdx] = append(inserted[lastIdx], tail...)
+
+	rest := append([][]rune(nil), v.lines[v.cur.row+1:]...)
+	v.lines = append(v.lines[:v.cur.row:v.cur.row], inserted...)
+	v.lines = append(v.lines, rest...)
+
+	v.cur = pos{v.cur.row + lastIdx, cursorCol}
+}
+
 // at reports the rune at p, treating the end of a line as whitespace so a
 // word motion crosses it the way vim does.
 func (v vimInput) at(p pos) rune {

@@ -33,6 +33,7 @@ func composerHelp() []string {
 		"composer     i a I A o O insert   Esc normal   Ctrl+F fullscreen",
 		"  motions    h j k l   w b e   0 $   gg G",
 		"  edits      x  d{motion}  dd  D  c{motion}  cw  C   u undo   p paste",
+		"  snippets   Tab expands a saved snippet (fullscreen, insert mode)",
 	}
 }
 

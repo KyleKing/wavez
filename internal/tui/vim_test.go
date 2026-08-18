@@ -13,6 +13,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/snippet"
 	"github.com/kyleking/wavez/internal/tui"
 )
 
@@ -52,6 +53,8 @@ func typeKeys(t *testing.T, m tui.Model, keys string) tui.Model {
 			m, keys = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEscape}), keys[len("<esc>"):]
 		case strings.HasPrefix(keys, "<cr>"):
 			m, keys = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}), keys[len("<cr>"):]
+		case strings.HasPrefix(keys, "<tab>"):
+			m, keys = apply(t, m, tea.KeyPressMsg{Code: tea.KeyTab}), keys[len("<tab>"):]
 		default:
 			r, size := utf8.DecodeRuneInString(keys)
 			m, keys = apply(t, m, tea.KeyPressMsg{Code: r, Text: string(r)}), keys[size:]
@@ -109,6 +112,22 @@ func composerFixture(t *testing.T, width, height int) tui.Model {
 	m = openThread(t, m, sampleThreads()[:1])
 
 	return focusComposer(t, m)
+}
+
+// composerFixtureWithSnippets is composerFixture with a per-repo snippets
+// file in place and the composer expanded to fullscreen, since Tab
+// completion only fires there (inline mode's Tab still cycles panels).
+func composerFixtureWithSnippets(t *testing.T, width, height int, snippets map[string]string) tui.Model {
+	t.Helper()
+
+	root := t.TempDir()
+	require.NoError(t, snippet.Save(snippet.RepoPath(root), snippets))
+
+	m := newSized(t, tui.Options{NoColor: true, Dir: root}, width, height)
+	m = openThread(t, m, sampleThreads()[:1])
+	m = focusComposer(t, m)
+
+	return apply(t, m, composeKey())
 }
 
 // sizes the composer is exercised at: DESIGN's 80x24 minimum, the last
@@ -298,6 +317,56 @@ func TestComposer_FullscreenFromTranscriptAndBack(t *testing.T) {
 
 	m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
 	assert.Contains(t, m.View().Content, "ledger", "esc leaves fullscreen next")
+}
+
+// TestComposer_SnippetTabCompletion drives Tab against a snippets file
+// loaded from a temp project dir, in the fullscreen composer where the
+// binding is free (inline mode's Tab still cycles panels).
+func TestComposer_SnippetTabCompletion(t *testing.T) {
+	tests := []struct {
+		name     string
+		snippets map[string]string
+		keys     string
+		wantIn   string
+		status   string
+	}{
+		{
+			name:     "unique match expands the prefix to the snippet's text",
+			snippets: map[string]string{"qt": "use the question tool liberally"},
+			keys:     "please q<tab>",
+			wantIn:   "please use the question tool liberally",
+		},
+		{
+			name:     "no match leaves the buffer untouched",
+			snippets: map[string]string{"qt": "use the question tool liberally"},
+			keys:     "zzz<tab>x",
+			wantIn:   "zzzx",
+		},
+		{
+			name:     "multiple matches complete to their longest common prefix",
+			snippets: map[string]string{"quick": "fast fix", "question": "use the question tool liberally"},
+			keys:     "q<tab>",
+			wantIn:   "qu",
+			status:   "snippets: question, quick",
+		},
+	}
+
+	for _, tc := range tests {
+		for _, size := range composerSizes() {
+			t.Run(tc.name+"_"+strconv.Itoa(size.w), func(t *testing.T) {
+				t.Setenv("HOME", t.TempDir())
+
+				m := composerFixtureWithSnippets(t, size.w, size.h, tc.snippets)
+				m = typeKeys(t, m, tc.keys)
+				assert.Contains(t, m.View().Content, tc.wantIn)
+
+				if tc.status != "" {
+					m = apply(t, m, composeKey())
+					assert.Contains(t, m.View().Content, tc.status)
+				}
+			})
+		}
+	}
 }
 
 func sampleUnified() string {

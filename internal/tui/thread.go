@@ -639,6 +639,7 @@ func (m Model) renderCompose() string {
 		{keyEnter, "newline"},
 		{keyEsc, "normal"},
 		{"i", "insert"},
+		{keyTab, "snippet"},
 	}, m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)

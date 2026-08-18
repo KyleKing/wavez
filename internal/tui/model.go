@@ -10,6 +10,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/snippet"
 )
 
 // screenKind names one full-frame view in the navigation stack.
@@ -44,29 +45,30 @@ type Options struct {
 // field on it and every render is a method in that screen's file; there are
 // no nested tea.Model sub-programs.
 type Model struct {
-	th          theme
 	client      daemonClient
+	snippets    map[string]string
 	transcripts map[string]*transcript
 	diffs       map[string][]diffRow
 	now         func() time.Time
-	status      string
 	dir         string
+	status      string
 	threads     []api.ThreadInfo
 	routines    []api.RoutineInfo
 	stack       []screenKind
 	pending     []api.PendingInfo
-	thread      threadState
-	form        threadForm
-	palette     paletteState
+	th          theme
 	restore     restoreState
-	inbox       inboxState
+	form        threadForm
 	home        homeState
-	schedule    api.Schedule
+	palette     paletteState
+	inbox       inboxState
 	models      modelsState
+	schedule    api.Schedule
+	thread      threadState
 	diag        api.Diagnostics
-	routinesUI  routinesState
 	sched       scheduleState
 	diagUI      diagState
+	routinesUI  routinesState
 	width       int
 	focus       int
 	height      int
@@ -86,7 +88,7 @@ func New(opts Options) Model {
 
 	th := newTheme(opts.NoColor)
 
-	return Model{
+	m := Model{
 		stack:       []screenKind{screenHome},
 		th:          th,
 		noColor:     opts.NoColor,
@@ -102,6 +104,15 @@ func New(opts Options) Model {
 		models:      newModelsState(th),
 		palette:     newPaletteState(th),
 	}
+
+	snippets, err := snippet.LoadAll(opts.Dir)
+	if err != nil {
+		m.status = "loading snippets: " + err.Error()
+	}
+
+	m.snippets = snippets
+
+	return m
 }
 
 // Init satisfies tea.Model. Connecting to the daemon happens outside the
@@ -328,6 +339,10 @@ func (m Model) handleGlobalKey(s string) (Model, tea.Cmd, bool) {
 		return m, nil, true
 	case keyTab, keyShTab:
 		if m.composing() {
+			if s == keyTab && m.thread.input.mode == modeInsert {
+				return m.completeSnippet(), nil, true
+			}
+
 			return m, nil, true
 		}
 		// The new-thread form has two fields of its own, so tab belongs to it

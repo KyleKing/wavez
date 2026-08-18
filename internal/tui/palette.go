@@ -30,10 +30,10 @@ func newPaletteState(th theme) paletteState {
 	return paletteState{input: th.newInput("jump to a thread, directory, prompt, or verb")}
 }
 
-var paletteVerbs = []string{
+var paletteVerbs = append([]string{
 	"diagnostics", labelInbox, labelModels, labelQuit, labelRoutines, verbRouteAuto, verbRouteHosted, verbRouteLocal,
 	verbThinkAuto, verbThinkOn, verbThinkOff, labelUndo,
-}
+}, paletteSnippetVerbs...)
 
 // paletteEntries builds the fuzzy-filterable list: threads, directories,
 // pending prompts, and verbs, matched by substring against every word in
@@ -94,6 +94,10 @@ func (m Model) updatePaletteKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) 
 
 		return m, nil
 	case keyEnter:
+		if name, user, ok := parseSnippetSave(m.palette.input.Value()); ok {
+			return m.saveSnippet(name, user)
+		}
+
 		if len(entries) == 0 {
 			return m, nil
 		}
@@ -144,6 +148,8 @@ func (m Model) runPaletteVerb(verb string) (Model, tea.Cmd) {
 		return m, tea.Quit
 	case labelUndo:
 		return m.requestRestore()
+	case verbSnippetList:
+		return m.listSnippets(), nil
 	case verbRouteAuto:
 		return m.setRoute("")
 	case verbRouteHosted:
