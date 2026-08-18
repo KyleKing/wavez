@@ -1,3 +1,16 @@
+## v0.12.0 (2026-08-18)
+
+### Feat
+
+- **tui**: browse a thread's history by kind, with fuzzy matching and a grouped summary
+- **tui**: give the transcript a row cursor, a fold toggle, and readable answers
+- **agent**: type each turn's prose as an answer or a note from its shape
+
+### Fix
+
+- **daemon**: send the subscribe ack before starting its event forwarder
+- **daemon**: fold a thread's log into its cache before answering, so no reply lags the stream
+
 ## v0.11.1 (2026-08-18)
 
 ### Fix
