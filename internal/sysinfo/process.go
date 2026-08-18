@@ -2,10 +2,16 @@ package sysinfo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+)
+
+var (
+	errEmptyField  = errors.New("sysinfo: empty field")
+	errUnknownUnit = errors.New("sysinfo: unknown unit")
 )
 
 // Process is one running process as `ps` reports it.

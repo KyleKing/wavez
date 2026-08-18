@@ -124,8 +124,7 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 		return m.openSchedule()
 	case "v":
 		if len(rows) > 0 {
-			id := rows[m.cappedCursor(len(rows))].ID
-			m.home.expanded[id] = !m.home.expanded[id]
+			return m.togglePeek(rows[m.cappedCursor(len(rows))].ID)
 		}
 	case keyEnter:
 		if len(rows) > 0 {
@@ -147,6 +146,19 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 	}
 
 	return m, nil
+}
+
+// togglePeek expands or collapses a row. Events only flow for a subscribed
+// thread, so the first peek at one subscribes to it: without that the row
+// opened onto nothing until the thread had been visited.
+func (m Model) togglePeek(id string) (Model, tea.Cmd) {
+	m.home.expanded[id] = !m.home.expanded[id]
+
+	if !m.home.expanded[id] || m.transcripts[id] != nil || m.client == nil {
+		return m, nil
+	}
+
+	return m, m.client.subscribe(id)
 }
 
 func (m Model) cappedCursor(n int) int {

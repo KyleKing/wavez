@@ -14,7 +14,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/app"
@@ -106,7 +108,7 @@ func serve(ctx context.Context, dir, sock string) error {
 		daemon.WithBroker(broker),
 		daemon.WithLogDir(filepath.Join(root, ".wavez", "threads")),
 		daemon.WithPrefix(prefix(a)),
-		daemon.WithStatsSource(machineStats{ctx: ctx}),
+		daemon.WithStatsSource(&machineStats{ctx: ctx}),
 		daemon.WithModelStore(ollama.New()),
 		daemon.WithDiffer(vcs.NewJj()),
 		daemon.WithRestorer(vcs.NewJj()), daemon.WithExpander(a.Mentions),
@@ -129,18 +131,39 @@ func serve(ctx context.Context, dir, sock string) error {
 	return nil
 }
 
-// llamaServerCommand is the process the local model's resident set and CPU
-// are read from, since llama-server is what wavez serves through.
+// llamaServerCommand is the process the local model's footprint and CPU are
+// read from, since llama-server is what wavez serves through.
 const llamaServerCommand = "llama-server"
+
+// statsTTL is how long one machine reading answers for. Reading the model's
+// footprint costs a `top` sample of about half a second, and the daemon's
+// sampler and every polling client would otherwise each pay it.
+const statsTTL = time.Second
 
 // machineStats reads real memory and CPU for the diagnostics panel. A reading
 // that fails is reported as unmeasured rather than guessed, so the panel never
 // invents a number.
 type machineStats struct {
-	ctx context.Context //nolint:containedctx // StatsSource.Stats takes no context
+	ctx  context.Context //nolint:containedctx // StatsSource.Stats takes no context
+	at   time.Time
+	last daemon.MachineStats
+	mu   sync.Mutex
 }
 
-func (m machineStats) Stats() daemon.MachineStats {
+func (m *machineStats) Stats() daemon.MachineStats {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if time.Since(m.at) < statsTTL {
+		return m.last
+	}
+
+	m.last, m.at = m.read(), time.Now()
+
+	return m.last
+}
+
+func (m *machineStats) read() daemon.MachineStats {
 	out := daemon.MachineStats{}
 
 	if mem, err := sysinfo.ReadMemory(m.ctx); err == nil {
@@ -163,8 +186,11 @@ func (m machineStats) Stats() daemon.MachineStats {
 			out.CPUDaemon += p.CPUPercent
 		case p.Command == llamaServerCommand:
 			out.CPUModel += p.CPUPercent
-			out.ModelBytes += p.RSSBytes
-			out.ModelMeasured = true
+
+			if fp, err := sysinfo.ReadFootprint(m.ctx, p.PID); err == nil {
+				out.ModelBytes += fp
+				out.ModelMeasured = true
+			}
 		}
 	}
 

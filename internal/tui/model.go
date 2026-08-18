@@ -147,6 +147,9 @@ func (m *Model) popOrClose() {
 
 		return
 	}
+	if m.top() == screenModels && m.closeModelsOverlay() {
+		return
+	}
 	if m.top() == screenHome && m.home.filtering {
 		m.home.filtering = false
 		m.home.filterInput.Blur()
@@ -508,6 +511,9 @@ func (m *Model) applyScreenReply(r api.Reply) {
 		m.applyModels(r)
 	case api.RepError:
 		m.status = r.Error
+		// A preview that failed has nothing to confirm against, and leaving
+		// the prompt open would offer to act on a model the registry refused.
+		m.models.action, m.models.pending, m.models.confirm = "", "", ""
 	case api.RepHello, api.RepThreads, api.RepThread, api.RepEvent, api.RepPending, api.RepDiag, api.RepLagged:
 		// Handled by applyReply, which is the only caller.
 	}

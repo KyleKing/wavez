@@ -208,11 +208,32 @@ func (m Model) updateModelSettings(s string) (Model, tea.Cmd) {
 		return m, m.models.edit.Focus()
 	case "0":
 		return m.saveModelField("")
-	case keyEsc:
-		m.models.settings = false
 	}
 
 	return m, nil
+}
+
+// closeModelsOverlay is Esc's ladder on the model screen: an open text field
+// closes first, then a confirmation, then the settings pane, and only with
+// none of those open does Esc leave the screen. It reports whether it closed
+// anything.
+func (m *Model) closeModelsOverlay() bool {
+	switch {
+	case m.models.naming:
+		m.models.naming = false
+		m.models.install.Reset()
+	case m.models.editing:
+		m.models.editing = false
+		m.models.edit.Reset()
+	case m.models.action != "":
+		m.models.action, m.models.pending, m.models.confirm = "", "", ""
+	case m.models.settings:
+		m.models.settings = false
+	default:
+		return false
+	}
+
+	return true
 }
 
 func (m Model) updateModelEdit(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {

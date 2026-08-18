@@ -73,6 +73,7 @@ type fakeClient struct {
 	listed      int
 	canceled    []string
 	models      []api.Command
+	subscribed  []string
 	resets      int
 }
 
@@ -117,7 +118,11 @@ func (f *fakeClient) runRoutine(name string) tea.Cmd {
 	return nil
 }
 
-func (*fakeClient) subscribe(string) tea.Cmd    { return nil }
+func (f *fakeClient) subscribe(id string) tea.Cmd {
+	f.subscribed = append(f.subscribed, id)
+
+	return nil
+}
 func (*fakeClient) send(string, string) tea.Cmd { return nil }
 
 func (f *fakeClient) restore(threadID string, confirm bool) tea.Cmd {
@@ -485,5 +490,52 @@ func TestDiagnostics_ResetAsksTheDaemonToClearTheWindow(t *testing.T) {
 
 	if _, _ = m.updateDiagnosticsKey("r"); fc.resets != 1 {
 		t.Fatalf("resets = %d, want the window cleared once", fc.resets)
+	}
+}
+
+// TestHome_PeekSubscribesToAnUnvisitedThread covers the fleet case: a thread
+// nobody has opened has no events on the client, so the peek must ask for
+// them or open onto nothing.
+func TestHome_PeekSubscribesToAnUnvisitedThread(t *testing.T) {
+	t.Parallel()
+
+	fc := &fakeClient{}
+	m := New(Options{NoColor: true})
+	m.client = fc
+	m.threads = []api.ThreadInfo{{ID: "t1", Name: "one", Dir: "d"}}
+
+	m, _ = m.updateHomeKey(keyMsg("v"), "v")
+	m, _ = m.updateHomeKey(keyMsg("v"), "v")
+	m, _ = m.updateHomeKey(keyMsg("v"), "v")
+
+	if len(fc.subscribed) != 2 || fc.subscribed[0] != "t1" {
+		t.Fatalf("subscribed = %v, want t1 on each expand and never on collapse", fc.subscribed)
+	}
+	if !m.home.expanded["t1"] {
+		t.Error("third press should leave the row expanded")
+	}
+}
+
+func TestModelScreen_EscClosesOverlaysBeforeLeavingTheScreen(t *testing.T) {
+	t.Parallel()
+
+	m := modelScreenModel(&fakeClient{})
+	m, _ = m.updateModelsKey(keyMsg("e"), "e")
+	m, _ = m.updateModelsKey(keyMsg("e"), "e")
+
+	m.popOrClose()
+	if !m.models.settings || m.models.editing {
+		t.Fatalf("first esc should close the edit field only, got settings=%v editing=%v",
+			m.models.settings, m.models.editing)
+	}
+
+	m.popOrClose()
+	if m.models.settings || m.top() != screenModels {
+		t.Fatalf("second esc should close the settings pane and stay on the screen, got %v", m.top())
+	}
+
+	m.popOrClose()
+	if m.top() == screenModels {
+		t.Fatal("third esc should leave the screen")
 	}
 }
