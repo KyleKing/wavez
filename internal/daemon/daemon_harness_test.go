@@ -54,10 +54,15 @@ type testHarness struct {
 func newHarness(t *testing.T, local *fake.Provider, extraTools ...tool.Tool) *testHarness {
 	t.Helper()
 
-	return newHarnessWith(t, local, nil, extraTools...)
+	return newHarnessWith(t, local, nil, nil, extraTools...)
 }
 
-func newHarnessWith(t *testing.T, local *fake.Provider, loopOpts []agent.Option, extraTools ...tool.Tool) *testHarness {
+// newHarnessWith is newHarness with extra loop and daemon options, for a
+// test that injects a checkpointer, or wires a lease manager or scheduler
+// the tools it passes were built with.
+func newHarnessWith(
+	t *testing.T, local *fake.Provider, loopOpts []agent.Option, extra []daemon.Option, extraTools ...tool.Tool,
+) *testHarness {
 	t.Helper()
 
 	broker := daemon.NewBroker()
@@ -68,13 +73,14 @@ func newHarnessWith(t *testing.T, local *fake.Provider, loopOpts []agent.Option,
 	loop := agent.New(local, hosted, reg, broker.Gate(), opts...)
 
 	sockPath := shortSockPath(t)
-	srv, err := daemon.New(sockPath,
+	daemonOpts := append([]daemon.Option{
 		daemon.WithLoop(loop),
 		daemon.WithBroker(broker),
 		daemon.WithLogDir(t.TempDir()),
 		daemon.WithPrefix(agent.Prefix{System: "test"}),
-		daemon.WithShutdownGrace(2*time.Second),
-	)
+		daemon.WithShutdownGrace(2 * time.Second),
+	}, extra...)
+	srv, err := daemon.New(sockPath, daemonOpts...)
 	if err != nil {
 		t.Fatalf("daemon.New: %v", err)
 	}

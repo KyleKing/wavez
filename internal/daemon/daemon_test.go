@@ -537,7 +537,7 @@ func TestSend_RunErrorReachesTheThreadLog(t *testing.T) {
 
 	local := fake.New("local", fake.Turn{Text: []string{"never"}, StopReason: llm.StopEndTurn})
 	cp := failingCheckpointer{err: errNoJJRepo}
-	h := newHarnessWith(t, local, []agent.Option{agent.WithCheckpointer(cp, "/x")})
+	h := newHarnessWith(t, local, []agent.Option{agent.WithCheckpointer(cp, "/x")}, nil)
 
 	cl := dial(t, h)
 	cl.hello()
