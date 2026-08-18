@@ -22,7 +22,11 @@ func TestSubtreeKeysOnTheWriteTargetsDirectory(t *testing.T) {
 		target string
 		want   string
 	}{
-		{name: "nested file", target: filepath.Join(root, "internal", "vcs", "jj.go"), want: filepath.Join("internal", "vcs")},
+		{
+			name:   "nested file",
+			target: filepath.Join(root, "internal", "vcs", "jj.go"),
+			want:   filepath.Join("internal", "vcs"),
+		},
 		{name: "file at the root", target: filepath.Join(root, "main.go"), want: "."},
 		{
 			name:   "outside the root keys on itself",
@@ -93,9 +97,7 @@ func TestAcquireSerializesOverlappingSubtrees(t *testing.T) {
 	want := lease.Wait{Holder: "beta", Subtree: filepath.Join("internal", "vcs"), Blocker: "alpha", Waiting: true}
 	assert.Equal(t, want, <-waitCh)
 
-	held, waiting := m.Counts()
-	assert.Equal(t, 2, held)
-	assert.Equal(t, 1, waiting)
+	assert.Equal(t, lease.Counts{Held: 2, Waiting: 1}, m.Counts())
 
 	blocked := leaseFor(t, m, filepath.Join("internal", "vcs"))
 	assert.Equal(t, lease.StateActive, blocked.State)
@@ -108,8 +110,7 @@ func TestAcquireSerializesOverlappingSubtrees(t *testing.T) {
 
 	assert.Equal(t, lease.StateCommitted, leaseFor(t, m, filepath.Join("internal", "vcs")).State)
 
-	_, waiting = m.Counts()
-	assert.Zero(t, waiting)
+	assert.Zero(t, m.Counts().Waiting)
 }
 
 func TestAcquireIsReentrantForOneHolder(t *testing.T) {

@@ -23,7 +23,8 @@ file is the map you read first.
 | Store | The per-project SQLite file holding symbols, edges, FTS, coverage, and contracts |
 | Mutant | One changed token in one file, used to ask whether the tests check a line or merely run it. A mutant that survives the tests is reported like a failing test |
 | Run scope | The files a run has read or created. An edit to anything else is recorded, and refused under `-strict-scope` |
-| Lease | An advisory TTL lock on a directory subtree, so two threads do not write the same place |
+| Lease | An advisory TTL lock on the directory holding a write target, taken where the write happens, so two threads do not write the same place. Active while its holder writes, committed once the writes land, expired once the holder stops renewing it |
+| Scheduler phase | What admission is letting run: edit while threads write and gate runs queue, execute while a gate run holds the machine. Derived from what is running, never set |
 
 ## How a turn runs
 

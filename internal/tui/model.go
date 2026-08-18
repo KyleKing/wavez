@@ -57,9 +57,9 @@ type Model struct {
 	restore     restoreState
 	inbox       inboxState
 	home        homeState
-	sched       scheduleState
 	schedule    api.Schedule
 	diag        api.Diagnostics
+	sched       scheduleState
 	width       int
 	focus       int
 	height      int
@@ -395,14 +395,8 @@ func (m *Model) applyReply(r api.Reply) {
 		}
 	case api.RepPending:
 		m.pending = r.Pending
-	case api.RepDiag:
-		if r.Diag != nil {
-			m.diag = *r.Diag
-		}
-	case api.RepSchedule:
-		if r.Schedule != nil {
-			m.schedule = *r.Schedule
-		}
+	case api.RepDiag, api.RepSchedule:
+		m.applyPanel(r)
 	case api.RepEvent:
 		if r.Event != nil {
 			m.appendEvent(*r.Event)
@@ -420,6 +414,18 @@ func (m *Model) applyReply(r api.Reply) {
 	case api.RepHello, api.RepLagged:
 		// Hello is consumed by Dial; a lagged subscription resubscribes in
 		// the bridge, not here.
+	}
+}
+
+// applyPanel takes the fleet-wide readings the diagnostics and schedule
+// screens render.
+func (m *Model) applyPanel(r api.Reply) {
+	if r.Diag != nil {
+		m.diag = *r.Diag
+	}
+
+	if r.Schedule != nil {
+		m.schedule = *r.Schedule
 	}
 }
 

@@ -39,8 +39,8 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 // alone.
 type StrReplace struct {
 	scope *Scope
-	root  string
 	deps  deps
+	root  string
 }
 
 // NewStrReplace builds a StrReplace tool scoped to root, checking each edit

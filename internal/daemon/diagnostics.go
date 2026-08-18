@@ -10,11 +10,11 @@ var unmeasurableGauges = []api.Gauge{api.GaugeTokensPerSec, api.GaugePrefixHit}
 
 func (s *Server) diagnostics() api.Diagnostics {
 	u := s.mgr.totalUsage()
-	held, waiting := s.leases.Counts()
+	counts := s.leases.Counts()
 
 	d := api.Diagnostics{
-		LeasesHeld:    held,
-		LeasesWaiting: waiting,
+		LeasesHeld:    counts.Held,
+		LeasesWaiting: counts.Waiting,
 		LocalModel:    s.mgr.localModel(),
 		Threads:       s.mgr.count(),
 		NeedsInput:    s.mgr.needsInputCount(),

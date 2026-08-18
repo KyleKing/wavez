@@ -41,11 +41,11 @@ const reasonNoScript = "names no readable file in the project"
 // nothing runs before both checks have cleared it.
 type Shell struct {
 	gate       permission.Gate
+	deps       deps
 	env        guard.Env
 	root       string
 	sessionTmp string
 	threadID   string
-	deps       deps
 }
 
 // NewShell builds a Shell tool scoped to root and sessionTmp, gating

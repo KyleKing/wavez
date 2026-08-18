@@ -188,12 +188,12 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 ├ routine · gate/test · add-jj-backend ───────────────────────────────┤
 │ changed(2) → select(7) → run ◐ 4/7 → trim                           │
 │            → fmt ✔      → lint ✔                                    │
-└ [Enter]drill [p]ause [k]ill [l]ocks [Esc]back ──────────────────────┘
+└ [Enter]open [l]ocks [x]kill [Esc]back [?]help ──────────────────────┘
 ```
 
 - One lane per thread, recent history left to right, glyph runs show what each spent its time on. A lock wait names the holder
 - The selected thread's active routine renders one line per branch. A DAG with more branches than rows drills in with `Enter` to a tree view (one node per line, `├──` guides)
-- Lease list behind `l`: subtree, holder, state (active, committed, expired)
+- Lease list behind `l`: subtree, holder, state (active, committed, expired), and who waits behind it. `x` kills the selected thread's turn. Footer hints drop back and help before open, since `Esc` and `?` work everywhere
 
 ### Diagnostics (M1 strip, M2 panel)
 
@@ -224,7 +224,7 @@ Vim-shaped, layered so the floor is discoverable and the ceiling is fast, in the
 - L0, always in the footer: arrows, `Enter`, `Esc`, `q` at Home only, `?`
 - The message composer is modal, and modal only: normal and insert modes with vim's motions, operators, and undo, `Esc` stepping insert to normal to inline to the transcript and never quitting, and `ctrl+f` expanding it to the whole frame for a long prompt. Focus decides whether a letter is a verb or a character, never mode, so `d` deletes in the composer and opens the diff pane from the transcript. Permission answers moved to the transcript panel with that change: `a` on an empty composer is vim's append, and answering from the input line would have granted allow-always to a shell command the moment someone started typing
 - L1, vim motions everywhere a list or text is on screen: `j`/`k`, `h`/`l` (collapse and expand rows, or move between panels), `gg`/`G`, `Ctrl-d`/`Ctrl-u`, `/` with `n`/`N`, `:` for the palette
-- L2, single-key verbs per screen shown in the footer by priority (Home: `v` peek, `n` new, `i` inbox, `s` schedule, `D` diagnostics; Thread: `a` ask-line, `d` diff, `f` fork, `[`/`]` threads; Schedule: `p` pause, `k` kill, `l` leases)
+- L2, single-key verbs per screen shown in the footer by priority (Home: `v` peek, `n` new, `i` inbox, `s` schedule, `D` diagnostics; Thread: `a` ask-line, `d` diff, `f` fork, `[`/`]` threads; Schedule: `x` kill, `l` leases)
 - L3, palette verbs and counts (`3]` jumps three threads, `:kill flaky-ci`, `:scope ..`)
 - Footer hints drop lowest priority first as the terminal narrows, and every screen keeps `?` for the full map. Mouse works for click and scroll, never required. `Shift`-click leaves selection to the terminal
 
@@ -415,11 +415,12 @@ Coverage says a line ran, not that anything checked it, and this project has alr
 
 - A thread is a directory set plus a history plus a compaction state. Threads across directories are the norm, worktrees optional
 - Event log per thread with a retention policy from day one: a ring buffer in memory and overflow to disk on both daemon and client. The daemon and TUI spike held 105k events fine at 30 MB daemon RSS but showed the client's heap-driven CPU creep and the daemon's unbounded slice growth. Fan-out to subscribers blocks on backlog replay and sheds only on live streams, and per-connection channels are never closed by a producer
-- Scheduler phases: edit (threads write, gates queue) and execute (gates and routines run, edits pause for the touched subtrees)
-- Memory-aware admission: the local model and a large test run do not overlap when headroom is below a threshold (with qwen3:8b loaded ~31% is free, enough for a Go suite, while gemma4:12b leaves 14-18% and is not). Long-running services (compose stacks) stop when idle
+- Scheduler phases: edit (threads write, gates queue) and execute (gates and routines run, edits pause for the touched subtrees). The phase is derived from what holds admission rather than set, so it cannot disagree with what is running
+- Memory-aware admission: a turn on the local tier and a gate run do not overlap when free memory is below `admissionHeadroom` in `.wavez.pkl` (with qwen3:8b loaded ~31% is free, enough for a Go suite, while gemma4:12b leaves 14-18% and is not, so the default sits between them at 25%). A turn pinned hosted skips admission because it occupies no local memory. A machine whose memory cannot be read admits everything rather than stalling on a number it does not have. A held thread's step says what it waits for and how much is free, since a thread that is neither working nor waiting on a lock otherwise reads as merely slow. Long-running services (compose stacks) stop when idle
+- Leases are taken where a thread is about to write (the edit and write tools, and shell when the guard recognizes a writing command), never at thread creation, because a thread's directory set does not say where it writes. The key is the directory holding the write target, relative to the project. Overlap covers ancestor and descendant subtrees, one thread may hold overlapping subtrees at once, and a wait names its holder in the step column (`waiting lock internal/vcs ← add-jj-backend`). Releasing downgrades to committed rather than dropping the lease, so the subtree keeps its rebase-risk signal until the TTL (`leaseTtlMinutes`) runs out, and an expired lease blocks nobody, which is the one cleanup nothing else performs for a thread that died mid-write
 - Contention rules come from leases plus a dependency map, so two threads planning changes to the same feature serialize
 - Threads can spawn sub-threads (one level) and fork, the fork inheriting the parent's change set rather than its history
-- The schedule view shows one lane per thread with the active routine's DAG inline
+- The schedule view shows one lane per thread with the active routine's DAG inline. A lane is a fixed number of cells over the last five minutes of the thread's state history, so it is a shape to scan rather than a chart, and lanes drop their oldest cells first as the frame narrows
 
 ### Compaction (M3, minimal version in M1)
 
@@ -617,6 +618,8 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of a second laptop with more memory on the same network, facing moving the local tier there vs keeping local as loopback only, we let `localBaseURL` point the local tier at a remote `llama-server` and keep the loopback supervisor for the empty case, to run a model two tiers up at the same wire cost as loopback, accepting that admission and the memory gauges describe only the laptop the daemon runs on and that the endpoint's safety rests on the tailnet rather than on Wavez
 - In the context of picking the hosted model, facing the cheapest coder model vs a reliably tool-calling one, we rank native tool-call reliability above price and default to `openai/gpt-5-mini`, to make the escalation tier actually able to act, accepting roughly 4x the input price of the cheapest option and a closed-weight default. A turn that writes its tool call as prose is caught and failed rather than reported complete, since a model that changes nothing must never look like one that succeeded
 - In the context of coordination between threads, facing worktrees vs directories, we key locks and identity on directory subtrees, to match how agents actually write (6.8% of writes leave the cwd), accepting that isolation of dependencies is the project's job
+- In the context of lease granularity, facing per-file locks vs the directory holding the write target vs the thread's directory set, we lease the write target's directory and take it where the write happens, to catch the near-miss collision (two threads in one package, different files) that file locks miss and to attribute a write to the thread that made it rather than to where it started, accepting false contention on wide directories and that a shell write the guard does not recognize takes no lease. Measured in `_ai_/notes/agent-lock-coordination.md`: directory-level collisions run 2.2x file-level, and a fifth of writes bypass the file tools
+- In the context of pausing a thread from the schedule view, facing a pause verb vs kill alone, we ship kill (`x`) and no pause, to avoid a state that holds the model's memory while doing nothing, which is what admission exists to prevent, accepting that stopping a turn loses it
 - In the context of safety, facing prompts-only vs sandbox, we run Seatbelt plus a deterministic destructive-command guard with prompts for the remainder, to make catastrophic actions unreachable rather than discouraged, accepting some setup per project
 - In the context of VCS, facing git-only vs jj-only vs both, we chose jj alone in a colocated repo and pulled it forward from M4, to get per-turn checkpointing and undo from the operation log instead of writing our own snapshots, accepting that every machine running wavez needs jj installed. jj snapshots the working copy on every command, so an agent's checkpoint is a side effect of working rather than a feature. Colocated is what jj's own GitHub guidance recommends and is required here anyway, since hk installs its hooks through git config
 - In the context of remote access, facing native app vs PWA vs SSH, we chose Tailscale plus a PWA plus push, to ship in days with no App Store or server, accepting that the laptop must stay awake

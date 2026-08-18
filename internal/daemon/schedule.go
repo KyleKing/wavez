@@ -11,14 +11,12 @@ import (
 	"github.com/kyleking/wavez/internal/sched"
 )
 
+// One lane spans laneCells glyphs over the last laneWindow, sized to the
+// DESIGN.md mock rather than to the data: a lane is a shape to scan, not a
+// chart. The state history a lane is drawn from is bounded by laneSamples.
 const (
-	// laneCells is how many glyphs one lane spans, sized to the DESIGN.md
-	// mock rather than to the data: the lane is a shape to scan, not a chart.
-	laneCells = 15
-	// laneWindow is how far back a lane reaches.
-	laneWindow = 5 * time.Minute
-	// laneSamples bounds a thread's retained state history, which is what a
-	// lane is drawn from.
+	laneCells   = 15
+	laneWindow  = 5 * time.Minute
 	laneSamples = 64
 )
 
@@ -53,8 +51,9 @@ func (s *Server) schedule(ctx context.Context) api.Schedule {
 	}
 
 	now := time.Now()
-	for _, info := range s.mgr.list() {
-		out.Lanes = append(out.Lanes, s.lane(info, leases, now))
+	infos := s.mgr.list()
+	for i := range infos {
+		out.Lanes = append(out.Lanes, s.lane(infos[i], leases, now))
 	}
 
 	return out

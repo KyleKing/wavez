@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,12 +23,12 @@ import (
 // the path the test assigned its thread, reports that it holds it, and then
 // waits to be told to finish, so the test decides how long each write lasts.
 type leasedWrite struct {
-	echoTool
 	leases  *lease.Manager
 	paths   map[string]string
-	holding chan string
 	finish  map[string]chan struct{}
-	mu      sync.Mutex
+	holding chan string
+	echoTool
+	mu sync.Mutex
 }
 
 func (w *leasedWrite) Run(ctx context.Context, _ json.RawMessage) (tool.Result, error) {
@@ -44,9 +45,13 @@ func (w *leasedWrite) Run(ctx context.Context, _ json.RawMessage) (tool.Result, 
 	defer release()
 
 	w.holding <- holder
-	<-finish
 
-	return tool.Result{Content: "wrote " + path}, nil
+	select {
+	case <-finish:
+		return tool.Result{Content: "wrote " + path}, nil
+	case <-ctx.Done():
+		return tool.Result{}, fmt.Errorf("leased write: %w", ctx.Err())
+	}
 }
 
 func (w *leasedWrite) assign(threadID, path string) {
@@ -111,15 +116,17 @@ func TestSchedule_ThreeThreadsTwoDirectoriesSerializeOnTheLease(t *testing.T) {
 	}
 
 	sendPrompt(t, cl, beta.ID)
-	sched := waitForSchedule(t, cl, func(s api.Schedule) bool {
-		return laneFor(s, beta.ID).Lock != ""
+	// The lock on the lane and the words in its step arrive on two paths (the
+	// lease list and the thread's own log), so wait for both before judging.
+	wantStep := "waiting lock internal/vcs ← " + alpha.Name
+	schedule := waitForSchedule(t, cl, func(s api.Schedule) bool {
+		l := laneFor(s, beta.ID)
+
+		return l.Lock != "" && l.Step == wantStep
 	})
-	betaLane := laneFor(sched, beta.ID)
+	betaLane := laneFor(schedule, beta.ID)
 	if betaLane.Lock != filepath.Join("internal", "vcs") || betaLane.LockHolder != alpha.Name {
 		t.Fatalf("beta lane = %+v, want a wait on internal/vcs held by %s", betaLane, alpha.Name)
-	}
-	if want := "waiting lock internal/vcs ← " + alpha.Name; betaLane.Step != want {
-		t.Fatalf("beta step = %q, want %q", betaLane.Step, want)
 	}
 
 	sendPrompt(t, cl, gamma.ID)
@@ -127,9 +134,9 @@ func TestSchedule_ThreeThreadsTwoDirectoriesSerializeOnTheLease(t *testing.T) {
 		t.Fatalf("second holder = %s, want gamma %s (it must not wait behind alpha)", got, gamma.ID)
 	}
 
-	sched = waitForSchedule(t, cl, func(s api.Schedule) bool { return len(s.Leases) == 2 })
-	assertLease(t, sched, filepath.Join("internal", "vcs"), alpha.Name, "active", beta.Name)
-	assertLease(t, sched, filepath.Join(repoB, "internal", "api"), gamma.Name, "active")
+	schedule = waitForSchedule(t, cl, func(s api.Schedule) bool { return len(s.Leases) == 2 })
+	assertLease(t, schedule, filepath.Join("internal", "vcs"), alpha.Name, "active", beta.Name)
+	assertLease(t, schedule, filepath.Join(repoB, "internal", "api"), gamma.Name, "active")
 
 	tl.done(gamma.ID)
 	tl.done(alpha.ID)
@@ -139,16 +146,16 @@ func TestSchedule_ThreeThreadsTwoDirectoriesSerializeOnTheLease(t *testing.T) {
 	}
 	tl.done(beta.ID)
 
-	sched = waitForSchedule(t, cl, func(s api.Schedule) bool {
+	schedule = waitForSchedule(t, cl, func(s api.Schedule) bool {
 		l := leaseFor(s, filepath.Join("internal", "vcs"))
 
 		return l.State == "committed" && len(l.Waiters) == 0
 	})
-	if got := leaseFor(sched, filepath.Join("internal", "vcs")).Holder; got != beta.Name {
+	if got := leaseFor(schedule, filepath.Join("internal", "vcs")).Holder; got != beta.Name {
 		t.Fatalf("final holder = %s, want beta %s", got, beta.Name)
 	}
-	if len(sched.Lanes) != 3 || sched.Phase != "edit" {
-		t.Fatalf("schedule = %d lanes in phase %q, want 3 lanes in edit", len(sched.Lanes), sched.Phase)
+	if len(schedule.Lanes) != 3 || schedule.Phase != "edit" {
+		t.Fatalf("schedule = %d lanes in phase %q, want 3 lanes in edit", len(schedule.Lanes), schedule.Phase)
 	}
 }
 

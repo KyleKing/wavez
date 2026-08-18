@@ -6,8 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// The footer drops from the tail: back and help go before open, since Esc
-// and ? work everywhere and the footer is the only place open is named.
+// The footer drops from the tail. Back and help go before open, since Esc
+// and the help key work everywhere and the footer is the only place open is
+// named.
 func TestScheduleHintsDropByPriority(t *testing.T) {
 	t.Parallel()
 

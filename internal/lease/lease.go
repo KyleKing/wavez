@@ -184,8 +184,8 @@ func (m *Manager) Acquire(ctx context.Context, target string) (func(), error) {
 	waiting := false
 
 	for {
-		wake, blocker := m.try(key, holder)
-		if blocker == "" {
+		c := m.try(key, holder)
+		if c.blocker == "" {
 			if waiting {
 				m.leaveWait(key, holder)
 				m.notify(Wait{Holder: holder, Subtree: key, Waiting: false})
@@ -198,23 +198,31 @@ func (m *Manager) Acquire(ctx context.Context, target string) (func(), error) {
 			waiting = true
 
 			m.enterWait(key, holder)
-			m.notify(Wait{Holder: holder, Subtree: key, Blocker: blocker, Waiting: true})
+			m.notify(Wait{Holder: holder, Subtree: key, Blocker: c.blocker, Waiting: true})
 		}
 
 		select {
-		case <-wake:
+		case <-c.wake:
 		case <-ctx.Done():
 			m.leaveWait(key, holder)
-			m.notify(Wait{Holder: holder, Subtree: key, Blocker: blocker, Waiting: false})
+			m.notify(Wait{Holder: holder, Subtree: key, Blocker: c.blocker, Waiting: false})
 
 			return nil, fmt.Errorf("waiting for %s: %w", key, ctx.Err())
 		}
 	}
 }
 
-// try takes the lease if nothing active contends, and otherwise returns the
-// channel that closes on the next release plus the thread in the way.
-func (m *Manager) try(key, holder string) (<-chan struct{}, string) {
+// contention is what stands between a caller and a lease: the thread in the
+// way and the channel that closes when something releases. An empty blocker
+// means the lease was taken.
+type contention struct {
+	wake    <-chan struct{}
+	blocker string
+}
+
+// try takes the lease if nothing active contends, and otherwise reports what
+// contends.
+func (m *Manager) try(key, holder string) contention {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -226,7 +234,7 @@ func (m *Manager) try(key, holder string) (<-chan struct{}, string) {
 			continue
 		}
 
-		return m.wake, e.holder
+		return contention{wake: m.wake, blocker: e.holder}
 	}
 
 	e, ok := m.held[key]
@@ -242,7 +250,7 @@ func (m *Manager) try(key, holder string) (<-chan struct{}, string) {
 	e.depth++
 	e.since = now
 
-	return nil, ""
+	return contention{}
 }
 
 // release downgrades key back to committed once its last holder is done.
@@ -367,11 +375,17 @@ func (m *Manager) List() []Lease {
 	return out
 }
 
-// Counts reports leases held right now and threads waiting on one, which is
-// the pair the diagnostics panel shows.
-func (m *Manager) Counts() (held, waiting int) {
+// Counts is the pair the diagnostics panel shows: leases held right now and
+// threads waiting on one.
+type Counts struct {
+	Held    int
+	Waiting int
+}
+
+// Counts reports leases active right now and threads waiting on one.
+func (m *Manager) Counts() Counts {
 	if m == nil {
-		return 0, 0
+		return Counts{}
 	}
 
 	m.mu.Lock()
@@ -379,11 +393,15 @@ func (m *Manager) Counts() (held, waiting int) {
 
 	now := m.now()
 
+	var c Counts
+
 	for _, e := range m.held {
 		if m.state(e, now) == StateActive {
-			held++
+			c.Held++
 		}
 	}
 
-	return held, m.waiting
+	c.Waiting = m.waiting
+
+	return c
 }

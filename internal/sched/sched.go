@@ -1,6 +1,6 @@
 // Package sched admits the work that competes for this laptop's memory. Only
 // one model fits in 16 GB, so a turn on the local tier and a gate run are
-// rivals rather than neighbours: two llama-server processes on the same 6 GB
+// rivals rather than neighbors: two llama-server processes on the same 6 GB
 // model already OOM'd Metal, and a Go suite beside a loaded model is the same
 // arithmetic one step down.
 package sched
@@ -43,8 +43,8 @@ type Hold struct {
 
 // Snapshot is the scheduler's state as the schedule view renders it.
 type Snapshot struct {
-	Memory     sysinfo.Memory
 	Phase      Phase
+	Memory     sysinfo.Memory
 	Headroom   float64
 	LocalTurns int
 	GateRuns   int
@@ -127,8 +127,8 @@ func (s *Scheduler) admit(ctx context.Context, holder string, isTurn bool) (func
 	held := false
 
 	for {
-		wake, reason := s.enter(ctx, isTurn)
-		if reason == "" {
+		c := s.enter(ctx, isTurn)
+		if c.reason == "" {
 			if held {
 				s.notify(Hold{Holder: holder, Held: false})
 			}
@@ -139,11 +139,11 @@ func (s *Scheduler) admit(ctx context.Context, holder string, isTurn bool) (func
 		if !held {
 			held = true
 
-			s.notify(Hold{Holder: holder, Reason: reason, Held: true})
+			s.notify(Hold{Holder: holder, Reason: c.reason, Held: true})
 		}
 
 		select {
-		case <-wake:
+		case <-c.wake:
 		case <-ctx.Done():
 			s.notify(Hold{Holder: holder, Held: false})
 
@@ -152,9 +152,16 @@ func (s *Scheduler) admit(ctx context.Context, holder string, isTurn bool) (func
 	}
 }
 
-// enter takes the admission if the machine has room, and otherwise returns
-// the channel that closes when something finishes plus why the caller waits.
-func (s *Scheduler) enter(ctx context.Context, isTurn bool) (<-chan struct{}, string) {
+// contention is what keeps a caller out: why it waits and the channel that
+// closes when something finishes. An empty reason means it was admitted.
+type contention struct {
+	wake   <-chan struct{}
+	reason string
+}
+
+// enter takes the admission if the machine has room, and otherwise reports
+// what keeps the caller out.
+func (s *Scheduler) enter(ctx context.Context, isTurn bool) contention {
 	mem, measured := s.read(ctx)
 
 	s.mu.Lock()
@@ -166,7 +173,7 @@ func (s *Scheduler) enter(ctx context.Context, isTurn bool) (<-chan struct{}, st
 	}
 
 	if measured && rival > 0 && free(mem) < s.headroom {
-		return s.wake, holdReason(mem, isTurn)
+		return contention{wake: s.wake, reason: holdReason(mem, isTurn)}
 	}
 
 	if isTurn {
@@ -175,7 +182,7 @@ func (s *Scheduler) enter(ctx context.Context, isTurn bool) (<-chan struct{}, st
 		s.gates++
 	}
 
-	return nil, ""
+	return contention{}
 }
 
 func (s *Scheduler) leave(isTurn bool) {

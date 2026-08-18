@@ -29,7 +29,11 @@ func TestWriteTargets(t *testing.T) {
 			command: "sed -i '' s/a/b/ internal/vcs/jj.go",
 			want:    []string{"/repo/internal/vcs/jj.go", "/repo/s/a/b"},
 		},
-		{name: "formatter behind a flag", command: "gofmt -w internal/tui/home.go", want: []string{"/repo/internal/tui/home.go"}},
+		{
+			name:    "formatter behind a flag",
+			command: "gofmt -w internal/tui/home.go",
+			want:    []string{"/repo/internal/tui/home.go"},
+		},
 		{name: "formatter without one", command: "black src", want: []string{"/repo/src"}},
 		{name: "move", command: "mv a.go internal/api/b.go", want: []string{"/repo/a.go", "/repo/internal/api/b.go"}},
 		{name: "remove", command: "rm -rf internal/tmp", want: []string{"/repo/internal/tmp"}},

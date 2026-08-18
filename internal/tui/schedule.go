@@ -79,9 +79,11 @@ func scheduleTick() tea.Cmd {
 	return tea.Tick(pollInterval, func(_ time.Time) tea.Msg { return scheduleTickMsg{} })
 }
 
-// openSchedule pushes the schedule screen and starts its refresh.
+// openSchedule pushes the schedule screen, on its lanes rather than
+// whichever list was showing last, and starts its refresh.
 func (m Model) openSchedule() (Model, tea.Cmd) {
 	m.push(screenSchedule)
+	m.sched.leases = false
 
 	if m.client == nil {
 		return m, scheduleTick()

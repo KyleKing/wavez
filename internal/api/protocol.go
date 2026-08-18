@@ -210,15 +210,15 @@ type Lane struct {
 	ThreadID string `json:"thread_id"`
 	Thread   string `json:"thread"`
 	// Step is what the thread is doing now, the same words Home shows.
-	Step  string        `json:"step"`
-	Cells []event.State `json:"cells,omitempty"`
+	Step string `json:"step"`
 	// Gate names the gate run this thread is waiting on or running, empty
 	// when it is not gating.
 	Gate string `json:"gate,omitempty"`
 	// Lock is the subtree this thread waits on, empty when it waits on none.
 	Lock string `json:"lock,omitempty"`
 	// LockHolder names the thread holding Lock.
-	LockHolder string `json:"lock_holder,omitempty"`
+	LockHolder string        `json:"lock_holder,omitempty"`
+	Cells      []event.State `json:"cells,omitempty"`
 }
 
 // Lease is one directory subtree's claim: who holds it, how strong the claim

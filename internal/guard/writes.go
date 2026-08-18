@@ -33,18 +33,23 @@ var (
 var formatters = map[string][]string{
 	"biome":     {"--write"},
 	"black":     nil,
-	"cargo":     {"fmt"},
-	"go":        {"fmt", "generate"},
-	"gofmt":     {"-w"},
-	"gofumpt":   {"-w"},
-	"goimports": {"-w"},
+	"cargo":     {subFmt},
+	"go":        {subFmt, "generate"},
+	"gofmt":     {flagWrite},
+	"gofumpt":   {flagWrite},
+	"goimports": {flagWrite},
 	"isort":     nil,
 	"mdformat":  nil,
-	"prettier":  {"--write", "-w"},
+	"prettier":  {"--write", flagWrite},
 	"ruff":      {"format", "--fix"},
-	"shfmt":     {"-w"},
-	"taplo":     {"fmt"},
+	"shfmt":     {flagWrite},
+	"taplo":     {subFmt},
 }
+
+const (
+	flagWrite = "-w"
+	subFmt    = "fmt"
+)
 
 // WriteTargets returns the paths command would modify, cleaned and relative
 // to the project root where they fall inside it. An empty result means the

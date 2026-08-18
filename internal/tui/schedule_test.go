@@ -31,7 +31,10 @@ func sampleSchedule() api.Schedule {
 		MemUsedBytes:  total - (5 << 30),
 		MemTotalBytes: total,
 		Lanes: []api.Lane{
-			{ThreadID: "t1", Thread: "fix-lock-timeout", Step: "editing internal/lease.go", Cells: cells(event.StateWorking)},
+			{
+				ThreadID: "t1", Thread: "fix-lock-timeout", Step: "editing internal/lease.go",
+				Cells: cells(event.StateWorking),
+			},
 			{
 				ThreadID: "t3", Thread: "add-jj-backend", Step: "gate test 4/7", Gate: "gate test 4/7",
 				Cells: cells(event.StateWorking, event.StateGating),
