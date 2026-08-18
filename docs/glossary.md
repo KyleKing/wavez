@@ -15,7 +15,9 @@ file is the map you read first.
 | Phase | One stage of a Cycle, with its own tool set and its own exit Condition |
 | Condition | A check that decides when a Loop or a phase may stop. Evaluated by the harness, never reported by the model |
 | Gate | A deterministic check triggered by a change event: format, convention rules, build, selected tests |
-| Routine | A pkl-defined DAG of CLI actions triggered by change, schedule, or hand. No model involved |
+| Routine | A pkl-defined DAG of Steps triggered by change, schedule, thread lifecycle, or hand, serialized per concurrency key. No model involved. Gates ship as built-in routines named `gate-<gate>` |
+| Step | One node of a Routine: a named Action with typed params and the parent steps it waits on. Steps with no unfinished parent run concurrently |
+| Action | A registered unit of work a Step can name (`run` for an argv, `gate.<name>` for a gate), whose validator binds the params at config load so a bad routine fails before it runs |
 | Modifier | A refactor operation exposed as a tool, so the model names a shape instead of writing text |
 | Ledger | One line per thread of what it has done, derived from the gate log and change set |
 | Change set | The files and line ranges a run has edited, accumulated across its turns |
