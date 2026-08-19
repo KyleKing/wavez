@@ -72,7 +72,10 @@ func TestConventionGate_NoRulesMeansNoGate(t *testing.T) {
 	}
 }
 
-func TestConventionGate_UnavailableBinaryFailsRatherThanPasses(t *testing.T) {
+// A missing binary is an abstention the gate log can see, never a pass
+// the model earned and never a failure the model is told to fix by
+// installing a tool.
+func TestConventionGate_UnavailableBinaryAbstains(t *testing.T) {
 	t.Parallel()
 
 	root, rules := conventionFixture(t, "package p\n")
@@ -82,11 +85,14 @@ func TestConventionGate_UnavailableBinaryFailsRatherThanPasses(t *testing.T) {
 
 	g := gate.NewConventionGate(root, rules, runner)
 
-	_, err := g.Run(context.Background(), gate.RunContext{
+	res, err := g.Run(context.Background(), gate.RunContext{
 		RepoRoot: root, Changes: []tool.Change{{Path: sourcePath}},
 	})
-	if err == nil {
-		t.Fatal("Run returned nil error with ast-grep absent; a check that cannot run is not a pass")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Pass || res.Examined != 0 || res.Reason != astgrep.InstallHint {
+		t.Errorf("Run = %+v, want an abstention carrying the install hint", res)
 	}
 }
 

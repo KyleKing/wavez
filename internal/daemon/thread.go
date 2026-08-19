@@ -59,6 +59,9 @@ type managedThread struct {
 	// which is the only place the saving is recorded.
 	compactions int
 	tokensSaved int
+	// served is the local tier's context window the thread's project runs
+	// under, fixed at creation since the loop it belongs to is.
+	served int
 	// processed is the Seq of the last log event folded into this cache, so
 	// sync knows where to resume and never applies the same event twice.
 	processed uint64
@@ -121,8 +124,18 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 		Context:    mt.usage.context,
 		// The served window is the budget the router admits a turn against,
 		// so a thread over it is one the router has already escalated.
-		Window: router.LocalContextBudget,
+		Window: mt.window(),
 	}, nil
+}
+
+// window is the local tier's served context for this thread's project,
+// which is the budget the router admits a turn against.
+func (mt *managedThread) window() int {
+	if mt.served <= 0 {
+		return router.LocalContextBudget
+	}
+
+	return mt.served
 }
 
 // sync folds every log event this cache has not yet seen into state, step,

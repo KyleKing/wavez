@@ -22,8 +22,9 @@ const DefaultLocalModel = "qwen3:8b"
 const DefaultHostedModel = "openai/gpt-5-mini"
 
 // DefaultContextWindow is the local model's served context window, in
-// tokens, matching internal/router.LocalContextBudget.
-const DefaultContextWindow = 8000
+// tokens, matching internal/router.LocalContextBudget and llama-server's
+// own default.
+const DefaultContextWindow = 8192
 
 // DefaultLocalPort is the loopback port llama-server serves the local model
 // on, matching internal/runtime.DefaultPort.

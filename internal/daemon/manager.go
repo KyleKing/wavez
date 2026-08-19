@@ -157,6 +157,7 @@ func (m *manager) create(p createParams) (*managedThread, error) {
 
 	mt := &managedThread{
 		th:      th,
+		served:  m.loop.ContextWindow(),
 		cycle:   p.Cycle,
 		id:      id,
 		dirs:    dirs,
@@ -336,7 +337,7 @@ func (m *manager) fleetStats() (fleetStats, error) {
 		diag := api.ThreadDiag{
 			ID: mt.id, Name: mt.name, Dir: firstDir(mt.dirs),
 			Spend: mt.spendUSD, Tokens: u.tokens(), Context: u.context,
-			Window: router.LocalContextBudget, Rows: clampRows(mt.th.Log().Head()),
+			Window: mt.window(), Rows: clampRows(mt.th.Log().Head()),
 		}
 		state := mt.state
 		mt.mu.Unlock()
@@ -353,7 +354,7 @@ func (m *manager) fleetStats() (fleetStats, error) {
 
 		if u.context > 0 && lastAt.After(latest) {
 			latest = lastAt
-			out.context, out.window = u.context, router.LocalContextBudget
+			out.context, out.window = u.context, mt.window()
 		}
 		if u.timings != nil && !lastAt.Before(latest) {
 			out.timings = u.timings

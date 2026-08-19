@@ -97,14 +97,15 @@ func serve(ctx context.Context, dir, sock string) error {
 	// default headroom rather than any one project's ".wavez.pkl", which a
 	// per-project Scheduler could otherwise read.
 	scheduler := sched.New(sched.WithHeadroom(config.DefaultAdmissionHeadroom))
+	settingsPath := filepath.Join(userDir, "models.json")
 
 	srv, err := daemon.New(sock,
 		daemon.WithBroker(broker),
-		daemon.WithLoader(projectLoader(broker, scheduler)),
+		daemon.WithLoader(projectLoader(broker, scheduler, settingsPath)),
 		daemon.WithStatsSource(&machineStats{ctx: ctx}),
 		daemon.WithModelStore(ollama.New()),
 		daemon.WithScheduler(scheduler),
-		daemon.WithModelSettingsPath(filepath.Join(userDir, "models.json")),
+		daemon.WithModelSettingsPath(settingsPath),
 	)
 	if err != nil {
 		return fmt.Errorf("starting daemon: %w", err)
@@ -131,8 +132,10 @@ func serve(ctx context.Context, dir, sock string) error {
 
 // projectLoader builds the daemon.Loader that turns a root a client named
 // into a daemon.Project: one project's full object graph via app.New,
-// sharing broker and scheduler with every other project this daemon loads.
-func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler) daemon.Loader {
+// sharing broker and scheduler with every other project this daemon loads,
+// and serving the local model with whatever the models screen saved for it
+// at settingsPath.
+func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler, settingsPath string) daemon.Loader {
 	return func(ctx context.Context, root string) (*daemon.Project, error) {
 		cfg, err := loadConfig(ctx, root)
 		if err != nil {
@@ -140,7 +143,8 @@ func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler) daemon.Loa
 		}
 
 		a, err := app.New(ctx, root, cfg, broker.Gate(),
-			app.WithAsker(broker.Asker()), app.WithManagedLocalServer(), app.WithScheduler(scheduler))
+			app.WithAsker(broker.Asker()), app.WithManagedLocalServer(), app.WithScheduler(scheduler),
+			app.WithLocalRuntime(daemon.SavedLocalRuntime(settingsPath, cfg.LocalModel)))
 		if err != nil {
 			return nil, fmt.Errorf("building project %s: %w", root, err)
 		}

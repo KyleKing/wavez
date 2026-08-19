@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -50,10 +51,12 @@ func (*ConventionGate) Name() string { return "convention" }
 // tree, so it runs alongside the test and format gates.
 func (*ConventionGate) Resources() []string { return nil }
 
-// Run scans the changed files against every rule. It returns a non-nil
-// error only when ast-grep could not be invoked at all; a rule match is
-// reported through Result, since that is what a Verifier feeds back to the
-// model.
+// Run scans the changed files against every rule. A rule match is reported
+// through Result, since that is what a Verifier feeds back to the model. A
+// missing ast-grep binary is an abstention with the install hint as its
+// reason: the check examined nothing, which the gate log records, and the
+// model is not asked to install a tool only the user can. Any other failure
+// to invoke ast-grep is an error.
 func (g *ConventionGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	targets := g.targets(rc)
 	if len(targets) == 0 {
@@ -61,6 +64,9 @@ func (g *ConventionGate) Run(ctx context.Context, rc RunContext) (Result, error)
 	}
 
 	report, err := g.runner.Scan(ctx, g.repoRoot, g.rules, targets...)
+	if errors.Is(err, astgrep.ErrUnavailable) {
+		return Abstained(g.Name(), rc.Selection.Level, astgrep.InstallHint), nil
+	}
 	if err != nil {
 		return Result{Gate: g.Name(), Level: rc.Selection.Level}, fmt.Errorf("ast-grep scan: %w", err)
 	}

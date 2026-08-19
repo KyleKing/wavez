@@ -80,6 +80,23 @@ type modelRegistry struct {
 	mu       sync.Mutex
 }
 
+// SavedLocalRuntime reads the runtime flags the models screen has saved
+// for model in the settings file at path (WithModelSettingsPath), as the
+// config a supervisor starts llama-server with. A model with no saved
+// settings yields the zero Config, which the supervisor fills from its
+// defaults.
+func SavedLocalRuntime(path, model string) runtime.Config {
+	settings, _, _ := newModelRegistry(path).view(model)
+
+	return runtime.Config{
+		SpecType:    settings.SpecType,
+		ContextSize: settings.ContextSize,
+		CacheReuse:  settings.CacheReuse,
+		Threads:     settings.Threads,
+		BatchSize:   settings.BatchSize,
+	}
+}
+
 func newModelRegistry(path string) *modelRegistry {
 	r := &modelRegistry{
 		settings: map[string]api.ModelSettings{},

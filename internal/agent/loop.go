@@ -200,17 +200,21 @@ type Checkpointer interface {
 
 // Options bounds and configures a Loop.
 type Options struct {
-	Verifier            Verifier
-	Reviewer            Reviewer
-	Checkpointer        Checkpointer
-	Clock               gate.Clock
-	Hooks               Hooks
-	ChangeGate          ChangeGate
-	Pricing             map[string]ModelPricing
-	LocalModel          string
-	HostedModel         string
-	RepoRoot            string
-	Compact             thread.CompactOptions
+	Verifier     Verifier
+	Reviewer     Reviewer
+	Checkpointer Checkpointer
+	Clock        gate.Clock
+	Hooks        Hooks
+	ChangeGate   ChangeGate
+	Pricing      map[string]ModelPricing
+	LocalModel   string
+	HostedModel  string
+	RepoRoot     string
+	Compact      thread.CompactOptions
+	// ContextWindow is the local tier's served context in tokens, which
+	// bounds what the router sends there and when compaction starts. Zero
+	// means router.LocalContextBudget.
+	ContextWindow       int
 	MaxTurns            int
 	MaxToolCallsPerTurn int
 	MaxVerifyRounds     int
@@ -264,6 +268,9 @@ func WithClock(c gate.Clock) Option { return func(o *Options) { o.Clock = c } }
 // WithLocalModel sets the model name sent in a request routed local.
 func WithLocalModel(name string) Option { return func(o *Options) { o.LocalModel = name } }
 
+// WithContextWindow sets the local tier's served context in tokens.
+func WithContextWindow(n int) Option { return func(o *Options) { o.ContextWindow = n } }
+
 // WithHostedModel sets the model name sent in a request routed hosted.
 func WithHostedModel(name string) Option { return func(o *Options) { o.HostedModel = name } }
 
@@ -315,6 +322,15 @@ type Loop struct {
 
 // LocalModel reports the model name the router serves a local turn with.
 func (l *Loop) LocalModel() string { return l.options.LocalModel }
+
+// ContextWindow reports the local tier's served context in tokens.
+func (l *Loop) ContextWindow() int {
+	if l.options.ContextWindow <= 0 {
+		return router.LocalContextBudget
+	}
+
+	return l.options.ContextWindow
+}
 
 // New builds a Loop. PermGate is consulted for any tool call whose Tool
 // implements PermissionRequester and reports the call needs approval.
@@ -508,15 +524,16 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		return true, Outcome{}, err
 	}
 
-	if err := r.maybeCompact(estimateRequestTokens(r.system, r.messages())); err != nil {
+	if err := r.maybeCompact(r.estimateTokens(r.messages())); err != nil {
 		return true, Outcome{}, err
 	}
 
 	messages := r.messages()
 	route := router.Route(router.Input{
 		Override:        r.hint.Override,
+		Window:          r.loop.ContextWindow(),
 		FileCount:       r.hint.FileCount,
-		EstimatedTokens: estimateRequestTokens(r.system, messages),
+		EstimatedTokens: r.estimateTokens(messages),
 		PriorFailures:   priorFailures(r.localFailed),
 	})
 	provider := router.Select(route, r.loop.local, r.loop.hosted)
@@ -1088,8 +1105,19 @@ func priorFailures(localFailed bool) int {
 	return 0
 }
 
-func estimateRequestTokens(system string, history []llm.Message) int {
+// estimateTokens sizes the request the next turn would send: the system
+// prompt, the tool specs, and the history. The specs count because they
+// travel with every request and, on a small window, are the difference
+// between a request that fits and one llama-server refuses.
+func (r *run) estimateTokens(history []llm.Message) int {
+	return estimateRequestTokens(r.system, r.tools, history)
+}
+
+func estimateRequestTokens(system string, tools []llm.ToolSpec, history []llm.Message) int {
 	total := len(system)
+	for _, t := range tools {
+		total += len(t.Name) + len(t.Description) + len(t.Schema)
+	}
 	for _, msg := range history {
 		total += len(msg.Content)
 	}

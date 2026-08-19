@@ -35,13 +35,13 @@ func TestRoute(t *testing.T) {
 		},
 		{
 			name:       "over local context budget escalates",
-			in:         router.Input{FileCount: 1, EstimatedTokens: router.LocalContextBudget + 1},
+			in:         router.Input{FileCount: 1, EstimatedTokens: router.LocalBudget(0) + 1},
 			wantChoice: router.ChoiceHosted,
 			wantReason: "over local context budget",
 		},
 		{
 			name:       "at local context budget stays local",
-			in:         router.Input{FileCount: 1, EstimatedTokens: router.LocalContextBudget},
+			in:         router.Input{FileCount: 1, EstimatedTokens: router.LocalBudget(0)},
 			wantChoice: router.ChoiceLocal,
 			wantReason: "single-file task within local context budget",
 		},
@@ -58,9 +58,15 @@ func TestRoute(t *testing.T) {
 			wantReason: "prior local failure",
 		},
 		{
+			name:       "a wider served window admits a larger request",
+			in:         router.Input{FileCount: 1, EstimatedTokens: router.LocalBudget(0) + 1, Window: 32768},
+			wantChoice: router.ChoiceLocal,
+			wantReason: "single-file task within local context budget",
+		},
+		{
 			name: "explicit override beats every other rule",
 			in: router.Input{
-				FileCount: 5, EstimatedTokens: router.LocalContextBudget + 1,
+				FileCount: 5, EstimatedTokens: router.LocalBudget(0) + 1,
 				PriorFailures: 2, Override: router.ChoiceLocal,
 			},
 			wantChoice: router.ChoiceLocal,

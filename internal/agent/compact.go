@@ -5,7 +5,6 @@ import (
 
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/llm"
-	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
 )
 
@@ -57,7 +56,7 @@ func (r *run) maybeCompact(estimated int) error {
 		return nil
 	}
 
-	if float64(estimated) < r.loop.options.CompactTrigger*float64(router.LocalContextBudget) {
+	if float64(estimated) < r.loop.options.CompactTrigger*float64(r.loop.ContextWindow()) {
 		return nil
 	}
 

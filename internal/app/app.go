@@ -127,6 +127,7 @@ type Options struct {
 	Local, Hosted       llm.Provider
 	Asker               tools.Asker
 	Scheduler           *sched.Scheduler
+	LocalRuntime        runtime.Config
 	MaxTurns            int
 	MaxToolCallsPerTurn int
 	MaxStagnantErrors   int
@@ -193,6 +194,14 @@ func WithStrictScope() Option {
 // the TUI each supply a different one; the default refuses every question.
 func WithAsker(asker tools.Asker) Option {
 	return func(o *Options) { o.Asker = asker }
+}
+
+// WithLocalRuntime sets the flags a llama-server wavez starts is served
+// with, over the project config's defaults: the per-model settings the
+// daemon keeps for the local model. Port and GGUFPath are the supervisor's
+// to fill.
+func WithLocalRuntime(rc runtime.Config) Option {
+	return func(o *Options) { o.LocalRuntime = rc }
 }
 
 // WithScheduler shares one memory-aware admission scheduler across every
@@ -376,6 +385,7 @@ func buildCycles(cfg config.Config) (*cycle.AstGrepSweeper, map[string]cycle.Cyc
 func loopOptions(root string, cfg config.Config, options Options) []agent.Option {
 	out := []agent.Option{
 		agent.WithLocalModel(cfg.LocalModel),
+		agent.WithContextWindow(localRuntime(cfg, options).ContextSize),
 		agent.WithHostedModel(cfg.HostedModel),
 		agent.WithCheckpointer(vcs.NewJj(), root),
 		agent.WithHooks(hook.New(root,
@@ -426,7 +436,7 @@ func buildProviders(ctx context.Context, cfg config.Config, options Options) pro
 		if cfg.LocalBaseURL != "" {
 			server = localServer{baseURL: cfg.LocalBaseURL}
 		} else if options.ManagedLocalServer {
-			server = ensureLocalServer(ctx, cfg)
+			server = ensureLocalServer(ctx, cfg, options)
 		}
 
 		supervisor = server.supervisor
@@ -444,6 +454,19 @@ func buildProviders(ctx context.Context, cfg config.Config, options Options) pro
 	}
 
 	return providers{local: local, hosted: hosted, supervisor: supervisor}
+}
+
+// localRuntime is what a llama-server wavez starts is served with: the
+// per-model settings when the caller has them, else the project config's
+// window on the loopback port.
+func localRuntime(cfg config.Config, options Options) runtime.Config {
+	rc := options.LocalRuntime
+	rc.Port = cfg.LocalPort
+	if rc.ContextSize <= 0 {
+		rc.ContextSize = cfg.ContextWindow
+	}
+
+	return rc
 }
 
 // localProviderOptions dials baseURL, adding a bearer token only for a remote
@@ -472,10 +495,10 @@ type providers struct {
 // reuses one already answering on its port. A start failure is not fatal:
 // the caller may still have a server wavez did not start, so the reason is
 // reported and the default endpoint is returned to try anyway.
-func ensureLocalServer(ctx context.Context, cfg config.Config) localServer {
+func ensureLocalServer(ctx context.Context, cfg config.Config, options Options) localServer {
 	fallback := runtime.LocalBaseURL(cfg.LocalPort)
 
-	sup := runtime.NewSupervisor(cfg.LocalModel, runtime.Config{Port: cfg.LocalPort},
+	sup := runtime.NewSupervisor(cfg.LocalModel, localRuntime(cfg, options),
 		runtime.WithStartTimeout(cfg.LocalStartTimeout))
 
 	endpoint, err := sup.Ensure(context.WithoutCancel(ctx))

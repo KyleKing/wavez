@@ -20,8 +20,8 @@ const (
 )
 
 // ErrUnavailable is returned by Scan when neither ast-grep binary name
-// resolves on PATH. A gate must treat this as a failed check, never as a
-// pass: a check that cannot run is not a check that passed.
+// resolves on PATH. A gate must not report it as a pass: a check that
+// cannot run examined nothing, and says so as an abstention.
 var ErrUnavailable = errors.New("astgrep: ast-grep binary not found on PATH")
 
 // LookPathFunc resolves a binary name to a path, matching exec.LookPath's

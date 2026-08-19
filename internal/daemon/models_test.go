@@ -3,12 +3,15 @@ package daemon_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
+	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/ollama"
+	"github.com/kyleking/wavez/internal/runtime"
 )
 
 // fakeModelStore stands in for Ollama and its registry, recording what the
@@ -263,5 +266,33 @@ func TestModelCommands_RefusedWithoutAStore(t *testing.T) {
 
 	if rep := cl.recvFor("m"); rep.Kind != api.RepError {
 		t.Fatalf("reply = %+v, want a refusal rather than an empty list", rep)
+	}
+}
+
+// A context size saved on the models screen reaches the next llama-server
+// start through the loader, which reads it back from the same file.
+func TestSavedLocalRuntimeRoundTripsThroughTheSettingsFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "models.json")
+	if got := daemon.SavedLocalRuntime(path, "qwen3:8b"); got != (runtime.Config{}) {
+		t.Fatalf("before any save: %+v, want the zero config", got)
+	}
+
+	h := newHarness(t, fake.New("local"),
+		withServerOptions(daemon.WithModelSettingsPath(path), daemon.WithModelStore(newModelStore())))
+	cl := dial(t, h)
+	cl.hello()
+	cl.send(api.Command{
+		ID: "set", Kind: api.CmdModelSettings, Model: "qwen3:8b",
+		Settings: &api.ModelSettings{ContextSize: 32768, SpecType: "none"},
+	})
+	if rep := cl.recvFor("set"); rep.Kind == api.RepError {
+		t.Fatalf("model_settings: %+v", rep)
+	}
+
+	got := daemon.SavedLocalRuntime(path, "qwen3:8b")
+	if got.ContextSize != 32768 || got.SpecType != "none" {
+		t.Errorf("after save: %+v, want the saved size and spec", got)
 	}
 }
