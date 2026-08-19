@@ -9,6 +9,14 @@ and is marked vendor-claimed or third-party measured. Validate before building
 on it. The audit (`_ai_/bench/audit-2026-08-18.md` section 3) and
 `local-inference-apple-silicon.md` are the earlier passes this extends.
 
+Sections 0 to 4 answer the 24 GB question. Section 5 is the same question at
+every larger memory tier, Apple and otherwise, with the buy-versus-rent
+arithmetic, and section 6 is what has shipped or is credibly coming through
+2027. The short version: no open-weight model closes the independently
+measured gap to Sonnet at any size, so memory buys privacy and offline work
+rather than economics, and the local tier stays a cost saver for low-stakes
+turns.
+
 Every number carries a URL. **[V]** = vendor-claimed, **[M]** = third-party measured.
 
 ## 0. Corrections to the brief's premises
@@ -135,3 +143,84 @@ The small tool-calling specialists are also a trap. In a 40-case, 13-model eval 
 - **GLM-4.7-Flash's card fetch returned "Released: August 2025"** alongside SWE-bench Verified 59.2 / τ²-bench 79.5. The date is wrong (shipped 2026-01-20), so those scores may belong to GLM-4.5-Air.
 - **Could not retrieve:** OpenRouter's programming usage rankings (SPA-only; `/api/frontend/*` 404s), swebench.com's live leaderboard, LiveCodeBench's official board, and taubench.com beyond its top-3 preview — all client-rendered. Several tau-bench and Aider numbers circulating on aggregator sites (llm-stats.com, codesota.com) could not be traced to primary sources and were discarded rather than reported.
 - **No SWE-bench Verified figure for Sonnet 5 or Haiku 4.5 was obtainable** from a primary source in this pass; Haiku 4.5's 73.3% comes from Anthropic's launch post [V], Sonnet 5's is published only as an image.
+
+## 5. If I had more memory or GPU
+
+Memory bandwidth, not capacity, sets decode speed. Capacity only decides which model you may load.
+
+| Tier | Bandwidth | Best model with real KV headroom | Quant / size | Measured decode |
+|---|---|---|---|---|
+| **M4 Pro 24 GB** (yours) | 273 GB/s [V] ([Apple](https://www.apple.com/newsroom/2024/10/apple-introduces-m4-pro-and-m4-max/)) | Qwen3.8-27B | Q4_K_M **17.11 GB** ([unsloth](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF)) | 24 tok/s llama.cpp / 60 MLX on Qwen3-Coder-Next Q4 [M] ([#19366](https://github.com/ggml-org/llama.cpp/issues/19366)) |
+| **M5 Pro 32–48 GB** | **307 GB/s** [V] ([Apple specs](https://www.apple.com/macbook-pro/specs/)) | Qwen3.8-27B at Q8, or Qwen3.6-35B-A3B Q4_K_XL | Q8_0 29.0 GB / 22.4 GB | none found |
+| **M5 Max 48–64 GB** | **460–614 GB/s** [V] (same) | gpt-oss-120b | MXFP4 **62.6 GB** ([unsloth](https://huggingface.co/unsloth/gpt-oss-120b-GGUF)) — needs 64 GB | M4 Max 64 GB, MLX q4 Qwen3-30B-A3B: **113.3 tok/s** [M] ([mlx-lm BENCHMARKS.md](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/BENCHMARKS.md)) |
+| **M4/M5 Max 96–128 GB** | 546 / 614 GB/s [V] | MiniMax-M2.7 UD-Q3_K_XL **102 GB**, or DeepSeek-V4-Flash UD-IQ2_XXS 91 GB ([unsloth](https://huggingface.co/unsloth/MiniMax-M2.7-GGUF)) | — | Qwen3.5-35B-A3B 4-bit on M4 Max 128 GB: **MLX 130.2 / llama.cpp ~71 / Ollama ~45** [M] ([Kapetanović](https://antekapetanovic.com/blog/qwen3.5-apple-silicon-benchmark/)) |
+| **Mac Studio Ultra 192–512 GB** | M3 Ultra **819 GB/s** [V] ([Apple](https://www.apple.com/mac-studio/specs/)) | Qwen3-Coder-480B UD-IQ3_XXS **202 GB**; GLM-5 UD-IQ1_S 204 GB; Kimi-K2.7-Code UD-Q2_K_XL 339 GB | — | M2 Ultra Q4_0 TG 94.3 tok/s [M] ([disc. #4167](https://github.com/ggml-org/llama.cpp/discussions/4167)); GLM-4.7-Flash MXFP4 on M1 Ultra **50.2 → 6.2 tok/s** from 0 → 100k ctx [M] ([disc. #19120](https://github.com/ggml-org/llama.cpp/discussions/19120)) |
+| **RTX 5090 32 GB** | 512-bit GDDR7 [V] ([NVIDIA](https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/)) | same as M5 Pro tier; 8–10× the bandwidth | — | none found |
+| **RTX PRO 6000 Blackwell 96 GB** | **1792 GB/s** [V] ([NVIDIA](https://www.nvidia.com/en-us/products/workstations/professional-desktop-gpus/rtx-pro-6000/)) | gpt-oss-120b MXFP4, MiniMax-M2.7 Q3 | — | none found |
+| **Ryzen AI Max+ 395 / DGX Spark, 128 GB** | — | GLM-4.7-Flash, Nemotron 3 Nano MoE | 18 GB / 25 GB | **52 tok/s** each, LM Studio Q4_K_M [M] ([jdhodges](https://www.jdhodges.com/blog/local-llms-on-tool-calling-2026-pt1-local-lm/)) |
+
+**Where local first matches Haiku 4.5 on independent measurement: it doesn't, at any tier I can evidence.** On Terminal-Bench 2.0, Haiku 4.5 spans 13.9–35.5% and Sonnet 4.5 spans 40.1–46.5%; the largest open model on that board, Qwen3-Coder-480B (a 202 GB / Ultra-class load), scores **23.9–27.2%** — inside Haiku's range, not above it. Kimi K2.5 at **43.2%** (verified) and MiniMax M2.7 at **42.9–45.1%** are the first open models to reach Sonnet 4.5's band, and both are 300–340 GB and 100+ GB respectively at usable quants. On BFCL v4, Sonnet 4.5 scores 73.24% and Haiku 4.5 68.70% in function-calling mode, with **no Qwen3.6/3.8, GLM-5, Kimi, or MiniMax entry at all** ([data_overall.csv](https://gorilla.cs.berkeley.edu/data_overall.csv)).
+
+So: **Haiku 4.5 parity plausibly arrives around 128 GB** (MiniMax-M2.7 at Q3, ~102 GB). **Sonnet 4.5 parity needs 512 GB** (Kimi K2.7-Code class) and is still unmeasured at that quant. **Sonnet 5 parity — 74.6% TB2.1 — has no open-weight peer measured at any size.**
+
+**Buy vs rent.** At 30M input / 3M output per month with 70% cache hits, on OpenRouter list prices:
+
+| Hosted model | $/month |
+|---|---|
+| Claude Opus 5 | $141.75 |
+| **Claude Sonnet 5** | **$56.70** |
+| Claude Haiku 4.5 | $28.35 |
+| Kimi K2.7-Code | $20.04 |
+| Qwen3.8-27B (hosted) | $14.70 |
+| GLM-5 | $13.68 |
+| MiniMax M3 | $7.56 |
+| gpt-5.6-luna | $6.27 |
+| GLM-4.7-Flash | $1.95 |
+
+A $2,000 upgrade delta buys **~35 months of Sonnet 5** at heavy daily use, ~70 months of Haiku 4.5, or ~85 years of GLM-4.7-Flash. A Mac Studio Ultra with 512 GB — the only tier where Sonnet-class local is even arguable — is roughly a decade of Sonnet 5. Buying hardware to escape hosted coding costs does not pay back at any tier. Buy memory for privacy, offline work, or unmetered experimentation; not for economics.
+
+A late-returning research agent corrected three cells in Section A. Errata, same standards:
+
+### Errata to the tier table, from a second pass
+
+| Claim as delivered | Correction | Source |
+|---|---|---|
+| Mac Studio Ultra "192–512 GB" tier, M3 Ultra 819 GB/s | 819 GB/s [V] confirmed, but **no page confirms an M4 Ultra exists** as of Aug 2026, and the 512 GB configuration could not be verified on any Apple page the fetcher could read. Treat the 192/256/512 GB row as unconfirmed capacity. Mac Studio starts at **$1,999** (base 36 GB M4 Max) [V] | [apple.com/mac-studio/specs](https://www.apple.com/mac-studio/specs/), [Mac Studio newsroom](https://www.apple.com/newsroom/2025/03/apple-unveils-new-mac-studio-the-most-powerful-mac-ever/) |
+| "M2 Ultra Q4_0 TG 94.3 tok/s" cited as an Ultra-tier decode figure | **Mislabeled.** llama.cpp discussion #4167 benchmarks **LLaMA-7B only**, not any MoE coding model. The number is real but says nothing about a 200 GB model. Withdraw it from the coding-model column | [disc. #4167](https://github.com/ggml-org/llama.cpp/discussions/4167) |
+| DGX Spark listed alongside the 128 GB Ryzen box without a bandwidth figure | **DGX Spark is 273 GB/s** [V] — identical to your existing M4 Pro. It is a capacity purchase, not a speed purchase; decode on a 100 GB model would be slower than your Mac is today on a 17 GB one | [nvidia.com/DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/) |
+
+Two additions that strengthen the buy-vs-rent case:
+
+- **RTX 5090: 1,792 GB/s, $1,999 MSRP** [V] ([GeForce RTX 50 series](https://en.wikipedia.org/wiki/GeForce_RTX_50_series), secondary — nvidia.com's spec table blocked the fetcher and lists memory size only). That is **6.6× the M4 Pro's bandwidth for the price of a Mac Studio**, at 32 GB. For decode speed per dollar nothing on the Apple side is close.
+- **GMKtec EVO-X2, Ryzen AI Max+ 395, 128 GB: $1,999 sale / $2,199 list** [V] ([gmktec.com](https://www.gmktec.com/products/amd-ryzen%E2%84%A2-ai-max-395-evo-x2-ai-mini-pc)). Bandwidth is **not stated as a GB/s figure by the vendor**; the page says 8-channel LPDDR5X-8000, which computes to ~256 GB/s. Treat 256 GB/s as derived, not quoted. This is the cheapest route to 128 GB, and the jdhodges eval measured GLM-4.7-Flash and Nemotron 3 Nano MoE at 52 tok/s on this SoC class [M].
+
+**Net effect on the recommendation: unchanged, and slightly stronger.** The measured-tok/s column stays mostly empty by design — the agent confirmed that no published benchmark exists for Qwen3.6-35B-A3B, Qwen3.6-27B, Qwen3.8-27B, GLM-4.7-Flash, GLM-5, Qwen3-Coder-480B, Kimi K2, DeepSeek V4, or gpt-oss-120b on *any* of these tiers. Anyone quoting per-tier throughput for these models is extrapolating from bandwidth. The break-even arithmetic is untouched: a $2,000 hardware delta is ~35 months of Sonnet 5 at 30M/3M tokens per month, and the two $1,999 non-Apple options (RTX 5090, EVO-X2) buy raw capability faster than the Mac line does — but neither closes the independently-measured gap to Sonnet, because no open-weight model has closed it at any size.
+
+## 6. What might be coming (H2 2026 to 2027)
+
+**Confirmed — models already shipped, checked against live HF org listings 2026-08-18:**
+
+| Org | Latest | Date |
+|---|---|---|
+| [Qwen](https://huggingface.co/Qwen) | Qwen3.8-27B, Qwen3.8-2.4T-A95B | Aug 12–14, 2026 |
+| [deepseek-ai](https://huggingface.co/deepseek-ai) | V4-Pro-0813, V4-Flash-0731 | Jul–Aug 2026 |
+| [zai-org](https://huggingface.co/zai-org) | GLM-5.2 (Jun 16); GLM-5.3 live on OpenRouter | 2026 |
+| [moonshotai](https://huggingface.co/moonshotai) | K2.7-Code (Jun 11), K3 (Jun 13) | 2026 |
+| [MiniMaxAI](https://huggingface.co/MiniMaxAI) | M3 | Jun 2, 2026 |
+| [mistralai](https://huggingface.co/mistralai) | Mistral-Small-4-119B | Jan 23, 2026 |
+| [google](https://huggingface.co/google) | Gemma 4 (E2B/E4B/12B/26B-A4B/31B) | May–Jun 2026 |
+| [nvidia](https://huggingface.co/nvidia) | Nemotron 3.5 Lightning 30B-A3B | Aug 2026 |
+
+Two absences matter: **no gpt-oss follow-up has shipped** (only `gpt-oss-safeguard`, Sep 2025), and **no Llama 5** — Meta's org has nothing newer than Llama 4 / Llama-Guard-4 (Apr 2025). Note also that GLM's "Air/Flash" small tier stalled: GLM-4.7-Flash (Jan 2026) is still the newest, with **no GLM-5-Air or GLM-5-Flash**. I found no dated announcement of an unreleased model from any vendor, so treat "Qwen4 / Qwen3.9" as **rumor with no source**.
+
+**Confirmed — llama.cpp, all still open:** the four tool-calling defects that gate wavez are unresolved as of today — [#20837](https://github.com/ggml-org/llama.cpp/issues/20837) (tool calls inside think blocks, open since Mar 21), [#26530](https://github.com/ggml-org/llama.cpp/issues/26530) (trigger fails on large prompts, Aug 3), [#26987](https://github.com/ggml-org/llama.cpp/issues/26987) (trigger never fires, Aug 12), [#26356](https://github.com/ggml-org/llama.cpp/issues/26356) (unified-KV degradation, Jul 31), plus the GBNF generation bugs [#25923](https://github.com/ggml-org/llama.cpp/issues/25923) and [#25746](https://github.com/ggml-org/llama.cpp/issues/25746). None has a merged fix. Plan around them; do not wait for them.
+
+On Metal: the Metal 4 tensor API landed in [PR #16634](https://github.com/ggml-org/llama.cpp/pull/16634) (Nov 2025) but the runtime still logs `tensor API disabled for pre-M5 and pre-A19 devices` — **it is M5-only, and an M4 Pro gets none of it** ([#20141](https://github.com/ggml-org/llama.cpp/issues/20141)). The linear-attention ops that Qwen3.6/3.8 depend on are the weakest part of the Metal backend: [PR #21452](https://github.com/ggml-org/llama.cpp/pull/21452) states plainly "Metal is currently the only major GPU backend without GLA support" (open since Apr 5), and [#25788](https://github.com/ggml-org/llama.cpp/issues/25788) (gated_delta_net cache fusion) has been open since Jul 16. That, not raw bandwidth, is the best explanation for the 24-vs-60 tok/s M4 Pro gap.
+
+**Confirmed — mlx-lm:** the per-model parser registry is still growing rather than being replaced, and [#1293](https://github.com/ml-explore/mlx-lm/issues/1293) (no tool parser for Qwen3.5/3.6 non-Coder) remains open since May 21. [PR #1341](https://github.com/ml-explore/mlx-lm/pull/1341) (prefer template-inferred parser over the generic label) is the only movement toward a general mechanism, unmerged. No maintainer commitment to a generic parser exists.
+
+**Confirmed — Apple hardware:** M5 shipped and it is a real jump. Per [apple.com/macbook-pro/specs](https://www.apple.com/macbook-pro/specs/) **[V]**: M5 153 GB/s (to 32 GB), **M5 Pro 307 GB/s**, **M5 Max 460 GB/s (32-core GPU) / 614 GB/s (40-core GPU), to 128 GB**. That is +12% bandwidth over M4 Max *plus* the Metal 4 tensor path llama.cpp already ships. An M5 Max is the single highest-leverage hardware change available.
+
+**Not established:** I cannot show an OpenRouter coding-tier price decline across 2026 with dated citations — only a single live snapshot. The one documented, dated price move is Anthropic's, and it went **down**: Sonnet 5's $2/$10 launch pricing was scheduled to rise to $3/$15 on 2026-09-01 and Anthropic cancelled the increase ([pricing page note](https://platform.claude.com/docs/en/about-claude/pricing)). Sonnet 5 is therefore a third cheaper than Sonnet 4.6 was, generation over generation.
+
+**Conflicts to flag:** the M5 Pro maximum unified memory reads as 48 GB (16-inch) on Apple's specs page but is reported elsewhere as 64 GB; Apple's Mac Studio specs fetch returned M4 Max max-64 GB and M3 Ultra max-96 GB, which contradicts the 512 GB configuration Apple sells — the fetch was almost certainly partial, so treat the Ultra capacity figures above as approximate. Hardware prices could not be read from Apple's storefront (client-rendered) and are excluded rather than guessed.
