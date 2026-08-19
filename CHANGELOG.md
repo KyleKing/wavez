@@ -1,3 +1,19 @@
+## v0.13.0 (2026-08-19)
+
+### Feat
+
+- **daemon**: reopen the thread logs on disk when a project loads, so Home survives a daemon restart
+- **tui**: footer toast on needs-input and idle transitions, and identifiers linked from a per-repo and per-laptop pattern table
+- **daemon**: park a thread blocked on input so admission goes to one that can work, and show what it parked in the inbox
+- **tui**: fleet Home over the per-laptop daemon, with w toggling scope between the launch root and every root
+- **tui**: tab-complete saved snippets in the fullscreen composer, stored per repo and per laptop
+- **daemon**: one daemon per laptop, loading projects lazily per root over a user-level socket
+
+### Fix
+
+- **daemon**: fail a thread read when sync cannot catch up instead of answering from a stale cache
+- **agent**: never report complete when an edit tool ran and no file changed
+
 ## v0.12.0 (2026-08-18)
 
 ### Feat
