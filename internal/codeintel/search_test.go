@@ -60,8 +60,8 @@ func TestSearch_GraphModeQueriesEdges(t *testing.T) {
 	}
 }
 
-// A path, an operator, or a quote in the query used to reach FTS5 as syntax and
-// fail with "fts5: syntax error", which a model sees as a broken tool.
+// A path, an operator, or a quote in the query would otherwise reach FTS5 as
+// syntax and fail with "fts5: syntax error", which a model sees as a broken tool.
 func TestSearchAcceptsQueriesThatLookLikeFTSSyntax(t *testing.T) {
 	t.Parallel()
 

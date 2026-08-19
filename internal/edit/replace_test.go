@@ -301,8 +301,8 @@ func TestNotFoundError_Error(t *testing.T) {
 	})
 }
 
-// A long old_string used to echo a candidate as long as itself, so a bad
-// anchor cost the model the file twice over.
+// A long old_string echoing a candidate as long as itself would cost the
+// model the file twice over on a bad anchor.
 func TestReplace_NotFoundCandidateIsBounded(t *testing.T) {
 	t.Parallel()
 

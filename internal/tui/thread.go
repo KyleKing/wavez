@@ -250,8 +250,8 @@ func (m Model) threadPinKey(s string) (Model, tea.Cmd, bool) {
 	}
 }
 
-// threadScrollKey moves whichever pane has focus. The transcript no longer
-// scrolls directly: j/k and the arrows move a row cursor, and the offset
+// threadScrollKey moves whichever pane has focus. The transcript does not
+// scroll directly: j/k and the arrows move a row cursor, and the offset
 // follows it so a wrapped or expanded row's lines land inside the window
 // together rather than a row-blind scroll stranding most of a long row off
 // screen.

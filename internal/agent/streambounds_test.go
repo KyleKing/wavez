@@ -44,9 +44,9 @@ func TestRun_LocalIsNotRetriedPastOneFailureUnderAnOverride(t *testing.T) {
 	}
 }
 
-// hangingProvider accepts a request and never sends, which is the shape that
-// used to outlive every bound: the deadline is checked between turns and
-// before tool calls, and neither happens while a stream is open.
+// hangingProvider accepts a request and never sends, which outlives every
+// bound: the deadline is checked between turns and before tool calls, and
+// neither happens while a stream is open.
 type hangingProvider struct{ name string }
 
 func (p hangingProvider) Name() string { return p.name }

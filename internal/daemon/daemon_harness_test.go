@@ -336,8 +336,8 @@ func TestServeRejectsAnOverlongSocketPath(t *testing.T) {
 	}
 }
 
-// Home renders Step as words. It used to show the raw event kind ("state") and
-// would have flickered per streamed token.
+// Home renders Step as words rather than the raw event kind (e.g. "state"),
+// which would flicker per streamed token.
 func TestStepTextIsWords(t *testing.T) {
 	t.Parallel()
 

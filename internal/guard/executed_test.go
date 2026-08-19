@@ -61,9 +61,9 @@ func TestClassifyReadsEveryLineOfAScript(t *testing.T) {
 	}
 }
 
-// A target hidden behind a variable used to join onto the project root and
-// read as inside it, so `rm -rf $HOME/thing` was allowed outright. What the
-// guard cannot reduce to one location it now refuses to call safe.
+// A target hidden behind a variable can join onto the project root and read
+// as inside it, letting `rm -rf $HOME/thing` slip through as allowed. What the
+// guard cannot reduce to one location it refuses to call safe.
 func TestClassifyExpandsDestructiveTargets(t *testing.T) {
 	t.Parallel()
 
