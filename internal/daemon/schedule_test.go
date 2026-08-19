@@ -165,7 +165,7 @@ func TestSchedule_ThreeThreadsTwoDirectoriesSerializeOnTheLease(t *testing.T) {
 func sendPrompt(t *testing.T, cl *client, threadID string) {
 	t.Helper()
 
-	cl.send(api.Command{ID: "send-" + threadID, Kind: api.CmdSend, ThreadID: threadID, Prompt: "write"})
+	cl.send(api.Command{ID: "send-" + threadID, Kind: api.CmdSend, ThreadID: threadID, Prompt: "go"})
 	if rep := cl.recvFor("send-" + threadID); rep.Kind != api.RepThread {
 		t.Fatalf("send %s: %+v", threadID, rep)
 	}

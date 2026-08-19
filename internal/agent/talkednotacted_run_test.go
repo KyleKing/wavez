@@ -172,3 +172,29 @@ func TestRun_QuestionTaskCompletesWithZeroChanges(t *testing.T) {
 		t.Errorf("Stop = %q, want %q", out.Stop, agent.StopComplete)
 	}
 }
+
+// A task whose wording asks for a change is edit-shaped even when the model
+// never reaches for an edit tool, so a run that only searched and then
+// claimed the rename is done ends stagnant rather than complete.
+func TestRun_ClaimingAnEditNeverAttemptedIsNotComplete(t *testing.T) {
+	t.Parallel()
+
+	claimsDone := fake.Turn{
+		Text:       []string{"Renamed firstDir to primaryDir across the daemon package."},
+		StopReason: llm.StopEndTurn,
+	}
+	local := fake.New("local", claimsDone)
+	hosted := fake.New("hosted", claimsDone)
+	reg := tool.NewRegistry(echoTool{name: "search"})
+	loop := agent.New(local, hosted, reg, permission.AllowAll())
+
+	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(),
+		"Rename the unexported function firstDir in internal/daemon/thread.go to primaryDir.", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if out.Stop != agent.StopStagnant {
+		t.Errorf("Stop = %q, want %q (%s)", out.Stop, agent.StopStagnant, out.Reason)
+	}
+}

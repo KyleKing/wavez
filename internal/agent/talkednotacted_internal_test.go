@@ -57,6 +57,11 @@ func TestLooksLikeAnnouncedAction(t *testing.T) {
 		{name: "trying again", text: "The build still fails.\n\nTrying again with a different approach.", want: true},
 		{name: "retrying", text: "str_replace errored again.\n\nRetrying the call.", want: true},
 		{
+			name: "a retry after an apology on the same line",
+			text: "The old_string did not match.\n\nApologies for the confusion, let me try again.",
+			want: true,
+		},
+		{
 			name: "an announcement that does not open the closing line",
 			text: "Fixed in lease.go, and I'll stop there.",
 			want: false,
@@ -72,6 +77,54 @@ func TestLooksLikeAnnouncedAction(t *testing.T) {
 
 			if got := looksLikeAnnouncedAction(tt.text); got != tt.want {
 				t.Errorf("looksLikeAnnouncedAction(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLooksLikeEditTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		task string
+		want bool
+	}{
+		{
+			name: "an edit that opens with a location rather than a verb",
+			task: "In README.md change the status line 'Status: M2 in progress.' to 'Status: M3 next.'",
+			want: true,
+		},
+		{
+			name: "rename",
+			task: "Rename the unexported function firstDir in internal/daemon/thread.go to primaryDir.",
+			want: true,
+		},
+		{
+			name: "add with a second line of detail",
+			task: "Add a method UsedFraction on Memory.\n\nIt returns the used share of Total.",
+			want: true,
+		},
+		{
+			name: "a question about the code",
+			task: "Which file defines the destructive-command guard rules? Answer in two sentences.",
+			want: false,
+		},
+		{name: "a how-do-I question naming an edit verb", task: "How do I add a routine to a project", want: false},
+		{
+			name: "an inflected verb is not the verb",
+			task: "Explain what the router adds when a local turn fails",
+			want: false,
+		},
+		{name: "empty", task: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := looksLikeEditTask(tt.task); got != tt.want {
+				t.Errorf("looksLikeEditTask(%q) = %v, want %v", tt.task, got, tt.want)
 			}
 		})
 	}

@@ -71,16 +71,19 @@ func WithMaxReviewRounds(n int) Option { return func(o *Options) { o.MaxReviewRo
 // review still objects completes carrying the objection, because a reviewer's
 // disagreement is judgment and the user is the one who settles it.
 //
-// A run that called an edit tool and left no net Change follows the same
+// A run that left no net Change on an edit-shaped task follows the same
 // escalate-then-stop rule, since completing would report the model's belief
-// that it acted rather than whether it did.
+// that it acted rather than whether it did. The task is edit-shaped when
+// the model reached for an edit tool or when its wording asks for a change,
+// so a run that only searched and then claimed the rename is done is caught
+// the same as one whose edits never applied.
 func (r *run) reviewOrComplete(ctx context.Context) (bool, Outcome, error) {
-	if len(r.changes) == 0 && r.editAttempted {
+	if len(r.changes) == 0 && (r.editAttempted || looksLikeEditTask(r.task)) {
 		return r.handleTalkedNotActed(ctx, StopStagnant,
-			"the model called an edit tool but left no file changed again after escalating",
-			"That turn ended with no files changed even though an edit tool was called. Read "+
-				"the last tool result, fix whatever made the edit not apply, and make the edit "+
-				"before reporting anything finished.")
+			"the task asked for a change and the run left no file changed again after escalating",
+			"That turn ended with no files changed on a task that asked for one. Read the last "+
+				"tool result if there is one, fix whatever kept the edit from applying, and make "+
+				"the edit before reporting anything finished.")
 	}
 
 	if r.loop.options.Reviewer == nil || len(r.changes) == 0 {
