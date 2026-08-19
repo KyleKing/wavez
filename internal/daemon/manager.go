@@ -239,6 +239,14 @@ func defaultDirs(root string) []string {
 	return []string{root}
 }
 
+// ids returns every thread id the manager currently holds, in list order.
+func (m *manager) ids() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]string(nil), m.order...)
+}
+
 func (m *manager) get(id string) (*managedThread, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

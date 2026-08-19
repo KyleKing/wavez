@@ -15,6 +15,7 @@ import (
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/eventlog"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
@@ -742,4 +743,73 @@ func TestList_NeverReportsStateOlderThanTheStream(t *testing.T) {
 	if got := rep.Threads[0].State; got != event.StateFailed {
 		t.Fatalf("state on a fresh connection's list = %q, want %q (already on the stream)", got, event.StateFailed)
 	}
+}
+
+// writeThreadLog writes a real, replayable event log for id under dir: the
+// same eventlog.Open/Append/Close path a running daemon uses, so Seq and
+// framing match what reopen must parse.
+func writeThreadLog(t *testing.T, dir, id string, events ...event.Event) {
+	t.Helper()
+
+	log, err := eventlog.Open(dir, id, eventlog.Options{})
+	if err != nil {
+		t.Fatalf("opening log %s: %v", id, err)
+	}
+	for i := range events {
+		if _, err := log.Append(events[i]); err != nil {
+			t.Fatalf("appending to log %s: %v", id, err)
+		}
+	}
+	if err := log.Close(); err != nil {
+		t.Fatalf("closing log %s: %v", id, err)
+	}
+}
+
+// TestProjects_ReopensThreadLogsOnLoad is the restart lane's core claim: a
+// project loaded over a directory of pre-existing thread logs lists them on
+// Home, oldest first, with an interrupted turn normalized back to idle, and
+// a reopened thread is a live thread rather than a static row.
+func TestProjects_ReopensThreadLogsOnLoad(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeThreadLog(t, dir, "thread-a",
+		event.Event{Kind: event.KindUser, Text: "fix the flaky lease test"},
+		event.Event{Kind: event.KindState, State: event.StateDone},
+	)
+	time.Sleep(2 * time.Millisecond) // so B's first event sorts strictly after A's
+	writeThreadLog(t, dir, "thread-b",
+		event.Event{Kind: event.KindUser, Text: "say hi"},
+		event.Event{Kind: event.KindState, State: event.StateWorking},
+	)
+
+	local := fake.New("local", fake.Turn{Text: []string{"hi"}, StopReason: llm.StopEndTurn})
+	h := newHarness(t, local, withServerOptions(daemon.WithLogDir(dir)))
+	cl := dial(t, h)
+	cl.hello()
+
+	cl.send(api.Command{ID: "list", Kind: api.CmdList})
+	rep := cl.recvFor("list")
+	if rep.Kind != api.RepThreads || len(rep.Threads) != 2 {
+		t.Fatalf("list reply = %+v, want two threads", rep)
+	}
+
+	a, b := rep.Threads[0], rep.Threads[1]
+	if a.ID != "thread-a" || a.Name != "fix-the-flaky-lease-test" || a.State != event.StateDone {
+		t.Fatalf("thread A = %+v", a)
+	}
+	if b.ID != "thread-b" || b.Name != "say-hi" || b.State != event.StateIdle {
+		t.Fatalf("thread B = %+v, want idle (an interrupted turn normalized on load)", b)
+	}
+
+	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: "thread-b"})
+	cl.recvFor("sub")
+
+	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: "thread-b", Prompt: "go"})
+	cl.recvFor("send")
+
+	waitForEvent(t, cl, func(rep api.Reply) bool {
+		return rep.Kind == api.RepEvent && rep.Event != nil &&
+			rep.Event.Kind == event.KindState && rep.Event.State == event.StateDone
+	})
 }

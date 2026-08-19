@@ -60,6 +60,10 @@ func NewProject(root string, cfg ProjectConfig) (*Project, error) {
 	mgr.defaultDirs = defaultDirs(root)
 	mgr.scheduler = cfg.Scheduler
 
+	if err := mgr.reopen(); err != nil {
+		return nil, fmt.Errorf("reopening threads: %w", err)
+	}
+
 	return &Project{
 		root:     root,
 		mgr:      mgr,
@@ -172,6 +176,10 @@ func (s *Server) cacheProject(key string, p *Project) *Project {
 	}
 	s.projects[key] = p
 	s.mu.Unlock()
+
+	for _, id := range p.mgr.ids() {
+		s.registerThread(id, p)
+	}
 
 	if p.leases != nil {
 		p.leases.OnWait(s.noteLeaseWait)

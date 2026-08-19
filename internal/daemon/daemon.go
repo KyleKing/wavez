@@ -326,6 +326,10 @@ func (s *Server) buildDefaultProject(c config) error {
 		s.projects[key] = p
 	}
 
+	for _, id := range p.mgr.ids() {
+		s.registerThread(id, p)
+	}
+
 	if c.leases != nil {
 		c.leases.OnWait(s.noteLeaseWait)
 	}
