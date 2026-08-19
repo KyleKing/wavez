@@ -7,6 +7,14 @@ description = "Run wavezd from source (owns the socket the TUI/CLI dial into)"
 run = "go run ./cmd/wavezd"
 raw_args = true
 
+[tasks."jj:pull"]
+description = "Fetch from GitHub and fast-forward tracked bookmarks (main)"
+run = "jj git fetch"
+
+[tasks."jj:push"]
+description = "Advance main to the working copy's parent and push it to GitHub"
+run = "jj bookmark set main -r @- && jj git push -b main"
+
 # Pins that override the template's "latest". An unpinned formatter drifts
 # between a laptop and a CI runner, and the check then fails only in CI.
 [tools]
