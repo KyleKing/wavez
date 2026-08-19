@@ -28,3 +28,18 @@ are specific to this codebase and not visible from the code.
   project, so a scratch daemon over this checkout shows the dogfood threads
   without a model. `n` then `Enter` with no prompt adds an idle thread
   without a turn
+- The hk steps need mise's tools on PATH. `hk check --all` from a shell
+  without `mise activate` aborts on `ls-lint: command not found` and every
+  later step reads as aborted; run it as `mise exec -- hk check --all`
+- Two laptops push to `main` and a `feat:`/`fix:` push cuts a release, so
+  `jj git fetch` and re-read Next before taking a lane and again before
+  pushing. One session rebuilt three landed items from a stale base
+- On the 24 GB M4 Pro a 16 GB-class model (`qwen3.8:27b`) serves only with
+  `-np 1` and a 12k window under the default Metal wired limit (18,186 MiB);
+  llama-server's auto slot count and any window from 16k up fail on the
+  first request with `kIOGPUCommandBufferCallbackErrorOutOfMemory`. The
+  machine then sits near 10% free, so nothing else heavy runs beside it
+- Harness and pull processes that must outlive a tool call need
+  `nohup ... < /dev/null & disown`; a plain `&` inside the call's subshell
+  dies with it. `ollama pull` resumes from its partial blob
+
