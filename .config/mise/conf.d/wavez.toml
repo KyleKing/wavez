@@ -20,6 +20,20 @@ description = "Sync with GitHub, advance main to the working copy's parent, and 
 depends = ["jj:sync"]
 run = "jj bookmark set main -r @- && jj git push -b main"
 
+[tasks."jj:status"]
+description = "Show main's ahead/behind vs GitHub, unpushed local commits, and the working-copy diff"
+run = ["jj bookmark list -a", "jj log -r 'trunk()..@'", "jj status"]
+
+[tasks."jj:branch"]
+description = "Create a bookmark at the working copy's parent and push it to GitHub as a new branch"
+usage = 'arg "<name>"'
+run = "jj bookmark create $usage_name -r @- && jj git push -b $usage_name"
+
+[tasks."jj:pr"]
+description = "Open a GitHub PR for a branch already pushed with jj:branch"
+usage = 'arg "<name>"'
+run = "gh pr create --head $usage_name --fill"
+
 # Pins that override the template's "latest". An unpinned formatter drifts
 # between a laptop and a CI runner, and the check then fails only in CI.
 [tools]
