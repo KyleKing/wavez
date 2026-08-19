@@ -125,3 +125,4 @@ one kind of Condition.
 | Local first | Escalate to hosted on task shape or after one local failure, never retry local twice |
 | jj alone | Checkpointing comes from the operation log rather than snapshots Wavez writes |
 | One store | Every subsystem that needs to know the code queries the same SQLite file |
+| One daemon per laptop | `wavezd` listens on one socket under the OS user config dir and loads a project the first time a client names its root, rather than one daemon per project |
