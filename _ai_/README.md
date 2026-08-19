@@ -68,6 +68,7 @@ produced.
 | `demos/local-models/` | `config.DefaultLocalModel`, `internal/router` | `66a2092d` |
 | `demos/local-runtime/` | `internal/runtime` | `66a2092d` |
 | `demos/sandbox/` | `internal/sandbox` | `66a2092d` |
+| `demos/prefix-tokens/` | The stable prefix on this repo is ~2,430 qwen3:8b tokens through the template (30% of 8k), and chars/4 is within 1% once tool schemas count | Hosted-tokenizer half of the same measurement (needs a key) |
 | `demos/progress-estimate/` | Replays thread logs and scores five remaining-wall-clock estimators leave-one-run-out; six M4 Pro runs decide nothing, so it waits on the M2 Pro's corpus | The progress line (Next) |
 | `demos/pkl-routines/` | `internal/routine`, `internal/config` | `a431bbc` |
 | `demos/pattern-sweep/` | `internal/cycle`, `internal/astgrep` | `a431bbc` |
