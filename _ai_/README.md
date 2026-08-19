@@ -32,8 +32,6 @@ directory goes and `DESIGN.md` carries the numbers.
 |---|---|---|
 | `demos/code-store-python/` | coverage.py `--cov-context=test` as a line-to-test store: ~8% over plain coverage, 122 pairs into 422 range rows | A Python coverage adapter (M1 if the selection primitive settles) |
 | `demos/intent-edits/` | Resolver covers 55% of added lines alone and 80% with one hole fill; intent plus hole on qwen3:8b is 3.9x faster than a hosted model writing whole files | Intent-edit resolver (M3). Its `corpus/` and `timing/` scripts also seed the benchmark harness |
-| `demos/pattern-sweep/` | The generalize phase is seedable for a local syntactic cause (4 sites, no false positives) and noise for a dataflow one (100 hits) | Cycles (M2) |
-| `demos/pkl-routines/` | `hk.pkl` can import `.wavez.pkl` so a hook runs the agent's routine; ~130 µs warm, 10-14 ms cold | Routines (M2) |
 
 `bench/` is where the M3 benchmark harness writes its tables. `bench/dogfood.md` holds
 the failures found running wavez against itself. `bench/audit-2026-08-18.md` is the
@@ -54,7 +52,7 @@ the spikes that would settle them.
 
 ## Removed from the tree
 
-Still in git history, readable at the commit named beside each. Eight demos were deleted
+Still in git history, readable at the commit named beside each. Ten demos were deleted
 once the design they argued for shipped as code; `DESIGN.md` keeps every number they
 produced.
 
@@ -68,6 +66,8 @@ produced.
 | `demos/local-models/` | `config.DefaultLocalModel`, `internal/router` | `66a2092d` |
 | `demos/local-runtime/` | `internal/runtime` | `66a2092d` |
 | `demos/sandbox/` | `internal/sandbox` | `66a2092d` |
+| `demos/pkl-routines/` | `internal/routine`, `internal/config` | `a431bbc` |
+| `demos/pattern-sweep/` | `internal/cycle`, `internal/astgrep` | `a431bbc` |
 
 Also gone: the raw 2000-line hunk exploration transcript, and
 `merge-based-stacking/target-vs-stacks.md` (Pulumi, off-topic).

@@ -11,9 +11,10 @@ owner's to make.
 Mechanics live in the files that own them and are not repeated here:
 [CONTRIBUTING.md](CONTRIBUTING.md) for tasks, the git workflow, and how a
 release is cut and verified, [AGENTS.md](AGENTS.md) for conventions and the
-five CI jobs a green `mise run ci` does not cover, and
-[docs/troubleshooting.md](docs/troubleshooting.md) for toolchain failures.
-What is worth saying once, here:
+five CI jobs a green `mise run ci` does not cover,
+[docs/troubleshooting.md](docs/troubleshooting.md) for toolchain failures, and
+[AGENTS.local.md](AGENTS.local.md) for traps specific to this codebase. What
+is worth saying once, here:
 
 - The repository is a colocated jj checkout. Use `jj`, not `git`, for anything
   that writes. A detached git HEAD is normal and is not something to fix.
@@ -70,7 +71,7 @@ flowchart LR
         Code[(Code intelligence store)]
     end
     subgraph external [External]
-        Local[Ollama local models]
+        Local[llama-server local models]
         OR[OpenRouter]
         Sandbox[Seatbelt sandbox]
         VCS[git or jj]
@@ -397,7 +398,7 @@ Roles beyond linting:
 ### Routines (M2)
 
 - Defined in `.wavez.pkl` per project, amending a Wavez schema (`routines` in `internal/config/pkl/Wavez.pkl`). Gates are shipped as built-in routines named `gate-<gate>` the user can override or disable there; disabling one drops that gate from the change pipeline, which is the only way the routine layer reaches into gates
-- `hk.pkl` can `import ".wavez.pkl"` so a git hook runs the same routine the agent does (verified in `_ai_/demos/pkl-routines`, re-verified against the shipped schema on hk 1.53: `hk validate` still fails under the default `pklr` backend with `key not found: 0`, and passes with `HK_PKL_BACKEND=pkl`). Wavez does not depend on hk. `internal/config`'s import test pins the pkl half of that path
+- `hk.pkl` can `import ".wavez.pkl"` so a git hook runs the same routine the agent does (verified in the since-removed `_ai_/demos/pkl-routines` demo, re-verified against the shipped schema on hk 1.53: `hk validate` still fails under the default `pklr` backend with `key not found: 0`, and passes with `HK_PKL_BACKEND=pkl`). Wavez does not depend on hk. `internal/config`'s import test (`hkimport_test.go`) pins the pkl half of that path
 - Semantics borrowed from Hatchet: DAG steps with parents, concurrency keys with `cancel-in-progress` and `round-robin`, triggers (change event, manual, schedule, thread lifecycle). Rate limits, durable sleep, and sticky assignment are dropped. The schedule and thread-lifecycle triggers are declared in the schema and carried through compile, and no scheduler fires them yet, since the scheduler is another lane's work
 - Steps invoke CLIs in any language through an action registry (name, params, validator, handler) rather than shell strings. Built-in actions are `gate.<name>` for each gate and `run` for an argv, with `dir` refused outside the project root. Validation runs at config load, so a routine naming an unknown action or forming a cycle fails App construction, never a run
 - Change-triggered routines run after the gates on the same debounced batch, wrapped around `gate.RunFunc`; the gate result the model sees is unchanged by a routine's outcome
@@ -435,7 +436,7 @@ Each phase runs in its own thread (`<thread>.<phase>.<attempt>`) under the cycle
 
 Attempts themselves need no storage, since jj snapshots the working copy on every command and history rewriting does not touch the operation log (measured: after squashing a commit away, `jj --at-op` still reads its content and the op log grew rather than shrank). That makes the op log good working memory and useless as institutional memory: it is local, and a fresh clone of a squash-merged branch has neither the commits nor the log. Only a tracked file survives, which is the real argument for the generalize phase, since its output is the only one that does.
 
-**Where the sweep works.** Measured in `_ai_/demos/pattern-sweep` on two real causes: a local syntactic cause (a gate returning pass after examining nothing) resolved to an `ast-grep` pattern that found all four sibling sites across three files with no false positives, while a dataflow cause spanning functions returned 100 hits of noise. So the generalize phase is seedable, not automatic, and its exit condition must accept "the sweep does not discriminate here, and the durable artifact is a helper or a boundary test instead".
+**Where the sweep works.** Measured in the since-removed `_ai_/demos/pattern-sweep` demo on two real causes: a local syntactic cause (a gate returning pass after examining nothing) resolved to an `ast-grep` pattern that found all four sibling sites across three files with no false positives, while a dataflow cause spanning functions returned 100 hits of noise. So the generalize phase is seedable, not automatic, and its exit condition must accept "the sweep does not discriminate here, and the durable artifact is a helper or a boundary test instead".
 
 ### Mutation testing as a verification gate (M3, running on demand)
 
@@ -657,7 +658,7 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 
 - In the context of a single-binary low-RAM agent, facing Go vs Rust vs TypeScript, we chose Go with Bubble Tea v2, to reuse Crush's proven patterns and the user's Go tooling, accepting that jcode (Rust) will stay leaner
 - In the context of Crush's FSL-1.1-MIT license and its `internal/` layout, facing fork vs copy, we copy its tool loop and TUI patterns into our own code, to keep the surface small and avoid the FSL window, accepting slower start than a fork
-- In the context of per-project config, facing pkl vs CUE vs TOML, we chose pkl through `pkl-go` with one long-lived evaluator, to get typed schemas with `amends` and share the mental model with hk, accepting a `pkl server` subprocess (~30 MB RSS) and a pre-1.0 Go binding. Measured in `_ai_/demos/pkl-routines`: ~130 µs warm, 10-14 ms cold, so no cache layer is needed
+- In the context of per-project config, facing pkl vs CUE vs TOML, we chose pkl through `pkl-go` with one long-lived evaluator, to get typed schemas with `amends` and share the mental model with hk, accepting a `pkl server` subprocess (~30 MB RSS) and a pre-1.0 Go binding. Measured in the since-removed `_ai_/demos/pkl-routines` demo: ~130 µs warm, 10-14 ms cold, so no cache layer is needed
 - In the context of gates shipping as routines, facing routines that own the gates vs gates that stay a separate pipeline the routine layer wraps, we keep `internal/gate` as it is and expose each gate as a `gate.<name>` action plus a `gate-<name>` built-in routine, to let a project override or disable a gate from `.wavez.pkl` without the gate code learning about routines, accepting that a built-in's change trigger is the gate pipeline itself rather than the routine runner, so the built-ins declare only the manual trigger and running one from the panel is the same check on the whole tree
 - In the context of running a CLI from a routine, facing a shell string vs an argv, we take only an argv with a `dir` contained in the project root, to keep a routine from becoming a place where a pipeline or a redirect slips past the sandbox, accepting that a step needing shell features has to name a script the project checks in
 - In the context of code intelligence, facing one external index (codegraph, Codanna, Serena) vs an own store, we own the SQLite schema and the tree-sitter, FTS, vector, and coverage indexers in Go and take `codegraph` as an edge adapter, to keep the central store under Wavez's control and let every subsystem query one file, accepting that call-edge resolution depends on an external binary until an own resolver replaces it per language
@@ -707,22 +708,24 @@ done when its condition holds, and nothing here promises a release number.
 | Milestone | Done when | Ships |
 |---|---|---|
 | M1 Loop | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
-| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold. Both hold on the fake-loop harness (`internal/daemon/schedule_test.go`, `internal/cycle`), and neither has yet been watched on a real model run | Shipped: pkl routines, DAG runner, Cycles with the fix cycle, leases, schedule view, diagnostics panel, sub-threads and fork, routines panel, memory-aware admission, local model management, `llama-server` timings on the panel, the remote local tier, one daemon per laptop with fleet Home, composer snippets. Left for the ordered list below: PTY recordings, semantic index and similarity notes, repo map, Semgrep routine with capability delta, schedule and thread-lifecycle triggers firing, per-model settings reaching the supervisor |
+| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold. Both hold on the fake-loop harness (`internal/daemon/schedule_test.go`, `internal/cycle`). The fix cycle's refusal has also been watched on a real model run, recorded in `_ai_/bench/dogfood.md`; the three-thread condition has not | Shipped: pkl routines, DAG runner, Cycles with the fix cycle, leases, schedule view, diagnostics panel, sub-threads and fork, routines panel, memory-aware admission, local model management, `llama-server` timings on the panel, the remote local tier, one daemon per laptop with fleet Home, composer snippets. Left for the ordered list below: PTY recordings, semantic index and similarity notes, repo map, Semgrep routine with capability delta, schedule and thread-lifecycle triggers firing, per-model settings reaching the supervisor |
 | M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, mutation gate in the verification round (it runs on demand today), Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim` with `$EDITOR` prompt handoff and a `wavez lsp` completion server, MCP on demand, web search, context manifest and Ask-a-line |
 | M4 Away | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | M5 Proof | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
 
 ### Next
 
-Ordered by what unblocks daily use soonest, from the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood rows. Each names what closes it.
+Ordered by what a quiet M4 Pro session can settle first, then by what unblocks daily use, from the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood rows. Each names what closes it.
 
-1. The progress line and estimate, after the `progress-estimate` spike. The other owner's asks (idle toast, auto-linked identifiers, parked-work inbox) shipped; the mobile push half of the toast is M4
-2. Probe the M4 Pro (steps in the audit) and re-run the five-task edit harness against `localBaseURL`, which decides whether local writing is a property of 8B models or of local inference
-3. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
-4. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
-5. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
-6. The efficiency spikes, in the order their numbers would change a decision: `kv-slots`, `trim-turns`, `prefix-tokens`, `thinking-budget`, `fork-shape`, then the rest
-7. Finish the timed comparison. Hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows. Last because it is blocked on a quiet machine rather than on work, and the daily-use items above are not
+1. Probe the M4 Pro and re-run the five-task edit harness against `localBaseURL`, which decides whether local writing is a property of 8B models or of local inference
+2. Finish the timed comparison: hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows
+3. The efficiency spikes, in the order their numbers would change a decision: `kv-slots`, `trim-turns`, `prefix-tokens`, `thinking-budget`, `fork-shape`, then the rest
+4. The progress line and estimate, after the `progress-estimate` spike, which replays thread logs already on disk and so needs no particular machine. The other owner's asks (idle toast, auto-linked identifiers, parked-work inbox) shipped; the mobile push half of the toast is M4
+5. Fleet-scale local serving: `-np N` under the admission headroom with serialization past it, the trimmed-output recall handle, allow-always persisted per project
+6. Routine triggers on schedule and thread lifecycle, per-model runtime settings applied when the supervisor starts `llama-server`, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
+7. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
+
+The quiet-machine session (items 1 and 2) runs off two fixed lists rather than rediscovering steps: the M4 Pro probe and harness re-run in `_ai_/bench/audit-2026-08-18.md` (section 3b), then the setup and run loop in `_ai_/bench/timing/README.md`.
 
 ## Considered and deferred
 
@@ -760,13 +763,12 @@ No:
 - Qwen3-Coder-30B-A3B's smallest Ollama quant is 19 GB, so it is out on this laptop. A stronger local coder needs more memory or a hosted fallback
 - The local bench used Ollama 0.32 (llama.cpp backend on this run). llama.cpp or MLX served directly may change the numbers, and Gemma's thinking mode needs a `num_predict` cap or disabling
 - `pkl-go` evaluation latency and API stability before 1.0
-- Bubble Tea v2 scroll-performance regression (bubbletea#1724)
 - Charm's runway. Crush is a reference, not a dependency, so this is a research-continuity risk only
 - A run that changed nothing is refused `complete` only when it called an edit tool. A task that asked for a change and never reached an edit tool (read, search, and give up) still completes on zero changes, because the loop has no task-shape signal and a classifier over prompt text would misfire on the imperative task whose closing question legitimately completes. Closing that needs an edit-shaped signal the router or the prompt carries, not a phrase list
 - Coverage-map adapters per language are the long tail. Importer-based selection from `codegraph` is the fallback, and on this repo it is close to running everything
 - `codegraph`'s SQLite schema is its own and may change. Wavez copies rows into its store rather than querying theirs
 - `internal/app`'s `TestHostedKeyErrorsOnFirstHostedRequest` failed once inside a full-suite run and then did not reproduce in 36 runs of that package. It was reported as a pre-existing `t.TempDir` cleanup race, and neither half of that is verified, so it stays recorded rather than closed
-- Bubble Tea v2 broke imports and APIs in February 2026 (`charm.land/...` paths, `View() tea.View`, `tea.KeyPressMsg`, FPS-capped cell-diff renderer), so Crush-era snippets need translation. The spike found no scroll stall at 100 events/s and rolled its own virtualized transcript because `bubbles/v2` viewport and list do not fit a live-growing log
+- Bubble Tea v2 broke imports and APIs in February 2026 (`charm.land/...` paths, `View() tea.View`, `tea.KeyPressMsg`, FPS-capped cell-diff renderer), so Crush-era snippets need translation. The scroll-performance regression tracked as bubbletea#1724 did not reproduce: the spike found no scroll stall at 100 events/s and rolled its own virtualized transcript because `bubbles/v2` viewport and list do not fit a live-growing log
 
 ## Open questions
 
