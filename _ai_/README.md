@@ -68,6 +68,7 @@ produced.
 | `demos/local-models/` | `config.DefaultLocalModel`, `internal/router` | `66a2092d` |
 | `demos/local-runtime/` | `internal/runtime` | `66a2092d` |
 | `demos/sandbox/` | `internal/sandbox` | `66a2092d` |
+| `demos/progress-estimate/` | Replays thread logs and scores five remaining-wall-clock estimators leave-one-run-out; six M4 Pro runs decide nothing, so it waits on the M2 Pro's corpus | The progress line (Next) |
 | `demos/pkl-routines/` | `internal/routine`, `internal/config` | `a431bbc` |
 | `demos/pattern-sweep/` | `internal/cycle`, `internal/astgrep` | `a431bbc` |
 
