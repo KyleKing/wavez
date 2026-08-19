@@ -427,3 +427,48 @@ work was re-applied as a delta: the task's wording now counts as the
 edit-shaped signal beside an attempted edit tool, and a retry promised
 after an apology on the same line ("Apologies, let me try again.") counts
 as an announcement.
+
+## 2026-08-19, the M4 Pro probe on qwen3.8:27b
+
+Next item 1, first pass. `qwen3.8:27b` (Q4_K_M, 15.65 GiB, the model the
+landscape research named) pulled through ollama, served by `llama-server`
+build 10470 on wavez's port with `-np 1 -c 12288 --spec-type ngram-simple`
+and thinking off, and the four timing-harness tasks run through
+`wavez -p -model local` with `contextWindow = 12288` in the bench copy's
+`.wavez.pkl`. One full sample plus a second e1 before the run was stopped to
+give the memory back; the rows are in `timing/results-2026-08-18.jsonl`.
+
+| Task | qwen3.8:27b | qwen3:8b, same machine | Outcome |
+|---|---|---|---|
+| e1 one-line README edit | 51.5 s, 58.5 s | 13-19 s | landed and `complete` both times, the first with a native `str_replace` call on the first turn |
+| e2 method plus table test | 214 s | never landed in 7 runs | landed, builds, tests pass, `complete` after 7 turns and 8 tool calls. The first local model to finish e2 here |
+| e3 rename across a package | 300 s | `stagnant` or `loop_detected` | `deadline` at 9 turns and 13 tool calls with no file changed |
+| q1 question | 67 s | 15-27 s, wrong file | `complete`; answer not checked by hand |
+
+What the serving side says, from the raw probe before the harness:
+
+- It fits only barely without `sudo sysctl iogpu.wired_limit_mb`: Metal
+  reports 18,186 MiB usable, the weights take 15.65 GiB, and `-c 12288`
+  serves while `-c 16384` and every larger window fail with
+  `kIOGPUCommandBufferCallbackErrorOutOfMemory` on the first request.
+  llama-server's default of four slots fails at 8k too; `-np 1` is required
+- Prefill is the cost: 90 tokens/s on the 2.6k-token wavez prefix (29 s
+  cold), against 340 tokens/s for qwen3:8b. The research pass predicted this
+  for the hybrid Gated DeltaNet models on Metal, which lacks the GLA kernels
+  (llama.cpp [#21452](https://github.com/ggml-org/llama.cpp/pull/21452)).
+  Decode is 11-12 tokens/s against 40. A cached second turn costs 31 prompt
+  tokens and under a second
+- The ollama modelfile carries two `FROM` lines (the weights first, then a
+  931 MB projector for the image side). `runtime.ParseModelfileGGUF` takes
+  the first, which is the weights, so wavez can start this model itself;
+  the probe started the server by hand only to pin `-np 1 -c 12288`, which
+  the config cannot yet express (`-np` is fixed at 1 and the window comes
+  from `contextWindow`, so it could)
+- While it runs the laptop sits at about 10% free with ~19.6 GB wired and
+  2 GB in the compressor, and a harness run's `go build` and `go test`
+  land on top of that. This is the memory the admission headroom exists to
+  arbitrate, and 0.25 free fraction is not reachable with this model loaded
+
+Still owed: the other two samples, `devstral-small-2` (pulling at the end
+of the session) and `qwen3-coder:30b`, and a run with the wired limit
+raised so the served window can reach 32k.
