@@ -4,6 +4,10 @@ A personal AI coding agent built for one user, one laptop, and repeated narrow w
 
 Status: M2 in progress. [docs/glossary.md](docs/glossary.md) is the map: the vocabulary, how a turn and a cycle run, and the decisions worth knowing before reading code. [DESIGN.md](DESIGN.md) holds the architecture, screens, per-feature requirements, decisions, and milestones. `_ai_/` holds the half-finished projects and research this consolidates.
 
+![Home, a thread, the schedule, and diagnostics in the wavez TUI](docs/demo.gif)
+
+`docs/demo.tape` records the tour above against a scratch daemon with no model attached (`mise run demo` re-renders the gif and the stills under `docs/img/`).
+
 ## What it does differently
 
 - **Gates** run checks in response to what changed, so the model never decides what to test. The coverage map plus the changed lines picks the test subset, format and lint run as pre-passes, a passing gate returns nothing, and a failing one returns the failing test names and the frames touching changed files

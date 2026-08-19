@@ -367,3 +367,11 @@ read `req.ThreadID`, which nothing sets, so every permission wait was keyed
 to an empty thread id and only worked because the lookup was cosmetic. It
 reads the thread from the context now, the way `QuestionAsker` already did.
 
+## 2026-08-18, VHS tour of the TUI
+
+`docs/demo.tape` drives Home, a thread, schedule, diagnostics, and help against
+a scratch `wavezd -socket /tmp/wz-demo/d.sock -dir .` with no model. One
+finding, recorded in DESIGN.md's Next: the daemon lists only threads it
+created in this process, so `.wavez/threads/` with ninety logs from earlier
+runs rendered as `0 threads`. The tape seeds three idle threads with `n` and an
+empty prompt instead, which creates a thread without a turn.

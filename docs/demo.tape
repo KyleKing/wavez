@@ -2,8 +2,8 @@ Output docs/demo.gif
 
 Set Shell "bash"
 Set FontSize 14
-Set Width 1200
-Set Height 700
+Set Width 1000
+Set Height 440
 Set Padding 20
 Set Theme "Catppuccin Mocha"
 Set Framerate 24
@@ -23,8 +23,6 @@ Type "/tmp/wz-demo/wavez -socket /tmp/wz-demo/d.sock"
 Enter
 Sleep 1500ms
 
-# Home starts empty; seed it with a couple of idle threads (no prompt, so
-# no model call) so the list has real rows to show.
 Type "n"
 Sleep 300ms
 Enter
@@ -39,7 +37,6 @@ Enter
 Sleep 1s
 Screenshot docs/img/home.png
 
-# Open a thread and show the composer, without sending (no model call).
 Enter
 Sleep 1s
 Tab
@@ -54,7 +51,6 @@ Sleep 300ms
 Escape
 Sleep 500ms
 
-# Back to Home, then the schedule view.
 Escape
 Sleep 500ms
 Type "s"
@@ -63,14 +59,12 @@ Screenshot docs/img/schedule.png
 Escape
 Sleep 500ms
 
-# Diagnostics panel.
 Type "D"
 Sleep 1s
 Screenshot docs/img/diagnostics.png
 Escape
 Sleep 500ms
 
-# Help overlay.
 Type "?"
 Sleep 1s
 Screenshot docs/img/help.png
