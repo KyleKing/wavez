@@ -1,3 +1,13 @@
+## v0.14.0 (2026-08-19)
+
+### Feat
+
+- **runtime**: serve the configured context window, route with reply room, and let a missing ast-grep abstain
+
+### Fix
+
+- **agent**: treat a task worded as an edit as edit-shaped and catch a retry promised after an apology
+
 ## v0.13.0 (2026-08-19)
 
 ### Feat
