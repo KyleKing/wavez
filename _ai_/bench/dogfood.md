@@ -375,3 +375,55 @@ finding: the daemon listed only threads it created in this process, so
 `.wavez/threads/` with fifty-eight logs from earlier runs rendered as
 `0 threads`. `manager.reopen` fixes that by opening every log at project load,
 and the tape's Home frame shows those threads.
+
+++ b/_ai_/bench/dogfood.md
+
+## 2026-08-18, first session on the M4 Pro
+
+A fresh checkout on the 24 GB M4 Pro. Ollama, ast-grep, and llama-server
+installed from brew; qwen3:8b pulled; the larger models (`qwen3.8:27b`,
+`devstral-small-2`, `qwen3-coder:30b`) queued behind a link that fell to
+250 KB/s mid-session, so the item 1 probe against them is still owed. Every
+run below shared the machine with those pulls, which cost bandwidth and not
+CPU, so the wall numbers are usable and not clean.
+
+The timing harness on `qwen3:8b`, `wavez -p -model local`, before this
+session's fixes:
+
+| Task | M4 Pro | M2 Pro (earlier rows) | Outcome |
+|---|---|---|---|
+| q1 question | 15.4 s | 7.3 s | wrong file named both times here (`.github/workflows/ci.yml`), no tool call on the fast run |
+| e1 one-line README edit | 12.9 s | 374 s | the edit landed exactly in 12 s of model time; the run then stopped `verify_failed` because `ast-grep` was not installed on this laptop and the convention gate reported that as a failure the model was told to fix |
+| e2 method plus table test | 55.7 s | 423 s | `provider_failed`: llama-server refused a request at 8,222 tokens against its 8,192 window, so the router's estimate ran under the served window by 30 tokens |
+| e3 rename across a package | 41.9 s | 203 s | `stagnant` after 11 tool calls, no change |
+
+Three findings from the rows, beside the two defects the session opened with:
+
+- `contextWindow` in `.wavez.pkl` never reached `llama-server`: `app.ensureLocalServer` built `runtime.Config{Port: cfg.LocalPort}` and nothing else, so the server started at `DefaultContextSize` (8192) whatever the config said, and `router.LocalContextBudget` was a constant beside it. Fixed in this session: the config's window and any size saved on the models screen reach the supervisor, the router escalates when the request plus `ReplyReserve` would not fit that window, and the estimate counts the tool specs it was omitting
+- A gate whose tool is missing read as a failing gate. `astgrep: ast-grep binary not found on PATH` reached the model as verification feedback, and the model spent its next turn trying to install it. Fixed in this session: the convention gate abstains with the install hint as its reason, which the gate log records and the model never sees
+- The 8,222 against 8,192 miss was the estimate, not the model: `estimateRequestTokens` omitted the tool schemas, and the budget left no room under the served window for the reply
+
+After this session's fixes: e1 rerun with `ast-grep` installed and
+`contextWindow = 32768` in the bench copy's `.wavez.pkl` landed the edit and
+completed in 17.1 s wall (14.6 s model), with `llama-server` started at
+`-c 32768` for the first time (the flag now follows the config, and a size
+saved on the models screen overrides it). e2 rerun no longer hit the window
+and ran 23 turns to `loop_detected` in 110 s, code that does not vet, which
+is the model rather than the harness. The wider detector (a task worded as
+an edit that ends with no change) is pinned on the fake-loop harness only;
+no real-model run of e3's shape has been watched since.
+
+The larger models for the item 1 probe (`qwen3.8:27b` first, per
+`_ai_/research/2026-08-local-model-landscape.md`, then `devstral-small-2`
+and `qwen3-coder:30b`) were still pulling at 0.25-0.7 MB/s when the session
+ended, so the probe and the timed comparison stay open. Both `wavez -p` rows
+above and the pulls shared the machine, and neither the CPU nor the model
+was the contended resource.
+
+Meanwhile the other laptop's session landed the same three defects and the
+fleet lane on `main` (v0.13.0). This session's versions of the sync fix and
+the per-laptop daemon were dropped in favour of those, and its detector
+work was re-applied as a delta: the task's wording now counts as the
+edit-shaped signal beside an attempted edit tool, and a retry promised
+after an apology on the same line ("Apologies, let me try again.") counts
+as an announcement.
