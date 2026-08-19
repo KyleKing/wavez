@@ -3,7 +3,7 @@ Output docs/demo.gif
 Set Shell "bash"
 Set FontSize 14
 Set Width 1000
-Set Height 440
+Set Height 600
 Set Padding 20
 Set Theme "Catppuccin Mocha"
 Set Framerate 24
@@ -23,18 +23,10 @@ Type "/tmp/wz-demo/wavez -socket /tmp/wz-demo/d.sock"
 Enter
 Sleep 1500ms
 
-Type "n"
-Sleep 300ms
-Enter
-Sleep 700ms
-Type "n"
-Sleep 300ms
-Enter
-Sleep 700ms
-Type "n"
-Sleep 300ms
-Enter
-Sleep 1s
+Type "j"
+Sleep 400ms
+Type "j"
+Sleep 600ms
 Screenshot docs/img/home.png
 
 Enter

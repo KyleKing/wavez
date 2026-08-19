@@ -24,8 +24,7 @@ are specific to this codebase and not visible from the code.
 - TUI golden frames live in `internal/tui/testdata/*.golden`, rendered with
   `Options{NoColor: true}` so the bytes are stable. Regenerate with
   `go test ./internal/tui -update` and read the diff frame by frame
-- A fresh daemon lists only the threads it created. `.wavez/threads/` holds
-  the logs from every earlier run and nothing reads them back at load, so a
-  scratch daemon over this checkout starts with an empty Home. `n` then
-  `Enter` with no prompt makes an idle thread without a model call, which is
-  how `docs/demo.tape` seeds its screenshots
+- A daemon reopens every log under `.wavez/threads/` when it loads a
+  project, so a scratch daemon over this checkout shows the dogfood threads
+  without a model. `n` then `Enter` with no prompt adds an idle thread
+  without a turn
