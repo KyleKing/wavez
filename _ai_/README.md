@@ -37,7 +37,9 @@ directory goes and `DESIGN.md` carries the numbers.
 the failures found running wavez against itself. `bench/audit-2026-08-18.md` is the
 capability, cost, model, hosting, and TUI audit, and `research/2026-08-efficiency-frontier.md`
 compares the design's four efficiency boundaries against August 2026 prior art and lists
-the spikes that would settle them.
+the spikes that would settle them. `research/2026-08-local-model-landscape.md` is the
+model pass for the M4 Pro probe: what fits in 24 GB, what independent benchmarks say
+against Sonnet and Haiku, MLX versus llama.cpp, and live hosted prices.
 
 ## Relocated projects
 
