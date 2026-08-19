@@ -42,4 +42,3 @@ are specific to this codebase and not visible from the code.
 - Harness and pull processes that must outlive a tool call need
   `nohup ... < /dev/null & disown`; a plain `&` inside the call's subshell
   dies with it. `ollama pull` resumes from its partial blob
-
