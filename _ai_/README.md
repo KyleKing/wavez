@@ -68,6 +68,7 @@ produced.
 | `demos/local-models/` | `config.DefaultLocalModel`, `internal/router` | `66a2092d` |
 | `demos/local-runtime/` | `internal/runtime` | `66a2092d` |
 | `demos/sandbox/` | `internal/sandbox` | `66a2092d` |
+| `demos/thinking-budget/` | On qwen3:8b thinking lands the same 3/9 edits off, on, and capped at 256, at 2.8x and 1.7x the wall and 25x and 14x the output tokens | Rerun on the 27B probe model |
 | `demos/kv-slots/` | Under `-np 1` a switch between two 3.6k prefixes costs 0.25 s because llama-server caches idle slots in host RAM; the cost is that RAM (8 GiB default), not prefill | Sizing `--cache-ram` against admission (Next) |
 | `demos/prefix-tokens/` | The stable prefix on this repo is ~2,430 qwen3:8b tokens through the template (30% of 8k), and chars/4 is within 1% once tool schemas count | Hosted-tokenizer half of the same measurement (needs a key) |
 | `demos/progress-estimate/` | Replays thread logs and scores five remaining-wall-clock estimators leave-one-run-out; six M4 Pro runs decide nothing, so it waits on the M2 Pro's corpus | The progress line (Next) |
