@@ -8,11 +8,16 @@ run = "go run ./cmd/wavezd"
 raw_args = true
 
 [tasks."jj:pull"]
-description = "Fetch from GitHub and fast-forward tracked bookmarks (main)"
+description = "Fetch from GitHub (only fast-forwards main if there is no local work on it)"
 run = "jj git fetch"
 
+[tasks."jj:sync"]
+description = "Fetch from GitHub and rebase local work onto the latest main"
+run = "jj git fetch && jj rebase -d 'trunk()'"
+
 [tasks."jj:push"]
-description = "Advance main to the working copy's parent and push it to GitHub"
+description = "Sync with GitHub, advance main to the working copy's parent, and push it"
+depends = ["jj:sync"]
 run = "jj bookmark set main -r @- && jj git push -b main"
 
 # Pins that override the template's "latest". An unpinned formatter drifts
