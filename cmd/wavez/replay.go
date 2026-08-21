@@ -65,7 +65,7 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return runErr
 	}
 
-	checks := replay.Verify(task, dir, info.Text)
+	checks := replay.Verify(ctx, task, dir, info.Text)
 
 	if err := keepLog(root, dir, string(info.ID)); err != nil {
 		return err

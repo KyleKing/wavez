@@ -222,7 +222,7 @@ func TestVerifyChecksTheTreeAndTheAnswer(t *testing.T) {
 		{Path: replay.AnswerPath, Want: "rules.go"},
 	}}
 
-	got := replay.Verify(task, dir, "the answer names rules.go")
+	got := replay.Verify(t.Context(), task, dir, "the answer names rules.go")
 
 	want := []bool{true, true, false, false, true}
 	for i, w := range want {
@@ -254,4 +254,39 @@ func TestReportSaysTheTaskTextChanged(t *testing.T) {
 	}
 
 	requireHolds(t, out.String(), "the task text changed between these runs (aaaaaaaa then bbbbbbbb)")
+}
+
+// A substring check cannot tell an edit that compiles from one that does
+// not: a rename that missed a caller in another file passed every substring
+// check its task had.
+func TestVerifyRunsTheCompiler(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+
+	write("go.mod", "module demo\n\ngo 1.26\n")
+	write("main.go", "package main\n\nfunc main() { missing() }\n")
+
+	task := replay.Task{ID: "x", Checks: []replay.Check{{Path: replay.BuildPath, Want: "./..."}}}
+
+	got := replay.Verify(t.Context(), task, dir, "")
+	if got[0].Pass {
+		t.Fatalf("a tree that does not compile passed: %+v", got[0])
+	}
+	if !strings.Contains(got[0].Note, "missing") {
+		t.Errorf("Note = %q, want the compiler's own first line", got[0].Note)
+	}
+
+	write("main.go", "package main\n\nfunc main() {}\n")
+
+	if got := replay.Verify(t.Context(), task, dir, ""); !got[0].Pass {
+		t.Errorf("a tree that compiles failed: %+v", got[0])
+	}
 }

@@ -28,9 +28,16 @@ var ErrMalformedTask = errors.New("task line is not id|prompt")
 // record ambiguous about which prompt produced it.
 var ErrDuplicateTask = errors.New("task is defined twice")
 
-// AnswerPath is the Check.Path that reads the run's final text rather than a
-// file, for a task whose product is an answer.
-const AnswerPath = "answer"
+// Check.Path values that read something other than a file in the tree.
+const (
+	// AnswerPath reads the run's final text, for a task whose product is an
+	// answer rather than an edit.
+	AnswerPath = "answer"
+	// BuildPath runs `go build` over the package pattern in Want.
+	BuildPath = "build"
+	// TestPath runs `go test` over the package pattern in Want.
+	TestPath = "test"
+)
 
 // Check is one assertion about what a run left behind: Want must appear in
 // the file at Path, or must not when Negate. A task with no checks records
