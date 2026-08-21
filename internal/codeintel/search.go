@@ -52,15 +52,36 @@ type Edge struct {
 	Confidence float64
 }
 
+// LineMatch is one line of a file that held a query term, with Line
+// counting from 1.
+type LineMatch struct {
+	Text string
+	Line int
+}
+
 // SearchResult is one match. Exactly one of Symbol or Edge is set,
 // depending on the query's mode.
+//
+// A file-level match carries Lines rather than the file text it matched
+// through. A hit that names a file and not a place in it leaves the caller
+// to find the place, and measured on a dogfood run that meant falling
+// straight back to grep -rn on the file search had just found.
 type SearchResult struct {
 	Symbol *Symbol
 	Edge   *Edge
 	Kind   string
 	File   string
 	Text   string
+	Lines  []LineMatch
 }
+
+// maxLineMatches caps the lines reported for one file hit. Enough to show
+// where a symbol is used, short of pasting a file the caller can read.
+const maxLineMatches = 5
+
+// maxLineMatchWidth truncates a matched line, so one minified or generated
+// line cannot swamp a result set.
+const maxLineMatchWidth = 200
 
 const defaultSearchLimit = 20
 
@@ -97,9 +118,7 @@ func (s *Store) Search(ctx context.Context, q SearchQuery) ([]SearchResult, erro
 // for the rest of the run. Ranking by bm25 still puts a document matching
 // every term above one matching a single term, so precision survives.
 func ftsQuery(text string) string {
-	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
-	})
+	fields := queryTerms(text)
 	if len(fields) == 0 {
 		return `""`
 	}
@@ -112,7 +131,59 @@ func ftsQuery(text string) string {
 	return strings.Join(quoted, " OR ")
 }
 
+func queryTerms(text string) []string {
+	return strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	})
+}
+
+// matchingLines finds where terms occur in content. The trigram tokenizer
+// matches without regard to case, so this does too, or a hit would report
+// no lines for the query that found it.
+func matchingLines(content string, terms []string) []LineMatch {
+	if len(terms) == 0 {
+		return nil
+	}
+
+	lowered := make([]string, 0, len(terms))
+	for _, t := range terms {
+		lowered = append(lowered, strings.ToLower(t))
+	}
+
+	var matches []LineMatch
+	for i, line := range strings.Split(content, "\n") {
+		if len(matches) >= maxLineMatches {
+			break
+		}
+		if !holdsAnyTerm(strings.ToLower(line), lowered) {
+			continue
+		}
+		matches = append(matches, LineMatch{Line: i + 1, Text: truncateLine(strings.TrimSpace(line))})
+	}
+
+	return matches
+}
+
+func holdsAnyTerm(line string, terms []string) bool {
+	for _, t := range terms {
+		if strings.Contains(line, t) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func truncateLine(line string) string {
+	if len(line) <= maxLineMatchWidth {
+		return line
+	}
+
+	return line[:maxLineMatchWidth] + "..."
+}
+
 func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	terms := queryTerms(q.Text)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ? ORDER BY rank, kind, ref_id LIMIT ?`,
 		ftsQuery(q.Text), q.Limit)
@@ -129,7 +200,7 @@ func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult,
 		if err := rows.Scan(&kind, &refID, &text); err != nil {
 			return nil, fmt.Errorf("scanning fts row: %w", err)
 		}
-		result, err := s.hydrateFTSResult(ctx, kind, refID, text)
+		result, err := s.hydrateFTSResult(ctx, kind, refID, text, terms)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +213,9 @@ func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult,
 	return results, nil
 }
 
-func (s *Store) hydrateFTSResult(ctx context.Context, kind string, refID int64, text string) (SearchResult, error) {
+func (s *Store) hydrateFTSResult(
+	ctx context.Context, kind string, refID int64, text string, terms []string,
+) (SearchResult, error) {
 	switch kind {
 	case "symbol":
 		sym, err := s.symbolByID(ctx, refID)
@@ -155,6 +228,10 @@ func (s *Store) hydrateFTSResult(ctx context.Context, kind string, refID int64, 
 		var path string
 		if err := s.db.QueryRowContext(ctx, `SELECT path FROM files WHERE id = ?`, refID).Scan(&path); err != nil {
 			return SearchResult{}, fmt.Errorf("resolving file %d: %w", refID, err)
+		}
+
+		if kind == "file" {
+			return SearchResult{Kind: kind, File: path, Lines: matchingLines(text, terms)}, nil
 		}
 
 		return SearchResult{Kind: kind, File: path, Text: text}, nil

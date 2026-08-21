@@ -76,6 +76,13 @@ func TestSearch(t *testing.T) {
 			query:       "Hello",
 			wantContent: "greet.go",
 		},
+		{
+			name:        "a file hit says which line matched, so the caller need not grep for it",
+			sources:     indexed,
+			mode:        "fuzzy",
+			query:       "Hello",
+			wantContent: "  3: func Hello() string { return \"hi\" }",
+		},
 		{name: "unimplemented mode is an error result", mode: "semantic", query: "anything", wantIsError: true},
 		{name: "empty query is an error result", mode: "fuzzy", query: "", wantIsError: true},
 	}

@@ -118,7 +118,8 @@ func formatSearchResults(results []codeintel.SearchResult, stats codeintel.Index
 
 	fmt.Fprintf(&b, "%d results\n", len(results))
 
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		switch {
 		case r.Symbol != nil:
 			fmt.Fprintf(&b, "%s %s %s:%d-%d %s\n",
@@ -128,6 +129,9 @@ func formatSearchResults(results []codeintel.SearchResult, stats codeintel.Index
 				r.Edge.Kind, r.Edge.Src, r.Edge.Dst, r.Edge.Confidence)
 		default:
 			fmt.Fprintf(&b, "%s %s\n", r.Kind, r.File)
+			for _, l := range r.Lines {
+				fmt.Fprintf(&b, "  %d: %s\n", l.Line, l.Text)
+			}
 		}
 	}
 

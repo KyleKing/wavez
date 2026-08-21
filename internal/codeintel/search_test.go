@@ -2,7 +2,10 @@ package codeintel_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/codeintel"
@@ -106,5 +109,61 @@ func TestSearch_FuzzyMatchesAnyTermNotEveryTerm(t *testing.T) {
 
 	if len(results) == 0 {
 		t.Fatal("no results: each term exists in the index, in a different file")
+	}
+}
+
+// A file hit that names a file and not a place in it leaves the caller to
+// find the place, which on a dogfood run meant grep -rn over the file
+// search had just found.
+func TestSearch_FileHitCarriesTheMatchingLines(t *testing.T) {
+	t.Parallel()
+
+	store, ctx := openStore(t)
+	if _, err := store.Index(ctx, fixtureDir, defaultRegistry()); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	results, err := store.Search(ctx, codeintel.SearchQuery{
+		Mode: codeintel.SearchFuzzy, Text: "Prefix", Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	source, err := os.ReadFile(filepath.Join(fixtureDir, "pkgone", "greeter.go"))
+	if err != nil {
+		t.Fatalf("reading fixture: %v", err)
+	}
+	lines := strings.Split(string(source), "\n")
+
+	var checked int
+	for _, r := range results {
+		if r.Kind != "file" || !strings.HasSuffix(r.File, "greeter.go") {
+			continue
+		}
+		if len(r.Lines) == 0 {
+			t.Fatalf("file hit on %s reported no lines", r.File)
+		}
+		checked += len(r.Lines)
+		checkLineMatches(t, r, lines)
+	}
+	if checked == 0 {
+		t.Fatal("no file-level hit on the fixture holding the term")
+	}
+}
+
+func checkLineMatches(t *testing.T, r codeintel.SearchResult, lines []string) {
+	t.Helper()
+
+	for _, l := range r.Lines {
+		if l.Line < 1 || l.Line > len(lines) {
+			t.Fatalf("line %d is outside %s (%d lines)", l.Line, r.File, len(lines))
+		}
+		if got := strings.TrimSpace(lines[l.Line-1]); got != l.Text {
+			t.Errorf("line %d text = %q, want %q", l.Line, l.Text, got)
+		}
+		if !strings.Contains(strings.ToLower(l.Text), "prefix") {
+			t.Errorf("line %d %q does not hold the query term", l.Line, l.Text)
+		}
 	}
 }
