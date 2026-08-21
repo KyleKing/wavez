@@ -105,3 +105,20 @@ func TestApplySpans(t *testing.T) {
 		})
 	}
 }
+
+// A span that removes the last declaration of a file ends one past the last
+// line, which is the end of the source rather than a line that exists.
+func TestApplySpansCanEndPastTheLastLine(t *testing.T) {
+	t.Parallel()
+
+	const src = "package a\n\nfunc Alpha() {}\n"
+
+	got, _, err := edit.ApplySpans(src, []edit.Span{{Line: 2, Column: 0, EndLine: 3, EndColumn: 0}})
+	if err != nil {
+		t.Fatalf("ApplySpans: %v", err)
+	}
+
+	if got != "package a\n\n" {
+		t.Errorf("got %q, want %q", got, "package a\n\n")
+	}
+}

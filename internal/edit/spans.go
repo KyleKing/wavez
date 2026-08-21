@@ -114,6 +114,12 @@ func ApplySpans(src string, spans []Span) (string, int, error) {
 // protocol counts in, and a file with any character outside the basic plane
 // would land in the wrong place if it were read as bytes or as runes.
 func offsetOf(lines []string, line, column int) (int, error) {
+	// One past the last line is the end of the source, which is what a span
+	// that removes the final declaration of a file addresses.
+	if line == len(lines) && column == 0 {
+		return sourceLength(lines), nil
+	}
+
 	if line < 0 || line >= len(lines) {
 		return 0, fmt.Errorf("%w: line %d of %d", ErrSpanOutOfRange, line+1, len(lines))
 	}
@@ -129,6 +135,18 @@ func offsetOf(lines []string, line, column int) (int, error) {
 	}
 
 	return offset + within, nil
+}
+
+func sourceLength(lines []string) int {
+	total := 0
+	for i, l := range lines {
+		total += len(l)
+		if i < len(lines)-1 {
+			total++
+		}
+	}
+
+	return total
 }
 
 func byteInLine(line string, column int) (int, error) {

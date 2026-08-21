@@ -584,6 +584,7 @@ func buildRegistry(
 		tools.NewSearch(indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: indexer, Store: store}),
 		tools.NewQuestion(asker),
+		tools.NewDelete(root, indexer, scope, withLeases),
 		tools.NewRename(root, indexer, servers, scope, withLeases),
 	)
 }

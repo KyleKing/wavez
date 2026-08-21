@@ -36,14 +36,14 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 	if !strings.Contains(a.SystemPrefix, "The store owns SQLite. Gates trigger on change events.") {
 		t.Errorf("SystemPrefix is missing the listed Architecture section: %q", a.SystemPrefix)
 	}
-	if got, want := len(a.Tools.Names()), 9; got != want {
+	if got, want := len(a.Tools.Names()), 10; got != want {
 		t.Errorf("len(Tools.Names()) = %d, want %d: %v", got, want, a.Tools.Names())
 	}
 
 	// A plan thread must be unable to reach an editing tool, not merely be
 	// told not to: the registry refuses what it dropped, so a model naming
 	// an unadvertised tool gets ErrNotFound rather than an edit.
-	for _, name := range []string{"str_replace", "write", "shell", "rename"} {
+	for _, name := range []string{"str_replace", "write", "shell", "rename", "delete"} {
 		if _, err := a.PlanTools.Get(name); err == nil {
 			t.Errorf("PlanTools.Get(%q) succeeded; a plan thread could edit", name)
 		}

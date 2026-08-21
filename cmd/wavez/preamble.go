@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/kyleking/wavez/internal/app"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -110,6 +111,13 @@ func writePreamble(w io.Writer, sections []section) error {
 		p.printf("  %-32s %8d %8d %6.1f%%\n",
 			kind, byKind[kind], byKind[kind]/tokensPerByte, share(byKind[kind], total))
 	}
+
+	// The window is the constraint the size actually matters against: on the
+	// fast tier a turn is admitted against the served context less the room
+	// kept for the reply, and whatever the preamble takes, the task cannot.
+	usable := router.FastContextBudget - router.ReplyReserve
+	p.printf("\n%d of the fast tier's %d usable tokens (%.0f%%) are spent before the task\n",
+		total/tokensPerByte, usable, share(total/tokensPerByte, usable))
 
 	return p.err
 }
