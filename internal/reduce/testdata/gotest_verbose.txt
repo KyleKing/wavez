@@ -1,0 +1,126 @@
+=== RUN   TestMany
+=== RUN   TestMany/a0
+=== RUN   TestMany/b0
+=== RUN   TestMany/c0
+=== RUN   TestMany/d0
+=== RUN   TestMany/e0
+=== RUN   TestMany/f0
+=== RUN   TestMany/g0
+=== RUN   TestMany/h0
+=== RUN   TestMany/i0
+=== RUN   TestMany/j0
+=== RUN   TestMany/k0
+=== RUN   TestMany/l0
+=== RUN   TestMany/m0
+=== RUN   TestMany/n0
+=== RUN   TestMany/o0
+=== RUN   TestMany/p0
+=== RUN   TestMany/q0
+=== RUN   TestMany/r0
+=== RUN   TestMany/s0
+=== RUN   TestMany/t0
+=== RUN   TestMany/u0
+=== RUN   TestMany/v0
+=== RUN   TestMany/w0
+=== RUN   TestMany/x0
+=== RUN   TestMany/y0
+=== RUN   TestMany/z0
+=== RUN   TestMany/a1
+=== RUN   TestMany/b1
+=== RUN   TestMany/c1
+=== RUN   TestMany/d1
+=== RUN   TestMany/e1
+=== RUN   TestMany/f1
+=== RUN   TestMany/g1
+=== RUN   TestMany/h1
+=== RUN   TestMany/i1
+=== RUN   TestMany/j1
+=== RUN   TestMany/k1
+=== RUN   TestMany/l1
+=== RUN   TestMany/m1
+=== RUN   TestMany/n1
+=== RUN   TestMany/o1
+    a_test.go:9: want 42, got 7 (the one line that says what broke)
+=== RUN   TestMany/p1
+=== RUN   TestMany/q1
+=== RUN   TestMany/r1
+=== RUN   TestMany/s1
+=== RUN   TestMany/t1
+=== RUN   TestMany/u1
+=== RUN   TestMany/v1
+=== RUN   TestMany/w1
+=== RUN   TestMany/x1
+=== RUN   TestMany/y1
+=== RUN   TestMany/z1
+=== RUN   TestMany/a2
+=== RUN   TestMany/b2
+=== RUN   TestMany/c2
+=== RUN   TestMany/d2
+=== RUN   TestMany/e2
+=== RUN   TestMany/f2
+=== RUN   TestMany/g2
+=== RUN   TestMany/h2
+--- FAIL: TestMany (0.00s)
+    --- PASS: TestMany/a0 (0.00s)
+    --- PASS: TestMany/b0 (0.00s)
+    --- PASS: TestMany/c0 (0.00s)
+    --- PASS: TestMany/d0 (0.00s)
+    --- PASS: TestMany/e0 (0.00s)
+    --- PASS: TestMany/f0 (0.00s)
+    --- PASS: TestMany/g0 (0.00s)
+    --- PASS: TestMany/h0 (0.00s)
+    --- PASS: TestMany/i0 (0.00s)
+    --- PASS: TestMany/j0 (0.00s)
+    --- PASS: TestMany/k0 (0.00s)
+    --- PASS: TestMany/l0 (0.00s)
+    --- PASS: TestMany/m0 (0.00s)
+    --- PASS: TestMany/n0 (0.00s)
+    --- PASS: TestMany/o0 (0.00s)
+    --- PASS: TestMany/p0 (0.00s)
+    --- PASS: TestMany/q0 (0.00s)
+    --- PASS: TestMany/r0 (0.00s)
+    --- PASS: TestMany/s0 (0.00s)
+    --- PASS: TestMany/t0 (0.00s)
+    --- PASS: TestMany/u0 (0.00s)
+    --- PASS: TestMany/v0 (0.00s)
+    --- PASS: TestMany/w0 (0.00s)
+    --- PASS: TestMany/x0 (0.00s)
+    --- PASS: TestMany/y0 (0.00s)
+    --- PASS: TestMany/z0 (0.00s)
+    --- PASS: TestMany/a1 (0.00s)
+    --- PASS: TestMany/b1 (0.00s)
+    --- PASS: TestMany/c1 (0.00s)
+    --- PASS: TestMany/d1 (0.00s)
+    --- PASS: TestMany/e1 (0.00s)
+    --- PASS: TestMany/f1 (0.00s)
+    --- PASS: TestMany/g1 (0.00s)
+    --- PASS: TestMany/h1 (0.00s)
+    --- PASS: TestMany/i1 (0.00s)
+    --- PASS: TestMany/j1 (0.00s)
+    --- PASS: TestMany/k1 (0.00s)
+    --- PASS: TestMany/l1 (0.00s)
+    --- PASS: TestMany/m1 (0.00s)
+    --- PASS: TestMany/n1 (0.00s)
+    --- FAIL: TestMany/o1 (0.00s)
+    --- PASS: TestMany/p1 (0.00s)
+    --- PASS: TestMany/q1 (0.00s)
+    --- PASS: TestMany/r1 (0.00s)
+    --- PASS: TestMany/s1 (0.00s)
+    --- PASS: TestMany/t1 (0.00s)
+    --- PASS: TestMany/u1 (0.00s)
+    --- PASS: TestMany/v1 (0.00s)
+    --- PASS: TestMany/w1 (0.00s)
+    --- PASS: TestMany/x1 (0.00s)
+    --- PASS: TestMany/y1 (0.00s)
+    --- PASS: TestMany/z1 (0.00s)
+    --- PASS: TestMany/a2 (0.00s)
+    --- PASS: TestMany/b2 (0.00s)
+    --- PASS: TestMany/c2 (0.00s)
+    --- PASS: TestMany/d2 (0.00s)
+    --- PASS: TestMany/e2 (0.00s)
+    --- PASS: TestMany/f2 (0.00s)
+    --- PASS: TestMany/g2 (0.00s)
+    --- PASS: TestMany/h2 (0.00s)
+FAIL
+FAIL	trimdemo	0.295s
+FAIL

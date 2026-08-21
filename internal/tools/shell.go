@@ -10,6 +10,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/guard"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/reduce"
 	"github.com/kyleking/wavez/internal/sandbox"
 	"github.com/kyleking/wavez/internal/tool"
 )
@@ -84,8 +85,9 @@ func (*Shell) Name() string { return "shell" }
 // Description implements tool.Tool.
 func (*Shell) Description() string {
 	return "Run a shell command in the project root. Destructive commands may be refused " +
-		"outright or require user approval before they run. Output is trimmed to its first " +
-		"and last lines when long; the exit code is always reported."
+		"outright or require user approval before they run. Long output is reduced to the " +
+		"lines that name a failure, and what was dropped is stated, so piping through head, " +
+		"tail, or grep to shorten it wastes a turn. The exit code is always reported."
 }
 
 // Schema implements tool.Tool.
@@ -239,12 +241,16 @@ func formatShellResult(result sandbox.Result) string {
 	return b.String()
 }
 
-// trimOutput keeps the first and last shellHeadLines/shellTailLines lines of
-// s, noting how many lines were dropped in between.
+// trimOutput reduces s to what names a failure, then caps whatever survives
+// at shellHeadLines/shellTailLines. The reducer is what makes the cap safe:
+// head and tail alone put the fixed windows at the two ends of a verbose test
+// run, which is exactly where the assertion is not.
 func trimOutput(s string) string {
 	if s == "" {
 		return "(empty)"
 	}
+
+	s = reduce.Output(s).Text
 
 	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 	if len(lines) <= shellHeadLines+shellTailLines {
