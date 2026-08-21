@@ -767,3 +767,39 @@ Run-to-run variance is the other candidate and cannot be ruled out from one
 pair. What is not variance: run 9 used the `edits` array on four of its five
 `str_replace` calls and the comma form of `list` and `read`, so the batching
 added after run 7 is being used rather than merely available.
+
+## 2026-08-21, the model screen in a PTY
+
+The screen shipped end to end (list, registry check, install and remove with
+a confirmation, per-model settings) and had never been driven against real
+Ollama. Captured with VHS at 1100x700 and again at 80x24 with `NO_COLOR=1`,
+against a scratch daemon on `/tmp/wz/d.sock`, with one model on disk.
+
+What held up: the install preview is exact (`installing qwen2.5-coder:7b adds
+4.4 GB to disk`, which is the registry manifest's byte size), the selected row
+stays legible under `NO_COLOR` because the cursor is a `>` and a weight rather
+than a color, and the table fits 80 columns.
+
+Three defects, in the order they matter:
+
+- **`y` was accepted before the disk delta arrived.** The two-step exists so
+  the user confirms against the cost, and for the second or two before the
+  daemon answers, the confirmation rendered `[y]es [n]o` over a line that
+  named only the action. Pressing `y` there installed or removed against a
+  question that had not been asked yet. The waiting state now says what it is
+  waiting for and offers `esc` alone
+- **Editing a setting hid the value it was replacing.** The input took the
+  whole row, so the default the user was overwriting left the screen exactly
+  when it was needed. The field is sized to its column now and the default
+  stays beside it
+- **The list was unbounded.** `frame` draws every body line it is given, so
+  more models than rows pushed the key hints off the terminal. The list is cut
+  to what fits around the cursor with a line saying how many are hidden
+
+Two smaller ones: the `free` column never said free of what (`headroom`, the
+word DESIGN.md already uses for the memory ceiling), and the confirmation
+repeated `[y]es [n]o` inline where the footer already carried it.
+
+Separately, the message shown to a terminal below 80x24 was one 99-column
+sentence, so it clipped mid-word in every terminal that ever saw it. It is
+three short lines now.
