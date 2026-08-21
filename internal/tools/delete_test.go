@@ -159,3 +159,57 @@ func TestDeleteMissNamesWhatIsClose(t *testing.T) {
 		t.Errorf("the refusal does not point at the near match: %s", res.Content)
 	}
 }
+
+// Six test functions cover one deleted helper in this project's own tree, so
+// a delete that takes one name at a time is six calls. `read` already takes
+// several comma-separated paths, and this follows it.
+func TestDeleteTakesSeveralSymbols(t *testing.T) {
+	t.Parallel()
+
+	root, del := deleteProject(t)
+
+	res, err := del.Run(t.Context(), []byte(`{"symbol":"Alpha, Gamma"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError {
+		t.Fatalf("delete failed: %s", res.Content)
+	}
+
+	got := read(t, root, "a.go")
+	for _, gone := range []string{"func Alpha()", "func Gamma()", "Alpha names", "Gamma names"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("%q survived:\n%s", gone, got)
+		}
+	}
+
+	if !strings.Contains(got, "func Beta()") {
+		t.Errorf("the symbol between them was taken too:\n%s", got)
+	}
+}
+
+// A list that fails part way must say what it already did, or a caller that
+// reruns the whole list is told the first names are not indexed.
+func TestDeletePartialFailureSaysWhatItDid(t *testing.T) {
+	t.Parallel()
+
+	root, del := deleteProject(t)
+
+	res, err := del.Run(t.Context(), []byte(`{"symbol":"Alpha, Nowhere"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("want a refusal, got: %s", res.Content)
+	}
+
+	if !strings.Contains(res.Content, "Alpha already deleted") {
+		t.Errorf("the refusal does not say what it already did: %s", res.Content)
+	}
+
+	if strings.Contains(read(t, root, "a.go"), "func Alpha()") {
+		t.Errorf("Alpha was reported deleted but survived")
+	}
+}

@@ -13,8 +13,9 @@ import (
 
 var deleteSchema = buildSchema(map[string]schemaProperty{
 	"symbol": {
-		Type:        schemaTypeString,
-		Description: "The name of the declaration to remove, exactly as it is declared.",
+		Type: schemaTypeString,
+		Description: "The name of the declaration to remove, exactly as it is declared, or " +
+			"several separated by commas to remove them in one call.",
 	},
 	propPath: {
 		Type: schemaTypeString,
@@ -53,8 +54,8 @@ func (*Delete) Name() string { return "delete" }
 
 // Description implements tool.Tool.
 func (*Delete) Description() string {
-	return "Delete a whole declaration and the doc comment above it, naming only the symbol. " +
-		"Prefer this over replacing its text with nothing: it removes exactly what the " +
+	return "Delete whole declarations and the doc comments above them, naming only the symbols. " +
+		"Prefer this over replacing their text with nothing: it removes exactly what each " +
 		"declaration spans, so a trailing brace or a neighbor cannot be caught in it."
 }
 
@@ -77,53 +78,106 @@ func (d *Delete) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Errorf("invalid input: %v", err), nil
 	}
 
-	if in.Symbol == "" {
+	names := splitNames(in.Symbol)
+	if len(names) == 0 {
 		return tool.Errorf("symbol is required"), nil
 	}
 
-	decl, err := locate(ctx, d.index, d.root, in.Symbol, in.Path)
+	var (
+		changes []tool.Change
+		done    []string
+	)
+
+	// One at a time and in order, because each deletion moves the lines under
+	// the ones after it and the index is what the next lookup reads.
+	for _, name := range names {
+		change, err := d.one(ctx, name, in.Path)
+		if err != nil {
+			return tool.Errorf("%v%s", err, alreadyDone(done)), nil
+		}
+
+		changes = append(changes, change)
+		done = append(done, name)
+	}
+
+	return tool.Result{Content: deleted(changes, done), Changes: changes}, nil
+}
+
+// one removes a single declaration, reporting the change it made.
+func (d *Delete) one(ctx context.Context, name, path string) (tool.Change, error) {
+	decl, err := locate(ctx, d.index, d.root, name, path)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Change{}, err
 	}
 
 	if err := d.scope.Edit(decl.path); err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Change{}, err
 	}
 
 	release, err := d.deps.hold(ctx, decl.path)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Change{}, err
 	}
 	defer release()
 
 	body, err := os.ReadFile(decl.path)
 	if err != nil {
-		return tool.Errorf("reading %s: %v", in.Symbol, err), nil
+		return tool.Change{}, fmt.Errorf("reading %s: %w", name, err)
 	}
 
 	lines := strings.Split(string(body), "\n")
 
 	from, to := declSpan(lines, decl)
 	if from < 0 {
-		return tool.Errorf("%s is indexed at lines %d-%d, which %s does not have",
-			in.Symbol, decl.start, decl.end, relativeTo(d.root, decl.path)), nil
+		return tool.Change{}, fmt.Errorf("%w: %s at lines %d-%d of %s",
+			ErrDeclarationMoved, name, decl.start, decl.end, relativeTo(d.root, decl.path))
 	}
 
-	span := edit.Span{Line: from, Column: 0, EndLine: to, EndColumn: 0}
-
-	change, err := edit.ApplySpansToFile(decl.path, []edit.Span{span})
+	change, err := edit.ApplySpansToFile(decl.path, []edit.Span{{Line: from, EndLine: to}})
 	if err != nil {
-		return tool.Errorf("deleting %s: %v", in.Symbol, err), nil
+		return tool.Change{}, fmt.Errorf("deleting %s: %w", name, err)
 	}
 
 	change.Path = relativeTo(d.root, decl.path)
 	change.Added = 0
 	change.Removed = to - from
 
-	return tool.Result{
-		Content: fmt.Sprintf("deleted %s from %s: %s removed", in.Symbol, change.Path, plural(to-from, "line")),
-		Changes: []tool.Change{change},
-	}, nil
+	return change, nil
+}
+
+// splitNames reads one name or a comma-separated several, dropping the empty
+// pieces a trailing comma leaves.
+func splitNames(s string) []string {
+	out := make([]string, 0, 1)
+
+	for _, part := range strings.Split(s, ",") {
+		if name := strings.TrimSpace(part); name != "" {
+			out = append(out, name)
+		}
+	}
+
+	return out
+}
+
+// alreadyDone reports what a partly-applied call did before it stopped, since
+// a caller that reruns the whole list would otherwise be told those names are
+// not indexed.
+func alreadyDone(done []string) string {
+	if len(done) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(" (%s already deleted)", strings.Join(done, ", "))
+}
+
+func deleted(changes []tool.Change, names []string) string {
+	lines := 0
+	for _, c := range changes {
+		lines += c.Removed
+	}
+
+	return fmt.Sprintf("deleted %s: %s removed from %s",
+		strings.Join(names, ", "), plural(lines, "line"), plural(len(changes), "file"))
 }
 
 // declSpan widens the indexed declaration to the lines that belong with it:
