@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -491,4 +492,69 @@ func TestRun_LocalFailureEscalatesToHostedOnce(t *testing.T) {
 // one provider for the ordinary path and one for the escalated path.
 func tiers(primary, escalated llm.Provider) router.Tiers[llm.Provider] {
 	return router.Tiers[llm.Provider]{Fast: primary, Balanced: primary, Deep: escalated}
+}
+
+// slotCounter is a LocalSlots that records who asked and how deep the
+// concurrency got.
+type slotCounter struct {
+	mu    sync.Mutex
+	held  int
+	peak  int
+	taken int
+}
+
+func (s *slotCounter) AdmitSlot(context.Context, string) (func(), error) {
+	s.mu.Lock()
+	s.held++
+	s.taken++
+
+	if s.held > s.peak {
+		s.peak = s.held
+	}
+	s.mu.Unlock()
+
+	return func() {
+		s.mu.Lock()
+		s.held--
+		s.mu.Unlock()
+	}, nil
+}
+
+// A slot belongs to the on-box model, so a turn served over the network must
+// not take one. A run pinned fast that escalates would otherwise hold the
+// only slot this laptop has through hosted turns it is not using it for.
+func TestRun_OnlyLocalTurnsTakeASlot(t *testing.T) {
+	t.Parallel()
+
+	slots := &slotCounter{}
+
+	local := fake.New("local", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
+	hosted := fake.New("hosted", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
+
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(), permission.AllowAll(),
+		agent.WithLocalSlots(slots))
+
+	_, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go",
+		router.Input{Override: router.ChoiceBalanced})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if slots.taken != 0 {
+		t.Errorf("a hosted turn took %d slot(s), want 0", slots.taken)
+	}
+
+	_, err = loop.Run(context.Background(), newThread(t), basicPrefix(), "go",
+		router.Input{Override: router.ChoiceFast})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if slots.taken != 1 {
+		t.Errorf("a local turn took %d slot(s), want 1", slots.taken)
+	}
+
+	if slots.held != 0 {
+		t.Errorf("%d slot(s) still held after the run, want 0", slots.held)
+	}
 }

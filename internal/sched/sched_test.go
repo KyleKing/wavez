@@ -113,20 +113,20 @@ func TestNilSchedulerAdmits(t *testing.T) {
 // three were admitted, all three read as working, and each got one turn in
 // three minutes before its deadline. Memory is plentiful here on purpose,
 // since the slot bound is structural rather than a memory decision.
-func TestLocalSlotsBoundConcurrentTurns(t *testing.T) {
+func TestLocalSlotsBoundConcurrentRequests(t *testing.T) {
 	t.Parallel()
 
 	holds := make(chan sched.Hold, 4)
 	s := sched.New(sched.WithMemory(memory(12)), sched.WithLocalSlots(1))
 	s.OnHold(func(h sched.Hold) { holds <- h })
 
-	release, err := s.AdmitTurn(t.Context(), "alpha")
+	release, err := s.AdmitSlot(t.Context(), "alpha")
 	require.NoError(t, err)
 
 	admitted := make(chan struct{})
 
 	go func() {
-		r, aErr := s.AdmitTurn(t.Context(), "beta")
+		r, aErr := s.AdmitSlot(t.Context(), "beta")
 		if aErr == nil {
 			r()
 		}
@@ -138,15 +138,17 @@ func TestLocalSlotsBoundConcurrentTurns(t *testing.T) {
 	assert.Equal(t, "beta", held.Holder)
 	assert.Contains(t, held.Reason, "slot")
 
-	assert.Equal(t, 1, s.Snapshot(t.Context()).LocalTurns)
+	assert.Equal(t, 1, s.Snapshot(t.Context()).SlotsHeld)
 
 	release()
 	<-admitted
 	assert.False(t, (<-holds).Held)
 }
 
-// A gate is not a local turn, so the slot bound must not hold one back.
-func TestLocalSlotsDoNotHoldGates(t *testing.T) {
+// A slot is held around one request, a turn admission for a whole run, so a
+// run that escalates gives the slot back without giving up its admission and
+// neither bound stands in for the other.
+func TestSlotAndTurnAdmissionAreIndependent(t *testing.T) {
 	t.Parallel()
 
 	s := sched.New(sched.WithMemory(memory(12)), sched.WithLocalSlots(1))
@@ -154,9 +156,111 @@ func TestLocalSlotsDoNotHoldGates(t *testing.T) {
 	releaseTurn, err := s.AdmitTurn(t.Context(), "alpha")
 	require.NoError(t, err)
 
-	releaseGate, err := s.AdmitGate(t.Context())
+	releaseSlot, err := s.AdmitSlot(t.Context(), "alpha")
 	require.NoError(t, err)
 
-	releaseGate()
+	releaseSlot()
+
+	// The run escalated: it still holds its turn admission, and another
+	// thread may take the slot it gave back.
+	second, err := s.AdmitSlot(t.Context(), "beta")
+	require.NoError(t, err)
+
+	second()
 	releaseTurn()
+}
+
+// An unbounded scheduler is what a caller in front of a hosted tier wants,
+// and it must not block on a slot it never had.
+func TestSlotsUnboundedByDefault(t *testing.T) {
+	t.Parallel()
+
+	s := sched.New(sched.WithMemory(memory(12)))
+
+	first, err := s.AdmitSlot(t.Context(), "alpha")
+	require.NoError(t, err)
+
+	second, err := s.AdmitSlot(t.Context(), "beta")
+	require.NoError(t, err)
+
+	second()
+	first()
+}
+
+// The slot goes to whoever has waited longest. Waking every waiter to race
+// for it left one of three threads with no turn at all for two minutes on
+// this laptop's single-slot server.
+func TestSlotsAreHandedOverInOrder(t *testing.T) {
+	t.Parallel()
+
+	s := sched.New(sched.WithMemory(memory(12)), sched.WithLocalSlots(1))
+	holds := make(chan sched.Hold, 8)
+	s.OnHold(func(h sched.Hold) { holds <- h })
+
+	release, err := s.AdmitSlot(t.Context(), "alpha")
+	require.NoError(t, err)
+
+	order := make(chan string, 2)
+
+	for _, name := range []string{"beta", "gamma"} {
+		waiting := make(chan struct{})
+
+		go func() {
+			close(waiting)
+
+			r, aErr := s.AdmitSlot(t.Context(), name)
+			if aErr != nil {
+				return
+			}
+
+			order <- name
+			r()
+		}()
+
+		<-waiting
+		// The hold event is only sent once the caller is queued, so beta is
+		// ahead of gamma rather than racing it.
+		require.True(t, (<-holds).Held)
+	}
+
+	release()
+
+	assert.Equal(t, "beta", <-order)
+	assert.Equal(t, "gamma", <-order)
+	assert.Equal(t, 0, s.Snapshot(t.Context()).SlotsHeld)
+}
+
+// A caller that gives up while queued must not leave the slot held, and
+// must not leave the queue holding a channel nothing will read.
+func TestAbandonedSlotWaitDoesNotLeak(t *testing.T) {
+	t.Parallel()
+
+	s := sched.New(sched.WithMemory(memory(12)), sched.WithLocalSlots(1))
+	holds := make(chan sched.Hold, 4)
+	s.OnHold(func(h sched.Hold) { holds <- h })
+
+	release, err := s.AdmitSlot(t.Context(), "alpha")
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	gone := make(chan struct{})
+
+	go func() {
+		_, aErr := s.AdmitSlot(ctx, "beta")
+		assert.Error(t, aErr)
+		close(gone)
+	}()
+
+	require.True(t, (<-holds).Held)
+	cancel()
+	<-gone
+
+	release()
+
+	assert.Equal(t, 0, s.Snapshot(t.Context()).SlotsHeld)
+
+	third, err := s.AdmitSlot(t.Context(), "gamma")
+	require.NoError(t, err)
+	third()
 }

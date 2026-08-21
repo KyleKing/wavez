@@ -48,6 +48,10 @@ type Snapshot struct {
 	Headroom   float64
 	LocalTurns int
 	GateRuns   int
+	// LocalSlots is how many requests the local server serves at once, zero
+	// when nothing bounds it, and SlotsHeld how many are in flight.
+	LocalSlots int
+	SlotsHeld  int
 	// MemoryMeasured is false when the machine's memory could not be read, in
 	// which case admission lets everything through rather than stalling on a
 	// number it does not have.
@@ -61,8 +65,10 @@ type Scheduler struct {
 	mem      func(context.Context) (sysinfo.Memory, error)
 	onHold   func(Hold)
 	wake     chan struct{}
+	waiting  []chan struct{}
 	headroom float64
 	slots    int
+	held     int
 	turns    int
 	gates    int
 	mu       sync.Mutex
@@ -77,12 +83,12 @@ func WithHeadroom(fraction float64) Option {
 	return func(s *Scheduler) { s.headroom = fraction }
 }
 
-// WithLocalSlots bounds how many turns may occupy the local model at once.
-// Zero leaves it unbounded, which is right for a scheduler in front of a
-// hosted tier and wrong in front of llama-server: the server processes
+// WithLocalSlots bounds how many requests may occupy the local model at
+// once. Zero leaves it unbounded, which is right in front of a hosted tier
+// and wrong in front of llama-server: the server processes
 // runtime.ServedSlots requests at a time and queues the rest internally, so
-// an unbounded scheduler admits threads that then serialize somewhere it
-// cannot see, each spending its wall-clock deadline waiting.
+// an unbounded scheduler admits work that then serializes somewhere it
+// cannot see, each caller spending its deadline waiting.
 func WithLocalSlots(n int) Option {
 	return func(s *Scheduler) { s.slots = n }
 }
@@ -122,6 +128,88 @@ func New(opts ...Option) *Scheduler {
 // the admission back.
 func (s *Scheduler) AdmitTurn(ctx context.Context, holder string) (func(), error) {
 	return s.admit(ctx, holder, true)
+}
+
+// AdmitSlot admits one request to the local model, blocking while every slot
+// the server serves is busy. It is separate from AdmitTurn because the two
+// bound different things over different spans: a run holds a turn admission
+// from start to finish and competes with gate runs for memory, while a slot
+// is held only around the request itself and competes with other requests
+// for the server. A run that escalates mid-way gives its slot back and keeps
+// its turn admission.
+func (s *Scheduler) AdmitSlot(ctx context.Context, holder string) (func(), error) {
+	if s == nil || s.slots <= 0 {
+		return func() {}, nil
+	}
+
+	s.mu.Lock()
+
+	if s.held < s.slots && len(s.waiting) == 0 {
+		s.held++
+		s.mu.Unlock()
+
+		return s.releaseSlot, nil
+	}
+
+	turn := make(chan struct{})
+	s.waiting = append(s.waiting, turn)
+	running := s.held
+	s.mu.Unlock()
+
+	s.notify(Hold{Holder: holder, Reason: slotReason(running, s.slots), Held: true})
+
+	select {
+	case <-turn:
+		s.notify(Hold{Holder: holder, Held: false})
+
+		return s.releaseSlot, nil
+	case <-ctx.Done():
+		if s.abandon(turn) {
+			// The slot was handed over as this caller gave up, so it holds
+			// one nobody is going to use.
+			s.releaseSlot()
+		}
+
+		s.notify(Hold{Holder: holder, Held: false})
+
+		return nil, fmt.Errorf("waiting for a local slot: %w", ctx.Err())
+	}
+}
+
+// releaseSlot gives the slot to the caller that has waited longest, and only
+// lowers the count when nobody is waiting. Handing it over directly is what
+// makes the wait fair: waking every waiter to race for it starved one of
+// three threads for two minutes on a single-slot server.
+func (s *Scheduler) releaseSlot() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.waiting) > 0 {
+		next := s.waiting[0]
+		s.waiting = s.waiting[1:]
+		close(next)
+
+		return
+	}
+
+	s.held--
+}
+
+// abandon drops turn from the queue, reporting whether it had already been
+// handed the slot.
+func (s *Scheduler) abandon(turn chan struct{}) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, w := range s.waiting {
+		if w == turn {
+			s.waiting = append(s.waiting[:i], s.waiting[i+1:]...)
+
+			return false
+		}
+	}
+
+	return true
 }
 
 // AdmitGate admits one gate run, blocking while a local turn is in flight and
@@ -177,10 +265,6 @@ func (s *Scheduler) enter(ctx context.Context, isTurn bool) contention {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if isTurn && s.slots > 0 && s.turns >= s.slots {
-		return contention{wake: s.wake, reason: slotReason(s.turns, s.slots)}
-	}
 
 	rival := s.gates
 	if !isTurn {
@@ -276,6 +360,8 @@ func (s *Scheduler) Snapshot(ctx context.Context) Snapshot {
 
 	return Snapshot{
 		Phase:          phase,
+		LocalSlots:     s.slots,
+		SlotsHeld:      s.held,
 		Memory:         mem,
 		MemoryMeasured: measured,
 		Headroom:       s.headroom,

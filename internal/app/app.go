@@ -266,7 +266,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	reviewer := NewModelReviewer(root, vcs.NewJj(), providers, tierModels(cfg))
 	changeGate := NewChangeGate(runner)
-	loopBase := loopOptions(root, cfg, options)
+	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
 	loopOpts := append(append([]agent.Option{}, loopBase...),
 		agent.WithVerifier(verifier), agent.WithReviewer(reviewer), agent.WithChangeGate(changeGate))
 	loop := agent.New(providers, registry, permGate, loopOpts...)

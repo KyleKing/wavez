@@ -186,6 +186,16 @@ func (o Outcome) Condition() condition.Verdict {
 	return condition.Met(string(o.Stop), o.Reason)
 }
 
+// LocalSlots admits one request to the on-box model and gives the admission
+// back when the request is done. It is defined here because the loop is the
+// only place that knows, per turn, which tier a request goes to: a run
+// pinned to the fast tier escalates mid-run, and one that held the slot
+// across its hosted turns would starve every other local thread for work it
+// was not doing.
+type LocalSlots interface {
+	AdmitSlot(ctx context.Context, holder string) (func(), error)
+}
+
 // Verifier gates a run once the model reports it is done, per DESIGN.md's
 // decision to verify once on the final turn rather than on every turn.
 // Verify reports ok=true when changes accumulated across the run pass, and
@@ -210,6 +220,7 @@ type Checkpointer interface {
 type Options struct {
 	Verifier     Verifier
 	Reviewer     Reviewer
+	LocalSlots   LocalSlots
 	Checkpointer Checkpointer
 	Clock        gate.Clock
 	Hooks        Hooks
@@ -237,6 +248,10 @@ type Options struct {
 
 // Option configures a Loop.
 type Option func(*Options)
+
+// WithLocalSlots makes every turn routed to the local tier take a slot on
+// the on-box model for the length of its request, and give it back after.
+func WithLocalSlots(s LocalSlots) Option { return func(o *Options) { o.LocalSlots = s } }
 
 // WithMaxTurns overrides DefaultMaxTurns.
 func WithMaxTurns(n int) Option { return func(o *Options) { o.MaxTurns = n } }
@@ -617,7 +632,15 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		Thinking: r.hint.Thinking,
 	}
 
+	releaseSlot, err := r.admitSlot(ctx, route.Choice)
+	if err != nil {
+		return true, Outcome{}, err
+	}
+
 	text, calls, usage, stopReason, err := r.stream(ctx, provider, req)
+
+	releaseSlot()
+
 	if err != nil {
 		if ctx.Err() != nil {
 			out, cerr := r.stopCanceled(ctx)
@@ -723,6 +746,30 @@ func (r *run) complete(ctx context.Context) (bool, Outcome, error) {
 	}
 
 	return true, r.outcome, nil
+}
+
+// admitSlot takes a slot on the on-box model for a turn routed there, and
+// pushes the run's deadline out by however long it waited. Without that
+// shift the bound measures queueing rather than work, which is what made
+// three threads on one slot all fail at three minutes having taken one turn
+// each.
+func (r *run) admitSlot(ctx context.Context, choice router.Choice) (func(), error) {
+	if r.loop.options.LocalSlots == nil || choice != router.ChoiceFast {
+		return func() {}, nil
+	}
+
+	waitedFrom := r.loop.options.Clock.Now()
+
+	release, err := r.loop.options.LocalSlots.AdmitSlot(ctx, string(r.thread.ID()))
+	if err != nil {
+		return nil, fmt.Errorf("admitting a local turn: %w", err)
+	}
+
+	if waited := r.loop.options.Clock.Now().Sub(waitedFrom); waited > 0 && !r.deadline.IsZero() {
+		r.deadline = r.deadline.Add(waited)
+	}
+
+	return release, nil
 }
 
 func (r *run) logVerify(ok bool) error {
