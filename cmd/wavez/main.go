@@ -76,6 +76,7 @@ type options struct {
 	jsonOut             bool
 	plan                bool
 	deadcode            bool
+	preamble            bool
 }
 
 func main() {
@@ -134,6 +135,8 @@ func run(args []string) error {
 		"with -replay, name the lane the record measures (defaults to the current commit)")
 	fs.StringVar(&opt.replayReport, "replay-report", "",
 		"print every recorded run of one task and diff the last two")
+	fs.BoolVar(&opt.preamble, "preamble", false,
+		"account for the fixed prefix every turn pays, by section")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -229,8 +232,7 @@ func appOptions(opt options) []app.Option {
 // runSubcommand dispatches the flags that do one job and exit instead of
 // opening a thread. It reports handled=false when none applies.
 func runSubcommand(ctx context.Context, opt options) (bool, error) {
-	if opt.undo == "" && opt.stats == "" && opt.replay == "" && opt.replayReport == "" &&
-		!opt.deadcode && !opt.mutate {
+	if !wantsSubcommand(opt) {
 		return false, nil
 	}
 
@@ -248,6 +250,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 		return true, replayRun(ctx, root, opt)
 	case opt.replayReport != "":
 		return true, replayReport(root, opt.replayReport)
+	case opt.preamble:
+		return true, preambleReport(ctx, root, opt)
 	case opt.deadcode:
 		cfg, cerr := loadConfig(ctx, root, opt.with)
 		if cerr != nil {
@@ -258,6 +262,13 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 	default:
 		return true, mutationCheck(ctx, root)
 	}
+}
+
+// wantsSubcommand reports whether any flag that does one job and exits was
+// given.
+func wantsSubcommand(opt options) bool {
+	return opt.undo != "" || opt.stats != "" || opt.replay != "" || opt.replayReport != "" ||
+		opt.deadcode || opt.mutate || opt.preamble
 }
 
 func headless(ctx context.Context, opt options) error {
@@ -637,6 +648,7 @@ Flags:
   -replay-label <name>   with -replay, name the lane (defaults to the current commit)
   -replay-report <task>  print every recorded run of one task and diff the last two
   -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
+  -preamble       account for the fixed prefix every turn pays, by section
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn
   -max-stagnant-errors <n>      cap consecutive erroring tool-call results
