@@ -139,8 +139,8 @@ func TestModelReviewer_PromptCarriesTaskAndDiff(t *testing.T) {
 	}
 
 	req := reqs[0]
-	if req.Model != "qwen3:8b" {
-		t.Errorf("Model = %q, want the local model", req.Model)
+	if req.Model != "stealth/ox-alpha" {
+		t.Errorf("Model = %q, want the balanced tier's model", req.Model)
 	}
 	if req.ResponseFormat == nil || !strings.Contains(string(req.ResponseFormat.Schema), "objection") {
 		t.Errorf("ResponseFormat = %+v, want the verdict schema", req.ResponseFormat)
@@ -158,9 +158,11 @@ func TestModelReviewer_PromptCarriesTaskAndDiff(t *testing.T) {
 	}
 }
 
-// A review is routed on size alone: a source-plus-test change stays on the
-// fast tier, and a diff past its context budget escalates.
-func TestModelReviewer_RoutesOnSizeNotFileCount(t *testing.T) {
+// A review is routed on size above its floor: an ordinary change is reviewed
+// on the balanced tier, and a diff past that tier's context budget escalates
+// again. The floor is balanced because the fast tier invents objections
+// against mechanical diffs (see NewModelReviewer's route).
+func TestModelReviewer_RoutesAboveItsFloor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -169,12 +171,15 @@ func TestModelReviewer_RoutesOnSizeNotFileCount(t *testing.T) {
 		want string
 	}{
 		{
-			name: "two files within the fast tier's budget stay fast",
+			name: "an ordinary change is reviewed on the balanced tier",
 			diff: "--- a/a.go\n+++ b/a.go\n+one\n--- a/a_test.go\n+++ b/a_test.go\n+two\n",
-			want: "fast",
+			want: "balanced",
 		},
 		{
-			name: "a diff past the fast tier's context budget escalates",
+			// The review budget refuses a diff long before the balanced
+			// tier's context does, so size no longer escalates a review, it
+			// stops one. TestModelReviewer_Review covers the refusal.
+			name: "a long diff still inside the budget stays balanced",
 			diff: strings.Repeat("+ a line of diff\n", 3000),
 			want: "balanced",
 		},

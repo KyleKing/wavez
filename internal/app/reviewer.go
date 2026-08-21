@@ -114,7 +114,17 @@ func (r *ModelReviewer) Review(ctx context.Context, rv agent.Review) agent.Verdi
 			estimate, len(paths), r.tokenBudget)
 	}
 
-	route := router.Route(router.Input{Override: router.ChoiceFast, EstimatedTokens: estimate})
+	// The floor is the balanced tier because the fast one is measurably bad
+	// at this and bad in one direction. Of the seven objections in this
+	// project's thread logs, three are false, all three are against diffs a
+	// Modifier produced, and two of those three are byte-identical across
+	// separate runs: on `h3` it told a correct cross-package rename that the
+	// function `is not exported`, and on `h4` it claimed a deletion had taken
+	// `writeAtomic` with it, both while the oracle checks passed. A mechanical
+	// diff is many hunks and no new logic, and the small model loses the
+	// thread of it. An objection costs the run a turn to argue with, so a
+	// reviewer that invents them is worse than no reviewer.
+	route := router.Route(router.Input{Override: router.ChoiceBalanced, EstimatedTokens: estimate})
 
 	req := llm.Request{
 		Model:          r.models.For(route),
