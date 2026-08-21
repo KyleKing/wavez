@@ -108,26 +108,47 @@ func orNearby(all, near []codeintel.Symbol) string {
 	return "; the index holds " + strings.Join(names(near), ", ")
 }
 
-// searchWidening looks the name up, and when the index holds nothing at all
-// for it, drops one trailing CamelCase word at a time and looks again. A
-// guessed name is usually a real one with something appended: measured, a run
-// that had just deleted `ApplyToFile` guessed `ApplyToFileTest` for its test,
-// found nothing, and spent the rest of itself searching for a name that never
-// existed. Trimming to `ApplyToFile` finds what is really there, and the
-// caller's own exact-match filter still decides what counts.
+// searchWidening looks the name up, and while nothing it gets back is even
+// named like the name asked for, drops one trailing CamelCase word and looks
+// again. A guessed name is usually a real one with something appended:
+// measured, a run that had just deleted `ApplyToFile` guessed
+// `ApplyToFileTest` for its test and spent the rest of itself hunting a name
+// that never existed. Trimming to `ApplyToFile` finds `TestApplyToFile`.
+//
+// The gate is a plausible name rather than any result at all, because the
+// text index answers a nonsense symbol name with whatever files mention its
+// letters, and those are not candidates.
 func searchWidening(ctx context.Context, index Index, name string) ([]codeintel.SearchResult, error) {
+	var widest []codeintel.SearchResult
+
 	for query := name; query != ""; query = dropLastWord(query) {
 		results, _, err := index.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: query})
 		if err != nil {
 			return nil, fmt.Errorf("searching for %s: %w", query, err)
 		}
 
-		if len(results) > 0 {
+		if len(widest) == 0 {
+			widest = results
+		}
+
+		if named(results, name) {
 			return results, nil
 		}
 	}
 
-	return nil, nil
+	return widest, nil
+}
+
+// named reports whether any result is a symbol whose name is the one asked
+// for or close to it.
+func named(results []codeintel.SearchResult, name string) bool {
+	for i := range results {
+		if sym := results[i].Symbol; sym != nil && (sym.Name == name || similar(sym.Name, name)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // dropLastWord removes the final CamelCase word, returning "" when one word
