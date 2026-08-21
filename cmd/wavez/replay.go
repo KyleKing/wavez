@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,6 +38,10 @@ func replayRun(ctx context.Context, root string, opt options) error {
 
 	if err := jj.AddWorkspace(ctx, root, name, dir); err != nil {
 		return fmt.Errorf("replay: %w", err)
+	}
+
+	if err := seedDerivedState(root, dir); err != nil {
+		return err
 	}
 
 	defer func() {
@@ -123,6 +128,37 @@ const (
 	logDirMode  = 0o750
 	logFileMode = 0o600
 )
+
+// seedDerivedState copies the project's code-intelligence store and coverage
+// manifest into the workspace. Both are ignored by version control, so a
+// fresh workspace has neither and rebuilds them from the same tree they were
+// built from, on the same machine the model is running on. A missing source
+// is not an error: a project that has never built them has nothing to seed.
+func seedDerivedState(root, dir string) error {
+	dst := app.StateDir(dir)
+	if err := os.MkdirAll(dst, logDirMode); err != nil {
+		return fmt.Errorf("replay: creating %s: %w", dst, err)
+	}
+
+	for _, name := range app.DerivedState() {
+		//nolint:gosec // a fixed name under the project
+		body, err := os.ReadFile(filepath.Join(app.StateDir(root), name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		if err != nil {
+			return fmt.Errorf("replay: reading %s: %w", name, err)
+		}
+
+		//nolint:gosec // name is one of a fixed list, not input
+		if err := os.WriteFile(filepath.Join(dst, name), body, logFileMode); err != nil {
+			return fmt.Errorf("replay: seeding %s: %w", name, err)
+		}
+	}
+
+	return nil
+}
 
 // scratchBase is where a replay workspace goes. The sandbox redirects a
 // run's TMPDIR inside the workspace, so the workspace path is the prefix of

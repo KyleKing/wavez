@@ -588,6 +588,18 @@ func buildRegistry(
 	)
 }
 
+// DerivedState names the files under a project's state directory that are
+// rebuilt from the tree rather than authored: the code-intelligence store
+// and the coverage map's manifest. A workspace opened at the same revision
+// can start from a copy of them instead of rebuilding both, which is what a
+// replay would otherwise spend its first minutes doing while the model waits.
+func DerivedState() []string {
+	return []string{storeFileName, coverageManifestFileName}
+}
+
+// StateDir is where a project keeps the state Wavez derives for it.
+func StateDir(root string) string { return filepath.Join(root, wavezDirName) }
+
 // ThreadLogDir is where a project keeps its thread logs. A tool that reads a
 // finished run (see internal/bench) needs the path without opening a project.
 func ThreadLogDir(root string) string {
