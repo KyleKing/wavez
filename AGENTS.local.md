@@ -53,3 +53,7 @@ are specific to this codebase and not visible from the code.
   from the project now (`seedDerivedState`); anything else that opens a
   scratch workspace over this repo should, or its first gate round runs a
   per-test coverage sweep of the whole module while the model waits
+- `rename` goes through gopls, so it needs the file indexed and the module
+  to typecheck. Its `path` narrows by prefix and takes a package directory
+  as readily as a file. A rename that gopls refuses (a keyword, a symbol in
+  a dependency) comes back as a tool error, not an empty success

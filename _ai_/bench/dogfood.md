@@ -1225,3 +1225,60 @@ what the harness owns (`mise`, `hk`, `golangci-lint`, `gofmt`, `git`, `jj`)
 and says a single test is not that. The preamble is 2,117 tokens against
 2,633, and the project's context list is one entry: the Go conventions the
 model is actually writing code against.
+
+## 2026-08-21, one call instead of nineteen turns
+
+`h3` asks for an exported function to be renamed across packages, tests and
+comments included. It is the task the fast tier was worst at, and the reason
+was never the reasoning: `qwen3:8b` finds the symbol and then cannot emit the
+edit, escaping the closing quote of `old_string` and swallowing the rest of
+the JSON object into the string, identically, six runs out of six.
+
+A rename stated as two identifiers has no source to escape. `rename` sends
+`{"symbol": "Read", "to": "ReadLog", "path": "internal/bench"}` to gopls,
+which resolves the symbol through type information and answers with every
+occurrence. Same task, same `fast` pin, only the tool surface different:
+
+| lane | tiers | stop | checks | turns | tool calls | input tokens | elapsed |
+|---|---|---|---|---|---|---|---|
+| str_replace | 7f 5b 7d | deadline | 6/6 | 19 | 19 | 154,064 | 3m29s |
+| rename | 3f | complete | 6/6 | 3 | 1 | 7,934 | 1m3s |
+
+Six times fewer turns, nineteen times fewer input tokens, and it never left
+the free local model: the earlier run spent 12 of its 19 turns above the tier
+it asked for, and this one spent none. The whole edit was the first tool call
+of the first turn, seven occurrences across three files including the caller
+in another package and the test.
+
+Two things this does not say. It is one run of one task, and the variance
+section applies to everything except the token count, which is arithmetic. And
+the check that would catch a rename that compiled but was wrong is the same
+`build:./...` both lanes passed, so what is being compared is cost, not
+correctness.
+
+The first dogfood run failed for a reason worth keeping: the model sent
+`path: "internal/bench"`, the package rather than the file, and the tool
+refused it. A model narrowing a rename writes the package. `path` now takes
+either, and a path that narrows to nothing says where the symbol actually is
+rather than only that it is not there.
+
+## 2026-08-21, the reviewer inventing work
+
+Of the three turns, two went to this:
+
+```
+A review of your diff against the task objects: The diff does not rename the
+exported function Read in internal/bench/stats.go to ReadLog. It only renames
+the function in internal/bench/stats.go, but the function is not exported.
+```
+
+The diff did exactly what was asked, the gates passed, and the objection
+contradicts itself inside one sentence. `GateVerifier` had already returned
+green; this is the diff reviewer, which `internal/app/reviewer.go` pins to
+`router.ChoiceFast`. So the fast tier, having been taken off the hook for the
+edit, is still on the hook for judging one, and it is worse at that than at
+the emission it was failing before.
+
+Two review objections on a correct diff is the false-positive cost the tier
+question was asked about in the first place: work manufactured for a model
+that then has to argue with it.
