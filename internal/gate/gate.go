@@ -55,7 +55,13 @@ type Result struct {
 	// Reason says why a gate abstained, empty when it examined something.
 	Reason   string
 	Failures []TrimmedFailure
-	Duration time.Duration
+	// Advisories are findings that describe weak work rather than broken
+	// work: a test that checks nothing, a mutant no test killed. They are
+	// recorded in the gate log and never reach the model, because a run told
+	// to fix one satisfies it by writing whatever silences it. A gate
+	// carrying only Advisories still passes.
+	Advisories []TrimmedFailure
+	Duration   time.Duration
 	// Examined is how many units this Gate actually checked: files
 	// formatted, files scanned, tests run, modules built. A gate that
 	// examined nothing has abstained rather than passed, and Pass alone

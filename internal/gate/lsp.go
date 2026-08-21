@@ -127,7 +127,8 @@ func (g *LSPGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 func mergeLSPResults(level Level, results []Result) Result {
 	merged := Result{Gate: lspGateName, Level: level, Pass: true}
 
-	for _, r := range results {
+	for i := range results {
+		r := &results[i]
 		merged.Examined += r.Examined
 		merged.Failures = append(merged.Failures, r.Failures...)
 

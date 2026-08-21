@@ -58,13 +58,14 @@ func reportMutation(result gate.Result, changes []tool.Change) error {
 	fmt.Fprintf(os.Stderr, "mutation: %d mutant(s) across %d file(s) at %s level\n",
 		result.Examined, len(changes), result.Level)
 
-	if result.Pass {
+	findings := append(append([]gate.TrimmedFailure(nil), result.Failures...), result.Advisories...)
+	if len(findings) == 0 {
 		fmt.Fprintln(os.Stderr, "every mutant was killed")
 
 		return nil
 	}
 
-	for _, f := range result.Failures {
+	for _, f := range findings {
 		for _, frame := range f.Frames {
 			fmt.Fprintf(os.Stderr, "  %s: %s\n", f.Test, frame)
 		}

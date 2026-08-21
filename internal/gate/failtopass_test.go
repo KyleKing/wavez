@@ -76,19 +76,21 @@ func TestFailToPassGateNamesTheAssertionThatWouldHavePassedAnyway(t *testing.T) 
 		{Path: "view/empty_test.go"},
 	})
 
-	if result.Pass {
-		t.Fatal("Pass = true: a test that passes without the change proves nothing about it")
+	if !result.Pass || len(result.Failures) != 0 {
+		t.Errorf("Pass = %v, Failures = %+v: a weak test is advisory, not a failing gate",
+			result.Pass, result.Failures)
 	}
 
 	if result.Examined != 2 {
 		t.Errorf("Examined = %d, want 2", result.Examined)
 	}
 
-	if len(result.Failures) != 1 || result.Failures[0].Test != gate.SurvivedRevertTest {
-		t.Fatalf("Failures = %+v, want one %s", result.Failures, gate.SurvivedRevertTest)
+	if len(result.Advisories) != 1 || result.Advisories[0].Test != gate.SurvivedRevertTest {
+		t.Fatalf("Advisories = %+v, want one %s", result.Advisories, gate.SurvivedRevertTest)
 	}
 
-	if frames := strings.Join(result.Failures[0].Frames, " "); !strings.Contains(frames, "TestEmptyStateKeepsHeading") {
+	frames := strings.Join(result.Advisories[0].Frames, " ")
+	if !strings.Contains(frames, "TestEmptyStateKeepsHeading") {
 		t.Errorf("frames = %q, want the surviving test named", frames)
 	}
 }
@@ -106,12 +108,12 @@ func TestFailToPassGateVerdicts(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		test     string
-		before   []string
-		after    []string
-		examined int
-		pass     bool
+		name       string
+		test       string
+		before     []string
+		after      []string
+		examined   int
+		advisories int
 	}{
 		{
 			name:     "a test that asserts the changed value dies with it",
@@ -119,14 +121,14 @@ func TestFailToPassGateVerdicts(t *testing.T) {
 			before:   greetBefore,
 			after:    greetAfter,
 			examined: 1,
-			pass:     true,
 		},
 		{
-			name:     "a test that asserts what did not change survives it",
-			test:     "func TestGreet(t *testing.T) {\n\tif Greet() == \"\" {\n\t\tt.Error(\"empty\")\n\t}\n}",
-			before:   greetBefore,
-			after:    greetAfter,
-			examined: 1,
+			name:       "a test that asserts what did not change survives it",
+			test:       "func TestGreet(t *testing.T) {\n\tif Greet() == \"\" {\n\t\tt.Error(\"empty\")\n\t}\n}",
+			before:     greetBefore,
+			after:      greetAfter,
+			examined:   1,
+			advisories: 1,
 		},
 		{
 			name:     "a test of a symbol the change introduced cannot build without it",
@@ -134,7 +136,6 @@ func TestFailToPassGateVerdicts(t *testing.T) {
 			before:   addedBefore,
 			after:    addedAfter,
 			examined: 1,
-			pass:     true,
 		},
 	}
 
@@ -152,8 +153,12 @@ func TestFailToPassGateVerdicts(t *testing.T) {
 				{Path: "greet/greet_test.go"},
 			})
 
-			if result.Pass != tt.pass {
-				t.Errorf("Pass = %v, want %v (failures %+v)", result.Pass, tt.pass, result.Failures)
+			if !result.Pass {
+				t.Errorf("Pass = false (failures %+v): the gate advises, it does not block", result.Failures)
+			}
+
+			if len(result.Advisories) != tt.advisories {
+				t.Errorf("Advisories = %+v, want %d", result.Advisories, tt.advisories)
 			}
 
 			if result.Examined != tt.examined {
@@ -349,11 +354,13 @@ func TestFailToPassGateOnRealJJWorkspace(t *testing.T) {
 
 	t.Logf("fail-to-pass gate over 2 tests in a real jj workspace: %s", time.Since(start).Round(time.Millisecond))
 
-	if result.Pass || result.Examined != 2 {
-		t.Fatalf("Pass = %v, Examined = %d, want false and 2", result.Pass, result.Examined)
+	if !result.Pass || result.Examined != 2 || len(result.Advisories) != 1 {
+		t.Fatalf("Pass = %v, Examined = %d, Advisories = %+v, want true, 2, and one advisory",
+			result.Pass, result.Examined, result.Advisories)
 	}
 
-	if frames := strings.Join(result.Failures[0].Frames, " "); !strings.Contains(frames, "TestEmptyStateKeepsHeading") {
+	frames := strings.Join(result.Advisories[0].Frames, " ")
+	if !strings.Contains(frames, "TestEmptyStateKeepsHeading") {
 		t.Errorf("frames = %q, want the surviving test named", frames)
 	}
 }

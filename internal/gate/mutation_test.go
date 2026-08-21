@@ -59,10 +59,9 @@ func TestMutationGateSeparatesCheckedFromMerelyCovered(t *testing.T) {
 	tests := []struct {
 		name        string
 		pkg         string
-		wantPass    bool
 		wantSurvive bool
 	}{
-		{name: "a test that asserts the boundary kills every mutant", pkg: "strong", wantPass: true},
+		{name: "a test that asserts the boundary kills every mutant", pkg: "strong"},
 		{name: "a test that only executes the line lets them live", pkg: "weak", wantSurvive: true},
 	}
 
@@ -88,8 +87,9 @@ func TestMutationGateSeparatesCheckedFromMerelyCovered(t *testing.T) {
 				t.Fatalf("Run: %v", err)
 			}
 
-			if result.Pass != tt.wantPass {
-				t.Errorf("Pass = %v, want %v (failures %v)", result.Pass, tt.wantPass, result.Failures)
+			if !result.Pass || len(result.Failures) != 0 {
+				t.Errorf("Pass = %v, Failures = %v: a survivor is advisory, not a failing gate",
+					result.Pass, result.Failures)
 			}
 
 			if result.Examined == 0 {
@@ -136,7 +136,7 @@ func TestMutationGateAbstainsRatherThanPassing(t *testing.T) {
 }
 
 func survivedMutants(result gate.Result) bool {
-	for _, f := range result.Failures {
+	for _, f := range result.Advisories {
 		if strings.Contains(f.Test, "survived") {
 			return true
 		}

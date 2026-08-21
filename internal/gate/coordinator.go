@@ -26,15 +26,17 @@ func BuildRunFunc(
 
 		var logErr error
 
-		for _, r := range results {
+		for i := range results {
+			r := &results[i]
 			if err := log.Append(LogEntry{
-				Timestamp: r.Timestamp,
-				Gate:      r.Gate,
-				Level:     r.Level,
-				Duration:  r.Duration,
-				Reason:    r.Reason,
-				Examined:  r.Examined,
-				Pass:      r.Pass,
+				Timestamp:  r.Timestamp,
+				Gate:       r.Gate,
+				Level:      r.Level,
+				Duration:   r.Duration,
+				Reason:     r.Reason,
+				Advisories: r.Advisories,
+				Examined:   r.Examined,
+				Pass:       r.Pass,
 			}); err != nil && logErr == nil {
 				logErr = err
 			}

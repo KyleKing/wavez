@@ -76,9 +76,9 @@ func (g *ChangeGate) Collect(res gate.RunResult) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	for _, r := range res.Gates {
-		if !r.Pass {
-			g.pending = append(g.pending, r)
+	for i := range res.Gates {
+		if !res.Gates[i].Pass {
+			g.pending = append(g.pending, res.Gates[i])
 		}
 	}
 }
@@ -100,8 +100,8 @@ func (g *ChangeGate) TakeFeedback() string {
 
 	b.WriteString("Gates ran on your changes and found this:\n")
 
-	for _, r := range results {
-		b.WriteString("\n" + describeFailure(r))
+	for i := range results {
+		b.WriteString("\n" + describeFailure(results[i]))
 	}
 
 	b.WriteString("\nFix the cause before continuing.")

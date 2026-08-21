@@ -35,7 +35,8 @@ type Workspaces interface {
 //
 // It is not in the default gate list. Every mutant costs a test run, so
 // this is invoked deliberately until there is a measured per-run cost worth
-// charging to every verification round.
+// charging to every verification round. `wavez -mutate` still exits nonzero
+// on a survivor, because there the user asked the question.
 type MutationGate struct {
 	workspaces Workspaces
 	repoRoot   string
@@ -56,8 +57,9 @@ func (*MutationGate) Name() string { return "mutation" }
 func (*MutationGate) Resources() []string { return []string{goTestResource} }
 
 // Run mutates the changed Go lines and reports every mutant the selection
-// failed to kill. A survivor is reported like a failing test, because that
-// is what it means: the change is not checked.
+// failed to kill. A survivor says the change is not checked, which is weak
+// work rather than broken work, so it is reported as an Advisory and the
+// gate passes.
 func (g *MutationGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	changedGo := len(goFiles(rc.Changes))
 
@@ -152,7 +154,7 @@ func (g *MutationGate) runMutants(
 		result.Examined++
 
 		if survived {
-			result.Failures = append(result.Failures, TrimmedFailure{
+			result.Advisories = append(result.Advisories, TrimmedFailure{
 				Test:   "survived-mutant",
 				Frames: []string{m.Describe()},
 			})
@@ -160,13 +162,13 @@ func (g *MutationGate) runMutants(
 	}
 
 	if dropped > 0 {
-		result.Failures = append(result.Failures, TrimmedFailure{
+		result.Advisories = append(result.Advisories, TrimmedFailure{
 			Test:   "mutants-dropped",
 			Frames: []string{fmt.Sprintf("%d further mutant(s) were not run, so this pass is partial", dropped)},
 		})
 	}
 
-	result.Pass = len(result.Failures) == 0
+	result.Pass = true
 
 	return result, nil
 }

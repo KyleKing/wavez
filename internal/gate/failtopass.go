@@ -19,7 +19,7 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
-// SurvivedRevertTest is the failure name reported for a test the run added or
+// SurvivedRevertTest is the advisory name reported for a test the run added or
 // changed that still passes once the run's own non-test hunks are reverted.
 // It is a fixed string so the condition is greppable in the gate log.
 const SurvivedRevertTest = "survives-revert"
@@ -46,8 +46,10 @@ type WorkingCopy interface {
 // the run added or modified. One that still passes there proves nothing about
 // the change, and is reported as SurvivedRevertTest.
 //
-// The verdict is per test, so a run that wrote one load-bearing test beside
-// one that would pass either way still fails the gate.
+// A weak test is a quality finding rather than a broken build, so every
+// verdict is an Advisory and the gate passes: it never blocks a run and never
+// reaches the model, whose only way to satisfy it is to write whatever
+// silences it.
 //
 // It assumes the tests pass on the tree as written, which is GoTestGate's
 // job. Run without that, a test that is simply broken reads here as one the
@@ -189,7 +191,7 @@ func verdict(gateName string, level Level, candidates []testFunc, summary GoTest
 		}
 
 		result.Examined++
-		result.Failures = append(result.Failures, TrimmedFailure{
+		result.Advisories = append(result.Advisories, TrimmedFailure{
 			Test:    SurvivedRevertTest,
 			Package: testPackage(id),
 			Frames:  []string{name + " passes with the run's non-test changes reverted, so it does not check them"},
@@ -207,7 +209,7 @@ func verdict(gateName string, level Level, candidates []testFunc, summary GoTest
 			"none of the %d test(s) this run wrote ran against the reverted tree", len(candidates)))
 	}
 
-	result.Pass = len(result.Failures) == 0
+	result.Pass = true
 
 	return result
 }
