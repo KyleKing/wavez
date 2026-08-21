@@ -31,6 +31,7 @@ type ToolStat struct {
 	Name        string `json:"name"`
 	Calls       int    `json:"calls"`
 	ResultBytes int    `json:"result_bytes"`
+	Errors      int    `json:"errors"`
 }
 
 // ShellCmd is one shell call a run made: the command line it ran and the
@@ -57,6 +58,7 @@ type Stats struct {
 	CacheReadTokens  int            `json:"cache_read_tokens"`
 	RepeatReads      int            `json:"repeat_reads"`
 	RepeatReadBytes  int            `json:"repeat_read_bytes"`
+	ErrorResults     int            `json:"error_results"`
 	EmptySearches    int            `json:"empty_searches"`
 	GateRounds       int            `json:"gate_rounds"`
 	GateFailures     int            `json:"gate_failures"`
@@ -163,6 +165,11 @@ func (s *Stats) countTool(ev *event.Event, tools map[string]*ToolStat, tracker *
 
 	stat.Calls++
 	stat.ResultBytes += len(ev.Text)
+
+	if boolField(ev.Detail, "is_error") {
+		s.ErrorResults++
+		stat.Errors++
+	}
 
 	if len(ev.Changes) > 0 {
 		tracker.edited(ev.Changes)

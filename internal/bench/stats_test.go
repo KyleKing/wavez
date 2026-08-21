@@ -243,6 +243,48 @@ func shell(command string, resultBytes int) event.Event {
 	}
 }
 
+// An error result must be counted for its own tool alone: the run's total
+// rises by one and so does the failing tool's count, while a successful call
+// adds to neither.
+func TestSummarizeCountsErrorResultsPerTool(t *testing.T) {
+	t.Parallel()
+
+	path := writeLog(t, []event.Event{
+		{
+			Kind: event.KindTool, Tool: "shell", Text: "command failed",
+			Detail: map[string]any{"is_error": true},
+		},
+		{Kind: event.KindTool, Tool: "read", Text: "file contents"},
+	})
+
+	events, err := bench.Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+
+	got := bench.Summarize(events)
+
+	if got.ErrorResults != 1 {
+		t.Errorf("ErrorResults = %d, want 1", got.ErrorResults)
+	}
+
+	errorsOf := func(name string) int {
+		for _, ts := range got.Tools {
+			if ts.Name == name {
+				return ts.Errors
+			}
+		}
+
+		return -1
+	}
+	if n := errorsOf("shell"); n != 1 {
+		t.Errorf("shell Errors = %d, want 1", n)
+	}
+	if n := errorsOf("read"); n != 0 {
+		t.Errorf("read Errors = %d, want 0", n)
+	}
+}
+
 // Summarize must read each shell command out of the raw input JSON a tool
 // event carries and pair it with that call's own result size, so Render can
 // show which commands produced the most output.

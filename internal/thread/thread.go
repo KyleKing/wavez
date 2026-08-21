@@ -185,7 +185,9 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 // AppendToolResult appends a tool's result to history, tagged to toolCallID,
 // and logs a KindTool event carrying the changes it produced and the input the
 // model sent, truncated. The input is logged because a failed edit anchor
-// cannot be diagnosed after the fact without it.
+// cannot be diagnosed after the fact without it. A result the tool reported as
+// an error is marked with an is_error detail, so downstream stats can tell a
+// failed call from a successful one.
 func (t *Thread) AppendToolResult(
 	ctx context.Context, toolCallID, toolName string, input json.RawMessage, result tool.Result,
 ) error {
@@ -203,6 +205,12 @@ func (t *Thread) AppendToolResult(
 	ev := event.Event{Kind: event.KindTool, Tool: toolName, Text: result.Content, Changes: result.Changes}
 	if len(input) > 0 {
 		ev.Detail = map[string]any{"input": truncate(string(input), maxLoggedInput)}
+	}
+	if result.IsError {
+		if ev.Detail == nil {
+			ev.Detail = map[string]any{}
+		}
+		ev.Detail["is_error"] = true
 	}
 	if _, err := t.log.Append(ev); err != nil {
 		return fmt.Errorf("logging tool turn: %w", err)

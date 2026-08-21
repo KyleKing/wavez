@@ -27,7 +27,8 @@ func (s Stats) Render(w io.Writer) error {
 	b.WriteString("\ntool calls by name\n")
 
 	for _, t := range s.Tools {
-		fmt.Fprintf(&b, "  %-14s %3d calls %8d result bytes\n", t.Name, t.Calls, t.ResultBytes)
+		fmt.Fprintf(&b, "  %-14s %3d calls %8d result bytes %d errors\n",
+			t.Name, t.Calls, t.ResultBytes, t.Errors)
 	}
 
 	if len(s.ShellCmds) > 0 {
@@ -45,8 +46,8 @@ func (s Stats) Render(w io.Writer) error {
 		}
 	}
 
-	fmt.Fprintf(&b, "\nrepeat reads %d of %d (%d bytes), empty searches %d\n",
-		s.RepeatReads, callsOf(s.Tools, readTool), s.RepeatReadBytes, s.EmptySearches)
+	fmt.Fprintf(&b, "\nrepeat reads %d of %d (%d bytes), empty searches %d, error results %d\n",
+		s.RepeatReads, callsOf(s.Tools, readTool), s.RepeatReadBytes, s.EmptySearches, s.ErrorResults)
 	fmt.Fprintf(&b, "gate rounds %d, failed %d, review objections %d, compaction saved ~%d tokens\n",
 		s.GateRounds, s.GateFailures, s.ReviewObjections, s.CompactionSaved)
 

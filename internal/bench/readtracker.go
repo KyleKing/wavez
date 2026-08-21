@@ -79,3 +79,9 @@ func stringField(m map[string]any, key string) string {
 
 	return v
 }
+
+func boolField(m map[string]any, key string) bool {
+	v, ok := m[key].(bool)
+
+	return ok && v
+}
