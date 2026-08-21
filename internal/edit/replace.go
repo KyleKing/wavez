@@ -223,7 +223,7 @@ func spliceFuzzy(source, oldString, newString string) (splice, error) {
 
 	switch len(starts) {
 	case 0:
-		return splice{}, notFoundError(sourceLines, oldLines)
+		return splice{}, notFoundError(source, oldString, sourceLines, oldLines)
 	case 1:
 	default:
 		lines := make([]int, len(starts))
@@ -293,6 +293,65 @@ func blockMatches(block, oldLines []string) bool {
 	return true
 }
 
+// minPrefixMatch is how much of an anchor has to be right before saying
+// where it goes wrong helps. Below it the report would point at a
+// coincidence.
+const minPrefixMatch = 8
+
+// prefixMismatch is the report for an anchor no line of which matches: it
+// finds how far into the anchor the source agrees and shows what parts
+// there. A model that closed a JSON string with a typographic quote sent an
+// anchor whose only fault was three trailing characters, and got back
+// nothing but "not found", so it sent the same anchor twice more and the run
+// died stagnant.
+func prefixMismatch(source, oldString string) error {
+	n := longestPrefix(source, oldString)
+	if n < minPrefixMatch {
+		return &NotFoundError{}
+	}
+
+	idx := strings.Index(source, oldString[:n])
+
+	return &NotFoundError{
+		CandidateLine: strings.Count(source[:idx], "\n") + 1,
+		MismatchLine:  strings.Count(source[:idx+n], "\n") + 1,
+		Sent:          restOfLine(oldString[n:]),
+		Found:         restOfLine(source[idx+n:]),
+	}
+}
+
+// half is the binary search's divisor.
+const half = 2
+
+// longestPrefix is the length of the longest prefix of want that occurs in
+// source. A prefix of a prefix that occurs also occurs, so the length is
+// monotonic and a binary search over it is exact.
+func longestPrefix(source, want string) int {
+	lo, hi := 0, len(want)
+	for lo < hi {
+		mid := lo + (hi-lo+1)/half
+		if strings.Contains(source, want[:mid]) {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+
+	return lo
+}
+
+func restOfLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+
+	if s == "" {
+		return "(end of line)"
+	}
+
+	return s
+}
+
 func trimLeading(s string) string {
 	return strings.TrimLeft(s, " \t")
 }
@@ -302,7 +361,7 @@ func leadingWhitespace(s string) string {
 	return s[:len(s)-len(trimmed)]
 }
 
-func notFoundError(sourceLines, oldLines []string) error {
+func notFoundError(source, oldString string, sourceLines, oldLines []string) error {
 	n := len(oldLines)
 
 	bestScore, bestIdx := 0, -1
@@ -320,7 +379,7 @@ func notFoundError(sourceLines, oldLines []string) error {
 	}
 
 	if bestIdx < 0 {
-		return &NotFoundError{}
+		return prefixMismatch(source, oldString)
 	}
 
 	for j := range oldLines {

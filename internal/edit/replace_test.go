@@ -177,6 +177,40 @@ func TestReplace_NotFound(t *testing.T) {
 	})
 }
 
+// An anchor whose only fault is trailing junk matches no line at all, so the
+// line-by-line report has nothing to say. A run that closed a JSON string
+// with a typographic quote hit exactly that and re-sent the same anchor
+// until it died.
+func TestReplace_NotFoundReportsWhereAOneLineAnchorParts(t *testing.T) {
+	t.Parallel()
+
+	source := "package daemon\n\nfunc firstDir(dirs []string) string {\n\treturn dirs[0]\n}\n"
+
+	_, err := edit.Replace(source, "func firstDir(dirs []string) string {\u201d, ", "x")
+
+	notFound := requireNotFound(t, err)
+	if notFound.MismatchLine != 3 {
+		t.Errorf("MismatchLine = %d, want 3", notFound.MismatchLine)
+	}
+	if !strings.Contains(notFound.Sent, "\u201d") {
+		t.Errorf("Sent = %q, want the trailing junk the anchor added", notFound.Sent)
+	}
+	if notFound.Found != "(end of line)" {
+		t.Errorf("Found = %q, want the end of the source line", notFound.Found)
+	}
+}
+
+// Below a real prefix match the report would point at a coincidence.
+func TestReplace_NotFoundStaysSilentWithNothingToSay(t *testing.T) {
+	t.Parallel()
+
+	_, err := edit.Replace("apples and oranges\n", "kiwi", "pear")
+
+	if got := requireNotFound(t, err); got.CandidateLine != 0 {
+		t.Errorf("CandidateLine = %d, want 0", got.CandidateLine)
+	}
+}
+
 func TestReplace_NotUnique(t *testing.T) {
 	t.Parallel()
 
