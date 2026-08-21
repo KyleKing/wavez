@@ -1,0 +1,135 @@
+package replay
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/kyleking/wavez/internal/bench"
+)
+
+// DefaultRecordsPath is where this repo keeps the records, relative to the
+// project root.
+const DefaultRecordsPath = "_ai_/bench/replay/records.jsonl"
+
+const (
+	recordsDirMode  = 0o750
+	recordsFileMode = 0o600
+)
+
+// Run is what one replay was asked to do. It rides on the record because a
+// comparison that pairs two runs given different caps or different tiers
+// measures the caps, and nothing in the counters says so.
+type Run struct {
+	Task     string `json:"task"`
+	Label    string `json:"label"`
+	Model    string `json:"model"`
+	MaxTurns int    `json:"max_turns"`
+}
+
+// SameSetup reports whether two runs were asked for the same thing, which is
+// what makes their counters comparable.
+func (r Run) SameSetup(other Run) bool {
+	return r.Model == other.Model && r.MaxTurns == other.MaxTurns
+}
+
+// Record is one run of one task: what it was asked to do, how it ended, and
+// what it spent. Stats is the same summary -stats prints, so a record and a
+// live thread are read the same way.
+type Record struct {
+	Run
+	Started  string      `json:"started"`
+	Stop     string      `json:"stop"`
+	Stats    bench.Stats `json:"stats"`
+	Complete bool        `json:"complete"`
+}
+
+// NewRecord stamps a finished run.
+func NewRecord(run Run, started time.Time, stop string, stats bench.Stats) Record {
+	return Record{
+		Run:      run,
+		Started:  started.UTC().Format(time.RFC3339),
+		Stop:     stop,
+		Complete: stop == "complete",
+		Stats:    stats,
+	}
+}
+
+// Append adds one record to the file, creating it and its directory. Records
+// are append-only: a run that already happened is not rewritten by a later
+// one, so a lane keeps every attempt it made rather than its best.
+func Append(path string, r Record) error {
+	if err := os.MkdirAll(filepath.Dir(path), recordsDirMode); err != nil {
+		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	}
+
+	line, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Errorf("encoding record for task %s: %w", r.Task, err)
+	}
+
+	//nolint:gosec // path names a records file the caller chose
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, recordsFileMode)
+	if err != nil {
+		return fmt.Errorf("opening %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }() //nolint:errcheck // the write below is what can fail meaningfully
+
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("appending to %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// Load reads every record in the file, oldest first. A file that does not
+// exist yet holds no records, which is not an error.
+func Load(path string) ([]Record, error) {
+	f, err := os.Open(path) //nolint:gosec // path is the caller's
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }() //nolint:errcheck // read-only handle
+
+	var out []Record
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), maxRecordLine)
+
+	for sc.Scan() {
+		var r Record
+		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", path, err)
+		}
+
+		out = append(out, r)
+	}
+
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	return out, nil
+}
+
+// maxRecordLine bounds one record, which carries a run's whole shell history.
+const maxRecordLine = 4 << 20
+
+// ForTask keeps the records of one task, oldest first.
+func ForTask(recs []Record, task string) []Record {
+	var out []Record
+	for i := range recs {
+		if recs[i].Task == task {
+			out = append(out, recs[i])
+		}
+	}
+
+	return out
+}

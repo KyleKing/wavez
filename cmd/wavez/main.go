@@ -62,6 +62,9 @@ type options struct {
 	undo                string
 	stats               string
 	statsVs             string
+	replay              string
+	replayLabel         string
+	replayReport        string
 	maxTurns            int
 	maxToolCallsPerTurn int
 	maxStagnantErrors   int
@@ -125,6 +128,12 @@ func run(args []string) error {
 		"report what a finished run spent, by thread id or log path")
 	fs.StringVar(&opt.statsVs, "stats-vs", "",
 		"with -stats, name a second run the same way to diff against it")
+	fs.StringVar(&opt.replay, "replay", "",
+		"run one task of the fixed set in a throwaway workspace and record what it spent")
+	fs.StringVar(&opt.replayLabel, "replay-label", "",
+		"with -replay, name the lane the record measures (defaults to the current commit)")
+	fs.StringVar(&opt.replayReport, "replay-report", "",
+		"print every recorded run of one task and diff the last two")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -220,7 +229,8 @@ func appOptions(opt options) []app.Option {
 // runSubcommand dispatches the flags that do one job and exit instead of
 // opening a thread. It reports handled=false when none applies.
 func runSubcommand(ctx context.Context, opt options) (bool, error) {
-	if opt.undo == "" && opt.stats == "" && !opt.deadcode && !opt.mutate {
+	if opt.undo == "" && opt.stats == "" && opt.replay == "" && opt.replayReport == "" &&
+		!opt.deadcode && !opt.mutate {
 		return false, nil
 	}
 
@@ -234,6 +244,10 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 		return true, undo(ctx, root, opt.undo)
 	case opt.stats != "":
 		return true, statsReport(root, opt.stats, opt.statsVs, opt.jsonOut)
+	case opt.replay != "":
+		return true, replayRun(ctx, root, opt)
+	case opt.replayReport != "":
+		return true, replayReport(root, opt.replayReport)
 	case opt.deadcode:
 		cfg, cerr := loadConfig(ctx, root, opt.with)
 		if cerr != nil {
@@ -247,19 +261,28 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 }
 
 func headless(ctx context.Context, opt options) error {
+	_, _, err := headlessRun(ctx, opt)
+
+	return err
+}
+
+// headlessRun is headless, plus the thread and outcome a caller measuring
+// the run needs. The outcome is zero for a cycle, which reports its phases
+// rather than one loop's counters.
+func headlessRun(ctx context.Context, opt options) (thread.ID, agent.Outcome, error) {
 	root, err := resolveRoot(ctx, opt.dir)
 	if err != nil {
-		return err
+		return "", agent.Outcome{}, err
 	}
 
 	cfg, err := loadConfig(ctx, root, opt.with)
 	if err != nil {
-		return err
+		return "", agent.Outcome{}, err
 	}
 
 	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), appOptions(opt)...)
 	if err != nil {
-		return fmt.Errorf("building project: %w", err)
+		return "", agent.Outcome{}, fmt.Errorf("building project: %w", err)
 	}
 	// Close takes no context on purpose: a run canceled by ctrl-c must
 	// still stop the llama-server it started, and a canceled context would
@@ -273,23 +296,23 @@ func headless(ctx context.Context, opt options) error {
 
 	th, err := a.OpenThread(threadID(opt.resume), append([]string{root}, cfg.ExtraDirs...))
 	if err != nil {
-		return fmt.Errorf("opening thread: %w", err)
+		return "", agent.Outcome{}, fmt.Errorf("opening thread: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "thread %s\n", th.ID())
 	ctx = lease.WithHolder(ctx, string(th.ID()))
 
 	hint, err := routerHint(opt.model)
 	if err != nil {
-		return err
+		return th.ID(), agent.Outcome{}, err
 	}
 
 	prompt, err := expandMentions(ctx, a, opt.prompt)
 	if err != nil {
-		return err
+		return th.ID(), agent.Outcome{}, err
 	}
 
 	if opt.cycle != "" {
-		return runCycle(ctx, a, th, prompt, opt, hint)
+		return th.ID(), agent.Outcome{}, runCycle(ctx, a, th, prompt, opt, hint)
 	}
 
 	loop, tools, system := a.Loop, a.Tools, a.SystemPrefix
@@ -299,18 +322,18 @@ func headless(ctx context.Context, opt options) error {
 
 	outcome, err := loop.Run(ctx, th, prefix(system, tools), prompt, hint)
 	if err != nil {
-		return fmt.Errorf("running thread: %w", err)
+		return th.ID(), agent.Outcome{}, fmt.Errorf("running thread: %w", err)
 	}
 
 	if err := reportRun(th, a, outcome, opt, root); err != nil {
-		return err
+		return th.ID(), outcome, err
 	}
 
 	if outcome.Stop != agent.StopComplete {
-		return fmt.Errorf("%w: %s", errStoppedEarly, outcome.Stop)
+		return th.ID(), outcome, fmt.Errorf("%w: %s", errStoppedEarly, outcome.Stop)
 	}
 
-	return nil
+	return th.ID(), outcome, nil
 }
 
 // runCycle drives the named cycle instead of one loop. A cycle whose last
@@ -602,6 +625,9 @@ Flags:
   -mutate         mutate the working copy's changed lines and report what the tests missed
   -stats <id>     report what a finished run spent, by thread id or log path
   -stats-vs <id>  with -stats, name a second run the same way to diff against it
+  -replay <task>  run one task of the fixed set in a throwaway workspace and record it
+  -replay-label <name>   with -replay, name the lane (defaults to the current commit)
+  -replay-report <task>  print every recorded run of one task and diff the last two
   -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn
