@@ -57,7 +57,11 @@ func Report(recs []Record, task string, w io.Writer) error {
 	}
 
 	last := rows[len(rows)-1]
-	prev := rows[len(rows)-2]
+
+	prev, ok := baselineFor(rows)
+	if !ok {
+		return nil
+	}
 
 	if _, err := fmt.Fprintf(w, "\n%s -> %s\n", prev.Label, last.Label); err != nil {
 		return fmt.Errorf("writing replay report: %w", err)
@@ -73,6 +77,20 @@ func Report(recs []Record, task string, w io.Writer) error {
 	}
 
 	return bench.Compare(prev.Stats, last.Stats, w) //nolint:wrapcheck // Compare's error already names the writer
+}
+
+// baselineFor is the run the newest one is diffed against: the most recent
+// earlier run that actually took a turn. A run that died before its first
+// turn carries zeros, and diffing against zeros reports the whole run as the
+// improvement.
+func baselineFor(rows []Record) (Record, bool) {
+	for i := len(rows) - pairSize; i >= 0; i-- {
+		if rows[i].Stats.Turns > 0 {
+			return rows[i], true
+		}
+	}
+
+	return Record{}, false
 }
 
 // modelOf names the tier a run was pinned to, or the router's own choice.

@@ -158,6 +158,24 @@ func TestReportDiffsTheLastTwoRunsOfOneTask(t *testing.T) {
 	}
 }
 
+func TestReportSkipsARunThatNeverTookATurn(t *testing.T) {
+	t.Parallel()
+
+	recs := []replay.Record{
+		fixtureRecords()[0],
+		replay.NewRecord(replay.Run{Task: "e1", Label: "killed", Model: "balanced", MaxTurns: 60},
+			started, "error", bench.Stats{}),
+		fixtureRecords()[2],
+	}
+
+	var out strings.Builder
+	if err := replay.Report(recs, "e1", &out); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+
+	requireHolds(t, out.String(), "task e1, 3 run(s)", "killed", "before -> after", "-18")
+}
+
 func TestReportFlagsAPairRunUnderDifferentSetups(t *testing.T) {
 	t.Parallel()
 
