@@ -161,16 +161,49 @@ func TestRun_TwoTurnConversationWithOneToolCall(t *testing.T) {
 	}
 }
 
-func TestRun_MalformedToolCallTerminates(t *testing.T) {
+// A malformed call is the most recoverable failure the loop sees: nothing
+// ran, so the model only has to send it again. The first one escalates and
+// critiques, and only a second ends the run.
+func TestRun_MalformedToolCallEscalatesBeforeTerminating(t *testing.T) {
 	t.Parallel()
 
-	call := llm.ToolCall{ID: "1", Name: "echo", Input: json.RawMessage(`{not valid`)}
-	local := fake.New("local", fake.Turn{ToolCalls: []llm.ToolCall{call}, StopReason: llm.StopToolUse})
-	hosted := fake.New("hosted")
+	bad := llm.ToolCall{ID: "1", Name: "echo", Input: json.RawMessage(`{not valid`)}
+	good := llm.ToolCall{ID: "2", Name: "echo", Input: json.RawMessage(`{"v":1}`)}
+
+	local := fake.New("local", fake.Turn{ToolCalls: []llm.ToolCall{bad}, StopReason: llm.StopToolUse})
+	hosted := fake.New("hosted",
+		fake.Turn{ToolCalls: []llm.ToolCall{good}, StopReason: llm.StopToolUse},
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
 
 	th := newThread(t)
-	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll())
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Stop != agent.StopComplete {
+		t.Fatalf("Stop = %q, want complete: the retry after the critique succeeded", out.Stop)
+	}
+
+	history := th.History()
+	critique := history[2].Content
+	if !strings.Contains(critique, "not valid JSON") || !history[2].IsError {
+		t.Errorf("the malformed call was answered with %q, want an error naming the JSON", critique)
+	}
+}
+
+func TestRun_MalformedToolCallTerminatesOnTheSecond(t *testing.T) {
+	t.Parallel()
+
+	bad := llm.ToolCall{ID: "1", Name: "echo", Input: json.RawMessage(`{not valid`)}
+	turn := fake.Turn{ToolCalls: []llm.ToolCall{bad}, StopReason: llm.StopToolUse}
+
+	local := fake.New("local", turn)
+	hosted := fake.New("hosted", turn)
+
+	th := newThread(t)
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -178,9 +211,6 @@ func TestRun_MalformedToolCallTerminates(t *testing.T) {
 	}
 	if out.Stop != agent.StopMalformedTool {
 		t.Fatalf("Stop = %q, want malformed_tool_call", out.Stop)
-	}
-	if out.ToolCalls != 0 {
-		t.Errorf("ToolCalls = %d, want 0: a malformed call must not run", out.ToolCalls)
 	}
 	if th.State() != event.StateFailed {
 		t.Errorf("State = %q, want failed", th.State())

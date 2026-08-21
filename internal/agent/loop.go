@@ -778,10 +778,7 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 			return true, out, err
 		}
 		if !json.Valid(call.Input) {
-			reason := fmt.Sprintf("malformed tool call %q: input is not valid JSON", call.Name)
-			out, err := r.stopBound(ctx, StopMalformedTool, reason)
-
-			return true, out, err
+			return r.handleMalformedCall(ctx, call)
 		}
 		if _, ok := editToolNames[call.Name]; ok {
 			r.editAttempted = true
@@ -888,6 +885,38 @@ func (r *run) handleTalkedNotActed(ctx context.Context, stop Stop, reason, criti
 
 	if err := r.thread.AppendUser(ctx, critique); err != nil {
 		return true, Outcome{}, fmt.Errorf("appending %s critique: %w", stop, err)
+	}
+
+	return false, Outcome{}, nil
+}
+
+// handleMalformedCall is runTools' branch for arguments that are not valid
+// JSON. The call never ran, so sending it again is all the model has to do,
+// which makes this the most recoverable malformed shape and the one that
+// least deserves to end a thread: measured on the fixed task set, qwen3:8b
+// lost two of four tasks to a single bad emission, one of them on turn two.
+// It follows the same escalate-then-stop rule as a tool call written as
+// text, and answers the call rather than leaving the turn's tool_use
+// unpaired, which the provider requires.
+func (r *run) handleMalformedCall(ctx context.Context, call llm.ToolCall) (bool, Outcome, error) {
+	if !r.escalate() {
+		out, err := r.stopBound(ctx, StopMalformedTool,
+			fmt.Sprintf("malformed tool call %q: input is not valid JSON after escalating", call.Name))
+
+		return true, out, err
+	}
+
+	if err := r.appendToolResult(ctx, call, tool.Errorf(
+		"the arguments for %s were not valid JSON, so the call never ran. Send it again with the "+
+			"arguments as one JSON object, writing any multi-line text as a single string with "+
+			`\n escapes rather than real line breaks`, call.Name)); err != nil {
+		return true, Outcome{}, err
+	}
+	r.outcome.ToolCalls++
+	r.turnToolCalls++
+
+	if done, out, err := r.checkStagnation(ctx, call.Name, true); done {
+		return true, out, err
 	}
 
 	return false, Outcome{}, nil
