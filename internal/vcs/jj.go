@@ -162,7 +162,31 @@ func notJJRepoErr(path string, cause error) error {
 	return fmt.Errorf("%s is not a jj repository, fix with %q: %w: %w", path, InitHint, ErrNotJJRepo, cause)
 }
 
+// staleWorkingCopy is jj's own wording for a workspace whose working copy an
+// operation in another workspace has moved past. It is recoverable, and the
+// fix is the one jj prints, so a caller never has to see it.
+const staleWorkingCopy = "The working copy is stale"
+
+// runJJ shells out to jj, recovering once from a stale working copy. A
+// workspace goes stale whenever another workspace of the same repository
+// commits while this one is open, which is exactly what a replay running
+// beside ordinary work does. Left unhandled the error reaches whoever asked
+// for the diff, and a gate that passes it on hands a model a VCS hint it
+// cannot act on.
 func runJJ(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := runJJOnce(ctx, dir, args...)
+	if err == nil || !strings.Contains(err.Error(), staleWorkingCopy) {
+		return out, err
+	}
+
+	if _, uerr := runJJOnce(ctx, dir, "workspace", "update-stale"); uerr != nil {
+		return "", fmt.Errorf("%w (updating the stale working copy also failed: %w)", err, uerr)
+	}
+
+	return runJJOnce(ctx, dir, args...)
+}
+
+func runJJOnce(ctx context.Context, dir string, args ...string) (string, error) {
 	//nolint:gosec // args are fixed subcommands plus caller-supplied refs/paths, the shell-out this package exists for
 	cmd := exec.CommandContext(ctx, "jj", args...)
 	cmd.Dir = dir

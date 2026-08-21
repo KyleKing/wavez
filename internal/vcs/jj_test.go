@@ -31,7 +31,7 @@ func newFixtureRepo(t *testing.T) string {
 	return dir
 }
 
-func runJJCmd(t *testing.T, dir string, args ...string) string {
+func runJJCmd(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
 	//nolint:gosec // args are this test's own fixed fixture-setup commands
@@ -42,8 +42,6 @@ func runJJCmd(t *testing.T, dir string, args ...string) string {
 	if err != nil {
 		t.Fatalf("jj %v: %v: %s", args, err, out)
 	}
-
-	return string(out)
 }
 
 func writeFile(t *testing.T, dir, name, content string) {
@@ -282,5 +280,37 @@ func TestJjDiffStat(t *testing.T) {
 		if !strings.Contains(dirty, want) {
 			t.Fatalf("DiffStat = %q, want it to mention %q", dirty, want)
 		}
+	}
+}
+
+// TestJjRecoversStaleWorkingCopy reproduces what a replay does to itself: a
+// second workspace is open while the first one commits, which leaves the
+// second stale until something updates it. Before the recovery in runJJ, the
+// diff below failed and its hint reached the caller.
+func TestJjRecoversStaleWorkingCopy(t *testing.T) {
+	t.Parallel()
+
+	main := newFixtureRepo(t)
+	side := filepath.Join(t.TempDir(), "side")
+	j := vcs.NewJj()
+	ctx := context.Background()
+
+	if err := j.AddWorkspace(ctx, main, "side", side); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+
+	writeFile(t, side, "b.go", "package a\n\nvar B = 1\n")
+	// Any edit in the first workspace plus any jj command there rewrites the
+	// commit the second one sits on, which is what makes it stale.
+	writeFile(t, main, "a.go", "package a\n\nvar A = 1\n")
+	runJJCmd(t, main, "status")
+
+	changed, err := j.ChangedFiles(ctx, side, "")
+	if err != nil {
+		t.Fatalf("ChangedFiles after the other workspace committed: %v", err)
+	}
+
+	if len(changed) == 0 {
+		t.Errorf("want the stale workspace's own edit reported, got %v", changed)
 	}
 }
