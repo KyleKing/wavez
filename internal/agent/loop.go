@@ -66,6 +66,7 @@ const (
 
 // editToolNames are the tools that leave a tool.Change on success.
 var editToolNames = map[string]struct{}{
+	"rename":      {},
 	"str_replace": {},
 	"write":       {},
 }

@@ -8,12 +8,12 @@ const FixCycle = "fix"
 // investigateTools is what a phase that reads, edits, and runs experiments
 // may call. Narrowing is for routing rather than safety: shell stays behind
 // the permission gate and the destructive-command guard either way.
-var investigateTools = []string{"read", "search", "context", "str_replace", "write", "shell", "hypothesis"}
+var investigateTools = []string{"read", "search", "context", "rename", "str_replace", "write", "shell", "hypothesis"}
 
 // generalizeTools swap the shell for the sweep, since the generalize phase's
 // work is triaging a list the harness produced rather than running an
 // experiment.
-var generalizeTools = []string{"read", "search", "context", "str_replace", "write", "sweep", "hypothesis"}
+var generalizeTools = []string{"read", "search", "context", "rename", "str_replace", "write", "sweep", "hypothesis"}
 
 // Fix returns the fix cycle wavez ships: reproduce, fix, generalize. Its
 // first two conditions are the fail-to-pass property read in both

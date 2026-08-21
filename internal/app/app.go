@@ -249,12 +249,11 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	if scheduler == nil {
 		scheduler = sched.New(sched.WithHeadroom(cfg.AdmissionHeadroom), sched.WithLocalSlots(runtime.ServedSlots))
 	}
-	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker, leases)
+	lspPool := lsp.NewPool(root)
+	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker, leases, lspPool)
 
 	p := buildProviders(ctx, cfg, options)
 	providers, supervisor := p.tiers, p.supervisor
-
-	lspPool := lsp.NewPool(root)
 
 	bundle, err := buildGates(root, stateDir, store, gateLog, cfg, graph, lspPool, scheduler)
 	if err != nil {
@@ -572,7 +571,7 @@ func newSessionDir(stateDir string) (string, error) {
 
 func buildRegistry(
 	root, sandboxDir string, indexer *codeintel.Indexer, store *codeintel.Store, scope *tools.Scope,
-	permGate permission.Gate, asker tools.Asker, leases tools.Leases,
+	permGate permission.Gate, asker tools.Asker, leases tools.Leases, servers tools.Servers,
 ) *tool.Registry {
 	withLeases := tools.WithLeases(leases)
 
@@ -585,6 +584,7 @@ func buildRegistry(
 		tools.NewSearch(indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: indexer, Store: store}),
 		tools.NewQuestion(asker),
+		tools.NewRename(root, indexer, servers, scope, withLeases),
 	)
 }
 

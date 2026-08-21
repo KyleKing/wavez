@@ -194,3 +194,112 @@ func (c *Client) abs(path string) (string, error) {
 func atLeast(published *int32, want int) bool {
 	return published == nil || int(*published) >= want
 }
+
+// TextEdit is one replacement inside one file, in the line and column
+// numbering the server speaks. Line and Column count from zero, and Column
+// counts UTF-16 code units rather than bytes or runes, which is what the
+// protocol specifies and what a caller applying the edit has to honor.
+type TextEdit struct {
+	NewText   string
+	Line      int
+	Column    int
+	EndLine   int
+	EndColumn int
+}
+
+// Rename asks the server for every edit that renames the symbol at
+// path:line:column to newName, keyed by absolute file path. Line and column
+// count from zero.
+//
+// The server decides what a rename means, which is the point: it follows the
+// symbol through the type information rather than through the text, so an
+// unrelated identifier that happens to share the name is left alone and a
+// use in another package is not. A server that refuses the rename (a keyword,
+// a symbol in a dependency) answers with an error rather than an empty edit.
+func (c *Client) Rename(
+	ctx context.Context, path string, line, column int, newName string,
+) (map[string][]TextEdit, error) {
+	abs, err := c.abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	edit, err := c.inner.RequestRename(ctx, abs, line, column, newName)
+	if err != nil {
+		return nil, fmt.Errorf("renaming %s at %s:%d: %w", newName, path, line+1, err)
+	}
+
+	out := make(map[string][]TextEdit, len(edit.Changes))
+
+	for uri, edits := range edit.Changes {
+		file, perr := uri.Path()
+		if perr != nil {
+			return nil, fmt.Errorf("rename touched an unreadable location %q: %w", uri, perr)
+		}
+
+		for i := range edits {
+			out[file] = append(out[file], textEdit(edits[i]))
+		}
+	}
+
+	for _, doc := range edit.DocumentChanges {
+		if doc.TextDocumentEdit == nil {
+			continue
+		}
+
+		file, perr := doc.TextDocumentEdit.TextDocument.URI.Path()
+		if perr != nil {
+			return nil, fmt.Errorf("rename touched an unreadable location: %w", perr)
+		}
+
+		for _, e := range doc.TextDocumentEdit.Edits {
+			te, ok, terr := asTextEdit(e)
+			if terr != nil {
+				return nil, terr
+			}
+
+			if ok {
+				out[file] = append(out[file], te)
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// asTextEdit pulls a plain TextEdit out of the protocol's union type. The
+// union decodes into an interface holding whatever JSON shape arrived, so a
+// type assertion sees a map rather than the struct, and the annotated variant
+// (which carries a change annotation this caller has nothing to do with) is
+// skipped rather than misread as a plain edit.
+func asTextEdit(e protocol.Or_TextDocumentEdit_edits_Elem) (TextEdit, bool, error) {
+	raw, err := json.Marshal(e.Value)
+	if err != nil {
+		return TextEdit{}, false, fmt.Errorf("re-encoding a rename edit: %w", err)
+	}
+
+	//nolint:tagliatelle // the field name is the protocol's, not this project's
+	var probe struct {
+		AnnotationID *string `json:"annotationId"`
+	}
+	if err := json.Unmarshal(raw, &probe); err == nil && probe.AnnotationID != nil {
+		return TextEdit{}, false, nil
+	}
+
+	var te protocol.TextEdit
+	if err := json.Unmarshal(raw, &te); err != nil {
+		return TextEdit{}, false, fmt.Errorf("decoding a rename edit: %w", err)
+	}
+
+	return textEdit(te), true, nil
+}
+
+func textEdit(e protocol.TextEdit) TextEdit {
+	return TextEdit{
+		Line:      int(e.Range.Start.Line),
+		Column:    int(e.Range.Start.Character),
+		EndLine:   int(e.Range.End.Line),
+		EndColumn: int(e.Range.End.Character),
+		NewText:   e.NewText,
+	}
+}
