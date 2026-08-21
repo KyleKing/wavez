@@ -17,12 +17,18 @@ import (
 // project root.
 var ErrPathOutsideRoot = errors.New("path is outside the project root")
 
+// ErrPathMissing reports a call that left path out. It is its own error
+// because reporting it as a containment failure describes the wrong
+// problem: a run that batched edits without naming the file was told its
+// path was outside the project root and never sent one.
+var ErrPathMissing = errors.New("path is required and was not set")
+
 // resolvePath resolves path against root and refuses one that lexically
 // escapes it, whether given as an absolute path or a relative one that
 // walks out with "..".
 func resolvePath(root, path string) (string, error) {
 	if path == "" {
-		return "", fmt.Errorf("%w: empty path", ErrPathOutsideRoot)
+		return "", ErrPathMissing
 	}
 
 	var abs string

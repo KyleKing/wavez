@@ -85,6 +85,25 @@ func TestStrReplace_RefusesPathOutsideRoot(t *testing.T) {
 	}
 }
 
+// A batch of edits with no path is a missing field, and reporting it as a
+// containment failure sent one run looking for a path problem it did not
+// have.
+func TestStrReplace_NamesAMissingPath(t *testing.T) {
+	t.Parallel()
+
+	s := tools.NewStrReplace(t.TempDir(), nil)
+
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"edits": []map[string]string{{"old_string": "a", "new_string": "b"}},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "path is required") {
+		t.Errorf("result = %+v, want an error naming the missing path", result)
+	}
+}
+
 // One call per replacement costs a turn each, and the turns are what a run
 // spends its budget on.
 func TestStrReplace_AppliesSeveralEditsInOneCall(t *testing.T) {
