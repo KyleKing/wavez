@@ -70,30 +70,26 @@ type Differ interface {
 // reason rather than as a pass.
 //
 // The tier is not fixed: the same router that routes a turn routes the
-// review. It is routed on size alone, and deliberately not on file count: a
-// turn escalates on file count because a multi-file task needs more
-// reasoning than the local tier has, while a review reads one finished diff
-// whose only cost is its length. Counting files here would send the ordinary
-// source-plus-test change hosted and leave a local-only project with no
-// review at all.
+// review, from the fast tier up. A review reads one finished diff whose only
+// cost is its length, so it starts on the cheapest tier and moves up only
+// when the diff will not fit there, which is what keeps the ordinary
+// source-plus-test change on-box.
 type ModelReviewer struct {
-	local       llm.Provider
-	hosted      llm.Provider
+	providers   router.Tiers[llm.Provider]
 	differ      Differ
 	root        string
-	localModel  string
-	hostedModel string
+	models      router.Tiers[string]
 	tokenBudget int
 }
 
 // NewModelReviewer builds a reviewer for the project at root, reading diffs
-// through differ and asking local or hosted as the router decides.
+// through differ and asking whichever tier the router picks.
 func NewModelReviewer(
-	root string, differ Differ, local, hosted llm.Provider, localModel, hostedModel string,
+	root string, differ Differ, providers router.Tiers[llm.Provider], models router.Tiers[string],
 ) *ModelReviewer {
 	return &ModelReviewer{
-		root: root, differ: differ, local: local, hosted: hosted,
-		localModel: localModel, hostedModel: hostedModel, tokenBudget: reviewTokenBudget,
+		root: root, differ: differ, providers: providers,
+		models: models, tokenBudget: reviewTokenBudget,
 	}
 }
 
@@ -118,10 +114,10 @@ func (r *ModelReviewer) Review(ctx context.Context, rv agent.Review) agent.Verdi
 			estimate, len(paths), r.tokenBudget)
 	}
 
-	route := router.Route(router.Input{EstimatedTokens: estimate})
+	route := router.Route(router.Input{Override: router.ChoiceFast, EstimatedTokens: estimate})
 
 	req := llm.Request{
-		Model:          router.Select(route, r.localModel, r.hostedModel),
+		Model:          r.models.For(route),
 		System:         reviewSystem,
 		Messages:       []llm.Message{{Role: llm.RoleUser, Content: prompt}},
 		MaxTokens:      reviewMaxTokens,
@@ -129,7 +125,7 @@ func (r *ModelReviewer) Review(ctx context.Context, rv agent.Review) agent.Verdi
 		ResponseFormat: &llm.ResponseFormat{Name: "review_verdict", Schema: reviewSchema},
 	}
 
-	answer, err := collectText(ctx, router.Select(route, r.local, r.hosted), req)
+	answer, err := collectText(ctx, r.providers.For(route), req)
 	if err != nil {
 		return skipped("the reviewer model failed: %v", err)
 	}

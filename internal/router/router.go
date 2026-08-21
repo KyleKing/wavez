@@ -2,27 +2,46 @@
 // shape of the task rather than live provider state.
 package router
 
-// Choice names a provider tier.
+import "fmt"
+
+// Choice names a provider tier. The three are roles rather than places: a
+// machine decides whether each is served on-box or over the network.
 type Choice string
 
 const (
-	// ChoiceLocal serves the turn from the local model.
-	ChoiceLocal Choice = "local"
-	// ChoiceHosted escalates the turn to a hosted model.
-	ChoiceHosted Choice = "hosted"
+	// ChoiceFast serves the turn from the cheapest tier, sized for tool
+	// calling and mechanical edits.
+	ChoiceFast Choice = "fast"
+	// ChoiceBalanced serves the turn from the tier that does most of the
+	// work.
+	ChoiceBalanced Choice = "balanced"
+	// ChoiceDeep serves the turn from the strongest tier, for planning and
+	// for what the tier below could not finish.
+	ChoiceDeep Choice = "deep"
 )
+
+// Default is the tier a turn runs on when nothing pins it. Neither
+// neighbor is reached automatically: fast and deep are pinned per thread or
+// per run until a task-shape signal exists to choose them (DESIGN.md "Model
+// routing").
+const Default = ChoiceBalanced
+
+// order is every tier cheapest first, which is also the order a failure
+// escalates through.
+var order = []Choice{ChoiceFast, ChoiceBalanced, ChoiceDeep}
 
 // Valid reports whether c names a tier Route can serve a turn from. The
 // empty Choice is not valid: as an Input.Override it means no override at
 // all, which is a caller's decision to make rather than a tier.
 func (c Choice) Valid() bool {
-	return c == ChoiceLocal || c == ChoiceHosted
+	return c == ChoiceFast || c == ChoiceBalanced || c == ChoiceDeep
 }
 
-// LocalContextBudget is the served window Route assumes when an Input
-// names none, matching the llama-server default (DESIGN.md "Model
-// routing"). A caller that knows the served window passes it as Window.
-const LocalContextBudget = 8192
+// FastContextBudget is the served window Route assumes for the fast tier
+// when an Input names none, matching the llama-server default (DESIGN.md
+// "Model routing"). A caller that knows the served window passes it as
+// Window.
+const FastContextBudget = 8192
 
 // ReplyReserve is the room Route keeps under the served window for the
 // model's reply, since a prompt that fills the window leaves the model
@@ -38,10 +57,10 @@ type Input struct {
 	// must not silently flip it.
 	Thinking *bool
 	Override Choice
-	// Window is the local tier's served context in tokens, zero for
-	// LocalContextBudget.
+	// Window is the fast tier's served context in tokens, zero for
+	// FastContextBudget. The tiers above it are sized in hundreds of
+	// thousands of tokens, so only the fast tier's fit is checked.
 	Window          int
-	FileCount       int
 	EstimatedTokens int
 	PriorFailures   int
 }
@@ -53,48 +72,77 @@ type Decision struct {
 	Reason string
 }
 
-// Route picks a Choice for one turn. An explicit Override always wins;
-// otherwise any prior local failure escalates immediately (local is never
-// retried past one failure), then a multi-file task or one whose request
-// plus ReplyReserve would not fit the served window escalates, and
-// everything else runs local.
+// Route picks a Choice for one turn. A turn starts on its Override, or on
+// Default when nothing pins it, and a request that would not fit the fast
+// tier's served window moves up before anything runs. Each prior failure
+// then escalates one tier, so a pin is a floor rather than a cage: a thread
+// whose tier keeps failing is worth more than a pin that holds it there.
 func Route(in Input) Decision {
+	base, reason := Default, "default tier"
 	if in.Override != "" {
-		return Decision{Choice: in.Override, Reason: "explicit override"}
-	}
-	if in.PriorFailures > 0 {
-		return Decision{Choice: ChoiceHosted, Reason: "prior local failure"}
-	}
-	if in.FileCount > 1 {
-		return Decision{Choice: ChoiceHosted, Reason: "multi-file task"}
-	}
-	if in.EstimatedTokens > LocalBudget(in.Window) {
-		return Decision{Choice: ChoiceHosted, Reason: "over local context budget"}
+		base, reason = in.Override, "explicit override"
 	}
 
-	return Decision{Choice: ChoiceLocal, Reason: "single-file task within local context budget"}
+	if base == ChoiceFast && in.EstimatedTokens > FastBudget(in.Window) {
+		base, reason = ChoiceBalanced, "over the fast tier's context budget"
+	}
+
+	if in.PriorFailures > 0 {
+		if up := escalate(base, in.PriorFailures); up != base {
+			return Decision{Choice: up, Reason: fmt.Sprintf("escalated past %s after a failure", base)}
+		}
+
+		return Decision{Choice: base, Reason: "no tier above " + string(base)}
+	}
+
+	return Decision{Choice: base, Reason: reason}
 }
 
-// LocalBudget is the largest request the local tier is routed: the served
+// escalate returns the tier steps above c, stopping at the strongest tier.
+// A Choice not in order escalates to nothing, since there is no position to
+// count from.
+func escalate(c Choice, steps int) Choice {
+	for i, t := range order {
+		if t == c {
+			return order[min(i+steps, len(order)-1)]
+		}
+	}
+
+	return c
+}
+
+// FastBudget is the largest request the fast tier is routed: the served
 // window less ReplyReserve, never below zero. Zero window means
-// LocalContextBudget.
-func LocalBudget(window int) int {
+// FastContextBudget.
+func FastBudget(window int) int {
 	if window <= 0 {
-		window = LocalContextBudget
+		window = FastContextBudget
 	}
 
 	return max(window-ReplyReserve, 0)
 }
 
-// Select returns hosted when d.Choice is ChoiceHosted and local otherwise, so
-// callers can wire concrete providers to a Decision without this package
-// depending on any provider type.
+// Tiers holds one T per tier, so a caller can wire concrete providers or
+// model names to a Decision without this package depending on either type.
+type Tiers[T any] struct {
+	Fast     T
+	Balanced T
+	Deep     T
+}
+
+// For returns the T belonging to d's tier, falling back to the Default
+// tier's value for a Decision naming no tier at all.
 //
 //nolint:ireturn // T is caller-supplied, not a provider type this package defines or knows about
-func Select[T any](d Decision, local, hosted T) T {
-	if d.Choice == ChoiceHosted {
-		return hosted
+func (t Tiers[T]) For(d Decision) T {
+	switch d.Choice {
+	case ChoiceFast:
+		return t.Fast
+	case ChoiceDeep:
+		return t.Deep
+	case ChoiceBalanced:
+		return t.Balanced
+	default:
+		return t.Balanced
 	}
-
-	return local
 }

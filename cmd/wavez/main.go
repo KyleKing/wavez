@@ -41,7 +41,7 @@ var (
 	errRestoreIncomplete = errors.New("restore left the working copy changed")
 	errStoppedEarly      = errors.New("thread stopped early")
 	errUnreachableCode   = errors.New("unreachable code found")
-	errUnknownModel      = errors.New("unknown -model: want local or hosted")
+	errUnknownModel      = errors.New("unknown -model: want fast, balanced, or deep")
 	errCycleStopped      = errors.New("cycle stopped")
 )
 
@@ -438,10 +438,12 @@ func routerHint(model string) (router.Input, error) {
 	switch strings.ToLower(model) {
 	case "":
 		return router.Input{}, nil
-	case "local":
-		return router.Input{Override: router.ChoiceLocal}, nil
-	case "hosted":
-		return router.Input{Override: router.ChoiceHosted}, nil
+	case "fast":
+		return router.Input{Override: router.ChoiceFast}, nil
+	case "balanced":
+		return router.Input{Override: router.ChoiceBalanced}, nil
+	case "deep":
+		return router.Input{Override: router.ChoiceDeep}, nil
 	default:
 		return router.Input{}, fmt.Errorf("%w: %q", errUnknownModel, model)
 	}
@@ -582,7 +584,7 @@ Flags:
   -json           with -p, print one JSON object on stdout instead of the text
   -plan           run with read-only tools: investigate without editing
   -dir <path>     project root (defaults to the enclosing repo, then cwd)
-  -model <tier>   force local or hosted for every turn
+  -model <tier>   force fast, balanced, or deep for every turn
   -with <file>    add one file to the stable prefix for this run only
   -resume <id>    continue an existing thread instead of starting a new one
   -undo <op>      restore the working copy to a run's checkpoint and print what it discarded

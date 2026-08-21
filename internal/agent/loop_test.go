@@ -112,7 +112,7 @@ func TestRun_TwoTurnConversationWithOneToolCall(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -170,7 +170,7 @@ func TestRun_MalformedToolCallTerminates(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -211,7 +211,7 @@ func TestRun_RepeatedToolCallEscalatesThenStops(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -244,7 +244,7 @@ func TestRun_MaxTurnsBoundTrips(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithMaxTurns(1))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithMaxTurns(1))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -270,7 +270,7 @@ func TestRun_MaxToolCallsBoundTrips(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithMaxToolCallsPerTurn(1))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithMaxToolCallsPerTurn(1))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -296,7 +296,7 @@ func TestRun_PrefixStableAcrossTurns(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	if _, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{}); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -326,7 +326,7 @@ func TestRun_CancellationMidStreamLeavesConsistentState(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 	defer cancel()
@@ -382,7 +382,7 @@ func TestRun_PermissionGate(t *testing.T) {
 			gate := permission.GateFunc(func(context.Context, permission.Request) (permission.Decision, error) {
 				return tt.decision, nil
 			})
-			loop := agent.New(local, hosted, reg, gate)
+			loop := agent.New(tiers(local, hosted), reg, gate)
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 			if err != nil {
@@ -415,7 +415,7 @@ func TestRun_ToolExecutionErrorFeedsBackToModel(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(failingTool{echoTool: echoTool{name: "fail"}})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -439,7 +439,7 @@ func TestRun_LocalFailureEscalatesToHostedOnce(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -454,4 +454,11 @@ func TestRun_LocalFailureEscalatesToHostedOnce(t *testing.T) {
 	if len(hosted.Requests()) != 1 {
 		t.Errorf("hosted Requests len = %d, want 1", len(hosted.Requests()))
 	}
+}
+
+// tiers wires primary to the tier a turn starts on and to the tier below,
+// and escalated to the tier a failure moves up into, so a test can script
+// one provider for the ordinary path and one for the escalated path.
+func tiers(primary, escalated llm.Provider) router.Tiers[llm.Provider] {
+	return router.Tiers[llm.Provider]{Fast: primary, Balanced: primary, Deep: escalated}
 }

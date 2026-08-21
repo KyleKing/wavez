@@ -22,11 +22,10 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 	cfg := config.Defaults(root)
 	cfg.Context = []string{"AGENTS.md#Architecture"}
 
-	local := fake.New("local", fake.Turn{Text: []string{"ok"}})
-	hosted := fake.New("hosted", fake.Turn{Text: []string{"ok"}})
+	provider := fake.New("balanced", fake.Turn{Text: []string{"ok"}})
 
 	a, err := app.New(context.Background(), root, cfg, permission.AllowAll(),
-		app.WithProviders(local, hosted))
+		app.WithProviders(tierProviders(provider)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -77,11 +76,10 @@ func TestNew_OpensAndClosesTrackedThreads(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Defaults(root)
 
-	local := fake.New("local")
-	hosted := fake.New("hosted")
+	provider := fake.New("balanced")
 
 	a, err := app.New(context.Background(), root, cfg, permission.AllowAll(),
-		app.WithProviders(local, hosted))
+		app.WithProviders(tierProviders(provider)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

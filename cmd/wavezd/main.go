@@ -144,7 +144,7 @@ func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler, settingsPa
 
 		a, err := app.New(ctx, root, cfg, broker.Gate(),
 			app.WithAsker(broker.Asker()), app.WithManagedLocalServer(), app.WithScheduler(scheduler),
-			app.WithLocalRuntime(daemon.SavedLocalRuntime(settingsPath, cfg.LocalModel)))
+			app.WithLocalRuntime(daemon.SavedLocalRuntime(settingsPath, cfg.Tiers.Fast.Model)))
 		if err != nil {
 			return nil, fmt.Errorf("building project %s: %w", root, err)
 		}

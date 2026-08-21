@@ -42,7 +42,7 @@ func TestRun_CapturesCheckpointOnOutcome(t *testing.T) {
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
 	cp := &stubCheckpointer{captured: "op123"}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithCheckpointer(cp, "/repo"))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithCheckpointer(cp, "/repo"))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestRun_CheckpointCaptureFailureFailsRunOutright(t *testing.T) {
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
 	cp := &stubCheckpointer{captureErr: errCapture}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithCheckpointer(cp, "/repo"))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithCheckpointer(cp, "/repo"))
 
 	_, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err == nil {
@@ -86,7 +86,7 @@ func TestRun_FailurePathSurfacesCheckpointForRestore(t *testing.T) {
 	reg := tool.NewRegistry(changeTool{name: "changer", changes: []tool.Change{{Path: "a.go", Added: 1}}})
 	cp := &stubCheckpointer{captured: "op-before-turn"}
 	v := &stubVerifier{script: []verifyOutcome{{feedback: "build failed", ok: false}}}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(),
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
 		agent.WithCheckpointer(cp, "/repo"), agent.WithVerifier(v), agent.WithMaxVerifyRounds(1))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
@@ -133,7 +133,7 @@ func TestLoop_RestoreCheckpointDelegatesToConfiguredCheckpointer(t *testing.T) {
 	hosted := fake.New("hosted")
 	reg := tool.NewRegistry(echoTool{name: "echo"})
 	cp := &stubCheckpointer{}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithCheckpointer(cp, "/repo"))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithCheckpointer(cp, "/repo"))
 
 	if err := loop.RestoreCheckpoint(context.Background(), "op123"); err != nil {
 		t.Fatalf("RestoreCheckpoint: %v", err)
@@ -149,7 +149,7 @@ func TestLoop_RestoreCheckpointWithNoCheckpointerErrors(t *testing.T) {
 	local := fake.New("local")
 	hosted := fake.New("hosted")
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	if err := loop.RestoreCheckpoint(context.Background(), "op123"); err == nil {
 		t.Fatal("RestoreCheckpoint: want an error with no Checkpointer configured")

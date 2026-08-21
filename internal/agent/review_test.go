@@ -131,7 +131,7 @@ func TestRun_Review(t *testing.T) {
 			th := newThread(t)
 			reg := tool.NewRegistry(changeTool{name: "editor", changes: []tool.Change{{Path: "a.go", Added: 1}}})
 			rv := &stubReviewer{script: tt.script}
-			loop := agent.New(local, fake.New("hosted"), reg, permission.AllowAll(),
+			loop := agent.New(tiers(local, fake.New("hosted")), reg, permission.AllowAll(),
 				agent.WithVerifier(&stubVerifier{}), agent.WithReviewer(rv))
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), reviewTask, router.Input{})
@@ -237,7 +237,7 @@ func TestRun_ReviewSkippedWhenNothingToJudge(t *testing.T) {
 			th := newThread(t)
 			reg := tool.NewRegistry(changeTool{name: "editor", changes: []tool.Change{{Path: "a.go", Added: 1}}})
 			rv := &stubReviewer{}
-			loop := agent.New(fake.New("local", tt.script...), fake.New("hosted"), reg, permission.AllowAll(),
+			loop := agent.New(tiers(fake.New("local", tt.script...), fake.New("hosted")), reg, permission.AllowAll(),
 				agent.WithVerifier(tt.verifier), agent.WithReviewer(rv), agent.WithMaxVerifyRounds(1))
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})

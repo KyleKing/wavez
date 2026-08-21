@@ -128,11 +128,11 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 	}, nil
 }
 
-// window is the local tier's served context for this thread's project,
+// window is the fast tier's served context for this thread's project,
 // which is the budget the router admits a turn against.
 func (mt *managedThread) window() int {
 	if mt.served <= 0 {
-		return router.LocalContextBudget
+		return router.FastContextBudget
 	}
 
 	return mt.served

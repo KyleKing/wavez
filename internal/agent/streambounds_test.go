@@ -15,20 +15,25 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
-// TestRun_LocalIsNotRetriedPastOneFailureUnderAnOverride pins the rule the
-// router normally enforces through PriorFailures. An explicit tier override
-// wins over that check, so before this a run pinned local against a failing
-// provider retried until the turn bound: 200 turns in six seconds.
-func TestRun_LocalIsNotRetriedPastOneFailureUnderAnOverride(t *testing.T) {
+// TestRun_EachTierIsTriedAtMostOnce pins the rule the router enforces
+// through PriorFailures: a failing tier escalates rather than retrying
+// itself, and the run stops once the top tier fails. Before this a run
+// pinned to a failing provider retried until the turn bound: 200 turns in
+// six seconds. The pin is a floor, so pinning the cheapest tier still walks
+// all three.
+func TestRun_EachTierIsTriedAtMostOnce(t *testing.T) {
 	t.Parallel()
 
 	failing := fake.Turn{Err: agent.ErrScriptedFailure, StopReason: llm.StopEndTurn}
-	local := fake.New("local", failing, failing, failing, failing)
+	script := []fake.Turn{failing, failing, failing, failing}
+	fastP := fake.New("fast", script...)
+	balancedP := fake.New("balanced", script...)
+	deepP := fake.New("deep", script...)
 
-	loop := agent.New(local, fake.New("hosted"), tool.NewRegistry(echoTool{name: "echo"}),
-		permission.AllowAll())
+	loop := agent.New(router.Tiers[llm.Provider]{Fast: fastP, Balanced: balancedP, Deep: deepP},
+		tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll())
 
-	hint := router.Input{Override: router.ChoiceLocal}
+	hint := router.Input{Override: router.ChoiceFast}
 
 	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go", hint)
 	if !errors.Is(err, agent.ErrScriptedFailure) {
@@ -39,8 +44,14 @@ func TestRun_LocalIsNotRetriedPastOneFailureUnderAnOverride(t *testing.T) {
 		t.Errorf("Stop = %q, want %q", out.Stop, agent.StopFailed)
 	}
 
-	if out.Turns > 2 {
-		t.Errorf("Turns = %d, want at most 2; local was retried past one failure", out.Turns)
+	if out.Turns != 3 {
+		t.Errorf("Turns = %d, want one per tier", out.Turns)
+	}
+
+	for _, p := range []*fake.Provider{fastP, balancedP, deepP} {
+		if got := len(p.Requests()); got != 1 {
+			t.Errorf("%s was asked %d times, want exactly 1", p.Name(), got)
+		}
 	}
 }
 
@@ -64,7 +75,7 @@ func (hangingProvider) Stream(ctx context.Context, _ llm.Request) iter.Seq2[llm.
 func TestRun_DeadlineCutsOffAHungStream(t *testing.T) {
 	t.Parallel()
 
-	loop := agent.New(hangingProvider{name: "local"}, fake.New("hosted"),
+	loop := agent.New(tiers(hangingProvider{name: "fast"}, fake.New("deep")),
 		tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll(),
 		agent.WithMaxWallClock(100*time.Millisecond))
 

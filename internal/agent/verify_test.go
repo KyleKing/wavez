@@ -90,7 +90,7 @@ func TestRun_NoVerifierBehaviorUnchanged(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestRun_VerifierFailureAppendsFeedbackAndRetries(t *testing.T) {
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
 	v := &stubVerifier{script: []verifyOutcome{{feedback: "fix the import", ok: false}}}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithVerifier(v))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithVerifier(v))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -161,7 +161,7 @@ func TestRun_VerifierPassSendsNothingToModel(t *testing.T) {
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
 	v := &stubVerifier{}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithVerifier(v))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithVerifier(v))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -191,7 +191,8 @@ func TestRun_VerifyRoundBoundTrips(t *testing.T) {
 		{feedback: "still broken", ok: false},
 		{feedback: "still broken", ok: false},
 	}}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithVerifier(v), agent.WithMaxVerifyRounds(1))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
+		agent.WithVerifier(v), agent.WithMaxVerifyRounds(1))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -227,7 +228,7 @@ func TestRun_OnlyTrimmedFeedbackReachesModel(t *testing.T) {
 	const untrimmedRaw = "raw untrimmed stack trace nobody should see"
 
 	v := &stubVerifier{script: []verifyOutcome{{feedback: trimmed, ok: false}}}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithVerifier(v))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithVerifier(v))
 
 	if _, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{}); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -269,7 +270,7 @@ func TestRun_ChangesAccumulateAcrossToolsAndTurns(t *testing.T) {
 		changeTool{name: "change-b", changes: []tool.Change{{Path: "b.go", Added: 2}}},
 	)
 	v := &stubVerifier{}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithVerifier(v))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithVerifier(v))
 
 	if _, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{}); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -299,7 +300,7 @@ func TestRun_BoundedRunStillVerifiesWhatItChanged(t *testing.T) {
 	th := newThread(t)
 	reg := tool.NewRegistry(changeTool{name: "changer", changes: []tool.Change{{Path: "a.go", Added: 2}}})
 	v := &stubVerifier{script: []verifyOutcome{{feedback: "build failed: undefined: filepath", ok: false}}}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(),
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
 		agent.WithMaxTurns(1), agent.WithVerifier(v))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})

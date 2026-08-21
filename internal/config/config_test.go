@@ -36,7 +36,7 @@ func TestLoad_DefaultsWithNoConfigFile(t *testing.T) {
 	}
 
 	want := config.Defaults(root)
-	if cfg.LocalModel != want.LocalModel || cfg.HostedModel != want.HostedModel ||
+	if cfg.Tiers != want.Tiers ||
 		cfg.ContextWindow != want.ContextWindow || cfg.GateDebounce != want.GateDebounce ||
 		cfg.FullRunCadence != want.FullRunCadence {
 		t.Errorf("Load() = %+v, want defaults %+v", cfg, want)
@@ -58,12 +58,15 @@ amends ".wavez/Wavez.pkl"
 context {
   "AGENTS.md"
 }
-localModel = "custom-local"
+fast = new { model = "custom-fast" }
 debounceMs = 750
 localPort = 8123
 localStartTimeoutSeconds = 120
-localBaseURL = "https://m4.example.ts.net/v1"
-localKeyCommand = "security find-generic-password -w -s wavez-local"
+balanced = new {
+  model = "custom-balanced"
+  baseURL = "https://m4.example.ts.net/v1"
+  keyCommand = "security find-generic-password -w -s wavez-balanced"
+}
 preToolUseHook {
   ".wavez/hooks/pre.sh"
   "--strict"
@@ -90,11 +93,12 @@ hookTimeoutMs = 250
 	}
 
 	for name, tc := range map[string]struct{ got, want string }{
-		"LocalModel":      {cfg.LocalModel, "custom-local"},
-		"HostedModel":     {cfg.HostedModel, config.DefaultHostedModel},
-		"LocalBaseURL":    {cfg.LocalBaseURL, "https://m4.example.ts.net/v1"},
-		"LocalKeyCommand": {cfg.LocalKeyCommand, "security find-generic-password -w -s wavez-local"},
-		"PreToolUseHook":  {strings.Join(cfg.PreToolUseHook, " "), ".wavez/hooks/pre.sh --strict"},
+		"FastModel":          {cfg.Tiers.Fast.Model, "custom-fast"},
+		"BalancedModel":      {cfg.Tiers.Balanced.Model, "custom-balanced"},
+		"DeepModel":          {cfg.Tiers.Deep.Model, config.DefaultDeepModel},
+		"BalancedBaseURL":    {cfg.Tiers.Balanced.BaseURL, "https://m4.example.ts.net/v1"},
+		"BalancedKeyCommand": {cfg.Tiers.Balanced.KeyCommand, "security find-generic-password -w -s wavez-balanced"},
+		"PreToolUseHook":     {strings.Join(cfg.PreToolUseHook, " "), ".wavez/hooks/pre.sh --strict"},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s = %q, want %q", name, tc.got, tc.want)

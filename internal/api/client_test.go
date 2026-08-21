@@ -13,6 +13,7 @@ import (
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -35,7 +36,7 @@ func serve(t *testing.T) string {
 	broker := daemon.NewBroker()
 	local := fake.New("local", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
 	hosted := fake.New("hosted", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
-	loop := agent.New(local, hosted, tool.NewRegistry(), broker.Gate())
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(), broker.Gate())
 
 	srv, derr := daemon.New(sock,
 		daemon.WithLoop(loop), daemon.WithBroker(broker), daemon.WithLogDir(t.TempDir()))
@@ -132,7 +133,7 @@ func serveFleet(t *testing.T) string {
 	broker := daemon.NewBroker()
 	local := fake.New("local", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
 	hosted := fake.New("hosted", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
-	loop := agent.New(local, hosted, tool.NewRegistry(), broker.Gate())
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(), broker.Gate())
 
 	loader := func(_ context.Context, root string) (*daemon.Project, error) {
 		return daemon.NewProject(root, daemon.ProjectConfig{Loop: loop, LogDir: filepath.Join(root, "threads")})
@@ -217,4 +218,10 @@ func TestDialRefusesAMissingSocket(t *testing.T) {
 	if _, err := api.Dial(ctx, filepath.Join(t.TempDir(), "absent.sock")); err == nil {
 		t.Fatal("dialing a missing socket succeeded")
 	}
+}
+
+// tiers wires primary to the tier a turn starts on and to the tier below,
+// and escalated to the tier a failure moves up into.
+func tiers(primary, escalated llm.Provider) router.Tiers[llm.Provider] {
+	return router.Tiers[llm.Provider]{Fast: primary, Balanced: primary, Deep: escalated}
 }

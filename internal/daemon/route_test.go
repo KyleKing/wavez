@@ -30,8 +30,8 @@ func newRoutedHarness(t *testing.T) *routedHarness {
 	local := fake.New("local", answer)
 	hosted := fake.New("hosted", answer)
 	broker := daemon.NewBroker()
-	loop := agent.New(local, hosted, tool.NewRegistry(echoTool{name: "echo"}), broker.Gate(),
-		agent.WithLocalModel("qwen3:8b"))
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(echoTool{name: "echo"}), broker.Gate(),
+		agent.WithModels(router.Tiers[string]{Fast: "qwen3:8b"}))
 
 	sockPath := shortSockPath(t)
 	srv, err := daemon.New(sockPath,
@@ -74,8 +74,8 @@ func TestRoute_PinDecidesWhichTierServesTheNextTurn(t *testing.T) {
 		override router.Choice
 		wantTier string
 	}{
-		{name: "pinned hosted", override: router.ChoiceHosted, wantTier: "hosted"},
-		{name: "pinned local", override: router.ChoiceLocal, wantTier: "local"},
+		{name: "pinned hosted", override: router.ChoiceDeep, wantTier: "hosted"},
+		{name: "pinned local", override: router.ChoiceFast, wantTier: "local"},
 	}
 
 	for _, tc := range tests {
@@ -125,7 +125,7 @@ func TestRoute_OverrideClearsAndRefusesAnUnknownTier(t *testing.T) {
 	cl.hello()
 	th := cl.newThread([]string{t.TempDir()})
 
-	cl.send(api.Command{ID: "pin", Kind: api.CmdRoute, ThreadID: th.ID, Override: router.ChoiceHosted})
+	cl.send(api.Command{ID: "pin", Kind: api.CmdRoute, ThreadID: th.ID, Override: router.ChoiceDeep})
 	cl.recvFor("pin")
 
 	cl.send(api.Command{ID: "bad", Kind: api.CmdRoute, ThreadID: th.ID, Override: "gpu"})

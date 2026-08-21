@@ -45,7 +45,7 @@ func TestRun_AnnouncingAnActionIsNotTakingIt(t *testing.T) {
 
 	local := fake.New("local", announceTurn())
 	hosted := fake.New("hosted", announceTurn())
-	loop := agent.New(local, hosted, tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -101,7 +101,7 @@ func TestRun_OfferingToActIsNotSuccess(t *testing.T) {
 
 			th := newThread(t)
 			reg := tool.NewRegistry(echoTool{name: "echo"})
-			loop := agent.New(tt.local, tt.hosted, reg, permission.AllowAll())
+			loop := agent.New(tiers(tt.local, tt.hosted), reg, permission.AllowAll())
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 			if err != nil {
@@ -134,7 +134,7 @@ func TestRun_EditAttemptedWithNoChangeIsNotComplete(t *testing.T) {
 	)
 	hosted := fake.New("hosted", claimsDone)
 	reg := tool.NewRegistry(erroringTool{echoTool: echoTool{name: "str_replace"}})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "rename DefaultTTL to TTL", router.Input{})
 	if err != nil {
@@ -160,7 +160,7 @@ func TestRun_QuestionTaskCompletesWithZeroChanges(t *testing.T) {
 	)
 	hosted := fake.New("hosted")
 	reg := tool.NewRegistry(echoTool{name: "search"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "which file defines the guard rules",
 		router.Input{})
@@ -186,7 +186,7 @@ func TestRun_ClaimingAnEditNeverAttemptedIsNotComplete(t *testing.T) {
 	local := fake.New("local", claimsDone)
 	hosted := fake.New("hosted", claimsDone)
 	reg := tool.NewRegistry(echoTool{name: "search"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll())
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
 	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(),
 		"Rename the unexported function firstDir in internal/daemon/thread.go to primaryDir.", router.Input{})

@@ -367,15 +367,15 @@ func (m *manager) fleetStats() (fleetStats, error) {
 	return out, nil
 }
 
-// localModel is the model the router serves local turns with, which is the
+// fastModel is the model the router serves fast turns with, which is the
 // name the diagnostics panel shows. It is what the loop is configured with,
 // not a reading from a running llama-server.
-func (m *manager) localModel() string {
+func (m *manager) fastModel() string {
 	if m.loop == nil {
 		return ""
 	}
 
-	return m.loop.LocalModel()
+	return m.loop.FastModel()
 }
 
 func (m *manager) toolCallCount() int { return int(m.toolCalls.Load()) }
@@ -607,11 +607,12 @@ func reportRunError(mt *managedThread, err error) {
 	}
 }
 
-// admit holds a turn until the machine has room for the local model beside
-// whatever else is running. A turn pinned hosted skips admission: it occupies
-// no local memory, and holding it back would trade a network call for a wait.
+// admit holds a turn until the machine has room for the on-box model beside
+// whatever else is running. A turn on a tier served over the network skips
+// admission: it occupies no local memory, and holding it back would trade a
+// network call for a wait.
 func (m *manager) admit(ctx context.Context, threadID string, override router.Choice) (func(), error) {
-	if override == router.ChoiceHosted {
+	if override == router.ChoiceBalanced || override == router.ChoiceDeep {
 		return func() {}, nil
 	}
 

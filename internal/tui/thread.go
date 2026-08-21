@@ -503,13 +503,15 @@ func (m Model) renderThread() string {
 // activeModel names the model serving this thread. ThreadInfo.Model carries
 // only an override, so a thread without one is served by the daemon's local
 // model rather than by nothing. A pinned tier is named instead of the model,
-// since the daemon reports no name for the hosted one and a pin is what
+// since the daemon reports no name for the network tiers and a pin is what
 // decides the tier either way.
 func (m Model) activeModel(info api.ThreadInfo) string {
 	switch info.Override {
-	case router.ChoiceHosted:
-		return "hosted·pinned"
-	case router.ChoiceLocal:
+	case router.ChoiceDeep:
+		return "deep·pinned"
+	case router.ChoiceBalanced:
+		return "balanced·pinned"
+	case router.ChoiceFast:
 		return m.servingModel(info) + "·pinned"
 	default:
 		return m.servingModel(info)

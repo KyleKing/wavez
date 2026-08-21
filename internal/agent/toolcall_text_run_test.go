@@ -58,7 +58,7 @@ func TestRun_ToolCallWrittenAsTextIsNotSuccess(t *testing.T) {
 
 			th := newThread(t)
 			reg := tool.NewRegistry(echoTool{name: "echo"})
-			loop := agent.New(tt.local, tt.hosted, reg, permission.AllowAll())
+			loop := agent.New(tiers(tt.local, tt.hosted), reg, permission.AllowAll())
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 			if err != nil {

@@ -100,7 +100,7 @@ func TestRun_DeadlineBoundTrips(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll(),
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
 		agent.WithClock(clock), agent.WithMaxWallClock(time.Second))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
@@ -137,7 +137,7 @@ func TestRun_DeadlineIsAbsoluteAcrossTurns(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll(),
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
 		agent.WithClock(clock), agent.WithMaxWallClock(5*time.Second))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
@@ -162,12 +162,12 @@ func TestRun_CostCeilingTripsOnlyOnHostedSpend(t *testing.T) {
 	}{
 		{
 			name:     "local usage never trips the ceiling",
-			route:    router.Input{Override: router.ChoiceLocal},
+			route:    router.Input{Override: router.ChoiceFast},
 			wantStop: agent.StopComplete,
 		},
 		{
 			name:     "hosted usage over the ceiling trips it",
-			route:    router.Input{Override: router.ChoiceHosted},
+			route:    router.Input{Override: router.ChoiceDeep},
 			wantStop: agent.StopCostCeiling,
 		},
 	}
@@ -182,8 +182,8 @@ func TestRun_CostCeilingTripsOnlyOnHostedSpend(t *testing.T) {
 
 			th := newThread(t)
 			reg := tool.NewRegistry(echoTool{name: "echo"})
-			loop := agent.New(local, hosted, reg, permission.AllowAll(),
-				agent.WithHostedModel("qwen/qwen3-coder-30b-a3b-instruct"),
+			loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
+				agent.WithModels(router.Tiers[string]{Deep: "qwen/qwen3-coder-30b-a3b-instruct"}),
 				agent.WithMaxHostedSpendUSD(0.01))
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", tt.route)
@@ -250,7 +250,7 @@ func TestRun_StagnationBoundTrips(t *testing.T) {
 
 			th := newThread(t)
 			reg := tool.NewRegistry(erroringTool{echoTool: echoTool{name: "fail"}}, echoTool{name: "echo"})
-			loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithMaxStagnantErrors(3))
+			loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithMaxStagnantErrors(3))
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 			if err != nil {
@@ -284,7 +284,7 @@ func TestRun_ToolCallFloodGuardTripsPerTurn(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll(), agent.WithMaxToolCallsPerTurn(2))
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithMaxToolCallsPerTurn(2))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
@@ -312,7 +312,7 @@ func TestRun_BoundStillVerifiesAbandonedChangesAndLogsCheckpoint(t *testing.T) {
 	reg := tool.NewRegistry(changeTool{name: "changer", changes: []tool.Change{{Path: "a.go", Added: 1}}})
 	v := &stubVerifier{}
 	cp := &stubCheckpointer{captured: "op-bound"}
-	loop := agent.New(local, hosted, reg, permission.AllowAll(),
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
 		agent.WithMaxToolCallsPerTurn(1), agent.WithVerifier(v), agent.WithCheckpointer(cp, "/repo"))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
@@ -366,7 +366,7 @@ func TestRun_AllBoundsDisabledBehaviorUnchanged(t *testing.T) {
 
 	th := newThread(t)
 	reg := tool.NewRegistry(echoTool{name: "echo"})
-	loop := agent.New(local, hosted, reg, permission.AllowAll(),
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
 		agent.WithMaxWallClock(0), agent.WithMaxHostedSpendUSD(0), agent.WithMaxStagnantErrors(0))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
@@ -422,7 +422,7 @@ func TestRun_DeadlineTripsWithinATurn(t *testing.T) {
 	echo := &advancingTool{echoTool: echoTool{name: "echo"}, clock: clock, advance: 2 * time.Second}
 
 	th := newThread(t)
-	loop := agent.New(local, hosted, tool.NewRegistry(echo), permission.AllowAll(),
+	loop := agent.New(tiers(local, hosted), tool.NewRegistry(echo), permission.AllowAll(),
 		agent.WithClock(clock), agent.WithMaxWallClock(5*time.Second))
 
 	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})

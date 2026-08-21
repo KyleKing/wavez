@@ -10,6 +10,7 @@ import (
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -104,10 +105,9 @@ func TestModelReviewer_Review(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			local := fake.New("local", jsonTurn(tt.answer))
-			hosted := fake.New("hosted")
+			balanced := fake.New("balanced", jsonTurn(tt.answer))
 			differ := &stubDiffer{diff: tt.diff, err: tt.diffErr}
-			reviewer := app.NewModelReviewer("/repo", differ, local, hosted, "qwen3:8b", "openai/gpt-5-mini")
+			reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels())
 
 			got := reviewer.Review(context.Background(), review("make the empty state read differently", "a.go"))
 
@@ -127,15 +127,15 @@ func TestModelReviewer_Review(t *testing.T) {
 func TestModelReviewer_PromptCarriesTaskAndDiff(t *testing.T) {
 	t.Parallel()
 
-	local := fake.New("local", jsonTurn(`{"verdict":"ok","reason":""}`))
+	balanced := fake.New("balanced", jsonTurn(`{"verdict":"ok","reason":""}`))
 	differ := &stubDiffer{diff: "--- a/empty.go\n+++ b/empty.go\n+no results for that filter\n"}
-	reviewer := app.NewModelReviewer("/repo", differ, local, fake.New("hosted"), "qwen3:8b", "openai/gpt-5-mini")
+	reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels())
 
 	reviewer.Review(context.Background(), review("branch the empty-state string on the filter", "empty.go", "empty.go"))
 
-	reqs := local.Requests()
+	reqs := balanced.Requests()
 	if len(reqs) != 1 {
-		t.Fatalf("local Requests = %d, want 1", len(reqs))
+		t.Fatalf("balanced Requests = %d, want 1", len(reqs))
 	}
 
 	req := reqs[0]
@@ -158,8 +158,8 @@ func TestModelReviewer_PromptCarriesTaskAndDiff(t *testing.T) {
 	}
 }
 
-// A review is routed on size alone: a source-plus-test change stays local,
-// and a diff past the local context budget escalates.
+// A review is routed on size alone: a source-plus-test change stays on the
+// fast tier, and a diff past its context budget escalates.
 func TestModelReviewer_RoutesOnSizeNotFileCount(t *testing.T) {
 	t.Parallel()
 
@@ -169,14 +169,14 @@ func TestModelReviewer_RoutesOnSizeNotFileCount(t *testing.T) {
 		want string
 	}{
 		{
-			name: "two files within the local budget stay local",
+			name: "two files within the fast tier's budget stay fast",
 			diff: "--- a/a.go\n+++ b/a.go\n+one\n--- a/a_test.go\n+++ b/a_test.go\n+two\n",
-			want: "local",
+			want: "fast",
 		},
 		{
-			name: "a diff past the local context budget escalates",
+			name: "a diff past the fast tier's context budget escalates",
 			diff: strings.Repeat("+ a line of diff\n", 3000),
-			want: "hosted",
+			want: "balanced",
 		},
 	}
 
@@ -185,18 +185,18 @@ func TestModelReviewer_RoutesOnSizeNotFileCount(t *testing.T) {
 			t.Parallel()
 
 			answer := jsonTurn(`{"verdict":"ok","reason":""}`)
-			local, hosted := fake.New("local", answer), fake.New("hosted", answer)
+			fast, balanced := fake.New("fast", answer), fake.New("balanced", answer)
 			reviewer := app.NewModelReviewer("/repo", &stubDiffer{diff: tt.diff},
-				local, hosted, "qwen3:8b", "openai/gpt-5-mini")
+				router.Tiers[llm.Provider]{Fast: fast, Balanced: balanced, Deep: fake.New("deep")}, tierModels())
 
 			got := reviewer.Review(context.Background(), review("change both", "a.go", "a_test.go"))
 			if got.Result != agent.ReviewOK {
 				t.Fatalf("Result = %q (%s), want ok", got.Result, got.Note)
 			}
 
-			asked, idle := local, hosted
-			if tt.want == "hosted" {
-				asked, idle = hosted, local
+			asked, idle := fast, balanced
+			if tt.want == "balanced" {
+				asked, idle = balanced, fast
 			}
 
 			if len(asked.Requests()) != 1 {
@@ -207,4 +207,14 @@ func TestModelReviewer_RoutesOnSizeNotFileCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+// tierProviders wires one fake to every tier, for a test whose point is the
+// answer rather than which tier gave it.
+func tierProviders(p llm.Provider) router.Tiers[llm.Provider] {
+	return router.Tiers[llm.Provider]{Fast: p, Balanced: p, Deep: p}
+}
+
+func tierModels() router.Tiers[string] {
+	return router.Tiers[string]{Fast: "qwen3:8b", Balanced: "stealth/ox-alpha", Deep: "stealth/ox-alpha"}
 }

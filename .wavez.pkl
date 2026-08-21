@@ -14,3 +14,9 @@ astGrepRules = new Listing {
 // Read from the login keychain, so no key reaches the environment or the repo:
 //   security add-generic-password -s wavez-openrouter -a "$USER" -w '<key>' -U
 hostedKeyCommand = "security find-generic-password -w -s wavez-openrouter"
+
+// Both network tiers are on the free alpha while it lasts. When it ends, the
+// requests fail with an unknown-model error and these two need real models.
+balanced = new { model = "stealth/ox-alpha" }
+
+deep = new { model = "stealth/ox-alpha" }

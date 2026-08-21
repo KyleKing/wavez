@@ -44,7 +44,7 @@ sequenceDiagram
     participant G as Gates
     U->>T: prompt
     T->>L: history + stable prefix
-    L->>M: routed local or hosted
+    L->>M: routed fast, balanced, or deep
     M-->>L: text and tool calls
     L->>X: tool call, permission-gated
     X-->>L: result, trimmed by rule

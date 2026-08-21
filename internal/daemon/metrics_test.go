@@ -144,9 +144,9 @@ func TestDiagnostics_SeparatesReadingsFromUnmeasuredGauges(t *testing.T) {
 		}
 
 		info := listThread(t, cl, th.ID)
-		if info.Tokens != 1100 || info.Context != 1100 || info.Window != router.LocalContextBudget {
+		if info.Tokens != 1100 || info.Context != 1100 || info.Window != router.FastContextBudget {
 			t.Fatalf("thread tokens = %+v, want 1100 tokens, 1100 context, window %d",
-				info, router.LocalContextBudget)
+				info, router.FastContextBudget)
 		}
 	})
 }

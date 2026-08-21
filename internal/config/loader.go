@@ -12,6 +12,7 @@ import (
 	"github.com/apple/pkl-go/pkl"
 
 	"github.com/kyleking/wavez/internal/cycle"
+	"github.com/kyleking/wavez/internal/router"
 )
 
 //go:embed pkl/Wavez.pkl
@@ -34,11 +35,10 @@ const (
 // Field names and defaults mirror pkl/Wavez.pkl exactly.
 type pklConfig struct {
 	Routines         map[string]pklRoutine `pkl:"routines"`
-	LocalModel       string                `pkl:"localModel"`
-	HostedModel      string                `pkl:"hostedModel"`
+	Fast             pklTier               `pkl:"fast"`
+	Balanced         pklTier               `pkl:"balanced"`
+	Deep             pklTier               `pkl:"deep"`
 	HostedKeyCommand string                `pkl:"hostedKeyCommand"`
-	LocalBaseURL     string                `pkl:"localBaseURL"`
-	LocalKeyCommand  string                `pkl:"localKeyCommand"`
 	Context          []string              `pkl:"context"`
 	ExtraDirs        []string              `pkl:"extraDirs"`
 	AstGrepRules     []string              `pkl:"astGrepRules"`
@@ -55,6 +55,13 @@ type pklConfig struct {
 	LocalPort        int                   `pkl:"localPort"`
 	LocalStartSecs   int                   `pkl:"localStartTimeoutSeconds"`
 	LeaseTTLMinutes  int                   `pkl:"leaseTtlMinutes"`
+}
+
+// pklTier mirrors the Tier class in pkl/Wavez.pkl.
+type pklTier struct {
+	Model      string `pkl:"model"`
+	BaseURL    string `pkl:"baseURL"`
+	KeyCommand string `pkl:"keyCommand"`
 }
 
 // pklCycle and pklPhase mirror the Cycle and Phase classes in
@@ -216,18 +223,29 @@ func (l *Loader) evaluate(ctx context.Context, root, configPath string) (Config,
 	return fromPkl(root, parsed), nil
 }
 
+// tierFromPkl overlays one tier's config on its default, so a project that
+// names only a model keeps the default endpoint rather than blanking it.
+func tierFromPkl(def Tier, p pklTier) Tier {
+	if p.Model != "" {
+		def.Model = p.Model
+	}
+	def.BaseURL = p.BaseURL
+	def.KeyCommand = p.KeyCommand
+
+	return def
+}
+
 func fromPkl(root string, p pklConfig) Config {
 	cfg := Defaults(root)
 
-	if p.LocalModel != "" {
-		cfg.LocalModel = p.LocalModel
+	cfg.Tiers = router.Tiers[Tier]{
+		Fast:     tierFromPkl(cfg.Tiers.Fast, p.Fast),
+		Balanced: tierFromPkl(cfg.Tiers.Balanced, p.Balanced),
+		Deep:     tierFromPkl(cfg.Tiers.Deep, p.Deep),
 	}
 
 	if p.HostedKeyCommand != "" {
 		cfg.HostedKeyCommand = p.HostedKeyCommand
-	}
-	if p.HostedModel != "" {
-		cfg.HostedModel = p.HostedModel
 	}
 
 	if p.ContextWindow != 0 {
@@ -261,9 +279,6 @@ func fromPkl(root string, p pklConfig) Config {
 	if p.LocalStartSecs != 0 {
 		cfg.LocalStartTimeout = time.Duration(p.LocalStartSecs) * time.Second
 	}
-
-	cfg.LocalBaseURL = p.LocalBaseURL
-	cfg.LocalKeyCommand = p.LocalKeyCommand
 
 	cfg.Context = p.Context
 	cfg.ExtraDirs = p.ExtraDirs

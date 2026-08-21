@@ -17,8 +17,10 @@ import (
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -85,8 +87,8 @@ func newHarness(t *testing.T, local *fake.Provider, opts ...harnessOption) *test
 	tools := append([]tool.Tool{echoTool{name: "echo"}}, h.tools...)
 	reg := tool.NewRegistry(tools...)
 	hosted := fake.New("hosted")
-	loopOpts := append([]agent.Option{agent.WithLocalModel("qwen3:8b")}, h.loop...)
-	loop := agent.New(local, hosted, reg, broker.Gate(), loopOpts...)
+	loopOpts := append([]agent.Option{agent.WithModels(router.Tiers[string]{Fast: "qwen3:8b"})}, h.loop...)
+	loop := agent.New(tiers(local, hosted), reg, broker.Gate(), loopOpts...)
 
 	sockPath := shortSockPath(t)
 	daemonOpts := append([]daemon.Option{
@@ -304,7 +306,7 @@ func agentLoopForTest(t *testing.T, broker *daemon.Broker) *agent.Loop {
 	local := fake.New("local")
 	hosted := fake.New("hosted")
 
-	return agent.New(local, hosted, reg, broker.Gate())
+	return agent.New(tiers(local, hosted), reg, broker.Gate())
 }
 
 func chunkTexts(n int) []string {
@@ -322,7 +324,7 @@ func TestServeRejectsAnOverlongSocketPath(t *testing.T) {
 	t.Parallel()
 
 	broker := daemon.NewBroker()
-	loop := agent.New(fake.New("local"), fake.New("hosted"), tool.NewRegistry(), broker.Gate())
+	loop := agent.New(tiers(fake.New("local"), fake.New("hosted")), tool.NewRegistry(), broker.Gate())
 	long := filepath.Join(os.TempDir(), strings.Repeat("d", 120)+".sock")
 
 	srv, err := daemon.New(long,
@@ -361,4 +363,10 @@ func TestStepTextIsWords(t *testing.T) {
 			}
 		})
 	}
+}
+
+// tiers wires primary to the tier a turn starts on and to the tier below,
+// and escalated to the tier a failure moves up into.
+func tiers(primary, escalated llm.Provider) router.Tiers[llm.Provider] {
+	return router.Tiers[llm.Provider]{Fast: primary, Balanced: primary, Deep: escalated}
 }

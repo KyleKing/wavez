@@ -28,6 +28,7 @@ import (
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/routine"
 	"github.com/kyleking/wavez/internal/runtime"
 	"github.com/kyleking/wavez/internal/sched"
@@ -85,9 +86,9 @@ var ReadOnlyTools = []string{"read", "search", "context", "question"}
 // App is one project's assembled object graph. Construct it with New and
 // release it with Close; do not copy it after construction.
 type App struct {
-	Local           llm.Provider
+	// Providers is one llm.Provider per routing tier.
+	Providers       router.Tiers[llm.Provider]
 	Permission      permission.Gate
-	Hosted          llm.Provider
 	GateRunner      *gate.Runner
 	ChangeGate      *ChangeGate
 	CoverageAdapter *gate.CoverageAdapter
@@ -124,7 +125,9 @@ type App struct {
 
 // Options configures New.
 type Options struct {
-	Local, Hosted       llm.Provider
+	// Providers overrides the llm.Provider App would build for a tier. A
+	// nil tier is built from config.
+	Providers           router.Tiers[llm.Provider]
 	Asker               tools.Asker
 	Scheduler           *sched.Scheduler
 	LocalRuntime        runtime.Config
@@ -140,11 +143,11 @@ type Options struct {
 // Option configures an Options.
 type Option func(*Options)
 
-// WithProviders overrides the local and hosted llm.Provider App would
-// otherwise build against llama-server and OpenRouter. Tests should always
-// use this with internal/llm/fake, never a real model.
-func WithProviders(local, hosted llm.Provider) Option {
-	return func(o *Options) { o.Local, o.Hosted = local, hosted }
+// WithProviders overrides the per-tier llm.Provider App would otherwise
+// build against llama-server and OpenRouter. Tests should always use this
+// with internal/llm/fake, never a real model.
+func WithProviders(p router.Tiers[llm.Provider]) Option {
+	return func(o *Options) { o.Providers = p }
 }
 
 // WithMaxTurns bounds model turns for every thread this App builds.
@@ -249,7 +252,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker, leases)
 
 	p := buildProviders(ctx, cfg, options)
-	local, hosted, supervisor := p.local, p.hosted, p.supervisor
+	providers, supervisor := p.tiers, p.supervisor
 
 	lspPool := lsp.NewPool(root)
 
@@ -261,12 +264,12 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	runner, adapter, verifier := bundle.runner, bundle.adapter, bundle.verifier
 
-	reviewer := NewModelReviewer(root, vcs.NewJj(), local, hosted, cfg.LocalModel, cfg.HostedModel)
+	reviewer := NewModelReviewer(root, vcs.NewJj(), providers, tierModels(cfg))
 	changeGate := NewChangeGate(runner)
 	loopBase := loopOptions(root, cfg, options)
 	loopOpts := append(append([]agent.Option{}, loopBase...),
 		agent.WithVerifier(verifier), agent.WithReviewer(reviewer), agent.WithChangeGate(changeGate))
-	loop := agent.New(local, hosted, registry, permGate, loopOpts...)
+	loop := agent.New(providers, registry, permGate, loopOpts...)
 
 	sweeper, cycles, err := buildCycles(cfg)
 	if err != nil {
@@ -279,7 +282,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	// Narrowing the registry and not just the advertised specs matters: a
 	// model that names an unadvertised tool would otherwise still reach it.
 	planRegistry := registry.Only(ReadOnlyTools...)
-	planLoop := agent.New(local, hosted, planRegistry, permGate, loopOpts...)
+	planLoop := agent.New(providers, planRegistry, permGate, loopOpts...)
 
 	// Detached from ctx on purpose: the first index outlives whatever
 	// request built the App, and Close is what ends it.
@@ -301,8 +304,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		supervisor:      supervisor,
 		bgCancel:        bgCancel,
 		Tools:           registry,
-		Local:           local,
-		Hosted:          hosted,
+		Providers:       providers,
 		Loop:            loop,
 		PlanLoop:        planLoop,
 		PlanTools:       planRegistry,
@@ -384,9 +386,8 @@ func buildCycles(cfg config.Config) (*cycle.AstGrepSweeper, map[string]cycle.Cyc
 // bound means "leave the loop's own default", never "no bound".
 func loopOptions(root string, cfg config.Config, options Options) []agent.Option {
 	out := []agent.Option{
-		agent.WithLocalModel(cfg.LocalModel),
+		agent.WithModels(tierModels(cfg)),
 		agent.WithContextWindow(localRuntime(cfg, options).ContextSize),
-		agent.WithHostedModel(cfg.HostedModel),
 		agent.WithCheckpointer(vcs.NewJj(), root),
 		agent.WithHooks(hook.New(root,
 			hook.WithPreToolUse(cfg.PreToolUseHook...),
@@ -422,38 +423,71 @@ func loopOptions(root string, cfg config.Config, options Options) []agent.Option
 	return out
 }
 
-// buildProviders resolves the two model tiers, starting a local server when
-// the caller asked App to manage one. It returns the supervisor only when
-// wavez started the server, since one it merely found belongs to someone
-// else.
+// buildProviders resolves one provider per model tier, starting a local
+// server for the fast tier when the caller asked App to manage one. It
+// returns the supervisor only when wavez started the server, since one it
+// merely found belongs to someone else.
 func buildProviders(ctx context.Context, cfg config.Config, options Options) providers {
-	local, hosted := options.Local, options.Hosted
+	tiers := options.Providers
 
 	var supervisor *runtime.Supervisor
 
-	if local == nil {
+	if tiers.Fast == nil {
+		fast := cfg.Tiers.Fast
+
 		server := localServer{baseURL: runtime.LocalBaseURL(cfg.LocalPort)}
-		if cfg.LocalBaseURL != "" {
-			server = localServer{baseURL: cfg.LocalBaseURL}
+		if fast.BaseURL != "" {
+			server = localServer{baseURL: fast.BaseURL}
 		} else if options.ManagedLocalServer {
 			server = ensureLocalServer(ctx, cfg, options)
 		}
 
 		supervisor = server.supervisor
-		local = openaic.New("local", localProviderOptions(ctx, cfg, server.baseURL)...)
+		tiers.Fast = openaic.New("fast", fastProviderOptions(ctx, fast, server.baseURL)...)
 	}
 
-	if hosted == nil {
-		// Resolved on first hosted request, not here: a local-only run must not
-		// require a credential it never uses.
-		keyFn := func() (string, error) { return hostedKey(context.WithoutCancel(ctx), cfg.HostedKeyCommand) }
-		hosted = openaic.New("hosted",
-			openaic.WithBaseURL(DefaultHostedBaseURL),
-			openaic.WithModel(cfg.HostedModel),
-			openaic.WithAPIKeyFunc(keyFn))
+	if tiers.Balanced == nil {
+		tiers.Balanced = networkTier(ctx, cfg, "balanced", cfg.Tiers.Balanced)
 	}
 
-	return providers{local: local, hosted: hosted, supervisor: supervisor}
+	if tiers.Deep == nil {
+		tiers.Deep = networkTier(ctx, cfg, "deep", cfg.Tiers.Deep)
+	}
+
+	return providers{tiers: tiers, supervisor: supervisor}
+}
+
+// networkTier dials a tier served over the network, defaulting to
+// OpenRouter. The key is resolved on first request, not here, so a run that
+// never reaches this tier needs no credential for it.
+//
+//nolint:ireturn // openaic.New returns the concrete client the tier is
+func networkTier(ctx context.Context, cfg config.Config, name string, t config.Tier) llm.Provider {
+	baseURL := t.BaseURL
+	if baseURL == "" {
+		baseURL = DefaultHostedBaseURL
+	}
+
+	command := t.KeyCommand
+	if command == "" {
+		command = cfg.HostedKeyCommand
+	}
+
+	keyFn := func() (string, error) { return hostedKey(context.WithoutCancel(ctx), command) }
+
+	return openaic.New(name,
+		openaic.WithBaseURL(baseURL),
+		openaic.WithModel(t.Model),
+		openaic.WithAPIKeyFunc(keyFn))
+}
+
+// tierModels is the model name each tier sends in its request.
+func tierModels(cfg config.Config) router.Tiers[string] {
+	return router.Tiers[string]{
+		Fast:     cfg.Tiers.Fast.Model,
+		Balanced: cfg.Tiers.Balanced.Model,
+		Deep:     cfg.Tiers.Deep.Model,
+	}
 }
 
 // localRuntime is what a llama-server wavez starts is served with: the
@@ -469,13 +503,13 @@ func localRuntime(cfg config.Config, options Options) runtime.Config {
 	return rc
 }
 
-// localProviderOptions dials baseURL, adding a bearer token only for a remote
-// endpoint with a key command, since the loopback server takes none.
-func localProviderOptions(ctx context.Context, cfg config.Config, baseURL string) []openaic.Option {
-	opts := []openaic.Option{openaic.WithBaseURL(baseURL), openaic.WithModel(cfg.LocalModel)}
-	if cfg.LocalBaseURL != "" && cfg.LocalKeyCommand != "" {
+// fastProviderOptions dials baseURL, adding a bearer token only for a
+// remote endpoint with a key command, since the loopback server takes none.
+func fastProviderOptions(ctx context.Context, fast config.Tier, baseURL string) []openaic.Option {
+	opts := []openaic.Option{openaic.WithBaseURL(baseURL), openaic.WithModel(fast.Model)}
+	if fast.BaseURL != "" && fast.KeyCommand != "" {
 		keyFn := func() (string, error) {
-			return keyFromCommand(context.WithoutCancel(ctx), "local", cfg.LocalKeyCommand)
+			return keyFromCommand(context.WithoutCancel(ctx), "fast", fast.KeyCommand)
 		}
 		opts = append(opts, openaic.WithAPIKeyFunc(keyFn))
 	}
@@ -483,11 +517,10 @@ func localProviderOptions(ctx context.Context, cfg config.Config, baseURL string
 	return opts
 }
 
-// providers is the two model tiers plus the supervisor to stop, non-nil
+// providers is one provider per tier plus the supervisor to stop, non-nil
 // only when wavez started the local server itself.
 type providers struct {
-	local      llm.Provider
-	hosted     llm.Provider
+	tiers      router.Tiers[llm.Provider]
 	supervisor *runtime.Supervisor
 }
 
@@ -498,7 +531,7 @@ type providers struct {
 func ensureLocalServer(ctx context.Context, cfg config.Config, options Options) localServer {
 	fallback := runtime.LocalBaseURL(cfg.LocalPort)
 
-	sup := runtime.NewSupervisor(cfg.LocalModel, localRuntime(cfg, options),
+	sup := runtime.NewSupervisor(cfg.Tiers.Fast.Model, localRuntime(cfg, options),
 		runtime.WithStartTimeout(cfg.LocalStartTimeout))
 
 	endpoint, err := sup.Ensure(context.WithoutCancel(ctx))

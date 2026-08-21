@@ -7,7 +7,9 @@ import (
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/app"
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/openaic"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -123,8 +125,10 @@ func TestModelReviewer_LocalModel(t *testing.T) { //nolint:paralleltest // see t
 
 	for _, tt := range tests { //nolint:paralleltest // one llama-server, one model: these share it
 		t.Run(tt.name, func(t *testing.T) {
-			local := openaic.New("local", openaic.WithBaseURL(baseURL), openaic.WithModel("qwen3:8b"))
-			reviewer := app.NewModelReviewer("/repo", fixedDiffer{diff: tt.diff}, local, nil, "qwen3:8b", "")
+			fast := openaic.New("fast", openaic.WithBaseURL(baseURL), openaic.WithModel("qwen3:8b"))
+			reviewer := app.NewModelReviewer("/repo", fixedDiffer{diff: tt.diff},
+				router.Tiers[llm.Provider]{Fast: fast},
+				router.Tiers[string]{Fast: "qwen3:8b"})
 
 			agreed := 0
 

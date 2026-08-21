@@ -415,8 +415,9 @@ func TestThread_HeaderNamesThePinnedTier(t *testing.T) {
 		want     string
 	}{
 		{name: "unpinned shows the local model", override: "", want: "qwen3:8b "},
-		{name: "pinned local", override: router.ChoiceLocal, want: "qwen3:8b·pinned"},
-		{name: "pinned hosted", override: router.ChoiceHosted, want: "hosted·pinned"},
+		{name: "pinned fast", override: router.ChoiceFast, want: "qwen3:8b·pinned"},
+		{name: "pinned balanced", override: router.ChoiceBalanced, want: "balanced·pinned"},
+		{name: "pinned deep", override: router.ChoiceDeep, want: "deep·pinned"},
 	}
 
 	for _, tc := range tests {

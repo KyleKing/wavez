@@ -31,7 +31,8 @@ func newPaletteState(th theme) paletteState {
 }
 
 var paletteVerbs = append([]string{
-	"diagnostics", labelInbox, labelModels, labelQuit, labelRoutines, verbRouteAuto, verbRouteHosted, verbRouteLocal,
+	"diagnostics", labelInbox, labelModels, labelQuit, labelRoutines,
+	verbRouteAuto, verbRouteBalanced, verbRouteDeep, verbRouteFast,
 	verbThinkAuto, verbThinkOn, verbThinkOff, labelUndo,
 }, paletteSnippetVerbs...)
 
@@ -152,10 +153,12 @@ func (m Model) runPaletteVerb(verb string) (Model, tea.Cmd) {
 		return m.listSnippets(), nil
 	case verbRouteAuto:
 		return m.setRoute("")
-	case verbRouteHosted:
-		return m.setRoute(router.ChoiceHosted)
-	case verbRouteLocal:
-		return m.setRoute(router.ChoiceLocal)
+	case verbRouteBalanced:
+		return m.setRoute(router.ChoiceBalanced)
+	case verbRouteDeep:
+		return m.setRoute(router.ChoiceDeep)
+	case verbRouteFast:
+		return m.setRoute(router.ChoiceFast)
 	case verbThinkAuto:
 		return m.setThinking(nil)
 	case verbThinkOn:

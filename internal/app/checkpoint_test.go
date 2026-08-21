@@ -50,10 +50,10 @@ func TestNew_LoopRunReportsActionableErrorWhenNotAJJRepo(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	local := fake.New("local", fake.Turn{Text: []string{"ok"}})
-	hosted := fake.New("hosted")
+	provider := fake.New("balanced", fake.Turn{Text: []string{"ok"}})
 
-	a, err := app.New(context.Background(), root, cfg, permission.AllowAll(), app.WithProviders(local, hosted))
+	a, err := app.New(context.Background(), root, cfg, permission.AllowAll(),
+		app.WithProviders(tierProviders(provider)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -94,14 +94,14 @@ func TestNew_LoopRunSucceedsWithCheckpointInAColocatedJJRepo(t *testing.T) {
 	// go.mod, so it fails and each of these extra scripted turns absorbs
 	// one round of the resulting feedback loop; only the checkpoint that
 	// Run captures once at the start is under test here.
-	local := fake.New("local",
+	provider := fake.New("balanced",
 		fake.Turn{Text: []string{"ok"}, StopReason: llm.StopEndTurn},
 		fake.Turn{Text: []string{"ok"}, StopReason: llm.StopEndTurn},
 		fake.Turn{Text: []string{"ok"}, StopReason: llm.StopEndTurn},
 	)
-	hosted := fake.New("hosted")
 
-	a, err := app.New(context.Background(), root, cfg, permission.AllowAll(), app.WithProviders(local, hosted))
+	a, err := app.New(context.Background(), root, cfg, permission.AllowAll(),
+		app.WithProviders(tierProviders(provider)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

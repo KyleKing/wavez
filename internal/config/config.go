@@ -10,24 +10,30 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/cycle"
+	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/routine"
 )
 
-// DefaultLocalModel is the local model name used when no config overrides it.
-const DefaultLocalModel = "qwen3:8b"
+// DefaultFastModel is the fast tier's model when no config overrides it,
+// served on-box. Reliable tool calling is the binding constraint on this
+// choice, not size: a model that renders calls as prose is worth nothing to
+// the tier that exists to make them.
+const DefaultFastModel = "qwen3:8b"
 
-// DefaultHostedModel is the hosted model name used when no config overrides
-// it. Reliable tool calling is the binding constraint on this choice, not
-// price: a model that renders calls as prose escalates to nothing.
-const DefaultHostedModel = "openai/gpt-5-mini"
+// DefaultBalancedModel and DefaultDeepModel are the two network tiers'
+// models when no config overrides them.
+const (
+	DefaultBalancedModel = "stealth/ox-alpha"
+	DefaultDeepModel     = "stealth/ox-alpha"
+)
 
-// DefaultContextWindow is the local model's served context window, in
-// tokens, matching internal/router.LocalContextBudget and llama-server's
-// own default.
+// DefaultContextWindow is the served context window, in tokens, of a
+// llama-server wavez starts for the fast tier, matching
+// internal/router.FastContextBudget and llama-server's own default.
 const DefaultContextWindow = 8192
 
-// DefaultLocalPort is the loopback port llama-server serves the local model
-// on, matching internal/runtime.DefaultPort.
+// DefaultLocalPort is the loopback port llama-server serves the fast tier's
+// model on, matching internal/runtime.DefaultPort.
 const DefaultLocalPort = 8080
 
 // DefaultLocalStartTimeout bounds one llama-server start. Cold start
@@ -61,21 +67,16 @@ type Config struct {
 	// Routines are the project's routine definitions, keyed by name, before
 	// they are compiled against an action registry. A routine named here
 	// replaces the built-in of the same name outright.
-	Routines    map[string]routine.Definition
-	Root        string
-	LocalModel  string
-	HostedModel string
-	// HostedKeyCommand's stdout is the hosted API key. Empty means fall back
+	Routines map[string]routine.Definition
+	Root     string
+	// Tiers is which model answers each routing tier and where it is served.
+	Tiers router.Tiers[Tier]
+	// HostedKeyCommand's stdout is the API key for any tier dialing a
+	// network endpoint with no key command of its own. Empty means fall back
 	// to the OPENROUTER_API_KEY environment variable.
 	HostedKeyCommand string
-	// LocalBaseURL points the local tier at a llama-server elsewhere. When
-	// set, Wavez neither starts nor stops a server and LocalPort is unused.
-	LocalBaseURL string
-	// LocalKeyCommand's stdout is the bearer token for LocalBaseURL. Empty
-	// means none.
-	LocalKeyCommand string
-	Context         []string
-	ExtraDirs       []string
+	Context          []string
+	ExtraDirs        []string
 	// Cycles are the phased ways of working this project defines, beside the
 	// ones wavez ships. A definition here replaces a built-in of the same
 	// name outright.
@@ -103,12 +104,27 @@ type Config struct {
 	// HookTimeout bounds one hook process. A pre-tool-use hook that exceeds
 	// it refuses the call.
 	HookTimeout time.Duration
-	// LocalPort is the loopback port llama-server serves LocalModel on.
-	// Wavez reuses a server already answering there rather than starting a
-	// second one.
+	// LocalPort is the loopback port llama-server serves the fast tier's
+	// model on. Wavez reuses a server already answering there rather than
+	// starting a second one.
 	LocalPort int
 	// LocalStartTimeout bounds one llama-server start attempt.
 	LocalStartTimeout time.Duration
+}
+
+// Tier is one routing tier's model and the OpenAI-compatible endpoint it is
+// served from. An empty BaseURL means the tier's default endpoint: the
+// llama-server on LocalPort for the fast tier, OpenRouter for the others.
+type Tier struct {
+	Model string
+	// BaseURL points this tier at a server elsewhere. When the fast tier
+	// sets it, Wavez neither starts nor stops a llama-server and LocalPort
+	// is unused.
+	BaseURL string
+	// KeyCommand's stdout is this tier's bearer token, overriding
+	// HostedKeyCommand. Empty means none for the loopback server, and
+	// HostedKeyCommand for any other endpoint.
+	KeyCommand string
 }
 
 // LinkPattern is one identifier-linking rule: text matching Pattern renders
@@ -123,9 +139,12 @@ type LinkPattern struct {
 // field is readable without a config file at all.
 func Defaults(root string) Config {
 	return Config{
-		Root:              root,
-		LocalModel:        DefaultLocalModel,
-		HostedModel:       DefaultHostedModel,
+		Root: root,
+		Tiers: router.Tiers[Tier]{
+			Fast:     Tier{Model: DefaultFastModel},
+			Balanced: Tier{Model: DefaultBalancedModel},
+			Deep:     Tier{Model: DefaultDeepModel},
+		},
 		ContextWindow:     DefaultContextWindow,
 		GateDebounce:      DefaultGateDebounce,
 		FullRunCadence:    DefaultFullRunCadence,

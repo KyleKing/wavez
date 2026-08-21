@@ -110,9 +110,7 @@ const (
 	// StopCanceled means ctx was done before Run could reach another stop.
 	StopCanceled Stop = "canceled"
 	// StopFailed means the routed provider's stream failed for a reason
-	// other than ctx cancellation, with no further tier to escalate to
-	// (hosted itself failed, or local failed on a turn already routed
-	// hosted).
+	// other than ctx cancellation, with no further tier to escalate to.
 	StopFailed Stop = "provider_failed"
 	// StopVerifyFailed means the model's changes still failed verification
 	// after MaxVerifyRounds rounds.
@@ -207,13 +205,13 @@ type Options struct {
 	Hooks        Hooks
 	ChangeGate   ChangeGate
 	Pricing      map[string]ModelPricing
-	LocalModel   string
-	HostedModel  string
-	RepoRoot     string
-	Compact      thread.CompactOptions
-	// ContextWindow is the local tier's served context in tokens, which
+	// Models is the model name sent in a request routed to each tier.
+	Models   router.Tiers[string]
+	RepoRoot string
+	Compact  thread.CompactOptions
+	// ContextWindow is the fast tier's served context in tokens, which
 	// bounds what the router sends there and when compaction starts. Zero
-	// means router.LocalContextBudget.
+	// means router.FastContextBudget.
 	ContextWindow       int
 	MaxTurns            int
 	MaxToolCallsPerTurn int
@@ -265,14 +263,11 @@ func WithPricing(pricing map[string]ModelPricing) Option {
 // sleeping; production leaves the default, gate.RealClock.
 func WithClock(c gate.Clock) Option { return func(o *Options) { o.Clock = c } }
 
-// WithLocalModel sets the model name sent in a request routed local.
-func WithLocalModel(name string) Option { return func(o *Options) { o.LocalModel = name } }
+// WithModels sets the model name sent in a request routed to each tier.
+func WithModels(m router.Tiers[string]) Option { return func(o *Options) { o.Models = m } }
 
-// WithContextWindow sets the local tier's served context in tokens.
+// WithContextWindow sets the fast tier's served context in tokens.
 func WithContextWindow(n int) Option { return func(o *Options) { o.ContextWindow = n } }
-
-// WithHostedModel sets the model name sent in a request routed hosted.
-func WithHostedModel(name string) Option { return func(o *Options) { o.HostedModel = name } }
 
 // ChangeGate receives every file change a tool makes and reports what the
 // gates it triggered found. It is declared here because the loop is what
@@ -310,23 +305,22 @@ func WithCheckpointer(c Checkpointer, repoRoot string) Option {
 	return func(o *Options) { o.Checkpointer, o.RepoRoot = c, repoRoot }
 }
 
-// Loop drives one thread's tool-use turns against a local and a hosted
-// llm.Provider, chosen per turn by internal/router.
+// Loop drives one thread's tool-use turns against one llm.Provider per
+// routing tier, chosen per turn by internal/router.
 type Loop struct {
-	local   llm.Provider
-	hosted  llm.Provider
-	tools   *tool.Registry
-	gate    permission.Gate
-	options Options
+	providers router.Tiers[llm.Provider]
+	tools     *tool.Registry
+	gate      permission.Gate
+	options   Options
 }
 
-// LocalModel reports the model name the router serves a local turn with.
-func (l *Loop) LocalModel() string { return l.options.LocalModel }
+// FastModel reports the model name the router serves a fast turn with.
+func (l *Loop) FastModel() string { return l.options.Models.Fast }
 
-// ContextWindow reports the local tier's served context in tokens.
+// ContextWindow reports the fast tier's served context in tokens.
 func (l *Loop) ContextWindow() int {
 	if l.options.ContextWindow <= 0 {
-		return router.LocalContextBudget
+		return router.FastContextBudget
 	}
 
 	return l.options.ContextWindow
@@ -334,7 +328,9 @@ func (l *Loop) ContextWindow() int {
 
 // New builds a Loop. PermGate is consulted for any tool call whose Tool
 // implements PermissionRequester and reports the call needs approval.
-func New(local, hosted llm.Provider, tools *tool.Registry, permGate permission.Gate, opts ...Option) *Loop {
+func New(
+	providers router.Tiers[llm.Provider], tools *tool.Registry, permGate permission.Gate, opts ...Option,
+) *Loop {
 	options := Options{
 		MaxTurns:            DefaultMaxTurns,
 		MaxToolCallsPerTurn: DefaultMaxToolCallsPerTurn,
@@ -351,14 +347,14 @@ func New(local, hosted llm.Provider, tools *tool.Registry, permGate permission.G
 		opt(&options)
 	}
 
-	return &Loop{local: local, hosted: hosted, tools: tools, gate: permGate, options: options}
+	return &Loop{providers: providers, tools: tools, gate: permGate, options: options}
 }
 
 // Run appends prompt to th as a user turn, then drives model turns until the
 // model ends its turn with no pending tool call or a bound trips. Hint seeds
-// per-turn routing (Override and FileCount); Run fills in EstimatedTokens and
-// forces hosted after the first local stream failure, since local is never
-// retried past one failure.
+// per-turn routing (Override and Thinking); Run fills in EstimatedTokens and
+// moves the run one tier up per failure, since a failing tier is never
+// retried on itself.
 //
 // Run returns a non-nil error only for a failure Outcome cannot describe:
 // ctx cancellation, a thread I/O error, or a routed provider's stream
@@ -449,26 +445,31 @@ func (l *Loop) RestoreCheckpoint(ctx context.Context, checkpoint string) error {
 
 // run holds the mutable state of one Loop.Run call.
 type run struct {
-	startTime         time.Time
-	deadline          time.Time
-	thread            *thread.Thread
-	gk                *gateKeeper
-	lastCall          *llm.ToolCall
-	loop              *Loop
-	system            string
-	task              string
-	changes           []tool.Change
-	tools             []llm.ToolSpec
-	compacted         []thread.TurnMessage
-	hint              router.Input
+	startTime time.Time
+	deadline  time.Time
+	thread    *thread.Thread
+	gk        *gateKeeper
+	lastCall  *llm.ToolCall
+	loop      *Loop
+	system    string
+	task      string
+	changes   []tool.Change
+	tools     []llm.ToolSpec
+	compacted []thread.TurnMessage
+	hint      router.Input
+	// route is the tier the turn in flight was routed to, which is what
+	// says whether there is still a tier above to escalate into.
+	route             router.Decision
 	outcome           Outcome
 	compactedThrough  int
 	verifyRounds      int
 	reviewRounds      int
 	turnToolCalls     int
 	consecutiveErrors int
-	localFailed       bool
-	editAttempted     bool
+	// escalations is how many times this run has moved up a tier, which the
+	// router reads back as PriorFailures.
+	escalations   int
+	editAttempted bool
 }
 
 func (r *run) drive(ctx context.Context) (Outcome, error) {
@@ -532,13 +533,13 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	route := router.Route(router.Input{
 		Override:        r.hint.Override,
 		Window:          r.loop.ContextWindow(),
-		FileCount:       r.hint.FileCount,
 		EstimatedTokens: r.estimateTokens(messages),
-		PriorFailures:   priorFailures(r.localFailed),
+		PriorFailures:   r.escalations,
 	})
-	provider := router.Select(route, r.loop.local, r.loop.hosted)
+	r.route = route
+	provider := r.loop.providers.For(route)
 	req := llm.Request{
-		Model:    router.Select(route, r.loop.options.LocalModel, r.loop.options.HostedModel),
+		Model:    r.loop.options.Models.For(route),
 		System:   r.system,
 		Tools:    r.tools,
 		Messages: messages,
@@ -560,13 +561,10 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 
 			return true, out, derr
 		}
-		// Local is never retried past one failure, which the router normally
-		// enforces through PriorFailures. An explicit override wins over
-		// that check, so a run pinned local would otherwise retry a failing
-		// provider until the turn bound, and this is what stops it.
-		if route.Choice == router.ChoiceLocal && !r.localFailed {
-			r.localFailed = true
-
+		// A failed tier is retried one tier up rather than on itself, so a
+		// run pinned to a failing provider moves rather than retrying it
+		// until the turn bound. The top tier has nowhere to go and stops.
+		if r.escalate() {
 			return false, Outcome{}, nil
 		}
 
@@ -583,9 +581,9 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	if usage != nil {
 		r.outcome.InputTokens += usage.InputTokens
 		r.outcome.OutputTokens += usage.OutputTokens
-		if route.Choice == router.ChoiceHosted {
-			r.outcome.HostedSpendUSD += r.loop.priceTurn(req.Model, usage)
-		}
+		// Priced per model rather than per tier: a model with no price
+		// costs nothing, which is what an on-box tier is.
+		r.outcome.HostedSpendUSD += r.loop.priceTurn(req.Model, usage)
 	}
 	if r.loop.options.MaxHostedSpendUSD > 0 && r.outcome.HostedSpendUSD >= r.loop.options.MaxHostedSpendUSD {
 		reason := fmt.Sprintf("hosted spend ceiling reached: $%.4f spent (ceiling $%.4f) after %d turn(s)",
@@ -759,14 +757,13 @@ func (r *run) toolNames() []string {
 // quotes the markup back, because repeating the malformed form is what the
 // model would then imitate.
 func (r *run) handleToolCallAsText(ctx context.Context) (bool, Outcome, error) {
-	if r.localFailed {
+	if !r.escalate() {
 		out, err := r.stopBound(ctx, StopMalformedTool,
 			"the model wrote a tool call as text again after escalating")
 
 		return true, out, err
 	}
 
-	r.localFailed = true
 	if err := r.thread.AppendUser(ctx,
 		"That turn made no tool call. Text describing a call does nothing, whatever markup "+
 			"it uses. Make the call itself, and write no prose before it."); err != nil {
@@ -811,13 +808,12 @@ func (r *run) endTurnWithoutCalls(ctx context.Context, text string) (bool, Outco
 // said it would: the first occurrence hands the model a critique and lets
 // the next turn run hosted, and a second stops the run.
 func (r *run) handleTalkedNotActed(ctx context.Context, stop Stop, reason, critique string) (bool, Outcome, error) {
-	if r.localFailed {
+	if !r.escalate() {
 		out, err := r.stopBound(ctx, stop, reason)
 
 		return true, out, err
 	}
 
-	r.localFailed = true
 	if err := r.thread.AppendUser(ctx, critique); err != nil {
 		return true, Outcome{}, fmt.Errorf("appending %s critique: %w", stop, err)
 	}
@@ -827,21 +823,20 @@ func (r *run) handleTalkedNotActed(ctx context.Context, stop Stop, reason, criti
 
 // handleRepeatedCall is runTools' branch for a call that repeats the
 // immediately preceding call's name and input. A repeat is evidence the
-// tier is stuck, not that the thread should die: the router already
-// escalates after one local failure, and repeated malformed calls compound
-// rather than self-correct. The first repeat hands the model a critique and
-// lets the next turn run hosted; a repeat after escalating stops the run.
+// tier is stuck, not that the thread should die: the router escalates a
+// tier per failure, and repeated malformed calls compound rather than
+// self-correct. A repeat hands the model a critique and moves the next turn
+// up a tier; a repeat with no tier left stops the run.
 // This also feeds the independent, generalized stagnation count, since the
 // critique is itself an error result.
 func (r *run) handleRepeatedCall(ctx context.Context, call llm.ToolCall) (bool, Outcome, error) {
-	if r.localFailed {
+	if !r.escalate() {
 		out, err := r.stopBound(ctx, StopLoopDetected,
 			fmt.Sprintf("identical repeated tool call %q after escalating", call.Name))
 
 		return true, out, err
 	}
 
-	r.localFailed = true
 	if err := r.appendToolResult(ctx, call, tool.Errorf(
 		"you already made this exact %s call and it did not move the task forward; "+
 			"read the previous result, then either change the arguments or stop", call.Name)); err != nil {
@@ -1097,12 +1092,15 @@ func (r *run) stopFailed(ctx context.Context, cause error) (Outcome, error) {
 	return r.outcome, fmt.Errorf("%w: %w", ErrScriptedFailure, cause)
 }
 
-func priorFailures(localFailed bool) int {
-	if localFailed {
-		return 1
+// escalate moves the run one tier up and reports whether it could. A run
+// already on the top tier cannot, which is what turns a retry into a stop.
+func (r *run) escalate() bool {
+	if r.route.Choice == router.ChoiceDeep {
+		return false
 	}
+	r.escalations++
 
-	return 0
+	return true
 }
 
 // estimateTokens sizes the request the next turn would send: the system

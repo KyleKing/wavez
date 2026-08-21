@@ -141,7 +141,7 @@ func (s *Server) aggregateLeaseCounts() lease.Counts {
 // llama-server, so the first loaded project to report one is enough.
 func (s *Server) localModel() string {
 	for _, p := range s.projectsSnapshot() {
-		if m := p.mgr.localModel(); m != "" {
+		if m := p.mgr.fastModel(); m != "" {
 			return m
 		}
 	}

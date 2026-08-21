@@ -139,7 +139,7 @@ func TestSystemPrefixAlwaysCarriesTheBaseInstructions(t *testing.T) {
 	}
 
 	a, err := app.New(t.Context(), root, config.Defaults(root), permission.DenyAll(),
-		app.WithProviders(fake.New("local"), fake.New("hosted")))
+		app.WithProviders(tierProviders(fake.New("balanced"))))
 	if err != nil {
 		t.Fatalf("app.New: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestHostedKeyErrorsOnFirstHostedRequest(t *testing.T) {
 	})
 
 	var streamErr error
-	for _, err := range a.Hosted.Stream(t.Context(), llm.Request{Model: "m"}) {
+	for _, err := range a.Providers.Balanced.Stream(t.Context(), llm.Request{Model: "m"}) {
 		if err != nil {
 			streamErr = err
 
@@ -221,8 +221,9 @@ func TestHostedKeyErrorsOnFirstHostedRequest(t *testing.T) {
 	}
 }
 
-// A remote local tier dials the configured endpoint with its key and never
-// starts a llama-server here, even when the App was asked to manage one.
+// A fast tier pointed at another machine dials that endpoint with its key
+// and never starts a llama-server here, even when the App was asked to
+// manage one.
 func TestRemoteLocalTierDialsTheEndpointWithItsKey(t *testing.T) {
 	t.Parallel()
 
@@ -244,8 +245,8 @@ func TestRemoteLocalTierDialsTheEndpointWithItsKey(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := config.Defaults(root)
-	cfg.LocalBaseURL = srv.URL
-	cfg.LocalKeyCommand = "printf tok-from-command"
+	cfg.Tiers.Fast.BaseURL = srv.URL
+	cfg.Tiers.Fast.KeyCommand = "printf tok-from-command"
 
 	a, err := app.New(t.Context(), root, cfg, permission.DenyAll(), app.WithManagedLocalServer())
 	if err != nil {
@@ -257,7 +258,7 @@ func TestRemoteLocalTierDialsTheEndpointWithItsKey(t *testing.T) {
 		}
 	})
 
-	for _, err := range a.Local.Stream(t.Context(), llm.Request{Model: "m"}) {
+	for _, err := range a.Providers.Fast.Stream(t.Context(), llm.Request{Model: "m"}) {
 		if err != nil {
 			t.Fatalf("stream: %v", err)
 		}

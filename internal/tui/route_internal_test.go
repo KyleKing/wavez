@@ -41,9 +41,10 @@ func TestRoute_CycleReachesEveryTierAndBack(t *testing.T) {
 		current router.Choice
 		want    router.Choice
 	}{
-		{name: "auto pins local", current: "", want: router.ChoiceLocal},
-		{name: "local pins hosted", current: router.ChoiceLocal, want: router.ChoiceHosted},
-		{name: "hosted clears the pin", current: router.ChoiceHosted, want: ""},
+		{name: "auto pins fast", current: "", want: router.ChoiceFast},
+		{name: "fast pins balanced", current: router.ChoiceFast, want: router.ChoiceBalanced},
+		{name: "balanced pins deep", current: router.ChoiceBalanced, want: router.ChoiceDeep},
+		{name: "deep clears the pin", current: router.ChoiceDeep, want: ""},
 	}
 
 	for _, tc := range tests {
@@ -72,8 +73,9 @@ func TestRoute_PaletteVerbsPinAndClear(t *testing.T) {
 		want router.Choice
 	}{
 		{name: "auto", verb: verbRouteAuto, want: ""},
-		{name: "hosted", verb: verbRouteHosted, want: router.ChoiceHosted},
-		{name: "local", verb: verbRouteLocal, want: router.ChoiceLocal},
+		{name: "fast", verb: verbRouteFast, want: router.ChoiceFast},
+		{name: "balanced", verb: verbRouteBalanced, want: router.ChoiceBalanced},
+		{name: "deep", verb: verbRouteDeep, want: router.ChoiceDeep},
 	}
 
 	for _, tc := range tests {
@@ -99,15 +101,15 @@ func TestRoute_FailureOnAPinnedTierSaysHowToGetOff(t *testing.T) {
 
 	fc := &fakeClient{}
 	m := openedThread(t, fc, api.ThreadInfo{
-		ID: "t1", Name: "fix-lock", Dir: "wavez", Override: router.ChoiceLocal, State: event.StateWorking,
+		ID: "t1", Name: "fix-lock", Dir: "wavez", Override: router.ChoiceFast, State: event.StateWorking,
 	})
 
 	failed := api.ThreadInfo{
-		ID: "t1", Name: "fix-lock", Dir: "wavez", Override: router.ChoiceLocal, State: event.StateFailed, Seq: 12,
+		ID: "t1", Name: "fix-lock", Dir: "wavez", Override: router.ChoiceFast, State: event.StateFailed, Seq: 12,
 	}
 
 	m.applyReply(api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{failed}})
-	assert.Contains(t, m.status, "pinned to local")
+	assert.Contains(t, m.status, "pinned to fast")
 
 	m.status = ""
 	m.applyReply(api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{failed}})
@@ -118,7 +120,7 @@ func TestRoute_FailureOnAPinnedTierSaysHowToGetOff(t *testing.T) {
 	next := failed
 	next.Seq = 19
 	m.applyReply(api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{next}})
-	assert.Contains(t, m.status, "pinned to local")
+	assert.Contains(t, m.status, "pinned to fast")
 }
 
 // The thinking cycle starts at off because that is the setting that pays:

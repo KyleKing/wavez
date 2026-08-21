@@ -11,14 +11,15 @@ import (
 const labelAuto = "auto"
 
 const (
-	verbRouteAuto   = "route auto"
-	verbRouteHosted = "route hosted"
-	verbRouteLocal  = "route local"
+	verbRouteAuto     = "route auto"
+	verbRouteBalanced = "route balanced"
+	verbRouteDeep     = "route deep"
+	verbRouteFast     = "route fast"
 )
 
 // routeCycle is the order `m` walks: automatic, then each tier, then back to
-// automatic, so a pin is never more than two presses from being cleared.
-var routeCycle = []router.Choice{"", router.ChoiceLocal, router.ChoiceHosted}
+// automatic, so a pin is never more than three presses from being cleared.
+var routeCycle = []router.Choice{"", router.ChoiceFast, router.ChoiceBalanced, router.ChoiceDeep}
 
 func nextRoute(current router.Choice) router.Choice {
 	for i, c := range routeCycle {
@@ -33,10 +34,12 @@ func nextRoute(current router.Choice) router.Choice {
 // routeLabel names a tier for the header and the status line.
 func routeLabel(c router.Choice) string {
 	switch c {
-	case router.ChoiceLocal:
-		return "local"
-	case router.ChoiceHosted:
-		return "hosted"
+	case router.ChoiceFast:
+		return "fast"
+	case router.ChoiceBalanced:
+		return "balanced"
+	case router.ChoiceDeep:
+		return "deep"
 	default:
 		return "auto"
 	}

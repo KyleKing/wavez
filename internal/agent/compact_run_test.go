@@ -60,12 +60,12 @@ func TestRun_CompactionTrimsAndThenAppends(t *testing.T) {
 	t.Parallel()
 
 	local := fake.New("local", bulkTurns(4)...)
-	loop := agent.New(local, fake.New("hosted"), tool.NewRegistry(bulkTool{name: "bulk"}),
+	loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(bulkTool{name: "bulk"}),
 		permission.AllowAll(),
 		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
 			agent.DefaultCompactTrigger))
 
-	hint := router.Input{Override: router.ChoiceLocal}
+	hint := router.Input{Override: router.ChoiceFast}
 
 	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go", hint)
 	if err != nil {

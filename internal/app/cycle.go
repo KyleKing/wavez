@@ -58,7 +58,7 @@ func (d *CycleDriver) Drive(ctx context.Context, at cycle.Attempt) (cycle.PhaseR
 	}
 
 	registry := d.app.phaseRegistry(at.Phase, at.Ledger)
-	loop := agent.New(d.app.Local, d.app.Hosted, registry, d.app.Permission, d.app.phaseOptions(at.Phase)...)
+	loop := agent.New(d.app.Providers, registry, d.app.Permission, d.app.phaseOptions(at.Phase)...)
 
 	prefix := agent.Prefix{System: d.app.SystemPrefix, Tools: specsOf(registry)}
 

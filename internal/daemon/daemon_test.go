@@ -113,8 +113,8 @@ func TestProjects_LoaderRoutesByRoot(t *testing.T) {
 	rootA, rootB := t.TempDir(), t.TempDir()
 
 	broker := daemon.NewBroker()
-	loop := agent.New(fake.New("local"), fake.New("hosted"),
-		tool.NewRegistry(echoTool{name: "echo"}), broker.Gate(), agent.WithLocalModel("qwen3:8b"))
+	loop := agent.New(tiers(fake.New("fast"), fake.New("deep")), tool.NewRegistry(echoTool{name: "echo"}),
+		broker.Gate(), agent.WithModels(router.Tiers[string]{Fast: "qwen3:8b"}))
 
 	var (
 		mu     sync.Mutex
@@ -169,7 +169,7 @@ func TestProjects_LoaderRoutesByRoot(t *testing.T) {
 	// A command naming only the thread id, never the root, must still reach
 	// the right project: threadB's id resolves through the daemon's own
 	// thread-to-project index, not through anything this call passes in.
-	cl.send(api.Command{ID: "route", Kind: api.CmdRoute, ThreadID: threadB.Thread.ID, Override: router.ChoiceLocal})
+	cl.send(api.Command{ID: "route", Kind: api.CmdRoute, ThreadID: threadB.Thread.ID, Override: router.ChoiceFast})
 	routed := cl.recvFor("route")
 	if routed.Thread == nil || routed.Thread.Root != rootB || routed.Thread.ID != threadB.Thread.ID {
 		t.Fatalf("routed reply = %+v, want thread %q in root %q", routed.Thread, threadB.Thread.ID, rootB)
