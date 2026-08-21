@@ -43,7 +43,7 @@ func locate(ctx context.Context, index Index, root, name, path string) (declarat
 		}
 
 		if sym.Name != name {
-			if similar(sym.Name, name) {
+			if under(sym.FilePath, path) {
 				near = append(near, *sym)
 			}
 
@@ -109,15 +109,19 @@ func orNearby(all, near []codeintel.Symbol) string {
 }
 
 // searchWidening looks the name up, and while nothing it gets back is even
-// named like the name asked for, drops one trailing CamelCase word and looks
-// again. A guessed name is usually a real one with something appended:
-// measured, a run that had just deleted `ApplyToFile` guessed
-// `ApplyToFileTest` for its test and spent the rest of itself hunting a name
-// that never existed. Trimming to `ApplyToFile` finds `TestApplyToFile`.
+// named like the query, drops one trailing CamelCase word and looks again. A
+// guessed name is usually a real one with something appended: measured, a run
+// that had just deleted `ApplyToFile` guessed `ApplyToFileTest` for its test
+// and spent the rest of itself hunting a name that never existed. Trimming to
+// `ApplyToFile` finds `TestApplyToFile`.
 //
-// The gate is a plausible name rather than any result at all, because the
-// text index answers a nonsense symbol name with whatever files mention its
-// letters, and those are not candidates.
+// Two things this has to get right, both learned by getting them wrong. The
+// gate is a plausible name rather than any result at all, because the text
+// index answers a nonsense symbol name with whatever files mention its
+// letters. And plausibility is judged against the query that fetched the
+// results, not the name originally asked for: `TestApplyToFile` is nothing
+// like `ApplyToFileTest`, so judging against the original never trips and the
+// widening runs off the end into junk.
 func searchWidening(ctx context.Context, index Index, name string) ([]codeintel.SearchResult, error) {
 	var widest []codeintel.SearchResult
 
@@ -131,7 +135,7 @@ func searchWidening(ctx context.Context, index Index, name string) ([]codeintel.
 			widest = results
 		}
 
-		if named(results, name) {
+		if named(results, query) {
 			return results, nil
 		}
 	}
@@ -139,11 +143,11 @@ func searchWidening(ctx context.Context, index Index, name string) ([]codeintel.
 	return widest, nil
 }
 
-// named reports whether any result is a symbol whose name is the one asked
-// for or close to it.
-func named(results []codeintel.SearchResult, name string) bool {
+// named reports whether any result is a symbol whose name is the query or
+// close to it.
+func named(results []codeintel.SearchResult, query string) bool {
 	for i := range results {
-		if sym := results[i].Symbol; sym != nil && (sym.Name == name || similar(sym.Name, name)) {
+		if sym := results[i].Symbol; sym != nil && (sym.Name == query || similar(sym.Name, query)) {
 			return true
 		}
 	}

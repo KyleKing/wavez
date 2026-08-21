@@ -213,3 +213,52 @@ func TestDeletePartialFailureSaysWhatItDid(t *testing.T) {
 		t.Errorf("Alpha was reported deleted but survived")
 	}
 }
+
+// A guessed name is usually a real one with something appended, so the
+// lookup widens. Two ways of getting that wrong, both measured on `h4`:
+// judging plausibility against the original name never trips (TestApplyToFile
+// is nothing like ApplyToFileTest), and suggesting a near match from another
+// package is worse than suggesting nothing, because a run that follows it has
+// been sent away from the file it named.
+func TestDeleteWideningStaysInTheNamedPath(t *testing.T) {
+	t.Parallel()
+
+	root, del := deleteProject(t)
+	writeFile(t, root, "other.go", "package a\n\n// Zeta is in the other file.\nfunc Zeta() {}\n")
+
+	res, err := del.Run(t.Context(), []byte(`{"symbol":"ZetaHelper","path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("want a refusal, got: %s", res.Content)
+	}
+
+	if strings.Contains(res.Content, "other.go") {
+		t.Errorf("the refusal suggests a symbol outside the path it was given: %s", res.Content)
+	}
+}
+
+// The exact-name case is the opposite: a caller who narrowed to the wrong
+// file is told where the symbol really is, which is the whole point of
+// saying anything at all.
+func TestDeleteNamesTheRightFileForAnExactMatch(t *testing.T) {
+	t.Parallel()
+
+	root, del := deleteProject(t)
+	writeFile(t, root, "other.go", "package a\n\n// Zeta is in the other file.\nfunc Zeta() {}\n")
+
+	res, err := del.Run(t.Context(), []byte(`{"symbol":"Zeta","path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("want a refusal, got: %s", res.Content)
+	}
+
+	if !strings.Contains(res.Content, "other.go") {
+		t.Errorf("the refusal does not say where Zeta actually is: %s", res.Content)
+	}
+}
