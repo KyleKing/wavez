@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -27,6 +28,21 @@ func (s Stats) Render(w io.Writer) error {
 
 	for _, t := range s.Tools {
 		fmt.Fprintf(&b, "  %-14s %3d calls %8d result bytes\n", t.Name, t.Calls, t.ResultBytes)
+	}
+
+	if len(s.ShellCmds) > 0 {
+		b.WriteString("\nshell commands by result size\n")
+
+		cmds := slices.Clone(s.ShellCmds)
+		slices.SortStableFunc(cmds, func(a, b ShellCmd) int { return b.ResultBytes - a.ResultBytes })
+
+		if len(cmds) > maxShellCommands {
+			cmds = cmds[:maxShellCommands]
+		}
+
+		for _, c := range cmds {
+			fmt.Fprintf(&b, "  %8d bytes  %s\n", c.ResultBytes, oneLine(c.Command, maxCommandChars))
+		}
 	}
 
 	fmt.Fprintf(&b, "\nrepeat reads %d of %d (%d bytes), empty searches %d\n",
@@ -84,4 +100,24 @@ func tierLine(turns map[string]int) string {
 	}
 
 	return strings.Join(parts, ", ")
+}
+
+const (
+	// A run past this many commands is read for shape rather than inventory.
+	maxShellCommands = 15
+	// The most of one command a report row carries.
+	maxCommandChars = 100
+)
+
+// oneLine flattens s onto one line and cuts it to max characters, since a
+// command may hold newlines and a report row is one line.
+func oneLine(s string, width int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+
+	return string(runes[:width-1]) + "…"
 }

@@ -19,6 +19,7 @@ import (
 const (
 	readTool   = "read"
 	searchTool = "search"
+	shellTool  = "shell"
 	// A run whose searches keep missing falls back to shell grep, which is
 	// what made an empty result worth counting. This is the prefix the search
 	// tool reports one with.
@@ -32,6 +33,13 @@ type ToolStat struct {
 	ResultBytes int    `json:"result_bytes"`
 }
 
+// ShellCmd is one shell call a run made: the command line it ran and the
+// byte size of the result that came back.
+type ShellCmd struct {
+	Command     string `json:"command"`
+	ResultBytes int    `json:"result_bytes"`
+}
+
 // Stats is what one run spent. Token counts come from the provider's own
 // usage rather than an estimate, so they are absent for a provider that
 // reports none rather than zero. The json tags are the field names a diff
@@ -40,6 +48,7 @@ type Stats struct {
 	TierTurns        map[string]int `json:"tier_turns"`
 	ThreadID         string         `json:"thread_id"`
 	Tools            []ToolStat     `json:"tools"`
+	ShellCmds        []ShellCmd     `json:"shell_cmds"`
 	Elapsed          time.Duration  `json:"elapsed"`
 	Turns            int            `json:"turns"`
 	ToolCalls        int            `json:"tool_calls"`
@@ -167,6 +176,32 @@ func (s *Stats) countTool(ev *event.Event, tools map[string]*ToolStat, tracker *
 		s.RepeatReads++
 		s.RepeatReadBytes += len(ev.Text)
 	}
+
+	if ev.Tool == shellTool {
+		if cmd := shellCommand(ev.Detail); cmd != "" {
+			s.ShellCmds = append(s.ShellCmds, ShellCmd{Command: cmd, ResultBytes: len(ev.Text)})
+		}
+	}
+}
+
+// shellCommand pulls the command line out of a logged shell input. The log
+// stores the input as the raw JSON string the model sent, truncated, so a
+// call whose command did not survive truncation simply has no entry.
+func shellCommand(detail map[string]any) string {
+	raw, ok := detail["input"].(string)
+	if !ok {
+		return ""
+	}
+
+	var in struct {
+		Command string `json:"command"`
+	}
+
+	if err := json.Unmarshal([]byte(raw), &in); err != nil {
+		return ""
+	}
+
+	return in.Command
 }
 
 func (s *Stats) countGate(ev *event.Event) {

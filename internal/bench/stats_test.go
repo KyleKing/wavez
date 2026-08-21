@@ -2,6 +2,7 @@ package bench_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -230,4 +231,77 @@ func writeLog(t *testing.T, events []event.Event) string {
 	}
 
 	return path
+}
+
+// shell builds one logged shell call whose input is the raw JSON string the
+// model sent, the form the log stores and Summarize reads the command from.
+func shell(command string, resultBytes int) event.Event {
+	return event.Event{
+		Kind: event.KindTool, Tool: "shell",
+		Text:   strings.Repeat("z", resultBytes),
+		Detail: map[string]any{"input": fmt.Sprintf(`{"command":%q}`, command)},
+	}
+}
+
+// Summarize must read each shell command out of the raw input JSON a tool
+// event carries and pair it with that call's own result size, so Render can
+// show which commands produced the most output.
+func TestSummarizeExtractsShellCommandsWithResultSizes(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("go build ./... && ", 10)
+
+	path := writeLog(t, []event.Event{
+		turn("balanced", 1000, 40, 900),
+		read("a.go", strings.Repeat("x", 500)),
+		shell(long, 4000),
+		shell("mise run ci", 12000),
+		{Kind: event.KindTool, Tool: "search", Text: "no matches", Detail: map[string]any{
+			"input": `{"query":"q"}`,
+		}},
+	})
+
+	events, err := bench.Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+
+	got := bench.Summarize(events)
+
+	want := []bench.ShellCmd{
+		{Command: long, ResultBytes: 4000},
+		{Command: "mise run ci", ResultBytes: 12000},
+	}
+	if !slices.Equal(got.ShellCmds, want) {
+		t.Fatalf("ShellCmds = %+v, want %+v", got.ShellCmds, want)
+	}
+
+	var out strings.Builder
+	if err := got.Render(&out); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	report := out.String()
+	if !strings.Contains(report, "\nshell commands by result size\n") {
+		t.Fatalf("Render has no shell commands heading, got:\n%s", report)
+	}
+
+	if strings.Index(report, "12000 bytes") > strings.Index(report, "4000 bytes") {
+		t.Errorf("Render orders commands by result size, got:\n%s", report)
+	}
+
+	for _, line := range strings.Split(report, "\n") {
+		cmd, found := strings.CutPrefix(line, "      4000 bytes  ")
+		if !found {
+			continue
+		}
+
+		if n := len([]rune(cmd)); n > 100 {
+			t.Errorf("command is %d characters, want at most 100: %q", n, cmd)
+		}
+
+		if !strings.HasSuffix(cmd, "…") || strings.ContainsRune(cmd, '\n') {
+			t.Errorf("command is not one truncated line: %q", cmd)
+		}
+	}
 }
