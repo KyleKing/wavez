@@ -31,7 +31,7 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return err //nolint:wrapcheck // Find already lists the ids it has
 	}
 
-	dir := filepath.Join(os.TempDir(), "wavez-replay-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	dir := filepath.Join(scratchBase(), "wavez-replay-"+strconv.FormatInt(time.Now().UnixNano(), 36))
 	name := filepath.Base(dir)
 	jj := vcs.NewJj()
 
@@ -107,6 +107,22 @@ const (
 	logDirMode  = 0o750
 	logFileMode = 0o600
 )
+
+// scratchBase is where a replay workspace goes. The sandbox redirects a
+// run's TMPDIR inside the workspace, so the workspace path is the prefix of
+// every unix socket the run's own tests create, and macOS's per-user temp
+// dir is 49 characters before anything is added: a replay under it failed
+// this repo's daemon tests on the 104-byte sun_path limit, and the run read
+// that as a pre-existing failure. /tmp is four.
+func scratchBase() string {
+	const short = "/tmp"
+
+	if fi, err := os.Stat(short); err == nil && fi.IsDir() {
+		return short
+	}
+
+	return os.TempDir()
+}
 
 // stopReason is the loop's own stop where it reached one. A run the loop
 // never finished has none, and recording it as complete would count a crash
