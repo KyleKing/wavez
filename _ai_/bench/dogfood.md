@@ -906,3 +906,48 @@ sent as `{"kind":"rename","symbol":"firstDir","to":"primaryDir"}` has no
 embedded source, so the emission that fails here has nothing to fail at. It
 also bounds the remit the set can currently prove: read-only questions hold on
 `qwen3:8b`, and every task that has to emit code inside JSON has escalated.
+
+## 2026-08-21, the harder tasks, and a critique that made it worse
+
+Three tasks joined the fixed set: `h1` asks a question whose answer is only
+findable by behavior, `h2` asks for a behavior change with a test, and `h3`
+renames an exported function across packages. First pass, `fast` pin:
+
+| task | tiers | stop | checks |
+|---|---|---|---|
+| h1 | 1 fast | complete | 0/3 |
+| h3 | 7 fast, 5 balanced, 7 deep | deadline at 3m | 6/6 |
+
+`h3` is the task the set was missing. It escalated the whole way to the deep
+tier, took nineteen turns, and passed every check including `go build ./...`
+and two `go test` patterns, so the set now has something that is hard for a
+reason other than emission.
+
+`h1` is worse than a failure. `qwen3:8b` answered in one turn having called no
+tool, naming `main.go` and `handleRequest`, neither of which exists, and the
+loop recorded `complete`. Only the oracle caught it. A run that fabricates and
+is believed is the failure mode that costs the most, because nothing downstream
+knows to doubt it.
+
+The obvious fix does not work. A critique after a no-tool answer, once, before
+the run may complete, measured as a pair on `h1`:
+
+| lane | turns | tool calls | checks |
+|---|---|---|---|
+| ground-off | 1 | 0 | 0/3 |
+| ground-on | 2 | 0 | 0/3 |
+
+The second answer opened "The code it rests on is in `main.go`", which is the
+critique's own phrasing wrapped around the same invention. Asking a model to
+say what it read makes the fabrication cite itself. The code was written behind
+a flag that defaulted off with that pair named as its removal condition, and
+the pair removed it.
+
+What is left is the deterministic half. Refusing `complete` outright on a run
+that called no tool would have failed `h1` loudly, and it would also stop a
+question that genuinely needs no lookup, so it is a change to the loop's
+contract rather than a bound on a failure. It waits on the task-shape signal
+the risk list already names, now with a second case: the list says a run that
+asked for a change and never reached an edit tool still completes, and `h1`
+says the same holds for a run that asked a question and never reached a read.
+
