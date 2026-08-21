@@ -194,8 +194,9 @@ func (d *Delete) stillUsed(ctx context.Context, name string, decl declaration, t
 		return nil
 	}
 
-	return fmt.Errorf("%w: %s is used at %s. Delete those too, or leave it",
-		ErrStillUsed, name, strings.Join(held, ", "))
+	return fmt.Errorf("%w: %s is used at %s. Name the declarations holding those uses "+
+		"alongside it in one call, as \"symbol\": \"%s, ...\", or leave it alone",
+		ErrStillUsed, name, strings.Join(held, ", "), name)
 }
 
 // outside lists the uses that are neither inside the declaration itself nor
