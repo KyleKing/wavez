@@ -151,8 +151,8 @@ func TestReplace_NotFound(t *testing.T) {
 		_, err := edit.Replace("apples and oranges\n", "bananas", "kiwis")
 
 		notFound := requireNotFound(t, err)
-		if notFound.CandidateText != "" {
-			t.Errorf("CandidateText = %q, want empty", notFound.CandidateText)
+		if notFound.CandidateLine != 0 {
+			t.Errorf("CandidateLine = %d, want 0: nothing in the source is close", notFound.CandidateLine)
 		}
 	})
 
@@ -168,9 +168,11 @@ func TestReplace_NotFound(t *testing.T) {
 			t.Errorf("CandidateLine = %d, want 2", notFound.CandidateLine)
 		}
 
-		wantText := "\treturn 1\n\treturn 2"
-		if notFound.CandidateText != wantText {
-			t.Errorf("CandidateText = %q, want %q", notFound.CandidateText, wantText)
+		if notFound.MismatchLine != 3 {
+			t.Errorf("MismatchLine = %d, want 3: line 2 of the anchor is the wrong one", notFound.MismatchLine)
+		}
+		if strings.TrimSpace(notFound.Sent) != "return 3" || strings.TrimSpace(notFound.Found) != "return 2" {
+			t.Errorf("Sent/Found = %q/%q, want the two lines that part", notFound.Sent, notFound.Found)
 		}
 	})
 }
@@ -292,23 +294,25 @@ func TestNotFoundError_Error(t *testing.T) {
 	t.Run("with candidate", func(t *testing.T) {
 		t.Parallel()
 
-		err := &edit.NotFoundError{CandidateLine: 5, CandidateText: "foo"}
+		err := &edit.NotFoundError{CandidateLine: 5, MismatchLine: 7, Sent: "foo", Found: "bar"}
 		msg := err.Error()
 
-		if !strings.Contains(msg, "line 5") || !strings.Contains(msg, "foo") {
-			t.Errorf("Error() = %q, want it to mention line 5 and foo", msg)
+		for _, want := range []string{"line 5", "line 7", "foo", "bar"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("Error() = %q, want it to mention %s", msg, want)
+			}
 		}
 	})
 }
 
-// A long old_string echoing a candidate as long as itself would cost the
-// model the file twice over on a bad anchor.
-func TestReplace_NotFoundCandidateIsBounded(t *testing.T) {
+// A long old_string must not echo a line as long as itself back, which on a
+// generated or minified file would cost the model the file twice over.
+func TestReplace_NotFoundReportIsBounded(t *testing.T) {
 	t.Parallel()
 
 	var source, old strings.Builder
 	for i := range 200 {
-		fmt.Fprintf(&source, "line %d\n", i)
+		fmt.Fprintf(&source, "line %d %s\n", i, strings.Repeat("x", 400))
 		fmt.Fprintf(&old, "  line %d \n", i)
 	}
 
@@ -321,13 +325,10 @@ func TestReplace_NotFoundCandidateIsBounded(t *testing.T) {
 	if !errors.As(err, &nf) {
 		t.Fatalf("got %T, want *edit.NotFoundError", err)
 	}
-	if got := strings.Count(nf.CandidateText, "\n") + 1; got > 12 {
-		t.Fatalf("candidate is %d lines, want at most 12", got)
-	}
-	if nf.CandidateElided == 0 {
-		t.Fatal("elided count not reported, so the model cannot tell it was truncated")
-	}
-	if !strings.Contains(err.Error(), "more lines not shown") {
-		t.Fatalf("error message hides the truncation: %s", err.Error())
+
+	for _, line := range strings.Split(err.Error(), "\n") {
+		if len(line) > 300 {
+			t.Fatalf("the report echoes a %d-character line: %s", len(line), line[:80])
+		}
 	}
 }

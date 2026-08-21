@@ -27,33 +27,44 @@ var (
 	ErrNoChange = errors.New("old_string and new_string are identical")
 )
 
-// maxCandidateLines bounds the near-match echoed back to the model. The
-// candidate is as long as old_string was, so an oversized anchor would
-// otherwise return most of the file and double the context it already cost.
-const maxCandidateLines = 12
+// maxReportedLine bounds each line the near-match report echoes, so one
+// minified or generated line cannot swamp the message.
+const maxReportedLine = 200
 
-// NotFoundError reports that old_string matched nothing in source. Candidate
-// fields are populated when a whitespace-normalized near match exists, so a
-// model can compare its anchor against the source's actual indentation.
+// NotFoundError reports that old_string matched nothing in source. When a
+// near match exists it names the one line the anchor got wrong, since that
+// is what a model has to change: echoing the lines that already matched
+// leaves it guessing, and a run measured on the fixed task set guessed twice
+// and died.
 type NotFoundError struct {
-	CandidateText string
+	// Sent and Found are the first line of old_string that differs from the
+	// closest match, and the source line facing it.
+	Sent  string
+	Found string
+	// CandidateLine is where the closest match starts in source, 1-indexed.
 	CandidateLine int
-	// CandidateElided counts lines trimmed from the end of CandidateText.
-	CandidateElided int
+	// MismatchLine is where Sent and Found part, 1-indexed in source.
+	MismatchLine int
 }
 
 // Error implements error.
 func (e *NotFoundError) Error() string {
-	if e.CandidateText == "" {
+	if e.CandidateLine == 0 {
 		return ErrNotFound.Error()
 	}
 
-	if e.CandidateElided > 0 {
-		return fmt.Sprintf("%s; closest near match at line %d (%d more lines not shown):\n%s",
-			ErrNotFound, e.CandidateLine, e.CandidateElided, e.CandidateText)
+	return fmt.Sprintf("%s; the closest match starts at line %d and first differs at line %d:\n"+
+		"  you sent:   %s\n  source has: %s",
+		ErrNotFound, e.CandidateLine, e.MismatchLine, clip(e.Sent), clip(e.Found))
+}
+
+func clip(line string) string {
+	line = strings.TrimRight(line, " \t")
+	if len(line) <= maxReportedLine {
+		return line
 	}
 
-	return fmt.Sprintf("%s; closest near match at line %d:\n%s", ErrNotFound, e.CandidateLine, e.CandidateText)
+	return line[:maxReportedLine] + "…"
 }
 
 // Is reports that a *NotFoundError matches ErrNotFound, for errors.Is.
@@ -312,14 +323,18 @@ func notFoundError(sourceLines, oldLines []string) error {
 		return &NotFoundError{}
 	}
 
-	shown, elided := n, 0
-	if shown > maxCandidateLines {
-		shown, elided = maxCandidateLines, n-maxCandidateLines
+	for j := range oldLines {
+		if trimLeading(sourceLines[bestIdx+j]) == trimLeading(oldLines[j]) {
+			continue
+		}
+
+		return &NotFoundError{
+			CandidateLine: bestIdx + 1,
+			MismatchLine:  bestIdx + j + 1,
+			Sent:          oldLines[j],
+			Found:         sourceLines[bestIdx+j],
+		}
 	}
 
-	return &NotFoundError{
-		CandidateLine:   bestIdx + 1,
-		CandidateText:   strings.Join(sourceLines[bestIdx:bestIdx+shown], "\n"),
-		CandidateElided: elided,
-	}
+	return &NotFoundError{}
 }
