@@ -122,6 +122,28 @@ func FastBudget(window int) int {
 	return max(window-ReplyReserve, 0)
 }
 
+// HostedContextBudget is the served window assumed for the balanced and
+// deep tiers. It is the smallest window among the models those tiers are
+// pointed at, so a caller sizing compaction against it compacts before the
+// smallest of them would refuse the request. It is deliberately not the
+// fast tier's window: sizing every tier's compaction from the local one
+// compacted a hosted turn at 6k of a window in the hundreds of thousands.
+const HostedContextBudget = 128_000
+
+// ContextBudget is the served window of one tier. FastWindow is the fast
+// tier's served context, zero for FastContextBudget.
+func ContextBudget(c Choice, fastWindow int) int {
+	if c == ChoiceFast {
+		if fastWindow > 0 {
+			return fastWindow
+		}
+
+		return FastContextBudget
+	}
+
+	return HostedContextBudget
+}
+
 // Tiers holds one T per tier, so a caller can wire concrete providers or
 // model names to a Decision without this package depending on either type.
 type Tiers[T any] struct {

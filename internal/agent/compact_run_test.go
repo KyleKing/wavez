@@ -106,3 +106,28 @@ func chars(r llm.Request) int {
 
 	return total
 }
+
+// The compaction budget belongs to the tier serving the turn. Sized from
+// the fast tier's 8k window, a hosted run compacted 15 times in 23 turns
+// and spent the rest of itself re-reading what compaction had dropped.
+func TestRun_HostedTurnIsNotCompactedAtTheFastWindow(t *testing.T) {
+	t.Parallel()
+
+	balanced := fake.New("balanced", bulkTurns(4)...)
+	loop := agent.New(tiers(balanced, fake.New("deep")), tool.NewRegistry(bulkTool{name: "bulk"}),
+		permission.AllowAll(),
+		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
+			agent.DefaultCompactTrigger))
+
+	hint := router.Input{Override: router.ChoiceBalanced}
+
+	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go", hint)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if out.TokensCompacted != 0 {
+		t.Errorf("TokensCompacted = %d, want 0: four bulk results are far inside the hosted window",
+			out.TokensCompacted)
+	}
+}

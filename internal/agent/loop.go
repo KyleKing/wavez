@@ -472,6 +472,16 @@ type run struct {
 	editAttempted bool
 }
 
+// routeInput describes this turn for the router at the given size.
+func (r *run) routeInput(estimated int) router.Input {
+	return router.Input{
+		Override:        r.hint.Override,
+		Window:          r.loop.ContextWindow(),
+		EstimatedTokens: estimated,
+		PriorFailures:   r.escalations,
+	}
+}
+
 func (r *run) drive(ctx context.Context) (Outcome, error) {
 	for {
 		if ctx.Err() != nil {
@@ -530,12 +540,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	}
 
 	messages := r.messages()
-	route := router.Route(router.Input{
-		Override:        r.hint.Override,
-		Window:          r.loop.ContextWindow(),
-		EstimatedTokens: r.estimateTokens(messages),
-		PriorFailures:   r.escalations,
-	})
+	route := router.Route(r.routeInput(r.estimateTokens(messages)))
 	r.route = route
 	provider := r.loop.providers.For(route)
 	req := llm.Request{
