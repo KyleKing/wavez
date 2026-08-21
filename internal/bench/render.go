@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -35,6 +36,20 @@ func (s Stats) Render(w io.Writer) error {
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return fmt.Errorf("writing stats: %w", err)
+	}
+
+	return nil
+}
+
+// RenderJSON writes the same fields Render does as a single JSON object, so a
+// script can diff one run against another. Elapsed is whole nanoseconds, the
+// form a script can subtract without parsing Render's rounded duration.
+func (s Stats) RenderJSON(w io.Writer) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+
+	if err := enc.Encode(s); err != nil {
+		return fmt.Errorf("encoding stats: %w", err)
 	}
 
 	return nil

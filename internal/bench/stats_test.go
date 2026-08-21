@@ -72,6 +72,54 @@ func TestSummarizeCountsWhatARunSpent(t *testing.T) {
 	}
 }
 
+// RenderJSON must carry the counts Render prints, under the snake_case names
+// a diff script reads, so a round trip through the writer has to land on the
+// same numbers Summarize produced.
+func TestRenderJSONRoundTripsTheCounts(t *testing.T) {
+	t.Parallel()
+
+	path := writeLog(t, []event.Event{
+		turn("balanced", 1000, 40, 900),
+		read("a.go", strings.Repeat("x", 500)),
+		read("a.go", strings.Repeat("x", 500)),
+	})
+
+	events, err := bench.Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+
+	var out strings.Builder
+	if err := bench.Summarize(events).RenderJSON(&out); err != nil {
+		t.Fatalf("RenderJSON: %v", err)
+	}
+
+	// Unmarshaling into a map is what catches a wrong tag: the decoder would
+	// otherwise match input_tokens to InputTokens by field name alone.
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out.String()), &wire); err != nil {
+		t.Fatalf("Unmarshal %s: %v", out.String(), err)
+	}
+
+	if _, ok := wire["input_tokens"]; !ok {
+		t.Errorf("wire has no input_tokens key, got %s", out.String())
+	}
+
+	var decoded bench.Stats
+	if err := json.Unmarshal([]byte(out.String()), &decoded); err != nil {
+		t.Fatalf("Unmarshal into Stats: %v", err)
+	}
+
+	if decoded.InputTokens != 1000 {
+		t.Errorf("InputTokens = %d, want 1000", decoded.InputTokens)
+	}
+
+	if decoded.RepeatReads != 1 || decoded.RepeatReadBytes != 500 {
+		t.Errorf("RepeatReads = %d, RepeatReadBytes = %d, want 1 and 500",
+			decoded.RepeatReads, decoded.RepeatReadBytes)
+	}
+}
+
 func turn(tier string, in, out, cached int) event.Event {
 	return event.Event{Kind: event.KindAgent, Role: event.RoleNote, Detail: map[string]any{
 		"tier": tier,

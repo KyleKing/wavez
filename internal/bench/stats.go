@@ -27,31 +27,32 @@ const (
 
 // ToolStat is one tool's share of a run.
 type ToolStat struct {
-	Name        string
-	Calls       int
-	ResultBytes int
+	Name        string `json:"name"`
+	Calls       int    `json:"calls"`
+	ResultBytes int    `json:"result_bytes"`
 }
 
 // Stats is what one run spent. Token counts come from the provider's own
 // usage rather than an estimate, so they are absent for a provider that
-// reports none rather than zero.
+// reports none rather than zero. The json tags are the field names a diff
+// script reads on the wire.
 type Stats struct {
-	TierTurns        map[string]int
-	ThreadID         string
-	Tools            []ToolStat
-	Elapsed          time.Duration
-	Turns            int
-	ToolCalls        int
-	InputTokens      int
-	OutputTokens     int
-	CacheReadTokens  int
-	RepeatReads      int
-	RepeatReadBytes  int
-	EmptySearches    int
-	GateRounds       int
-	GateFailures     int
-	ReviewObjections int
-	CompactionSaved  int
+	TierTurns        map[string]int `json:"tier_turns"`
+	ThreadID         string         `json:"thread_id"`
+	Tools            []ToolStat     `json:"tools"`
+	Elapsed          time.Duration  `json:"elapsed"`
+	Turns            int            `json:"turns"`
+	ToolCalls        int            `json:"tool_calls"`
+	InputTokens      int            `json:"input_tokens"`
+	OutputTokens     int            `json:"output_tokens"`
+	CacheReadTokens  int            `json:"cache_read_tokens"`
+	RepeatReads      int            `json:"repeat_reads"`
+	RepeatReadBytes  int            `json:"repeat_read_bytes"`
+	EmptySearches    int            `json:"empty_searches"`
+	GateRounds       int            `json:"gate_rounds"`
+	GateFailures     int            `json:"gate_failures"`
+	ReviewObjections int            `json:"review_objections"`
+	CompactionSaved  int            `json:"compaction_saved"`
 }
 
 // Read decodes a thread log written by internal/eventlog.

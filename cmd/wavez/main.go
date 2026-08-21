@@ -230,7 +230,7 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 	case opt.undo != "":
 		return true, undo(ctx, root, opt.undo)
 	case opt.stats != "":
-		return true, statsReport(root, opt.stats)
+		return true, statsReport(root, opt.stats, opt.jsonOut)
 	case opt.deadcode:
 		cfg, cerr := loadConfig(ctx, root, opt.with)
 		if cerr != nil {
