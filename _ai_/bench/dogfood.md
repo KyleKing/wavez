@@ -1568,3 +1568,43 @@ The claims that survive all of this: `h3` fell from 6 turns to 2, `e1`
 finished instead of hitting its deadline, `e2` went from 1 of 3 checks to 3
 of 3, nothing raised a false objection, and the tasks still routed through
 `str_replace` got more expensive because it failed more than it worked.
+
+## 2026-08-21, what the shell is actually used for
+
+Every shell call in the thread logs, 278 of them, classified by what the
+model was trying to find out:
+
+| what it was doing | calls | share | result bytes |
+|---|---|---|---|
+| searching through `grep` | 106 | 38% | 59,027 |
+| `go build` / `go test` | 46 | 17% | 36,442 |
+| re-running gates already run | 37 | 13% | 12,999 |
+| other | 37 | 13% | 49,112 |
+| inspecting `jj` or `git` | 24 | 9% | 24,087 |
+| reading a file through `sed`/`cat` | 17 | 6% | 18,830 |
+| listing through `ls`/`find` | 11 | 4% | 6,951 |
+
+Roughly 70% is work a deterministic tool either already did or could do with
+no model turn at all. The interesting part is why the model reaches for a
+shell when the tool exists.
+
+Fourteen `grep` calls sampled at random say it plainly. Six use alternation
+(`"ChoiceFast\|ChoiceBalanced\|ChoiceDeep"`, `"pinned\|activeModel\|Override"`),
+most scope to named files or a directory, and several want a literal
+identifier with line numbers (`grep -rn "edit\.ApplyToFile"`). The `search`
+tool takes one fuzzy query across the whole project. It is not that the model
+prefers the shell; it is that `search` cannot say what the model means.
+
+Several also compose: `grep -n X f.go | head`, `grep A; sed -n B`,
+`cmd && echo done`. One shell call does what three tool calls and three turns
+would. That is the whole reason `read` and `list` work gets done through a
+shell, and it argues for tools that accept several targets rather than for
+more tools. `read` already takes comma-separated paths and `delete` now takes
+comma-separated symbols; the pattern generalizes.
+
+The `jj`/`git` slice is the clearest waste, because the answer is already
+held. Every edit produces a `tool.Change` naming its file and the loop
+accumulates them, while `Checkpointer` captures one operation id for a whole
+run and nothing finer. Committing after each accepted change would make the
+change log the record, make undo per-edit, and make those 24 calls pointless
+because the harness can simply say what changed.
