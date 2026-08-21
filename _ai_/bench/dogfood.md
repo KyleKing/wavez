@@ -614,3 +614,65 @@ history where the model never sees the refusal.
 
 Two of those four recoveries printed line numbers with `NR`, which is the
 open question the reversal leaves behind.
+
+## 2026-08-21, compaction was sized from the wrong window
+
+Runs 4, 5, and 6 all took the same task (`-stats` gains a comparison mode,
+`internal/bench` and `cmd/wavez` only) on the balanced tier, so what changed
+between them is the harness rather than the work.
+
+Run 4 stopped on its deadline at 3m0s having made no edit at all: 24 turns,
+27 tool calls, 910 output tokens, 14 of 19 reads repeats, and 15 compactions.
+Its transcript reads as a search for something it already had, in shrinking
+windows over the same four files:
+
+```
+read internal/bench/stats_test.go        (whole file)
+read internal/bench/stats_test.go 19-148
+read internal/bench/stats_test.go 37-128
+read internal/bench/stats_test.go 55-108
+```
+
+The cause is one line. `maybeCompact` measured the trigger against
+`Loop.ContextWindow()`, which is the local runtime's served window, whatever
+tier the turn actually routed to. A hosted turn with a window in the hundreds
+of thousands was therefore compacted at 0.75 of 8,192, and `DropOldToolResults`
+replaced every tool result older than four turns with a one-line reference.
+The model was reading its way back to what compaction had taken, forever. The
+budget now follows the routed tier (`router.ContextBudget`).
+
+Run 5 died on the way to measuring it: OpenRouter sent `"code": 429` in a
+mid-stream error payload where the OpenAI spec types a string, the decode
+failed, and the run reported the decoder rather than the rate limit. Both
+tiers hit it, since escalation retried the same decoder. `flexString` now
+takes either shape.
+
+Run 6 finished the task and hit `max_turns` at 60, against run 3's 60:
+
+| | run 3 | run 6 |
+|---|---|---|
+| shell calls | 40 | 29 |
+| shell result bytes | 27,279 | 12,870 |
+| repeat reads | 6 of 12 | 0 of 12 |
+| edits (`str_replace` + `write`) | 7 | 15 |
+| input tokens | 549,165 | 1,533,732 |
+| compaction saved | ~8,170 | 0 |
+
+Shell fell by a quarter and its output by half, repeat reads went to zero, and
+the run made twice the edits in the same 63 calls. Input tokens tripled,
+which is the honest cost of the fix: a 60-turn run now carries its whole
+history because 0.75 of 128k is never reached. 81% of it was cached. Trading
+1M cached tokens for 11 shell calls and a run that edits is the right side of
+that trade today, and it puts a bound on how long a run can stay useful
+before compaction has to earn its place back at a budget that fits the tier.
+
+Two findings this session has not acted on yet:
+
+- The model batches by repeating a JSON key: `{"path":"a","path":"b"}` and
+  `{"dir":".","dir":"internal/bench"}`, three times across two runs. Go keeps
+  the last one, so it silently gets half of what it asked for
+- `list` with no pattern printed 200 alphabetically-first paths, which on this
+  repo is dot-directories, and the model still could not see the layout
+- Run 6 left a `git worktree add .tmp-clean HEAD` behind in the project root,
+  6.6 MB that broke `ls-lint` until it was removed. A run that adds a worktree
+  inside the project it is working in has no way to clean it up after
