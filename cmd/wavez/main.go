@@ -60,6 +60,7 @@ type options struct {
 	resume              string
 	socket              string
 	undo                string
+	stats               string
 	maxTurns            int
 	maxToolCallsPerTurn int
 	maxStagnantErrors   int
@@ -119,6 +120,8 @@ func run(args []string) error {
 		"report functions no main reaches, an orphan check the compiler cannot do")
 	fs.BoolVar(&opt.mutate, "mutate", false,
 		"mutate the working copy's changed lines and report the mutants the tests missed")
+	fs.StringVar(&opt.stats, "stats", "",
+		"report what a finished run spent, by thread id or log path")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -214,7 +217,7 @@ func appOptions(opt options) []app.Option {
 // runSubcommand dispatches the flags that do one job and exit instead of
 // opening a thread. It reports handled=false when none applies.
 func runSubcommand(ctx context.Context, opt options) (bool, error) {
-	if opt.undo == "" && !opt.deadcode && !opt.mutate {
+	if opt.undo == "" && opt.stats == "" && !opt.deadcode && !opt.mutate {
 		return false, nil
 	}
 
@@ -226,6 +229,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 	switch {
 	case opt.undo != "":
 		return true, undo(ctx, root, opt.undo)
+	case opt.stats != "":
+		return true, statsReport(root, opt.stats)
 	case opt.deadcode:
 		cfg, cerr := loadConfig(ctx, root, opt.with)
 		if cerr != nil {
@@ -592,6 +597,7 @@ Flags:
   -allow-all      approve every permission prompt without asking
   -strict-scope   refuse an edit to a file this run never read or created
   -mutate         mutate the working copy's changed lines and report what the tests missed
+  -stats <id>     report what a finished run spent, by thread id or log path
   -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn

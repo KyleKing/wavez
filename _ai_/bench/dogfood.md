@@ -541,3 +541,35 @@ as a reference.
 
 Nothing here is about the model. Both are the harness charging a run for
 work it already did.
+
+## 2026-08-21, the numbers a run leaves behind
+
+Both findings above came out of a Python script over one transcript, which is
+not a thing a future session will repeat. `wavez -stats <thread>` reads the
+thread log and reports them. On the same run:
+
+```
+thread p-dkubt3z97r3s
+turns 60, tool calls 71, elapsed 11m12s
+tokens in 861699, out 26644, cache read 778304 (90% of input)
+
+tool calls by name
+  read            32 calls    58911 result bytes
+  shell           19 calls    12926 result bytes
+  str_replace     11 calls      644 result bytes
+  search           8 calls     4881 result bytes
+  context          1 calls     3235 result bytes
+
+repeat reads 16 of 32 (26581 bytes), empty searches 3
+gate rounds 2, failed 0, review objections 2, compaction saved ~7168 tokens
+```
+
+Three of those lines were not visible before. 861k input tokens went into one
+scoped TUI change, 90% of it served from the provider's prefix cache, which is
+what kept the run free rather than the run being small. Three of the eight
+searches matched nothing. Eleven `str_replace` calls returned 644 bytes
+between them, so the edit tool is already close to free and the reading around
+it is not.
+
+The turn marker now records which tier served it, so the next run can say
+where its tokens went rather than only how many there were.

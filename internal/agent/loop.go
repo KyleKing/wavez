@@ -574,7 +574,8 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	}
 
 	msg := llm.Message{Content: text, ToolCalls: calls}
-	if err := r.thread.AppendAssistant(ctx, msg, usage); err != nil {
+	meta := thread.TurnMeta{Model: req.Model, Tier: string(r.route.Choice)}
+	if err := r.thread.AppendAssistant(ctx, msg, usage, meta); err != nil {
 		return true, Outcome{}, fmt.Errorf("appending assistant turn: %w", err)
 	}
 

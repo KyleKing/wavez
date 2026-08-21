@@ -141,12 +141,20 @@ func (t *Thread) AppendUser(ctx context.Context, text string) error {
 	return nil
 }
 
+// TurnMeta names what served one assistant turn. It is logged beside the
+// turn's usage so a later analysis can attribute tokens to a tier rather than
+// to the run as a whole, which is what deciding a tier's remit needs.
+type TurnMeta struct {
+	Model string
+	Tier  string
+}
+
 // AppendAssistant appends the model's response to history and logs a
 // KindAgent event summarizing it. Usage may be nil when the stream ended
 // without one. It does nothing and returns ctx.Err() if ctx is already
 // canceled, which keeps a mid-stream cancellation from committing a partial
 // assistant turn.
-func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *llm.Usage) error {
+func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *llm.Usage, meta TurnMeta) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
@@ -156,6 +164,12 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 	detail := map[string]any{"tool_calls": len(msg.ToolCalls)}
 	if usage != nil {
 		detail["usage"] = usage
+	}
+	if meta.Model != "" {
+		detail["model"] = meta.Model
+	}
+	if meta.Tier != "" {
+		detail["tier"] = meta.Tier
 	}
 	role := event.RoleNote
 	if len(msg.ToolCalls) == 0 {

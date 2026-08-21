@@ -59,7 +59,7 @@ func TestHistoryIsAppendOnlyAndCopied(t *testing.T) {
 		t.Fatalf("AppendUser: %v", err)
 	}
 	th.BeginTurn()
-	if err := th.AppendAssistant(ctx, llm.Message{Content: "hi"}, nil); err != nil {
+	if err := th.AppendAssistant(ctx, llm.Message{Content: "hi"}, nil, thread.TurnMeta{}); err != nil {
 		t.Fatalf("AppendAssistant: %v", err)
 	}
 	if err := th.AppendToolResult(ctx, "call-1", "read", nil, tool.Result{Content: "file contents"}); err != nil {
@@ -110,7 +110,7 @@ func TestAppendAssistantLogsRoleFromToolCalls(t *testing.T) {
 			ctx := context.Background()
 			th.BeginTurn()
 			msg := llm.Message{Content: "hi", ToolCalls: tt.toolCalls}
-			if err := th.AppendAssistant(ctx, msg, nil); err != nil {
+			if err := th.AppendAssistant(ctx, msg, nil, thread.TurnMeta{}); err != nil {
 				t.Fatalf("AppendAssistant: %v", err)
 			}
 

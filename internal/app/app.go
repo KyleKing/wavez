@@ -587,6 +587,12 @@ func buildRegistry(
 	)
 }
 
+// ThreadLogDir is where a project keeps its thread logs. A tool that reads a
+// finished run (see internal/bench) needs the path without opening a project.
+func ThreadLogDir(root string) string {
+	return filepath.Join(root, wavezDirName, threadLogDirName)
+}
+
 // conventionGates returns format plus convention when the project
 // configured rules, and format alone when it did not.
 func conventionGates(format *gate.FormatGate, convention *gate.ConventionGate) []gate.Gate {
