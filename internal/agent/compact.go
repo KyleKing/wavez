@@ -29,18 +29,33 @@ func WithCompaction(opts thread.CompactOptions, trigger float64) Option {
 }
 
 // messages returns the history for the next request: the compacted prefix
-// verbatim, then every entry appended since it was taken.
+// verbatim, then every entry appended since it was taken, with a tool result
+// that byte-matches an earlier one replaced by a reference to it.
+//
+// The dedupe runs on every request rather than only when compaction fires,
+// because compaction fires on crossing a share of the routed tier's budget
+// and a hosted turn never crosses it, while the duplicate is re-sent on every
+// turn until the run ends. Measured over this project's thread logs, 94 of
+// 281 reads re-read a path the thread had already read with no edit in
+// between, 36.5% of all read bytes.
+//
+// It is safe to apply at the edge because it keeps the first copy and only
+// rewrites later ones, so a message the model has seen never changes and the
+// provider's cached prefix stays put: a result deduped on one turn is
+// deduped identically on the next.
 func (r *run) messages() []llm.Message {
-	if r.compactedThrough == 0 {
-		return r.thread.History()
+	full := r.thread.TurnHistory()
+
+	out := full
+	if r.compactedThrough > 0 {
+		out = make([]thread.TurnMessage, 0, len(r.compacted)+len(full)-r.compactedThrough)
+		out = append(out, r.compacted...)
+		out = append(out, full[r.compactedThrough:]...)
 	}
 
-	full := r.thread.TurnHistory()
-	out := make([]thread.TurnMessage, 0, len(r.compacted)+len(full)-r.compactedThrough)
-	out = append(out, r.compacted...)
-	out = append(out, full[r.compactedThrough:]...)
+	deduped, _ := thread.DedupeToolReads(out)
 
-	return thread.Flatten(out)
+	return thread.Flatten(deduped)
 }
 
 // compactBudget is the served window of the tier this turn would route to

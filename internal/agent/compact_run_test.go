@@ -131,3 +131,60 @@ func TestRun_HostedTurnIsNotCompactedAtTheFastWindow(t *testing.T) {
 			out.TokensCompacted)
 	}
 }
+
+// sameBodyTool returns the same body whatever it is asked, which is what a
+// second read of an unedited file does.
+type sameBodyTool struct{ body string }
+
+func (sameBodyTool) Name() string            { return "bulk" }
+func (sameBodyTool) Description() string     { return "returns the same output every time" }
+func (sameBodyTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+
+func (s sameBodyTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
+	return tool.Result{Content: s.body}, nil
+}
+
+// TestRun_RepeatedToolResultIsSentOnce covers the request-assembly dedupe,
+// which has to work with compaction switched off: compaction fires on
+// crossing a share of the routed budget and a hosted turn never crosses it,
+// while the duplicate is re-sent on every remaining turn.
+func TestRun_RepeatedToolResultIsSentOnce(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Repeat("the same file body\n", 200)
+	local := fake.New("local", bulkTurns(2)...)
+	loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(sameBodyTool{body: body}),
+		permission.AllowAll())
+
+	if _, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go",
+		router.Input{Override: router.ChoiceFast}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	reqs := local.Requests()
+	last := reqs[len(reqs)-1]
+
+	sent := 0
+	for _, m := range last.Messages {
+		if m.Content == body {
+			sent++
+		}
+	}
+
+	if sent != 1 {
+		t.Errorf("the same result was sent %d times, want 1", sent)
+	}
+
+	if !strings.Contains(joined(last), "same content as turn") {
+		t.Errorf("want the duplicate replaced by a reference, got:\n%s", joined(last))
+	}
+}
+
+func joined(r llm.Request) string {
+	var b strings.Builder
+	for _, m := range r.Messages {
+		b.WriteString(m.Content + "\n")
+	}
+
+	return b.String()
+}
