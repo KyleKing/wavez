@@ -724,3 +724,46 @@ The reviewer objected twice and was wrong both times, once claiming a test
 asserted through `Render` what it asserts directly two lines earlier. That
 is the third objection-shaped false positive on the fast tier and it is
 still recorded rather than blocking, which is the rule earning its keep.
+
+## 2026-08-21, the same task twice, and what actually moved it
+
+Runs 8 and 9 took the same task: record on a logged tool event whether the
+result was an error (`internal/thread`), then count the failures per tool in
+`-stats` (`internal/bench`).
+
+| | run 8 | run 9 |
+|---|---|---|
+| stop | max_turns | complete |
+| turns | 60 | 22 |
+| tool calls | 63 | 25 |
+| shell calls | 44 | 0 |
+| edits | 0 | 5 |
+| input tokens | 1,454,058 | 357,707 |
+| elapsed | 13m5s | 7m30s |
+
+Run 8 changed nothing at all. The task adds a key beside an existing one in a
+map, and the run spent 44 shell calls mapping every consumer of that map
+across `internal/cycle`, `internal/daemon`, `internal/agent`, and
+`internal/tui`, almost all of them `grep -rn … | head -30` and `sed -n`. Zero
+edits also means zero gate rounds, so the feedback channel that carried run 7
+never fired once.
+
+Two changes went in before run 9, and the honest reading is that only one of
+them can be credited:
+
+- Search now reports how many rows matched in full, so a capped result set is
+  visibly capped. This is the one that plausibly moved it. Run 8's greps were
+  establishing completeness, which a count states directly; run 9 made 8
+  searches and no greps
+- A run that has changed nothing for 15 turns is told to start. This did
+  **not** fire in run 9, so it is still unmeasured. It was gated on the same
+  edit-shaped task wording the fatal no-change rule uses, which reads the
+  first line's verb alone and classified "Count the tool calls that failed"
+  as a question. The nudge now fires for any run holding an editing tool,
+  which is the correct test for a nudge, and the fatal rule keeps the stricter
+  one
+
+Run-to-run variance is the other candidate and cannot be ruled out from one
+pair. What is not variance: run 9 used the `edits` array on four of its five
+`str_replace` calls and the comma form of `list` and `read`, so the batching
+added after run 7 is being used rather than merely available.
