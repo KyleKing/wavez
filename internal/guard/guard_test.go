@@ -105,6 +105,23 @@ func TestClassify_Git(t *testing.T) {
 			name: "git rebase rewrites history", command: "git rebase -i HEAD~3",
 			wantVerdict: guard.NeedsApproval, wantReason: "rewrites commit history",
 		},
+		{
+			name: "git stash takes the working copy away", command: "git stash",
+			wantVerdict: guard.NeedsApproval, wantReason: "uncommitted work",
+		},
+		{
+			name: "git stash drop cannot be undone", command: "git stash drop",
+			wantVerdict: guard.Refuse, wantReason: "irrecoverably",
+		},
+		{name: "git stash list only reads", command: "git stash list", wantVerdict: guard.Allow},
+		{
+			name: "git checkout replaces files", command: "git checkout -- .",
+			wantVerdict: guard.NeedsApproval, wantReason: "working copy",
+		},
+		{
+			name: "git worktree add leaves a second copy", command: "git worktree add .tmp HEAD",
+			wantVerdict: guard.NeedsApproval, wantReason: "second working copy",
+		},
 	})
 }
 

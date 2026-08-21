@@ -2,6 +2,7 @@ package guard
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -201,25 +202,65 @@ func classifyGit(cmd string, tokens []string) finding {
 
 	switch tokens[1] {
 	case "push":
-		for _, tok := range tokens[2:] {
-			if tok == "--force" || tok == "-f" || tok == "--force-with-lease" ||
-				strings.HasPrefix(tok, "--force-with-lease=") {
-				return finding{Verdict: NeedsApproval, Reason: "force push can overwrite remote history", Fragment: cmd}
-			}
+		if forcedPush(tokens[2:]) {
+			return finding{Verdict: NeedsApproval, Reason: "force push can overwrite remote history", Fragment: cmd}
 		}
 	case "reset":
-		for _, tok := range tokens[2:] {
-			if tok == "--hard" {
-				return finding{
-					Verdict: NeedsApproval, Reason: "git reset --hard discards uncommitted work", Fragment: cmd,
-				}
+		if slices.Contains(tokens[2:], "--hard") {
+			return finding{
+				Verdict: NeedsApproval, Reason: "git reset --hard discards uncommitted work", Fragment: cmd,
 			}
 		}
 	case "rebase", "filter-branch", "filter-repo":
 		return finding{Verdict: NeedsApproval, Reason: "rewrites commit history", Fragment: cmd}
+	case "stash":
+		return classifyGitStash(cmd, tokens)
+	case "checkout", "switch", "restore":
+		return finding{
+			Verdict: NeedsApproval, Reason: "replaces files in the working copy", Fragment: cmd,
+		}
+	case "clean":
+		return finding{Verdict: NeedsApproval, Reason: "deletes untracked files", Fragment: cmd}
+	case "worktree":
+		return finding{
+			Verdict: NeedsApproval, Reason: "adds a second working copy of this repository", Fragment: cmd,
+		}
 	}
 
 	return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
+}
+
+// classifyGitStash separates reading the stash from moving work into or out
+// of it. A run that stashes takes uncommitted work out of the working copy,
+// including whatever the user is editing beside it, and drop and clear
+// destroy it outright with nothing to restore from.
+func forcedPush(args []string) bool {
+	for _, tok := range args {
+		if tok == "--force" || tok == "-f" || tok == "--force-with-lease" ||
+			strings.HasPrefix(tok, "--force-with-lease=") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func classifyGitStash(cmd string, tokens []string) finding {
+	sub := ""
+	if len(tokens) > minGitTokens {
+		sub = tokens[minGitTokens]
+	}
+
+	switch sub {
+	case "list", "show":
+		return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
+	case "drop", "clear":
+		return finding{Verdict: Refuse, Reason: "discards stashed work irrecoverably", Fragment: cmd}
+	default:
+		return finding{
+			Verdict: NeedsApproval, Reason: "moves uncommitted work out of the working copy", Fragment: cmd,
+		}
+	}
 }
 
 func gitInternalsWrite(tokens []string) (string, bool) {
