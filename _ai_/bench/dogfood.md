@@ -1543,12 +1543,28 @@ Over the seven tasks both sweeps share: checks 13 of 20 against 15 of 20,
 review objections 2 against 0, turns 27 against 28, input tokens 88,945
 against 111,542.
 
-That is a quality gain and not a token gain, and the token column is the one
-to be careful about. It is 25% worse, and all of that sits in `e2` and `h2`,
-the two tasks whose recorded spread is widest (`e2` has run between 2 and 13
-turns on identical builds). `e2` spent those tokens passing 3 of 3 where it
-had passed 1 of 3, which is the trade one wants; `h2` spent them and passed
-the same 1 of 2, which is not. At one run per task the variance section says
-neither reading is safe, and the honest claim is the one the low-variance
-tasks support: `h3` fell from 6 turns to 2, `e1` finished instead of hitting
-its deadline, and nothing raised a false objection.
+That is a quality gain and not a token gain. The token column is 25% worse,
+and all of it sits in `e2` and `h2`. The first guess was variance, since
+those two have the widest recorded spread, and the tool counts say otherwise.
+
+Across the eight runs, `delete` was called only on `h4`, so the tenth tool is
+not being reached for where it does not belong. What the expensive runs have
+in common is that their edits are the kind no Modifier covers, and
+`str_replace` failed 6 of the 10 times it was called:
+
+- twice with arguments that were not valid JSON, which is the emission
+  failure the Modifiers were built to remove, still intact on the work they
+  do not cover
+- twice with an `old_string` that did not match
+- once repeating a call unchanged, once with no `path` at all
+
+`h2`'s three `str_replace` calls all failed. So the extra tokens are retries
+of a failing edit rather than noise, which is a better answer than the one
+this entry first gave and points at the same place the shape table did:
+block rewrites are 35% of edits and half the bytes, and they still go through
+the surface the fast tier cannot emit into.
+
+The claims that survive all of this: `h3` fell from 6 turns to 2, `e1`
+finished instead of hitting its deadline, `e2` went from 1 of 3 checks to 3
+of 3, nothing raised a false objection, and the tasks still routed through
+`str_replace` got more expensive because it failed more than it worked.
