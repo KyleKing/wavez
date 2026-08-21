@@ -290,3 +290,26 @@ func TestVerifyRunsTheCompiler(t *testing.T) {
 		t.Errorf("a tree that compiles failed: %+v", got[0])
 	}
 }
+
+func TestReportNamesTheTierThatDidTheWork(t *testing.T) {
+	t.Parallel()
+
+	recs := []replay.Record{
+		replay.NewRecord(replay.Run{Task: "e3", Label: "pinned", Model: "fast", MaxTurns: 60},
+			started, "complete", bench.Stats{Turns: 18, TierTurns: map[string]int{"fast": 6, "balanced": 12}}, nil),
+		replay.NewRecord(replay.Run{Task: "e3", Label: "held", Model: "fast", MaxTurns: 60},
+			started, "complete", bench.Stats{Turns: 3, TierTurns: map[string]int{"fast": 3}}, nil),
+	}
+
+	var out strings.Builder
+	if err := replay.Report(recs, "e3", &out); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+
+	requireHolds(t, out.String(), "6f 12b", "3f",
+		"pinned asked for fast and spent 12 of 18 turns above it")
+
+	if strings.Contains(out.String(), "held asked for fast") {
+		t.Errorf("a run that stayed on its pinned tier needs no note:\n%s", out.String())
+	}
+}

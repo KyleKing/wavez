@@ -844,7 +844,9 @@ named itself in the transcript:
   That describes a containment problem the run did not have. It says the path
   is missing now
 
-With those in, the same set runs 4/4 complete with every check passing.
+With those in, the same set runs 4/4 complete with every check passing, and
+that sentence is worth less than it looks: see the tier mix below, which says
+who actually did the work.
 
 Two things the counters could not say before this session:
 
@@ -862,3 +864,45 @@ Variance on this tier is large and has to be read into every pair: e1 ran 5
 turns and 17k input tokens on one pass and 24 turns and 163k on another with
 nothing between them that touches its path. A pair is evidence for a state
 change (dead to complete) and weak evidence for a percentage.
+
+## 2026-08-21, who actually ran the fixed task set
+
+The four runs above were recorded as the fast tier and reported as the fast
+tier finishing every task. The records already carried `tier_turns` and I read
+the pin instead, which is the number the router explicitly does not promise: a
+pin is a floor rather than a cage, so a thread whose tier keeps failing moves
+up and finishes somewhere else.
+
+What the same four records say when the mix is read:
+
+| task | asked | tiers | stop | checks |
+|---|---|---|---|---|
+| q1 | fast | 2 fast | complete | 2/2 |
+| e1 | fast | 1 fast, 4 balanced | complete | 1/1 |
+| e2 | fast | 4 fast, 7 balanced | complete | 3/3 |
+| e3 | fast | 6 fast, 12 balanced | complete | 3/3 |
+
+Only q1 ran on the fast tier. Every edit task escalated to the hosted model
+inside six turns and finished there, so the fast tier's contribution to the
+three edit tasks was the turns it spent before giving up. `-replay-report` now
+carries a `tiers` column and names any run that finished above its pin, so the
+same mistake costs a glance rather than a session.
+
+The failure that escalates is mechanical, and it is the same one every time.
+Across all six e3 runs the fast tier spent exactly six
+turns, and turns three, five, and six were byte-identical:
+
+```
+{"path": "internal/daemon/thread.go", "old_string": "func firstDir(dirs []string) string {\", \"new_string\": \"func primaryDir(dirs []string) string {\"}, {"
+```
+
+It escaped the closing quote of `old_string` and swallowed the rest of the
+object into the string, three times, then stagnation escalated. `qwen3:8b`
+knew the rename, found the symbol, and could not emit a JSON object with code
+inside it.
+
+That is the argument for Modifiers rather than a bigger fast tier. A rename
+sent as `{"kind":"rename","symbol":"firstDir","to":"primaryDir"}` has no
+embedded source, so the emission that fails here has nothing to fail at. It
+also bounds the remit the set can currently prove: read-only questions hold on
+`qwen3:8b`, and every task that has to emit code inside JSON has escalated.

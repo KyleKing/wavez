@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/bench"
+	"github.com/kyleking/wavez/internal/router"
 )
 
 // Column widths of the run table, wide enough for a commit hash, a tier
@@ -15,6 +16,7 @@ const (
 	labelWidth = 20
 	modelWidth = 10
 	stopWidth  = 12
+	tiersWidth = 12
 )
 
 // pairSize is how many runs a diff needs.
@@ -37,15 +39,22 @@ func Report(recs []Record, task string, w io.Writer) error {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "task %s, %d run(s)\n", task, len(rows))
-	fmt.Fprintf(&b, "%-20s %-20s %-10s %-12s %6s %6s %6s %10s %8s\n",
-		"label", "started", "model", "stop", "checks", "turns", "calls", "in tokens", "elapsed")
+	fmt.Fprintf(&b, "%-20s %-20s %-10s %-14s %-12s %6s %6s %6s %10s %8s\n",
+		"label", "started", "asked", "tiers", "stop", "checks", "turns", "calls", "in tokens", "elapsed")
 
 	for i := range rows {
 		r := &rows[i]
-		fmt.Fprintf(&b, "%-20s %-20s %-10s %-12s %6s %6d %6d %10d %8s\n",
+		fmt.Fprintf(&b, "%-20s %-20s %-10s %-14s %-12s %6s %6d %6d %10d %8s\n",
 			truncate(r.Label, labelWidth), r.Started, truncate(modelOf(r.Run), modelWidth),
-			truncate(r.Stop, stopWidth), r.CheckSummary(), r.Stats.Turns, r.Stats.ToolCalls,
+			truncate(TierMix(r.Stats.TierTurns), tiersWidth), truncate(r.Stop, stopWidth),
+			r.CheckSummary(), r.Stats.Turns, r.Stats.ToolCalls,
 			r.Stats.InputTokens, r.Stats.Elapsed.Round(time.Second))
+	}
+
+	for i := range rows {
+		if note := escalationNote(&rows[i]); note != "" {
+			b.WriteString(note)
+		}
 	}
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
@@ -99,6 +108,45 @@ func baselineFor(rows []Record) (Record, bool) {
 	}
 
 	return Record{}, false
+}
+
+// TierMix renders the turns a run spent on each tier, weakest first and
+// zeroes omitted ("6f 12b"). A pin is a floor rather than a cage, so the
+// tier a run asked for is not the tier that did the work, and reading the
+// pin as the answer credits the fast tier with a hosted model's run.
+func TierMix(turns map[string]int) string {
+	var parts []string
+
+	for _, tier := range []router.Choice{router.ChoiceFast, router.ChoiceBalanced, router.ChoiceDeep} {
+		if n := turns[string(tier)]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d%c", n, tier[0]))
+		}
+	}
+
+	if len(parts) == 0 {
+		return "-"
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// escalationNote calls out a run that finished above the tier it asked for.
+// The row already carries the mix, and the mix is easy to read past, so the
+// case the fast tier is judged on gets its own line: what the pinned tier
+// spent before it gave up, and who finished.
+func escalationNote(r *Record) string {
+	pinned := r.Model
+	if pinned == "" || r.Stats.Turns == 0 {
+		return ""
+	}
+
+	own := r.Stats.TierTurns[pinned]
+	if own == r.Stats.Turns {
+		return ""
+	}
+
+	return fmt.Sprintf("  %s asked for %s and spent %d of %d turns above it\n",
+		r.Label, pinned, r.Stats.Turns-own, r.Stats.Turns)
 }
 
 // modelOf names the tier a run was pinned to, or the router's own choice.

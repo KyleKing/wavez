@@ -81,8 +81,9 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return err //nolint:wrapcheck // Append already names the file and the failure
 	}
 
-	fmt.Fprintf(os.Stderr, "recorded %s/%s: %s in %d turns, checks %s\n",
-		rec.Task, rec.Label, rec.Stop, rec.Stats.Turns, rec.CheckSummary())
+	fmt.Fprintf(os.Stderr, "recorded %s/%s: %s in %d turns (%s), checks %s\n",
+		rec.Task, rec.Label, rec.Stop, rec.Stats.Turns,
+		replay.TierMix(rec.Stats.TierTurns), rec.CheckSummary())
 
 	for _, c := range rec.Checks {
 		if !c.Pass {
