@@ -6,14 +6,26 @@ import "encoding/json"
 const (
 	schemaTypeString  = "string"
 	schemaTypeInteger = "integer"
+	schemaTypeArray   = "array"
+	schemaTypeObject  = "object"
 	propPath          = "path"
 )
 
-// schemaProperty is one property of a tool's JSON Schema input.
+// schemaProperty is one property of a tool's JSON Schema input. Items
+// describes the element type of an array property and is nil for every
+// other type.
 type schemaProperty struct {
-	Type        string   `json:"type"`
-	Description string   `json:"description"`
-	Enum        []string `json:"enum,omitempty"`
+	Items       *schemaItems `json:"items,omitempty"`
+	Type        string       `json:"type"`
+	Description string       `json:"description"`
+	Enum        []string     `json:"enum,omitempty"`
+}
+
+// schemaItems is the object an array property's elements are.
+type schemaItems struct {
+	Properties map[string]schemaProperty `json:"properties,omitempty"`
+	Type       string                    `json:"type"`
+	Required   []string                  `json:"required,omitempty"`
 }
 
 // jsonSchemaDoc is the JSON Schema object a tool.Tool's Schema method

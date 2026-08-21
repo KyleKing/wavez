@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/tool"
@@ -152,6 +153,17 @@ func (r *Read) readAll(paths []string, start, end int) tool.Result {
 			return tool.Errorf("%v", err)
 		}
 
+		if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
+			names, listErr := dirEntries(abs)
+			if listErr != nil {
+				return tool.Errorf("%v", listErr)
+			}
+
+			blocks = append(blocks, fmt.Sprintf("%s is a directory holding:\n%s", p, strings.Join(names, "\n")))
+
+			continue
+		}
+
 		data, err := os.ReadFile(abs) // #nosec G304 -- abs is resolved and root-checked above
 		if err != nil {
 			return tool.Errorf("reading %s: %v", p, err)
@@ -244,4 +256,27 @@ func numbered(lines []string, start int) string {
 	}
 
 	return b.String()
+}
+
+// dirEntries names what one directory holds, with a trailing slash on the
+// subdirectories. A read of a directory answers with this rather than an
+// error, because the error costs the turn and the listing was the next call
+// anyway: two of one run's reads named a directory and each was followed by
+// the list call that should have been the first.
+func dirEntries(abs string) ([]string, error) {
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return nil, fmt.Errorf("listing %s: %w", filepath.Base(abs), err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+
+	return names, nil
 }

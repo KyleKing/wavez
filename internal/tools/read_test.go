@@ -49,6 +49,34 @@ func TestRead_RepeatReadReturnsTheContentAgain(t *testing.T) {
 	}
 }
 
+// A read naming a directory used to cost a turn to learn it was one, and
+// the next call was always the listing.
+func TestRead_OnADirectoryListsIt(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "pkg", "sub"), 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "a.go"), []byte("package pkg\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	r := tools.NewRead(dir, nil)
+	result, err := r.Run(context.Background(), mustJSON(t, map[string]any{"path": "pkg"}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("IsError = true: %q", result.Content)
+	}
+	for _, want := range []string{"pkg is a directory", "a.go", "sub/"} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("Content = %q, want it to hold %q", result.Content, want)
+		}
+	}
+}
+
 func TestRead_RefusesPathOutsideRoot(t *testing.T) {
 	t.Parallel()
 

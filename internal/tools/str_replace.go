@@ -10,13 +10,18 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
+const (
+	propOldString = "old_string"
+	propNewString = "new_string"
+)
+
 var strReplaceSchema = buildSchema(map[string]schemaProperty{
 	propPath: {
 		Type: schemaTypeString,
 		Description: "File path, relative to the project root, of an existing file. " +
 			"A path outside the root is refused.",
 	},
-	"old_string": {
+	propOldString: {
 		Type: schemaTypeString,
 		Description: "Exact text to replace. Must match exactly one location, or the call " +
 			"fails with the matching line numbers. Copy it from a prior read rather than " +
@@ -24,13 +29,27 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 			"and anchor on the shortest snippet that appears exactly once: a long anchor " +
 			"fails more often than a short one.",
 	},
-	"new_string": {
+	propNewString: {
 		Type: schemaTypeString,
 		Description: "Text that replaces old_string entirely. To insert lines before or " +
 			"after existing code, repeat that code inside new_string, or it is deleted. " +
 			"Must differ from old_string.",
 	},
-}, propPath, "old_string", "new_string")
+	"edits": {
+		Type: schemaTypeArray,
+		Description: "Several replacements in one file, applied in order, instead of " +
+			"old_string and new_string. All of them land or none do. Prefer this over one " +
+			"call per replacement when a file needs more than one change.",
+		Items: &schemaItems{
+			Type: schemaTypeObject,
+			Properties: map[string]schemaProperty{
+				propOldString: {Type: schemaTypeString, Description: "Exact text to replace, as above."},
+				propNewString: {Type: schemaTypeString, Description: "Text that replaces it, as above."},
+			},
+			Required: []string{propOldString, propNewString},
+		},
+	},
+}, propPath)
 
 // StrReplace edits an existing file by replacing one exact (or
 // whitespace-fuzzy) occurrence of old_string with new_string, wrapping
@@ -56,19 +75,39 @@ func (*StrReplace) Name() string { return "str_replace" }
 
 // Description implements tool.Tool.
 func (*StrReplace) Description() string {
-	return "Replace one exact occurrence of old_string with new_string in an existing file. " +
-		"new_string replaces old_string entirely, so an insertion must repeat the surrounding " +
-		"lines. Fails if old_string matches zero or more than one location; the error names the " +
-		"line numbers so you can widen old_string to make it unique."
+	return "Replace one exact occurrence of old_string with new_string in an existing file, or " +
+		"several at once with edits. new_string replaces old_string entirely, so an insertion " +
+		"must repeat the surrounding lines. Fails if old_string matches zero or more than one " +
+		"location; the error names the line numbers so you can widen old_string to make it unique."
 }
 
 // Schema implements tool.Tool.
 func (*StrReplace) Schema() json.RawMessage { return strReplaceSchema }
 
 type strReplaceInput struct {
-	Path      string `json:"path"`
+	Path      string     `json:"path"`
+	OldString string     `json:"old_string"`
+	NewString string     `json:"new_string"`
+	Edits     []editPair `json:"edits"`
+}
+
+type editPair struct {
 	OldString string `json:"old_string"`
 	NewString string `json:"new_string"`
+}
+
+// pairs is the replacements one call asked for, in order.
+func (in *strReplaceInput) pairs() []edit.Pair {
+	if len(in.Edits) == 0 {
+		return []edit.Pair{{OldString: in.OldString, NewString: in.NewString}}
+	}
+
+	out := make([]edit.Pair, 0, len(in.Edits))
+	for _, e := range in.Edits {
+		out = append(out, edit.Pair{OldString: e.OldString, NewString: e.NewString})
+	}
+
+	return out
 }
 
 // Run implements tool.Tool.
@@ -97,7 +136,11 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	}
 	defer release()
 
-	change, err := edit.ApplyToFile(abs, in.OldString, in.NewString)
+	if len(in.Edits) > 0 && (in.OldString != "" || in.NewString != "") {
+		return tool.Errorf("send either edits or one old_string/new_string pair, not both"), nil
+	}
+
+	change, err := edit.ApplyAllToFile(abs, in.pairs())
 	if err != nil {
 		if errors.Is(err, edit.ErrNotFound) && lineNumbered(in.OldString) {
 			return tool.Errorf("%v\n\nold_string still carries the line numbers read prefixed each "+
@@ -110,6 +153,9 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	change.Path = in.Path
 
 	content := fmt.Sprintf("%s: +%d -%d lines", in.Path, change.Added, change.Removed)
+	if len(in.Edits) > 1 {
+		content = fmt.Sprintf("%s across %d edits", content, len(in.Edits))
+	}
 	if len(change.Ranges) > 0 {
 		content = fmt.Sprintf("%s (now lines %d-%d)", content, change.Ranges[0].Start, change.Ranges[0].End)
 	}

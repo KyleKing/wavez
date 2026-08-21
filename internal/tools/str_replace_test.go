@@ -84,3 +84,52 @@ func TestStrReplace_RefusesPathOutsideRoot(t *testing.T) {
 		t.Errorf("IsError = false, want true for a path outside the root")
 	}
 }
+
+// One call per replacement costs a turn each, and the turns are what a run
+// spends its budget on.
+func TestStrReplace_AppliesSeveralEditsInOneCall(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.go")
+	if err := os.WriteFile(path, []byte("package p\n\nconst A = 1\nconst B = 2\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "f.go",
+		"edits": []map[string]string{
+			{"old_string": "const A = 1", "new_string": "const A = 10"},
+			{"old_string": "const B = 2", "new_string": "const B = 20"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("IsError = true: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "across 2 edits") {
+		t.Errorf("Content = %q, want it to name the batch", result.Content)
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if got := string(data); !strings.Contains(got, "A = 10") || !strings.Contains(got, "B = 20") {
+		t.Errorf("file = %q, want both edits applied", got)
+	}
+
+	both, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "f.go", "old_string": "x", "new_string": "y",
+		"edits": []map[string]string{{"old_string": "a", "new_string": "b"}},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !both.IsError || !strings.Contains(both.Content, "not both") {
+		t.Errorf("Content = %q (IsError=%v), want the two shapes refused together", both.Content, both.IsError)
+	}
+}
