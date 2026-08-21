@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -164,5 +165,51 @@ func TestNumberedTextIsRefusedAsFileContent(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "new.go")); statErr == nil {
 		t.Error("write created the file despite refusing the content")
+	}
+}
+
+// A model batches by repeating a JSON key or by listing paths in one string;
+// decoding keeps only the last repeat, so a call meaning two files silently
+// returned one.
+func TestRead_ReadsSeveralFilesInOneCall(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"a.go": "package a\n",
+		"b.go": "package b\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+
+	r := tools.NewRead(dir, nil)
+	run := func(input string) tool.Result {
+		t.Helper()
+		result, err := r.Run(context.Background(), json.RawMessage(input))
+		if err != nil {
+			t.Fatalf("Run(%s): %v", input, err)
+		}
+
+		return result
+	}
+
+	for _, input := range []string{
+		`{"path":"a.go,b.go"}`,
+		`{"path":"a.go","path":"b.go"}`,
+	} {
+		result := run(input)
+		if result.IsError {
+			t.Fatalf("Run(%s) errored: %q", input, result.Content)
+		}
+		if !strings.Contains(result.Content, "package a") || !strings.Contains(result.Content, "package b") {
+			t.Errorf("Run(%s) = %q, want both files", input, result.Content)
+		}
+	}
+
+	ranged := run(`{"path":"a.go,b.go","start_line":1,"end_line":1}`)
+	if !ranged.IsError || !strings.Contains(ranged.Content, "a line range reads one file") {
+		t.Errorf("a range over two paths = %q (IsError=%v), want a refusal", ranged.Content, ranged.IsError)
 	}
 }

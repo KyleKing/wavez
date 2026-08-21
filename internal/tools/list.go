@@ -7,12 +7,17 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/tool"
 )
 
 const maxListedFiles = 200
+
+// maxListedDirs caps the rollup a listing falls back to when it has more
+// files than it may print.
+const maxListedDirs = 60
 
 // skipListDirs are never descended into. They hold no source a model asks
 // for and one of them, .git, is large enough to swamp a listing on its own.
@@ -21,8 +26,8 @@ var skipListDirs = map[string]bool{".git": true, ".jj": true, "node_modules": tr
 var listSchema = buildSchema(map[string]schemaProperty{
 	"dir": {
 		Type: schemaTypeString,
-		Description: "Directory to list, relative to the project root. Omit it to list from " +
-			"the root. A path outside the root is refused.",
+		Description: "Directory to list, relative to the project root, or several separated " +
+			"by commas. Omit it to list from the root. A path outside the root is refused.",
 	},
 	"pattern": {
 		Type: schemaTypeString,
@@ -70,27 +75,33 @@ func (l *List) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 		return tool.Errorf("invalid input: %v", err), nil
 	}
 
-	if in.Dir == "" {
-		in.Dir = "."
-	}
-
-	abs, err := resolvePath(l.root, in.Dir)
-	if err != nil {
-		return tool.Errorf("%v", err), nil
-	}
-
 	if in.Pattern != "" {
 		if _, err := path.Match(in.Pattern, "probe"); err != nil {
 			return tool.Errorf("pattern %q is not a valid glob: %v", in.Pattern, err), nil
 		}
 	}
 
-	found, err := walkMatching(abs, in.Pattern)
-	if err != nil {
-		return tool.Errorf("%v", err), nil
+	dirs := readPaths(input, "dir", in.Dir)
+	if len(dirs) == 0 {
+		dirs = []string{"."}
 	}
 
-	return tool.Result{Content: formatListing(in.Dir, in.Pattern, found)}, nil
+	blocks := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		abs, err := resolvePath(l.root, dir)
+		if err != nil {
+			return tool.Errorf("%v", err), nil
+		}
+
+		found, err := walkMatching(abs, in.Pattern)
+		if err != nil {
+			return tool.Errorf("%v", err), nil
+		}
+
+		blocks = append(blocks, formatListing(dir, in.Pattern, found))
+	}
+
+	return tool.Result{Content: strings.Join(blocks, "\n\n")}, nil
 }
 
 func walkMatching(root, pattern string) ([]string, error) {
@@ -153,16 +164,49 @@ func formatListing(dir, pattern string, found []string) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d %s under %s:\n", len(found), what, dir)
 
-	shown := found
-	if len(shown) > maxListedFiles {
-		shown = shown[:maxListedFiles]
+	if len(found) > maxListedFiles {
+		fmt.Fprintf(&b, "%d %s under %s, too many to name. Files per directory:\n", len(found), what, dir)
+		b.WriteString(rollup(found))
+		b.WriteString("\nNarrow with dir or pattern to see file names.")
+
+		return b.String()
 	}
-	b.WriteString(strings.Join(shown, "\n"))
 
-	if len(shown) < len(found) {
-		fmt.Fprintf(&b, "\n... [%d more; narrow with dir or pattern] ...", len(found)-len(shown))
+	fmt.Fprintf(&b, "%d %s under %s:\n", len(found), what, dir)
+	b.WriteString(strings.Join(found, "\n"))
+
+	return b.String()
+}
+
+// rollup summarizes an oversized listing as a count per directory. Printing
+// the first 200 paths instead answers a question about the layout with
+// whichever directory sorts first, which on this repo is a run of dot
+// directories the model was not asking about.
+func rollup(found []string) string {
+	counts := make(map[string]int, len(found))
+	for _, f := range found {
+		counts[path.Dir(f)]++
+	}
+
+	dirs := make([]string, 0, len(counts))
+	for d := range counts {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+
+	var b strings.Builder
+
+	shown := dirs
+	if len(shown) > maxListedDirs {
+		shown = shown[:maxListedDirs]
+	}
+	for _, d := range shown {
+		fmt.Fprintf(&b, "  %s/  %d\n", d, counts[d])
+	}
+
+	if len(shown) < len(dirs) {
+		fmt.Fprintf(&b, "  ... [%d more directories] ...\n", len(dirs)-len(shown))
 	}
 
 	return b.String()

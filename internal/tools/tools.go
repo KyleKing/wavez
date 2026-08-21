@@ -1,10 +1,12 @@
 // Package tools implements the v0.1 tool set the chat loop hands to a model:
-// read, str_replace, write, shell, search, and question. Each tool is
+// list, read, str_replace, write, shell, search, and question. Each tool is
 // constructed with explicit dependencies (a project root, a gate, a store)
 // and holds no package-level state.
 package tools
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -67,4 +69,40 @@ func allDigits(s string) bool {
 	}
 
 	return true
+}
+
+// repeatedStringField returns every top-level string value a JSON object
+// gives the named key. Decoding keeps only the last of a repeated key, which
+// loses what a model meant when it batches by repeating one.
+func repeatedStringField(input json.RawMessage, key string) []string {
+	dec := json.NewDecoder(bytes.NewReader(input))
+
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		return nil
+	}
+
+	var out []string
+	for dec.More() {
+		name, err := dec.Token()
+		if err != nil {
+			return out
+		}
+
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return out
+		}
+
+		if name != key {
+			continue
+		}
+
+		var s string
+		if err := json.Unmarshal(value, &s); err == nil {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }

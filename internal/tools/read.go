@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,15 +13,23 @@ import (
 
 const (
 	maxReadLines = 500
+	// A comma-separated list must not pull the whole tree into the window
+	// in a single result.
+	maxReadFiles = 10
 	minLineNum   = 1
 	// An omitted end_line means "to the end of the file".
 	maxInt = int(^uint(0) >> 1)
 )
 
+// errBadLineRange reports a start_line/end_line pair naming no lines.
+var errBadLineRange = errors.New("start_line and end_line must satisfy")
+
 var readSchema = buildSchema(map[string]schemaProperty{
 	propPath: {
-		Type:        schemaTypeString,
-		Description: "File path, relative to the project root. A path outside the root is refused.",
+		Type: schemaTypeString,
+		Description: "File path, relative to the project root, or several separated by commas " +
+			"to read them in one call. A path outside the root is refused. A line range may " +
+			"only accompany a single path.",
 	},
 	"start_line": {
 		Type: schemaTypeInteger,
@@ -85,6 +94,26 @@ type readInput struct {
 	EndLine   int    `json:"end_line"`
 }
 
+// normalizeRange fills in an omitted end_line and rejects a range that
+// cannot name any lines.
+func (in *readInput) normalizeRange() error {
+	if in.EndLine == 0 && in.StartLine >= minLineNum {
+		in.EndLine = maxInt
+	}
+
+	if in.StartLine == 0 && in.EndLine == 0 {
+		return nil
+	}
+
+	if in.StartLine < minLineNum || in.EndLine < in.StartLine {
+		return fmt.Errorf(
+			"%w: 1 <= start_line <= end_line, got start_line=%d end_line=%d",
+			errBadLineRange, in.StartLine, in.EndLine)
+	}
+
+	return nil
+}
+
 // Run implements tool.Tool.
 func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, error) {
 	if err := ctx.Err(); err != nil {
@@ -96,32 +125,72 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 		return tool.Errorf("invalid input: %v", err), nil
 	}
 
-	abs, err := resolvePath(r.root, in.Path)
-	if err != nil {
+	paths := readPaths(input, propPath, in.Path)
+	if len(paths) == 0 {
+		return tool.Errorf("path is required"), nil
+	}
+	if len(paths) > maxReadFiles {
+		return tool.Errorf("%d paths in one call, at most %d", len(paths), maxReadFiles), nil
+	}
+	if len(paths) > 1 && (in.StartLine != 0 || in.EndLine != 0) {
+		return tool.Errorf("a line range reads one file; drop start_line and end_line, " +
+			"or name one path"), nil
+	}
+
+	if err := in.normalizeRange(); err != nil {
 		return tool.Errorf("%v", err), nil
 	}
 
-	if in.EndLine == 0 && in.StartLine >= minLineNum {
-		in.EndLine = maxInt
+	return r.readAll(paths, in.StartLine, in.EndLine), nil
+}
+
+func (r *Read) readAll(paths []string, start, end int) tool.Result {
+	blocks := make([]string, 0, len(paths))
+	for _, p := range paths {
+		abs, err := resolvePath(r.root, p)
+		if err != nil {
+			return tool.Errorf("%v", err)
+		}
+
+		data, err := os.ReadFile(abs) // #nosec G304 -- abs is resolved and root-checked above
+		if err != nil {
+			return tool.Errorf("reading %s: %v", p, err)
+		}
+
+		r.scope.Observe(abs)
+
+		result := rangeResult(p, data, start, end)
+		if result.IsError {
+			return result
+		}
+
+		blocks = append(blocks, result.Content)
 	}
 
-	if in.StartLine != 0 || in.EndLine != 0 {
-		if in.StartLine < minLineNum || in.EndLine < in.StartLine {
-			return tool.Errorf(
-				"start_line and end_line must satisfy 1 <= start_line <= end_line, got start_line=%d end_line=%d",
-				in.StartLine, in.EndLine,
-			), nil
+	return tool.Result{Content: strings.Join(blocks, "\n\n")}
+}
+
+// readPaths collects every path one call asked for under key: the
+// comma-separated values, plus any repeated top-level occurrence of it. A model batches by
+// repeating the key (`{"path":"a","path":"b"}`), which JSON decoding resolves
+// to the last one, so honoring only that silently answers half the question:
+// it was tried three times across two dogfood runs.
+func readPaths(input json.RawMessage, key, decoded string) []string {
+	raw := repeatedStringField(input, key)
+	if len(raw) == 0 {
+		raw = []string{decoded}
+	}
+
+	out := make([]string, 0, len(raw))
+	for _, group := range raw {
+		for _, p := range strings.Split(group, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
 		}
 	}
 
-	data, err := os.ReadFile(abs) // #nosec G304 -- abs is resolved and root-checked above
-	if err != nil {
-		return tool.Errorf("reading %s: %v", in.Path, err), nil
-	}
-
-	r.scope.Observe(abs)
-
-	return rangeResult(in.Path, data, in.StartLine, in.EndLine), nil
+	return out
 }
 
 // rangeResult renders the given inclusive line range of data (or the whole
