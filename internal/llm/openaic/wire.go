@@ -1,6 +1,7 @@
 package openaic
 
 import (
+	"bytes"
 	"encoding/json"
 
 	"github.com/kyleking/wavez/internal/llm"
@@ -214,9 +215,38 @@ func (t *sseTimings) toLLMTimings() *llm.Timings {
 }
 
 type sseError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Code    string `json:"code"`
+	Message string     `json:"message"`
+	Type    string     `json:"type"`
+	Code    flexString `json:"code"`
+}
+
+// flexString decodes a field a provider sends as either a string or a
+// number. The OpenAI spec types an error's code as a string and OpenRouter
+// sends `"code": 429`, and failing the decode loses the error the provider
+// was reporting: on a dogfood run the whole run ended as "cannot unmarshal
+// number into Go struct field sseError.error.code of type string" and never
+// said what upstream had objected to.
+type flexString string
+
+//nolint:unparam // json.Unmarshaler fixes the signature; every shape here decodes.
+func (f *flexString) UnmarshalJSON(data []byte) error {
+	text := string(bytes.TrimSpace(data))
+	if text == "null" {
+		*f = ""
+
+		return nil
+	}
+
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = flexString(s)
+
+		return nil
+	}
+
+	*f = flexString(text)
+
+	return nil
 }
 
 func mapFinishReason(reason string) llm.StopReason {

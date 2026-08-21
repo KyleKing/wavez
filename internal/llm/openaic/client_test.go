@@ -304,6 +304,26 @@ func TestClient_Stream_MidStreamError(t *testing.T) {
 	}
 }
 
+// OpenRouter sends `"code": 429` where the OpenAI spec types a string, and
+// failing the decode replaced the provider's own message with a decode
+// error, ending a dogfood run with nothing to act on.
+func TestClient_Stream_MidStreamErrorWithNumericCode(t *testing.T) {
+	t.Parallel()
+
+	body := sseBody(`{"error":{"message":"rate limited","type":"rate_limit","code":429}}`)
+	client := newClient(t, sseServer(t, body))
+
+	_, err := collectAll(client, llm.Request{})
+
+	var streamErr *openaic.StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatalf("err = %v, want *openaic.StreamError", err)
+	}
+	if streamErr.Message != "rate limited" || streamErr.Code != "429" {
+		t.Errorf("streamErr = %+v, want the provider's message and code 429", streamErr)
+	}
+}
+
 func TestClient_Stream_NonOKStatus(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

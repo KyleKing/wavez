@@ -121,7 +121,7 @@ func processSSEChunk(name string, chunk sseChunk, state *streamState, yield func
 			Provider: name,
 			Message:  chunk.Error.Message,
 			Type:     chunk.Error.Type,
-			Code:     chunk.Error.Code,
+			Code:     string(chunk.Error.Code),
 		})
 
 		return true
