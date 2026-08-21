@@ -803,3 +803,62 @@ repeated `[y]es [n]o` inline where the footer already carried it.
 Separately, the message shown to a terminal below 80x24 was one 99-column
 sentence, so it clipped mid-word in every terminal that ever saw it. It is
 three short lines now.
+
+## 2026-08-21, the fixed task set on the fast tier
+
+`wavez -replay <task>` runs one prompt from `_ai_/bench/timing/tasks.txt` in
+a throwaway jj workspace and records what it spent, so the four tasks are now
+run the same way every time and a lane is judged on the same task rather than
+on two tasks of similar size.
+
+First pass, `qwen3:8b`, 40 turns and a 10 minute wall clock:
+
+| task | stop | turns |
+|---|---|---|
+| q1 answer a question | complete | 3 |
+| e1 one line in README | malformed_tool_call | 4 |
+| e2 add a method and a test | malformed_tool_call | 2 |
+| e3 rename across a package | complete | 16 |
+
+The ordering is the finding. The hardest task in the set finished and the
+easiest died, so what the fast tier lost was never the reasoning. Each failure
+named itself in the transcript:
+
+- **A malformed call ended the thread outright.** e2 died on turn two from one
+  invalid-JSON emission. Nothing had run, so sending the call again was all it
+  had to do, and the loop offered no way to. It now gets the one escalation an
+  identical repeat gets, and ends the thread on a second. e1 went from dead at
+  turn 4 to complete at turn 6, and e2 from dead to complete
+- **A failed anchor reported the lines that already matched.** e2's next
+  attempt sent a long `old_string` to insert a method after `Free`, missed by
+  one line of trailing context, and got back the closest match truncated at 12
+  lines with "9 more lines not shown", which elided the line that differed. It
+  guessed twice more and died stagnant. The error now names the one line that
+  parts, sent against source
+- **An anchor matching no line at all said only "not found".** e3 closed a
+  JSON string with a typographic quote, so the anchor was right except for
+  three trailing characters, matched nothing line-wise, and got no help. The
+  report now comes from the longest prefix of the anchor that occurs in the
+  file, which points straight at the quote
+- **A batch of edits with no path was refused as "outside the project root".**
+  That describes a containment problem the run did not have. It says the path
+  is missing now
+
+With those in, the same set runs 4/4 complete with every check passing.
+
+Two things the counters could not say before this session:
+
+- **`complete` is the loop's verdict on itself.** q1 finished by naming the
+  right file and inventing a count of rule kinds. Every task carries checks
+  now (`path:substring`, `answer:substring`, `build:` or `test:` for a go
+  command, `!` to invert), evaluated in the workspace before it is removed.
+  q1 was reworded to ask something checkable
+- **Substrings are not enough either.** e3 renamed the function and its
+  callers in one file, passed both substring checks, and left
+  `internal/daemon/manager.go` calling the old name. The gate caught it and
+  the oracle did not, so an edit task now compiles or tests in its check list
+
+Variance on this tier is large and has to be read into every pair: e1 ran 5
+turns and 17k input tokens on one pass and 24 turns and 163k on another with
+nothing between them that touches its path. A pair is evidence for a state
+change (dead to complete) and weak evidence for a percentage.
