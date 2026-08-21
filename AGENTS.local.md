@@ -42,3 +42,14 @@ are specific to this codebase and not visible from the code.
 - Harness and pull processes that must outlive a tool call need
   `nohup ... < /dev/null & disown`; a plain `&` inside the call's subshell
   dies with it. `ollama pull` resumes from its partial blob
+- A thread's tier pin is `route`'s `Override`, not `new`'s `Model`. `Model`
+  names a model, reaches `ThreadInfo` and nothing else, and a client that
+  pins there watches every turn route to the default tier
+- A lane keeps the step it died on, so a failed thread reads as working
+  forever on the schedule. Anything waiting for threads to settle reads
+  `ThreadInfo.State` (`done`, `failed`, `idle`) rather than the lane
+- `.wavez/index.db` and `.wavez/coverage-manifest.json` are ignored by
+  version control, so a fresh workspace rebuilds both. `-replay` seeds them
+  from the project now (`seedDerivedState`); anything else that opens a
+  scratch workspace over this repo should, or its first gate round runs a
+  per-test coverage sweep of the whole module while the model waits
