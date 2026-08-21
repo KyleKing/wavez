@@ -220,7 +220,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		m.thread.input.SetWidth(msg.Width - boxPad)
 		m.models.install.SetWidth(fitInput(msg.Width, true))
-		m.models.edit.SetWidth(fitInput(msg.Width, true))
+		m.models.edit.SetWidth(modelValueWidth - inputCursorCell)
 		m.home.filterInput.SetWidth(fitInput(msg.Width, false))
 		m.thread.search.input.SetWidth(fitInput(msg.Width, false))
 		m.palette.input.SetWidth(fitInput(msg.Width, false))

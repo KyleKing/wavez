@@ -811,11 +811,51 @@ func TestModelScreen_UninstallPreviewsBeforeActing(t *testing.T) {
 
 	m, _ = m.updateModelsKey(keyMsg("y"), "y")
 
+	if len(fc.models) != 1 {
+		t.Fatalf("yes before the disk delta arrived issued %+v, want nothing", fc.models)
+	}
+
+	m.applyModels(api.Reply{Models: m.models.list, Note: "removing qwen3:8b frees 4.9 GB"})
+
+	m, _ = m.updateModelsKey(keyMsg("y"), "y")
+
 	if len(fc.models) != 2 || !fc.models[1].Confirm {
 		t.Fatalf("confirming issued %+v, want a confirmed remove", fc.models)
 	}
 	if m.models.action != "" {
 		t.Errorf("action = %q, want the confirmation closed", m.models.action)
+	}
+}
+
+// TestModelScreen_ListFitsTheTerminal covers the case this machine cannot
+// show: more models than rows, where an unbounded list pushed the key hints
+// off the screen.
+func TestModelScreen_ListFitsTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	m := modelScreenModel(&fakeClient{})
+	m.height = 12
+	m.models.list = nil
+
+	for i := range 20 {
+		m.models.list = append(m.models.list, api.ModelInfo{Name: fmt.Sprintf("model-%02d", i), SizeBytes: 1})
+	}
+
+	m.models.cursor = 15
+
+	lines := strings.Split(m.renderModels(), "\n")
+	if len(lines) > m.height {
+		t.Fatalf("rendered %d lines into a %d-row terminal", len(lines), m.height)
+	}
+
+	frame := strings.Join(lines, "\n")
+	for _, want := range []string{"> model-15", "showing", "[esc]back"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("frame is missing %q:\n%s", want, frame)
+		}
+	}
+	if strings.Contains(frame, "model-00") {
+		t.Errorf("a row far from the cursor was drawn:\n%s", frame)
 	}
 }
 

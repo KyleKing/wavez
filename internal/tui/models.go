@@ -180,6 +180,13 @@ func (m Model) updateModelInstallName(msg tea.KeyPressMsg, s string) (Model, tea
 
 func (m Model) updateModelConfirm(s string) (Model, tea.Cmd) {
 	action, name := m.models.action, m.models.pending
+	// y is the answer to the disk delta, so it means nothing until the delta
+	// is here. Taking it early installs or removes a model against a
+	// question the user was never shown.
+	if s == "y" && m.models.confirm == "" {
+		return m, nil
+	}
+
 	if s != "y" {
 		m.models.action, m.models.pending, m.models.confirm = "", "", ""
 
@@ -326,29 +333,44 @@ func (m Model) renderModels() string {
 	}
 
 	title := fmt.Sprintf("models · %d installed · %s on disk", len(m.models.list), bytesGB(total))
-
-	body := m.modelRows()
-
-	switch {
-	case m.models.naming:
-		body = append(body, "", "install > "+m.models.install.View())
-	case m.models.action != "":
-		body = append(body, "", m.th.fgEmphasis.Render(m.modelConfirmLine()))
-	case m.models.settings:
-		body = append(body, "")
-		body = append(body, m.modelSettingsRows()...)
-	}
+	pane := m.modelPaneRows()
+	body := append(m.modelRows(m.modelListBudget(len(pane))), pane...)
 
 	return frame(m.width, title, body, footerHints(m.modelHints(), m.width-boxPad), m.th)
 }
 
+// modelPaneRows is whatever is open below the list: the install field, a
+// confirmation, or the settings pane.
+func (m Model) modelPaneRows() []string {
+	switch {
+	case m.models.naming:
+		return []string{"", "install > " + m.models.install.View()}
+	case m.models.action != "":
+		return []string{"", m.th.fgEmphasis.Render(m.modelConfirmLine())}
+	case m.models.settings:
+		return append([]string{""}, m.modelSettingsRows()...)
+	default:
+		return nil
+	}
+}
+
+// frameRows is the two border lines a frame spends, which carry the title
+// and the key hints. A body longer than what is left pushes the hints off
+// the terminal, so the list is cut to fit rather than the frame.
+const frameRows = 2
+
+// modelListBudget is how many models fit once the border, the column header,
+// and any open pane have taken their lines.
+func (m Model) modelListBudget(pane int) int {
+	return max(m.height-frameRows-1-pane, 1)
+}
+
 func (m Model) modelConfirmLine() string {
-	note := m.models.confirm
-	if note == "" {
-		note = string(m.models.action) + " " + m.models.pending
+	if m.models.confirm == "" {
+		return "asking what " + string(m.models.action) + " " + m.models.pending + " would cost"
 	}
 
-	return note + "   [y]es [n]o"
+	return m.models.confirm
 }
 
 const (
@@ -356,15 +378,22 @@ const (
 	modelQuantWidth = 9
 )
 
-func (m Model) modelRows() []string {
+// modelValueWidth is the settings value column, which the edit field is
+// sized to so an open editor leaves the shipped default beside it.
+const modelValueWidth = 12
+
+func (m Model) modelRows(budget int) []string {
 	if len(m.models.list) == 0 {
 		return []string{m.th.fgMuted.Render("no models installed · press a to install one")}
 	}
 
 	out := []string{m.th.fgMuted.Render(fmt.Sprintf("  %-22s %-9s %-7s %-8s %-8s %s",
-		"model", "quant", "size", "free", "loaded", "update"))}
+		"model", "quant", "size", "headroom", "loaded", "update"))}
 
-	for i := range m.models.list {
+	cursor := min(max(m.models.cursor, 0), len(m.models.list)-1)
+	start, end := listWindow(cursor, len(m.models.list), budget)
+
+	for i := start; i < end; i++ {
 		info := &m.models.list[i]
 
 		line := fmt.Sprintf("%-22s %-9s %-7s %-8s %-8s %s",
@@ -372,7 +401,7 @@ func (m Model) modelRows() []string {
 			bytesGB(info.SizeBytes), bytesGB(info.FreeBytes),
 			yesNo(info.Loaded), updateLabel(*info))
 
-		if i == min(max(m.models.cursor, 0), len(m.models.list)-1) {
+		if i == cursor {
 			out = append(out, m.th.accent.Render("> "+line))
 
 			continue
@@ -381,7 +410,30 @@ func (m Model) modelRows() []string {
 		out = append(out, m.th.fgDefault.Render("  "+line))
 	}
 
+	if end-start < len(m.models.list) {
+		out = append(out, m.th.fgMuted.Render(fmt.Sprintf("  showing %d-%d of %d",
+			start+1, end, len(m.models.list))))
+	}
+
 	return out
+}
+
+// listWindow is the slice of a list to draw: everything when it fits, and
+// otherwise a run of budget rows around the cursor, one row shorter to leave
+// the line that says how much is hidden.
+func listWindow(cursor, n, budget int) (int, int) { //nolint:gocritic // named returns are forbidden
+	if budget >= n {
+		return 0, n
+	}
+
+	size := max(budget-1, 1)
+
+	start := max(cursor-size/2, 0)
+	if start+size > n {
+		start = n - size
+	}
+
+	return start, start + size
 }
 
 func yesNo(b bool) string {
@@ -424,7 +476,7 @@ func (m Model) modelSettingsRows() []string {
 
 		line := fmt.Sprintf("%-16s %-12s default %s", f.label(), orDash(value), defaultLabel(defaults[f]))
 		if f == m.models.field && m.models.editing {
-			line = fmt.Sprintf("%-16s %s", f.label(), m.models.edit.View())
+			line = fmt.Sprintf("%-16s %s default %s", f.label(), m.models.edit.View(), defaultLabel(defaults[f]))
 		}
 
 		if f == m.models.field {
@@ -443,6 +495,8 @@ func (m Model) modelHints() []hint {
 	switch {
 	case m.models.naming, m.models.editing:
 		return []hint{{keyEnter, labelApply}, {keyEsc, labelCancel}}
+	case m.models.action != "" && m.models.confirm == "":
+		return []hint{{keyEsc, labelCancel}}
 	case m.models.action != "":
 		return []hint{{"y", "confirm"}, {"n", labelCancel}}
 	case m.models.settings:
