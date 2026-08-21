@@ -68,7 +68,15 @@ func (m Model) renderScreen() string {
 	}
 }
 
+// tooSmall is the one message that has to fit a terminal too small for the
+// interface, so it is short lines rather than a sentence: the sentence it
+// replaced was 99 columns and clipped mid-word in every terminal that saw it.
 func tooSmall(width, height int) string {
-	return "wavez needs at least 80x24 to render (currently " +
-		strconv.Itoa(width) + "x" + strconv.Itoa(height) + "). Resize your terminal."
+	return "wavez needs " + size(minWidth, minHeight) + "\n" +
+		"this terminal is " + size(width, height) + "\n" +
+		"resize to continue"
+}
+
+func size(width, height int) string {
+	return strconv.Itoa(width) + "x" + strconv.Itoa(height)
 }
