@@ -57,3 +57,8 @@ are specific to this codebase and not visible from the code.
   to typecheck. Its `path` narrows by prefix and takes a package directory
   as readily as a file. A rename that gopls refuses (a keyword, a symbol in
   a dependency) comes back as a tool error, not an empty success
+- `delete` reaches functions, methods, and types, because that is what the
+  index extracts; a field, var, or const is `str_replace`'s work. It refuses
+  a declaration the language server says is still used, so removing a
+  function and its tests means naming them in the same call, and the refusal
+  lists the declarations holding the uses for exactly that purpose

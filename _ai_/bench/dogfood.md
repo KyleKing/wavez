@@ -1354,10 +1354,13 @@ so what is compared is cost.
 
 ## 2026-08-21, the whole set on one build
 
-Every task, one run, `fast` pin, on the build that carries today's changes
-(shell reduction, workspace seeding, request-assembly dedupe, the stale-copy
-fix, the context trim, the slot bound, and `rename`), against the median of
-every earlier recorded run of the same task:
+Every task, one run, `fast` pin, on `a7af0d8`, against the median of every
+earlier recorded run of the same task. That build carries the shell
+reduction, workspace seeding, request-assembly dedupe, the stale-copy fix,
+the context trim, the slot bound, and `rename`. It predates `delete`, the
+several-symbols form, the widening fixes, and the reviewer's move to the
+balanced tier, so read it as the state at that commit rather than as the
+state of the tree:
 
 | task | prior median turns | today | prior median input | today |
 |---|---|---|---|---|
@@ -1517,3 +1520,35 @@ alpha with no stated end date, and the risk list already carries what happens
 when that ends. When it does, this change starts charging one hosted call per
 finished run, and the question becomes whether a review that only sometimes
 fires is worth that.
+
+## 2026-08-21, the set on the tree as committed
+
+The table above describes `a7af0d8` and stops there, so here is the same
+sweep on `630d578`, which adds `delete`, the several-symbols form, the
+widening fixes, and the reviewer on the balanced tier. One run per task,
+`fast` pin, both columns:
+
+| task | a7af0d8 | 630d578 |
+|---|---|---|
+| q1 | complete, 2t, 6,305, 1/2 | complete, 2t, 6,633, 1/2 |
+| e1 | deadline, 5t, 16,114, 1/1 | complete, 4t, 13,802, 1/1 |
+| e2 | stagnant, 7t, 28,024, 1/3 | deadline, 10t, 44,616, 3/3 |
+| e3 | complete, 2t, 5,144, 3/3 | complete, 2t, 5,472, 3/3 |
+| h1 | complete, 1t, 2,551, 0/3 | complete, 1t, 2,715, 0/3 |
+| h2 | deadline, 4t, 13,781, 1/2 | stagnant, 7t, 32,839, 1/2 |
+| h3 | complete, 6t, 17,026, 6/6 | complete, 2t, 5,465, 6/6 |
+| h4 | - | complete, 4t, 11,679, 5/5 |
+
+Over the seven tasks both sweeps share: checks 13 of 20 against 15 of 20,
+review objections 2 against 0, turns 27 against 28, input tokens 88,945
+against 111,542.
+
+That is a quality gain and not a token gain, and the token column is the one
+to be careful about. It is 25% worse, and all of that sits in `e2` and `h2`,
+the two tasks whose recorded spread is widest (`e2` has run between 2 and 13
+turns on identical builds). `e2` spent those tokens passing 3 of 3 where it
+had passed 1 of 3, which is the trade one wants; `h2` spent them and passed
+the same 1 of 2, which is not. At one run per task the variance section says
+neither reading is safe, and the honest claim is the one the low-variance
+tasks support: `h3` fell from 6 turns to 2, `e1` finished instead of hitting
+its deadline, and nothing raised a false objection.
