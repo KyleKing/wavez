@@ -37,15 +37,15 @@ func Report(recs []Record, task string, w io.Writer) error {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "task %s, %d run(s)\n", task, len(rows))
-	fmt.Fprintf(&b, "%-20s %-20s %-10s %-12s %6s %6s %10s %8s\n",
-		"label", "started", "model", "stop", "turns", "calls", "in tokens", "elapsed")
+	fmt.Fprintf(&b, "%-20s %-20s %-10s %-12s %6s %6s %6s %10s %8s\n",
+		"label", "started", "model", "stop", "checks", "turns", "calls", "in tokens", "elapsed")
 
 	for i := range rows {
 		r := &rows[i]
-		fmt.Fprintf(&b, "%-20s %-20s %-10s %-12s %6d %6d %10d %8s\n",
+		fmt.Fprintf(&b, "%-20s %-20s %-10s %-12s %6s %6d %6d %10d %8s\n",
 			truncate(r.Label, labelWidth), r.Started, truncate(modelOf(r.Run), modelWidth),
-			truncate(r.Stop, stopWidth), r.Stats.Turns, r.Stats.ToolCalls, r.Stats.InputTokens,
-			r.Stats.Elapsed.Round(time.Second))
+			truncate(r.Stop, stopWidth), r.CheckSummary(), r.Stats.Turns, r.Stats.ToolCalls,
+			r.Stats.InputTokens, r.Stats.Elapsed.Round(time.Second))
 	}
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
@@ -65,6 +65,14 @@ func Report(recs []Record, task string, w io.Writer) error {
 
 	if _, err := fmt.Fprintf(w, "\n%s -> %s\n", prev.Label, last.Label); err != nil {
 		return fmt.Errorf("writing replay report: %w", err)
+	}
+
+	if prev.TaskHash != last.TaskHash {
+		_, err := fmt.Fprintf(w, "the task text changed between these runs (%s then %s), "+
+			"so they answered different questions\n", prev.TaskHash, last.TaskHash)
+		if err != nil {
+			return fmt.Errorf("writing replay report: %w", err)
+		}
 	}
 
 	if !prev.SameSetup(last.Run) {

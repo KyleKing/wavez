@@ -24,9 +24,12 @@ const (
 // comparison that pairs two runs given different caps or different tiers
 // measures the caps, and nothing in the counters says so.
 type Run struct {
-	Task     string `json:"task"`
-	Label    string `json:"label"`
-	Model    string `json:"model"`
+	Task  string `json:"task"`
+	Label string `json:"label"`
+	Model string `json:"model"`
+	// TaskHash identifies the prompt text, so a report can say that the task
+	// itself changed between two records of the same id.
+	TaskHash string `json:"task_hash"`
 	MaxTurns int    `json:"max_turns"`
 }
 
@@ -41,20 +44,41 @@ func (r Run) SameSetup(other Run) bool {
 // live thread are read the same way.
 type Record struct {
 	Run
-	Started  string      `json:"started"`
-	Stop     string      `json:"stop"`
-	Stats    bench.Stats `json:"stats"`
-	Complete bool        `json:"complete"`
+	Started string        `json:"started"`
+	Stop    string        `json:"stop"`
+	Checks  []CheckResult `json:"checks,omitempty"`
+	Stats   bench.Stats   `json:"stats"`
+	// Complete is the loop's own verdict, which says the run ended tidily
+	// and nothing about whether it did the task. Checks is what says that.
+	Complete bool `json:"complete"`
+}
+
+// CheckSummary is the checks as a column: how many held, or a dash for a
+// task that asserts nothing.
+func (r Record) CheckSummary() string {
+	if len(r.Checks) == 0 {
+		return "-"
+	}
+
+	passed := 0
+	for _, c := range r.Checks {
+		if c.Pass {
+			passed++
+		}
+	}
+
+	return fmt.Sprintf("%d/%d", passed, len(r.Checks))
 }
 
 // NewRecord stamps a finished run.
-func NewRecord(run Run, started time.Time, stop string, stats bench.Stats) Record {
+func NewRecord(run Run, started time.Time, stop string, stats bench.Stats, checks []CheckResult) Record {
 	return Record{
 		Run:      run,
 		Started:  started.UTC().Format(time.RFC3339),
 		Stop:     stop,
 		Complete: stop == "complete",
 		Stats:    stats,
+		Checks:   checks,
 	}
 }
 

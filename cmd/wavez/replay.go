@@ -44,7 +44,13 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		_ = os.RemoveAll(dir)                   //nolint:errcheck // cleanup
 	}()
 
-	run := replay.Run{Task: task.ID, Label: replayLabel(ctx, root, opt), Model: opt.model, MaxTurns: opt.maxTurns}
+	run := replay.Run{
+		Task:     task.ID,
+		Label:    replayLabel(ctx, root, opt),
+		Model:    opt.model,
+		TaskHash: task.Hash(),
+		MaxTurns: opt.maxTurns,
+	}
 	fmt.Fprintf(os.Stderr, "replay %s as %s in %s\n", run.Task, run.Label, dir)
 
 	started := time.Now()
@@ -54,26 +60,35 @@ func replayRun(ctx context.Context, root string, opt options) error {
 	sub.dir = dir
 	sub.prompt = task.Prompt
 
-	id, outcome, runErr := headlessRun(ctx, sub)
-	if id == "" {
+	info, runErr := headlessRun(ctx, sub)
+	if info.ID == "" {
 		return runErr
 	}
 
-	if err := keepLog(root, dir, string(id)); err != nil {
+	checks := replay.Verify(task, dir, info.Text)
+
+	if err := keepLog(root, dir, string(info.ID)); err != nil {
 		return err
 	}
 
-	stats, err := summarizeLog(root, string(id))
+	stats, err := summarizeLog(root, string(info.ID))
 	if err != nil {
 		return fmt.Errorf("replay: %w", err)
 	}
 
-	rec := replay.NewRecord(run, started, stopReason(string(outcome.Stop), runErr), stats)
+	rec := replay.NewRecord(run, started, stopReason(string(info.Outcome.Stop), runErr), stats, checks)
 	if err := replay.Append(filepath.Join(root, replay.DefaultRecordsPath), rec); err != nil {
 		return err //nolint:wrapcheck // Append already names the file and the failure
 	}
 
-	fmt.Fprintf(os.Stderr, "recorded %s/%s: %s in %d turns\n", rec.Task, rec.Label, rec.Stop, rec.Stats.Turns)
+	fmt.Fprintf(os.Stderr, "recorded %s/%s: %s in %d turns, checks %s\n",
+		rec.Task, rec.Label, rec.Stop, rec.Stats.Turns, rec.CheckSummary())
+
+	for _, c := range rec.Checks {
+		if !c.Pass {
+			fmt.Fprintf(os.Stderr, "  failed: %s (%s)\n", c.Check, c.Note)
+		}
+	}
 
 	return runErr
 }

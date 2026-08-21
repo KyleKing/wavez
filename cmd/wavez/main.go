@@ -261,28 +261,34 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 }
 
 func headless(ctx context.Context, opt options) error {
-	_, _, err := headlessRun(ctx, opt)
+	_, err := headlessRun(ctx, opt)
 
 	return err
 }
 
-// headlessRun is headless, plus the thread and outcome a caller measuring
-// the run needs. The outcome is zero for a cycle, which reports its phases
-// rather than one loop's counters.
-func headlessRun(ctx context.Context, opt options) (thread.ID, agent.Outcome, error) {
+// runInfo is what a caller measuring a headless run needs beyond its error.
+// Outcome is zero for a cycle, which reports its phases rather than one
+// loop's counters.
+type runInfo struct {
+	ID      thread.ID
+	Text    string
+	Outcome agent.Outcome
+}
+
+func headlessRun(ctx context.Context, opt options) (runInfo, error) {
 	root, err := resolveRoot(ctx, opt.dir)
 	if err != nil {
-		return "", agent.Outcome{}, err
+		return runInfo{}, err
 	}
 
 	cfg, err := loadConfig(ctx, root, opt.with)
 	if err != nil {
-		return "", agent.Outcome{}, err
+		return runInfo{}, err
 	}
 
 	a, err := app.New(ctx, root, cfg, permissionGate(opt.allowAll), appOptions(opt)...)
 	if err != nil {
-		return "", agent.Outcome{}, fmt.Errorf("building project: %w", err)
+		return runInfo{}, fmt.Errorf("building project: %w", err)
 	}
 	// Close takes no context on purpose: a run canceled by ctrl-c must
 	// still stop the llama-server it started, and a canceled context would
@@ -296,23 +302,23 @@ func headlessRun(ctx context.Context, opt options) (thread.ID, agent.Outcome, er
 
 	th, err := a.OpenThread(threadID(opt.resume), append([]string{root}, cfg.ExtraDirs...))
 	if err != nil {
-		return "", agent.Outcome{}, fmt.Errorf("opening thread: %w", err)
+		return runInfo{}, fmt.Errorf("opening thread: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "thread %s\n", th.ID())
 	ctx = lease.WithHolder(ctx, string(th.ID()))
 
 	hint, err := routerHint(opt.model)
 	if err != nil {
-		return th.ID(), agent.Outcome{}, err
+		return runInfo{ID: th.ID()}, err
 	}
 
 	prompt, err := expandMentions(ctx, a, opt.prompt)
 	if err != nil {
-		return th.ID(), agent.Outcome{}, err
+		return runInfo{ID: th.ID()}, err
 	}
 
 	if opt.cycle != "" {
-		return th.ID(), agent.Outcome{}, runCycle(ctx, a, th, prompt, opt, hint)
+		return runInfo{ID: th.ID()}, runCycle(ctx, a, th, prompt, opt, hint)
 	}
 
 	loop, tools, system := a.Loop, a.Tools, a.SystemPrefix
@@ -322,18 +328,20 @@ func headlessRun(ctx context.Context, opt options) (thread.ID, agent.Outcome, er
 
 	outcome, err := loop.Run(ctx, th, prefix(system, tools), prompt, hint)
 	if err != nil {
-		return th.ID(), agent.Outcome{}, fmt.Errorf("running thread: %w", err)
+		return runInfo{ID: th.ID()}, fmt.Errorf("running thread: %w", err)
 	}
 
+	info := runInfo{ID: th.ID(), Text: finalText(th), Outcome: outcome}
+
 	if err := reportRun(th, a, outcome, opt, root); err != nil {
-		return th.ID(), outcome, err
+		return info, err
 	}
 
 	if outcome.Stop != agent.StopComplete {
-		return th.ID(), outcome, fmt.Errorf("%w: %s", errStoppedEarly, outcome.Stop)
+		return info, fmt.Errorf("%w: %s", errStoppedEarly, outcome.Stop)
 	}
 
-	return th.ID(), outcome, nil
+	return info, nil
 }
 
 // runCycle drives the named cycle instead of one loop. A cycle whose last

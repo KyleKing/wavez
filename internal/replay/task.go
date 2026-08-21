@@ -6,6 +6,8 @@ package replay
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -26,12 +28,45 @@ var ErrMalformedTask = errors.New("task line is not id|prompt")
 // record ambiguous about which prompt produced it.
 var ErrDuplicateTask = errors.New("task is defined twice")
 
-// Task is one line of the set: a stable id, and the prompt every run of it
-// is given word for word.
+// AnswerPath is the Check.Path that reads the run's final text rather than a
+// file, for a task whose product is an answer.
+const AnswerPath = "answer"
+
+// Check is one assertion about what a run left behind: Want must appear in
+// the file at Path, or must not when Negate. A task with no checks records
+// what it spent and proves nothing about what it did.
+type Check struct {
+	Path   string
+	Want   string
+	Negate bool
+}
+
+// String renders a check the way the task file writes it.
+func (c Check) String() string {
+	if c.Negate {
+		return "!" + c.Path + ":" + c.Want
+	}
+
+	return c.Path + ":" + c.Want
+}
+
+// Task is one line of the set: a stable id, the prompt every run of it is
+// given word for word, and what has to be true afterwards.
 type Task struct {
 	ID     string
 	Prompt string
+	Checks []Check
 }
+
+// Hash identifies the prompt a run was given, so a report can tell that the
+// task text changed between two records of the same id.
+func (t Task) Hash() string {
+	sum := sha256.Sum256([]byte(t.Prompt))
+
+	return hex.EncodeToString(sum[:])[:hashWidth]
+}
+
+const hashWidth = 8
 
 // LoadTasks reads "id|prompt" lines, skipping blank ones and those opening
 // with #.
@@ -57,9 +92,9 @@ func LoadTasks(path string) ([]Task, error) {
 			continue
 		}
 
-		id, prompt, ok := strings.Cut(text, "|")
-		id = strings.TrimSpace(id)
-		if !ok || id == "" || strings.TrimSpace(prompt) == "" {
+		fields := strings.Split(text, "|")
+		id := strings.TrimSpace(fields[0])
+		if len(fields) < 2 || id == "" || strings.TrimSpace(fields[1]) == "" {
 			return nil, fmt.Errorf("%s line %d: %w", path, line, ErrMalformedTask)
 		}
 
@@ -67,12 +102,41 @@ func LoadTasks(path string) ([]Task, error) {
 			return nil, fmt.Errorf("%s line %d: %w: %q", path, line, ErrDuplicateTask, id)
 		}
 
+		checks, err := parseChecks(fields[2:])
+		if err != nil {
+			return nil, fmt.Errorf("%s line %d: %w", path, line, err)
+		}
+
 		seen[id] = struct{}{}
-		out = append(out, Task{ID: id, Prompt: strings.TrimSpace(prompt)})
+		out = append(out, Task{ID: id, Prompt: strings.TrimSpace(fields[1]), Checks: checks})
 	}
 
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("reading task set %s: %w", path, err)
+	}
+
+	return out, nil
+}
+
+// ErrMalformedCheck reports a check field that is not path:substring.
+var ErrMalformedCheck = errors.New("check is not path:substring")
+
+func parseChecks(fields []string) ([]Check, error) {
+	var out []Check
+
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+
+		negate := strings.HasPrefix(f, "!")
+		path, want, ok := strings.Cut(strings.TrimPrefix(f, "!"), ":")
+		if !ok || strings.TrimSpace(path) == "" || want == "" {
+			return nil, fmt.Errorf("%w: %q", ErrMalformedCheck, f)
+		}
+
+		out = append(out, Check{Path: strings.TrimSpace(path), Want: want, Negate: negate})
 	}
 
 	return out, nil
