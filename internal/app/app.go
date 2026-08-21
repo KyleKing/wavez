@@ -81,7 +81,7 @@ const (
 // because no deterministic check decides whether a command a model wrote
 // only reads, which is the same reason DESIGN.md puts shell behind the
 // permission gate.
-var ReadOnlyTools = []string{"read", "search", "context", "question"}
+var ReadOnlyTools = []string{"list", "read", "search", "context", "question"}
 
 // App is one project's assembled object graph. Construct it with New and
 // release it with Close; do not copy it after construction.
@@ -577,6 +577,7 @@ func buildRegistry(
 	withLeases := tools.WithLeases(leases)
 
 	return tool.NewRegistry(
+		tools.NewList(root),
 		tools.NewRead(root, scope),
 		tools.NewStrReplace(root, scope, withLeases),
 		tools.NewWrite(root, scope, withLeases),
