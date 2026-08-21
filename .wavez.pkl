@@ -3,7 +3,6 @@ amends ".wavez/Wavez.pkl"
 // Only what the agent cannot get from a gate. The rest of AGENTS.md is either
 // enforced deterministically or irrelevant to a model mid-edit.
 context = new Listing {
-  "AGENTS.md#Verify before you report"
   "AGENTS.md#Go conventions"
 }
 

@@ -8,6 +8,14 @@ import "strings"
 // what a model assumes: gates decide when work is done, and the deterministic
 // layer owns imports and formatting.
 //
+// What it says about the harness has to be here rather than in the project's
+// own context list, because a project's contributor guide is written for a
+// human with a shell and a git remote and reads as an instruction to
+// reproduce the whole CI. Measured on this repo before that entry was
+// dropped: 40 of 261 logged shell calls ran what the gates already run, two
+// of them going on to `git add -A && git commit`, and every one came from a
+// headless run.
+//
 // How to use a tool belongs in that tool's own schema description, never
 // here. Prose about tools in the system prompt measurably pushes a model
 // into writing calls as prose: against `qwen3-coder-30b-a3b-instruct`
@@ -24,6 +32,9 @@ How this harness works, which differs from what you may expect:
   import block and never adjust indentation to make code look right.
 - Your work is checked by a build and by tests when you finish. Saying you are
   done does not end the task; passing those checks does. Do not claim success.
+- Do not run this project's CI or its version control: mise, hk, golangci-lint,
+  gofmt, git, and jj are the harness's job, and a call to one spends a turn and
+  changes nothing. Running a single test to watch it fail is not that.
 - Repeating a failed call unchanged ends the task. Change the arguments instead.
 - Never silence a check to make it pass. Do not add a suppression comment, skip a
   test, or widen a timeout. Fix the cause, or report that you could not.`

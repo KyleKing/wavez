@@ -1217,3 +1217,11 @@ first per-turn run, two threads took 3 and 2 turns while the third took none
 in two minutes, because nothing ordered the queue. The slot is now handed to
 whoever has waited longest, and a caller that gives up while queued gives
 back a slot it was handed on the way out.
+
+The trim shipped with the bullet narrowed. "Never run this project's own
+checks" would also have stopped a run from executing one failing test to
+watch it fail, which is how a model finds out what is wrong. It now names
+what the harness owns (`mise`, `hk`, `golangci-lint`, `gofmt`, `git`, `jj`)
+and says a single test is not that. The preamble is 2,117 tokens against
+2,633, and the project's context list is one entry: the Go conventions the
+model is actually writing code against.
