@@ -1282,3 +1282,187 @@ the emission it was failing before.
 Two review objections on a correct diff is the false-positive cost the tier
 question was asked about in the first place: work manufactured for a model
 that then has to argue with it.
+
+## 2026-08-21, what the edits in the logs actually are
+
+Every `str_replace` pair this project's threads have ever sent, classified by
+what the edit does:
+
+| shape | calls | share | bytes | share |
+|---|---|---|---|---|
+| rewrite a block | 65 | 35% | 31,666 | 49% |
+| identifier rename | 50 | 27% | 7,889 | 12% |
+| delete | 38 | 21% | 6,252 | 10% |
+| append after existing code | 23 | 12% | 12,292 | 19% |
+| insert before existing code | 9 | 5% | 5,976 | 9% |
+
+A quarter of every edit ever made here was a rename done the hard way, which
+is the retrospective case for the tool the `h3` measurement makes
+prospectively.
+
+What comes next is not what the byte column first suggests, and the reason is
+the same mistake as the read-dedup one earlier today: a component's share is
+not the saving.
+
+An insert or append looks like the big one at 28% of edit bytes. Measured
+properly, the 32 anchored inserts spend 18,268 bytes, of which 6,246 are the
+anchor sent twice (once as `old_string`, once repeated inside `new_string`
+because a replacement replaces everything) and 12,022 are content that has to
+be sent whatever the tool. An anchor-plus-text form saves the repeat, which is
+9.7% of all edit bytes. Real, and a third of what the table implies.
+
+More to the point, an insert still asks the model to emit new source inside a
+JSON string, which is the thing the fast tier cannot do. It trims a cost; it
+does not move work down a tier.
+
+A delete does. It is 21% of the calls and needs no emitted source at all, only
+the name of what goes, so it has `rename`'s property rather than
+`str_replace`'s. That makes delete the next Modifier and insert the one after,
+on the criterion that actually decided `h3`.
+
+What is left after both is the block rewrite, 35% of calls and half the bytes,
+which is what `str_replace` is actually for.
+
+## 2026-08-21, the same story on e3, with seven runs of history
+
+`e3` is `Rename the unexported function firstDir in internal/daemon/thread.go
+to primaryDir`, the task whose failure this file documents six times: six fast
+turns, the same malformed `old_string` byte for byte, then escalation. Every
+recorded run before today shows it, and the `6f` in the tiers column is that
+failure counted:
+
+| lane | tiers | stop | checks | turns | input tokens | elapsed |
+|---|---|---|---|---|---|---|
+| fast-remit | 6f 7b 3d | complete | - | 16 | 84,183 | 4m36s |
+| fast-retry | 6f 8b | complete | - | 14 | 59,472 | 3m23s |
+| checked | 6f 1b | stagnant | 0/2 | 7 | 33,771 | 43s |
+| anchor-prefix | 6f 29b | deadline | 2/2 | 35 | 396,030 | 10m17s |
+| anchor-prefix | 6f 10b | verify_failed | 2/2 | 16 | 60,528 | 3m28s |
+| oracle | 6f 12b | complete | 3/3 | 18 | 89,937 | 3m54s |
+| **rename** | **2f** | **complete** | **3/3** | **2** | **5,144** | **41s** |
+
+Against the best previous finish, nine times fewer turns, seventeen times
+fewer input tokens, and five times faster. Against the worst, seventy-seven
+times fewer tokens. The six-fast-turns signature is simply gone, because
+there is no longer a way for the model to fail at it: the whole edit is
+`{"symbol": "firstDir", "to": "primaryDir", "path": "internal/daemon/thread.go"}`.
+
+Two tasks now tell this story rather than one, and `e3` is one of the original
+four, so it is measured against a long history rather than a single pair. What
+neither says is anything about correctness: both lanes pass the same checks,
+so what is compared is cost.
+
+## 2026-08-21, the whole set on one build
+
+Every task, one run, `fast` pin, on the build that carries today's changes
+(shell reduction, workspace seeding, request-assembly dedupe, the stale-copy
+fix, the context trim, the slot bound, and `rename`), against the median of
+every earlier recorded run of the same task:
+
+| task | prior median turns | today | prior median input | today |
+|---|---|---|---|---|
+| q1 | 3 | 2 | 12,068 | 6,305 |
+| e1 | 6 | 5 | 23,126 | 16,114 |
+| e2 | 11 | 7 | 59,935 | 28,024 |
+| e3 | 16 | 2 | 84,183 | 5,144 |
+| h1 | 1 | 1 | 2,872 | 2,551 |
+| h2 | 8 | 4 | 41,197 | 13,781 |
+| h3 | 6 | 6 | 18,615 | 17,026 |
+
+Nothing regressed, and the set as a whole went from 51 turns and 241,996
+input tokens to 27 turns and 88,945. Read the totals with the variance
+section in mind: the turn column is noisy per task, the medians mix lanes
+built from different code, and `h3`'s prior median is dragged down by its own
+two rename runs earlier today (against its `str_replace` baseline it is 19
+turns and 154,064 tokens). What is not noisy is `e3`, where the mechanism is
+known and the six-fast-turn signature is simply absent.
+
+`q1` came back 1 of 2 where it had been 2 of 2, the model answering
+`guard.go` rather than `rules.go` after a single search. Two re-runs on the
+same build gave 1 of 2 and then 2 of 2, so it flips: variance on a two-turn
+task, not a regression from anything shipped today.
+
+`h1` is unchanged and still answers in one turn having called nothing, which
+is the hole the risk list already names.
+
+## 2026-08-21, delete, and two fixes that made it worse first
+
+`delete` removes a whole declaration by name, doc comment and all. `h4` was
+added to exercise it: `internal/edit`'s `ApplyToFile` is reachable from no
+main and covered by six test functions, so the task is one deletion a
+Modifier can do plus six it has to find.
+
+The first half worked immediately and every time: one call, 36 lines, the
+neighbouring `writeAtomic` untouched. The second half is where four runs
+went, and the trail is worth keeping because two of my fixes made it worse
+before one made it better.
+
+| lane | what changed | turns | tiers | checks |
+|---|---|---|---|---|
+| first | delete, one symbol per call | 19 | 4f 6b 9d | 4/5 |
+| widened | widen a lookup that returns nothing | 13 | 13f | 4/5 |
+| named-gate | widen until any result is plausibly named | 3 | 3f | 4/5 |
+| many | delete takes several symbols | 9 | 9f | 4/5 |
+| query-gate | judge plausibility against the widened query | 22 | 12f 10b | 3/5 |
+| guarded | refuse to delete what is still used | 7 | 2f 5b | 2/5 |
+| together | say the several-symbols form in the refusal | 3 | 3f | 4/5 |
+| named-uses | name the declarations holding the uses | 4 | 4f | **5/5** |
+
+Eight runs to get from 19 turns escalating to the deep tier and failing, to 4
+turns entirely on the local model with every check passing, including the two
+that prove it left `writeAtomic` and `ApplyAllToFile` alone. Read the middle
+of that table as what it is: several of those lanes are one run each, the
+variance section applies, and three of the changes made things worse before
+one made them better.
+
+The model kept guessing `ApplyToFileTest` for a test really called
+`TestApplyToFile`. Widening the lookup when it finds nothing does not help,
+because the text index answers a nonsense symbol name with whatever files
+mention its letters, so it never finds nothing. Gating on a plausibly-named
+result fixed that and then failed differently: plausibility was judged against
+the name originally asked for, and `TestApplyToFile` is nothing like
+`ApplyToFileTest`, so the widening ran off the end and suggested an unrelated
+`apply` in `internal/daemon` while the caller had said `internal/edit`. A
+suggestion pointing out of the named package is worse than no suggestion,
+because a run that follows it has been sent away from the file it named.
+
+Judged against the query that fetched the results, `ApplyToFile` returns
+`TestApplyToFile`, the refusal says so, and the model used it on the next
+call without a search.
+
+The other thing `h4` surfaced is the cost side of a cheap deletion. Twice the
+model deleted `ApplyAllToFile`, which the task explicitly says to leave alone
+and which `str_replace` depends on, broke the build, and spent the rest of
+the run failing to put it back (22 turns, 3 of 5). A Modifier makes a
+destructive act one short call, so the blast radius per misread task goes up
+exactly as the token cost comes down. Waiting for the build gate to catch it
+is not enough, because by then the run is arguing with a compiler instead of
+doing the task.
+
+So `delete` now asks the language server what still uses a declaration and
+refuses when anything outside the same call does. Uses inside the other
+symbols the call is removing do not count, since deleting a function together
+with its tests is the ordinary case, and the ranges are taken before anything
+moves because by the time the check runs those declarations are gone.
+
+The refusal then took three tries to become useful, and the same lesson each
+time: the message has to carry what the next call needs.
+
+- Naming only the locations (`apply_test.go:23`) left the model to map lines
+  to declarations, and it answered by naming the two symbols the task had
+  told it to keep, then stopped
+- Naming the multi-symbol form without the names got the shape right and the
+  arguments wrong for the same reason
+- Naming the declarations (`TestApplyToFile (apply_test.go:23)`) let it copy
+  them straight out: one refusal, one wider refusal as the list ran past the
+  three it shows, then a single call removing all seven declarations
+
+That is the third time today a measurement has pointed at the same thing. A
+refusal is not a diagnosis, it is the input to the next call, and it is worth
+as much care as the tool's own output.
+
+The passing run still ended on its deadline rather than completing. The task
+was done in three tool calls; what filled the remaining time was a reviewer
+objection and an `lsp` diagnostic about an unused import the format gate had
+already removed. Both are false-positive work, and between them they are now
+the largest remaining cost on a task the Modifiers finish in three calls.
