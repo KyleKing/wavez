@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/kyleking/wavez/internal/tool"
 )
@@ -36,46 +35,25 @@ var readSchema = buildSchema(map[string]schemaProperty{
 }, propPath)
 
 // Read reads a whole file or a line range from it, refusing any path
-// outside the project root. Every read is remembered by content hash and by
-// the lines it delivered, so a read of lines the model already holds from a
-// file it has not changed returns a short reference instead of the content
-// again. Measured on one dogfood run: 16 of 32 reads returned content
-// already in the window, and only whole-file reads were deduplicated.
+// outside the project root.
+//
+// It always returns the lines it was asked for, even ones it has returned
+// before. Answering a repeat read with a reference to the earlier one saves
+// nothing: measured on a dogfood run, four of four references were followed
+// immediately by a shell command reading the same file, which cost 21 KB of
+// shell output and 19 extra turns to recover what the reference withheld.
+// Keeping a repeated read out of the history is compaction's job, where
+// DedupeToolReads replaces a byte-identical earlier result without the model
+// ever being told no.
 type Read struct {
-	delivered map[string]*fileReads
-	scope     *Scope
-	root      string
-	mu        sync.Mutex
-}
-
-// span is an inclusive 1-indexed line range that was actually returned to
-// the model, after truncation.
-type span struct {
-	start int
-	end   int
-}
-
-// fileReads is what one file has already given the model, valid only while
-// hash still matches what is on disk.
-type fileReads struct {
-	hash  string
-	spans []span
-}
-
-func (f *fileReads) covers(s span) bool {
-	for _, have := range f.spans {
-		if have.start <= s.start && s.end <= have.end {
-			return true
-		}
-	}
-
-	return false
+	scope *Scope
+	root  string
 }
 
 // NewRead builds a Read tool scoped to root, reporting each file it reads
 // to scope.
 func NewRead(root string, scope *Scope) *Read {
-	return &Read{root: root, scope: scope, delivered: make(map[string]*fileReads)}
+	return &Read{root: root, scope: scope}
 }
 
 // Name implements tool.Tool.
@@ -86,8 +64,7 @@ func (*Read) Description() string {
 	return "Read a file, or a 1-indexed inclusive line range of one, from the project. " +
 		"Prefer search to locate code and read only the range it names; reading whole files " +
 		"to find something spends the context window on lines you will not use. " +
-		"Refuses paths outside the project root. Re-reading lines of an unchanged file returns a " +
-		"short reference instead of the content, so do not re-read what you have not edited."
+		"Refuses paths outside the project root."
 }
 
 // Schema implements tool.Tool.
@@ -135,47 +112,13 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	r.scope.Observe(abs)
 
-	return r.deliver(in.Path, abs, data, in.StartLine, in.EndLine), nil
-}
-
-// deliver returns the requested lines, or a reference to them when the model
-// already holds those lines of a file whose content has not changed since.
-func (r *Read) deliver(path, abs string, data []byte, start, end int) tool.Result {
-	result, got := rangeResult(path, data, start, end)
-	if got == (span{}) {
-		return result
-	}
-
-	hash := contentHash(data)
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	prev, seen := r.delivered[abs]
-	if !seen || prev.hash != hash {
-		r.delivered[abs] = &fileReads{hash: hash, spans: []span{got}}
-
-		return result
-	}
-
-	if prev.covers(got) {
-		return tool.Result{Content: fmt.Sprintf(
-			"%s is unchanged since you read lines %d-%d of it (hash %s). "+
-				"Those lines were already returned; re-read only if you expect them to have changed.",
-			path, got.start, got.end, shortHash(hash),
-		)}
-	}
-
-	prev.spans = append(prev.spans, got)
-
-	return result
+	return rangeResult(in.Path, data, in.StartLine, in.EndLine), nil
 }
 
 // rangeResult renders the given inclusive line range of data (or the whole
 // file when start and end are both 0) truncated to maxReadLines, noting how
-// many lines were dropped. The returned span is the lines actually
-// delivered, and is the zero span when the result is an error.
-func rangeResult(path string, data []byte, start, end int) (tool.Result, span) {
+// many lines were dropped.
+func rangeResult(path string, data []byte, start, end int) tool.Result {
 	lines := strings.Split(string(data), "\n")
 	total := len(lines)
 
@@ -183,21 +126,19 @@ func rangeResult(path string, data []byte, start, end int) (tool.Result, span) {
 		start, end = 1, total
 	} else {
 		if start > total {
-			return tool.Errorf("%s has %d lines, start_line %d is past the end", path, total, start), span{}
+			return tool.Errorf("%s has %d lines, start_line %d is past the end", path, total, start)
 		}
 
 		end = min(end, total)
 	}
 
 	selected := lines[start-1 : end]
-	delivered := span{start: start, end: end}
 
 	truncated := false
 	if len(selected) > maxReadLines {
 		dropped := len(selected) - maxReadLines
 		selected = selected[:maxReadLines]
 		truncated = true
-		delivered.end = start + maxReadLines - 1
 
 		selected = append(selected, fmt.Sprintf("... [%d of %d lines truncated] ...", dropped, end-start+1))
 	}
@@ -207,5 +148,5 @@ func rangeResult(path string, data []byte, start, end int) (tool.Result, span) {
 		content += "\nRe-read with a narrower start_line/end_line to see the truncated lines."
 	}
 
-	return tool.Result{Content: content}, delivered
+	return tool.Result{Content: content}
 }

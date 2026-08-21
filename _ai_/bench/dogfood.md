@@ -573,3 +573,44 @@ it is not.
 
 The turn marker now records which tier served it, so the next run can say
 where its tokens went rather than only how many there were.
+
+## 2026-08-21, the read cache moved a cost instead of removing it
+
+Run 3 gave wavez a scoped task (`-stats` gains a JSON mode, `internal/bench`
+and `cmd/wavez` only) on the balanced tier. It stopped on `max_turns` at 60
+with the work finished and verified: `go build ./...`, `go test`, and `gofmt`
+all clean on its diff, one new method, one flag pass-through, and one test
+that unmarshals into a map so a wrong json tag cannot pass.
+
+```
+turns 60, tool calls 63, elapsed 15m6s
+tokens in 549165, out 20926, cache read 461056 (83% of input)
+tiers balanced 60
+  shell           40 calls    27279 result bytes
+  read            12 calls    29587 result bytes
+  str_replace      7 calls      382 result bytes
+  search           4 calls     1065 result bytes
+repeat reads 6 of 12 (2895 bytes), empty searches 0
+```
+
+Against run 2 the search fix holds: zero empty searches where there were
+three. The read cache does not. Repeat-read output fell from 26,581 bytes to
+2,895, and shell calls went from 19 to 40. Four reads returned "unchanged
+since you read lines N-M", and all four were followed immediately by a shell
+command reading the same file:
+
+| reference | next tool call |
+|---|---|
+| `cmd/wavez/main.go` | `sed -n '200,260p' cmd/wavez/main.go` |
+| `internal/bench/stats.go` | `cat -n internal/bench/stats.go` |
+| `internal/bench/stats.go` | `awk 'NR>=17 && NR<=60 {printf "%d\t%s\n", NR, $0}' …` |
+| `internal/bench/render.go` | `awk '{printf "%d\t%s\n", NR, $0}' …` |
+
+`sed`, `cat`, and `awk` returned 21,166 bytes between them, so the cache
+withheld about 24 KB of read output and 21 KB of it came back through a
+slower door, costing 19 extra tool calls on the way. The read tool now always
+returns what it was asked for, and `DedupeToolReads` collapses the repeat in
+history where the model never sees the refusal.
+
+Two of those four recoveries printed line numbers with `NR`, which is the
+open question the reversal leaves behind.

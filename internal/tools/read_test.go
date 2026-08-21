@@ -11,47 +11,40 @@ import (
 	"github.com/kyleking/wavez/internal/tools"
 )
 
-func TestRead_CacheReturnsReferenceThenFullContentAfterChange(t *testing.T) {
+// A repeat read returns the content again, whole file or range. Answering
+// with a reference sent the model to the shell for the same file four times
+// out of four on a dogfood run; keeping the repeat out of the history is
+// compaction's DedupeToolReads, which the model never sees.
+func TestRead_RepeatReadReturnsTheContentAgain(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "file.go")
-	if err := os.WriteFile(path, []byte("package foo\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("package foo\nfunc A() {}\nfunc B() {}\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
 	r := tools.NewRead(dir, nil)
 	ctx := context.Background()
 
-	first, err := r.Run(ctx, mustJSON(t, map[string]any{"path": "file.go"}))
-	if err != nil {
-		t.Fatalf("first Run: %v", err)
-	}
-	if !strings.Contains(first.Content, "package foo") {
-		t.Errorf("first read content = %q, want file content", first.Content)
+	read := func(args map[string]any) string {
+		t.Helper()
+		res, err := r.Run(ctx, mustJSON(t, args))
+		if err != nil {
+			t.Fatalf("Run(%v): %v", args, err)
+		}
+
+		return res.Content
 	}
 
-	second, err := r.Run(ctx, mustJSON(t, map[string]any{"path": "file.go"}))
-	if err != nil {
-		t.Fatalf("second Run: %v", err)
-	}
-	if strings.Contains(second.Content, "package foo") {
-		t.Errorf("second read of unchanged file returned content, want a short reference: %q", second.Content)
-	}
-	if !strings.Contains(second.Content, "unchanged") {
-		t.Errorf("second read content = %q, want it to say unchanged", second.Content)
+	whole := map[string]any{"path": "file.go"}
+	if first, second := read(whole), read(whole); first != second {
+		t.Errorf("second whole-file read = %q, want the same content as the first %q", second, first)
 	}
 
-	if err := os.WriteFile(path, []byte("package bar\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	third, err := r.Run(ctx, mustJSON(t, map[string]any{"path": "file.go"}))
-	if err != nil {
-		t.Fatalf("third Run: %v", err)
-	}
-	if !strings.Contains(third.Content, "package bar") {
-		t.Errorf("read after change content = %q, want new file content", third.Content)
+	ranged := map[string]any{"path": "file.go", "start_line": 2, "end_line": 3}
+	if first, second := read(ranged), read(ranged); first != second || !strings.Contains(second, "func A() {}") {
+		t.Errorf("second ranged read = %q, want the same content as the first %q", second, first)
 	}
 }
 
@@ -133,59 +126,5 @@ func TestRead_OmittedEndLineReadsToEndOfFile(t *testing.T) {
 	}
 	if strings.Contains(res.Content, "two") {
 		t.Fatalf("read started before start_line: %s", res.Content)
-	}
-}
-
-// Ranged reads are what a run actually makes (28 of 32 in one dogfood run),
-// and they used to bypass the cache entirely, so half the reads in that run
-// returned lines already in the window.
-func TestRead_RangeAlreadyDeliveredReturnsReference(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	lines := make([]string, 40)
-	for i := range lines {
-		lines[i] = "// line"
-	}
-	lines[19] = "func Target() {}"
-
-	path := filepath.Join(dir, "file.go")
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	r := tools.NewRead(dir, nil)
-	ctx := context.Background()
-
-	read := func(start, end int) string {
-		t.Helper()
-		res, err := r.Run(ctx, mustJSON(t, map[string]any{
-			"path": "file.go", "start_line": start, "end_line": end,
-		}))
-		if err != nil {
-			t.Fatalf("Run(%d-%d): %v", start, end, err)
-		}
-
-		return res.Content
-	}
-
-	if got := read(10, 30); !strings.Contains(got, "func Target() {}") {
-		t.Fatalf("first ranged read = %q, want the requested lines", got)
-	}
-
-	if got := read(15, 25); strings.Contains(got, "func Target() {}") {
-		t.Errorf("a range inside one already delivered returned content again: %q", got)
-	}
-
-	if got := read(1, 40); !strings.Contains(got, "func Target() {}") {
-		t.Errorf("a range wider than what was delivered = %q, want the content", got)
-	}
-
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n// more\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	if got := read(15, 25); !strings.Contains(got, "func Target() {}") {
-		t.Errorf("a range of a changed file = %q, want the content", got)
 	}
 }

@@ -5,8 +5,6 @@
 package tools
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -38,20 +36,4 @@ func resolvePath(root, path string) (string, error) {
 	}
 
 	return abs, nil
-}
-
-const shortHashLen = 8
-
-func contentHash(data []byte) string {
-	sum := sha256.Sum256(data)
-
-	return hex.EncodeToString(sum[:])
-}
-
-func shortHash(hash string) string {
-	if len(hash) < shortHashLen {
-		return hash
-	}
-
-	return hash[:shortHashLen]
 }

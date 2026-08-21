@@ -296,7 +296,7 @@ Vim-shaped, layered so the floor is discoverable and the ceiling is fast, in the
 - Measured on qwen3:8b through llama-server with a `json_schema` grammar, four diffs against the empty-state task (correct with an `if`, correct with a `switch`, the append-instead-of-replace error, and an unrelated edit), three samples each at temperature 0.01: 12 of 12 correct. On the first unrehearsed diff after that, a one-line doc comment added above a `var`, it objected that the comment sat below the declaration when it sat above. So the reviewer is useful and wrong often enough that an objection has to be a note rather than a verdict, which is the argument for completing the run and recording it
 - The prompt is doing most of the work. An earlier wording that named the failure as a syntactic pattern ("keeps the old behavior alongside the new one") drew an objection to the *correct* diff 4 times in 5, with the model quoting the phrasing back; asking it instead to read the task as a list of requirements and check each one flipped it to 5 of 5 with nothing else changed
 - Permission gate before anything destructive, defaulting to ask. Sandbox behind it
-- Read-once cache keyed by content hash and by the lines already delivered, so a range inside one the model already holds returns a reference rather than the content. Whole-file reads alone were not enough: on one dogfood run 28 of 32 reads named a range, and 16 of the 32 returned lines already in the window
+- A repeat read returns the content again, and keeping a repeated result out of the history is compaction's `DedupeToolReads`, where the model is never told no. The read tool used to answer a repeat with a reference instead, which reads as a saving and is not: measured across two dogfood runs it cut repeat-read output from 26.6 KB to 2.9 KB, and the model recovered every withheld file through the shell, four references followed by four `sed`, `cat`, and `awk` calls on the same file, 21 KB of shell output and 19 extra turns. A tool that withholds what a model asked for moves the cost, it does not remove it
 - `-p "…"` runs one prompt headless and prints the result
 
 ### Edits (M1)
@@ -728,10 +728,10 @@ The milestones say where this is going. These say how the work gets done, and
 they outrank the order of Next wherever the two disagree.
 
 **Quality and efficiency before speed, and speed before the comparison.**
-Timing a loop that changes every week measures the week, not the loop. The
-numbers that decide anything are tokens and turns per finished task, and those
-only mean something once the harness replays a fixed task set against a fixed
-tool surface. So the benchmark harness comes first, the efficiency work runs
+Timing a loop that changes every week measures the week. The numbers that
+decide anything are tokens and turns per finished task, and those only mean
+something once the harness replays a fixed task set against a fixed tool
+surface. So the benchmark harness comes first, the efficiency work runs
 against it, and the machine probes and the Claude Code comparison wait until
 the loop underneath them has stopped moving.
 
@@ -739,8 +739,8 @@ the loop underneath them has stopped moving.
 Wavez wherever the task is inside what it can already do. Every defect worth
 fixing in the last three sessions was invisible in review and obvious in a
 transcript: a sandbox that made `go build` impossible, a search tool that
-required every term at once, a read cache that skipped the read shape the model actually
-uses. A dogfood session records counts rather than impressions in
+required every term at once, a read cache that skipped the read shape the
+model actually uses. A dogfood session records counts in
 `_ai_/bench/dogfood.md`, and a count that surprises is the next lane.
 
 **Ask each tier only what it can do.** An 8B model holds one file well and
@@ -849,6 +849,7 @@ No:
 - Home: the fleet title is the common parent of the listed roots, which is right for a `~/dev` layout and wrong for roots spread across the disk (it degrades to `/`). Whether `scan_paths` should name the fleet label instead is unanswered
 - Schedule: a parked lane shows the state word (`needs input`, `waiting to resume`) and not the mockup's `input 40s`, so how long a thread has sat parked is not yet on the lane
 - Links: the transcript flattens a row to one line and has no code-fence notion, so identifiers inside code get linked too. Whether that is wrong enough to track fences is unanswered
+- Read output carries no per-line numbers, and a model that wants them writes `awk '{printf "%d\t%s\n", NR, $0}'` instead, twice in one run. Whether numbering every line is worth the bytes it adds and the risk that a line-number prefix leaks into a `str_replace` anchor is unanswered
 - Router heuristic: what signal says a turn is mechanical enough for the fast tier or hard enough for the deep one. The file-count rule was removed rather than kept, because nothing ever populated it, and a classifier over prompt text is the answer this project has already rejected elsewhere. The candidates that carry real information are plan mode, a Cycle phase declaring its own shape, and the run's own tool history
 - Intent edits: hole-fill correctness with retry-against-gates and hosted escalation, and whether `qwen2.5-coder` infill beats chat-style fill on qwen3:8b
 - Monorepo per-package test commands in M1 or later
