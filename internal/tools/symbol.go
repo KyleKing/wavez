@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 
 	"github.com/kyleking/wavez/internal/codeintel"
@@ -28,16 +29,24 @@ type declaration struct {
 // rather than a guess: acting on the wrong one is a change the caller then
 // has to find and undo.
 func locate(ctx context.Context, index Index, root, name, path string) (declaration, error) {
-	results, _, err := index.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: name})
+	results, err := searchWidening(ctx, index, name)
 	if err != nil {
-		return declaration{}, fmt.Errorf("searching for %s: %w", name, err)
+		return declaration{}, err
 	}
 
-	var all, found []codeintel.Symbol
+	var all, found, near []codeintel.Symbol
 
 	for i := range results {
 		sym := results[i].Symbol
-		if sym == nil || sym.Name != name {
+		if sym == nil {
+			continue
+		}
+
+		if sym.Name != name {
+			if similar(sym.Name, name) {
+				near = append(near, *sym)
+			}
+
 			continue
 		}
 
@@ -51,7 +60,7 @@ func locate(ctx context.Context, index Index, root, name, path string) (declarat
 	switch len(found) {
 	case 0:
 		return declaration{}, fmt.Errorf("%w: %s%s%s",
-			ErrSymbolNotIndexed, name, inFile(path), elsewhere(all))
+			ErrSymbolNotIndexed, name, inFile(path), orNearby(all, near))
 	case 1:
 		return position(root, found[0], name)
 	default:
@@ -81,14 +90,83 @@ func inFile(path string) string {
 	return " under " + path
 }
 
-// elsewhere names where the symbol actually is, so a caller that narrowed to
-// the wrong place can correct in one turn rather than searching again.
-func elsewhere(all []codeintel.Symbol) string {
-	if len(all) == 0 {
+// orNearby says where the symbol actually is, or failing that what the index
+// holds that is close to the name asked for. Measured: a run that deleted a
+// function correctly then guessed `ApplyToFileTest` for its test, was told
+// only that nothing by that name is indexed, and spent the rest of itself
+// searching for a name that never existed. The candidates were already in
+// the search result the refusal was built from.
+func orNearby(all, near []codeintel.Symbol) string {
+	if len(all) > 0 {
+		return "; it is declared in " + strings.Join(declaringFiles(all), ", ")
+	}
+
+	if len(near) == 0 {
 		return ""
 	}
 
-	return "; it is declared in " + strings.Join(declaringFiles(all), ", ")
+	return "; the index holds " + strings.Join(names(near), ", ")
+}
+
+// searchWidening looks the name up, and when the index holds nothing at all
+// for it, drops one trailing CamelCase word at a time and looks again. A
+// guessed name is usually a real one with something appended: measured, a run
+// that had just deleted `ApplyToFile` guessed `ApplyToFileTest` for its test,
+// found nothing, and spent the rest of itself searching for a name that never
+// existed. Trimming to `ApplyToFile` finds what is really there, and the
+// caller's own exact-match filter still decides what counts.
+func searchWidening(ctx context.Context, index Index, name string) ([]codeintel.SearchResult, error) {
+	for query := name; query != ""; query = dropLastWord(query) {
+		results, _, err := index.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: query})
+		if err != nil {
+			return nil, fmt.Errorf("searching for %s: %w", query, err)
+		}
+
+		if len(results) > 0 {
+			return results, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// dropLastWord removes the final CamelCase word, returning "" when one word
+// is all that is left, since a single word widened further is a different
+// question than the one asked.
+func dropLastWord(s string) string {
+	for i := len(s) - 1; i > 0; i-- {
+		if unicode.IsUpper(rune(s[i])) {
+			return s[:i]
+		}
+	}
+
+	return ""
+}
+
+// similar reports whether one name contains the other, which is what a
+// near miss looks like: TestApplyToFile against ApplyToFile, or a guessed
+// suffix against the real name.
+func similar(indexed, asked string) bool {
+	a, b := strings.ToLower(indexed), strings.ToLower(asked)
+
+	return strings.Contains(a, b) || strings.Contains(b, a)
+}
+
+// names lists a few candidates with where they live, newest match first and
+// capped so a refusal stays a sentence.
+func names(syms []codeintel.Symbol) []string {
+	const most = 3
+
+	out := make([]string, 0, most)
+	for i := range syms {
+		if len(out) == most {
+			break
+		}
+
+		out = append(out, fmt.Sprintf("%s (%s)", syms[i].Name, syms[i].FilePath))
+	}
+
+	return out
 }
 
 func declaringFiles(syms []codeintel.Symbol) []string {

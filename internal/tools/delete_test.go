@@ -136,3 +136,26 @@ func writeFile(t *testing.T, root, name, body string) {
 		t.Fatalf("writing %s: %v", name, err)
 	}
 }
+
+// A refusal that only says "not indexed" costs a turn to recover from. The
+// candidates are already in the search the refusal was built from, and a run
+// that guessed a test's name stalled for want of them.
+func TestDeleteMissNamesWhatIsClose(t *testing.T) {
+	t.Parallel()
+
+	_, del := deleteProject(t)
+
+	// "BetaHelper" is indexed nowhere; widening to "Beta" finds what is.
+	res, err := del.Run(t.Context(), []byte(`{"symbol":"BetaHelper"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("want a refusal, got: %s", res.Content)
+	}
+
+	if !strings.Contains(res.Content, "Beta") || !strings.Contains(res.Content, "a.go") {
+		t.Errorf("the refusal does not point at the near match: %s", res.Content)
+	}
+}
