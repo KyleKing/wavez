@@ -3,11 +3,13 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/edit"
+	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -38,15 +40,18 @@ var deleteSchema = buildSchema(map[string]schemaProperty{
 // so a field, var, or const is not reachable by name and stays str_replace's
 // work.
 type Delete struct {
-	index SymbolSearch
-	scope *Scope
-	deps  deps
-	root  string
+	index   SymbolSearch
+	servers Servers
+	scope   *Scope
+	deps    deps
+	root    string
 }
 
-// NewDelete builds a Delete tool rooted at root.
-func NewDelete(root string, index SymbolSearch, scope *Scope, opts ...Option) *Delete {
-	return &Delete{root: root, index: index, scope: scope, deps: newDeps(opts)}
+// NewDelete builds a Delete tool rooted at root. Servers is what it asks
+// whether anything still uses a declaration; a nil one, or a file no server
+// handles, deletes without that check.
+func NewDelete(root string, index SymbolSearch, servers Servers, scope *Scope, opts ...Option) *Delete {
+	return &Delete{root: root, index: index, servers: servers, scope: scope, deps: newDeps(opts)}
 }
 
 // Name implements tool.Tool.
@@ -83,6 +88,11 @@ func (d *Delete) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Errorf("symbol is required"), nil
 	}
 
+	// Where every named declaration sits, taken before anything moves: the
+	// reference check needs to know which uses belong to the other symbols
+	// this same call removes, and by the time it asks, they are gone.
+	together := d.rangesOf(ctx, names, in.Path)
+
 	var (
 		changes []tool.Change
 		done    []string
@@ -91,7 +101,7 @@ func (d *Delete) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 	// One at a time and in order, because each deletion moves the lines under
 	// the ones after it and the index is what the next lookup reads.
 	for _, name := range names {
-		change, err := d.one(ctx, name, in.Path)
+		change, err := d.one(ctx, name, in.Path, together)
 		if err != nil {
 			return tool.Errorf("%v%s", err, alreadyDone(done)), nil
 		}
@@ -104,9 +114,13 @@ func (d *Delete) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 }
 
 // one removes a single declaration, reporting the change it made.
-func (d *Delete) one(ctx context.Context, name, path string) (tool.Change, error) {
+func (d *Delete) one(ctx context.Context, name, path string, together []declaration) (tool.Change, error) {
 	decl, err := locate(ctx, d.index, d.root, name, path)
 	if err != nil {
+		return tool.Change{}, err
+	}
+
+	if err := d.stillUsed(ctx, name, decl, together); err != nil {
 		return tool.Change{}, err
 	}
 
@@ -143,6 +157,100 @@ func (d *Delete) one(ctx context.Context, name, path string) (tool.Change, error
 	change.Removed = to - from
 
 	return change, nil
+}
+
+// ErrStillUsed reports a declaration something else still refers to.
+var ErrStillUsed = errors.New("something still uses that declaration")
+
+// stillUsed refuses a deletion the rest of the tree depends on. A Modifier
+// makes removing a declaration one short call, so the blast radius of a
+// misread task goes up exactly as the token cost goes down: measured on `h4`,
+// a run told to leave `ApplyAllToFile` alone deleted it in one call, broke
+// the build, and spent the rest of itself failing to put it back.
+//
+// References the same call is already removing do not count, since deleting a
+// function and its tests together is the ordinary case.
+func (d *Delete) stillUsed(ctx context.Context, name string, decl declaration, together []declaration) error {
+	if d.servers == nil || !d.servers.Handles(decl.path) {
+		return nil
+	}
+
+	client, err := d.servers.Client(ctx, decl.path)
+	if err != nil {
+		return fmt.Errorf("asking what uses %s: %w", name, err)
+	}
+
+	if _, err := client.Sync(ctx, decl.path); err != nil {
+		return fmt.Errorf("syncing %s: %w", relativeTo(d.root, decl.path), err)
+	}
+
+	refs, err := client.References(ctx, decl.path, decl.line, decl.column)
+	if err != nil {
+		return fmt.Errorf("asking what uses %s: %w", name, err)
+	}
+
+	held := d.outside(refs, decl, together)
+	if len(held) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s is used at %s. Delete those too, or leave it",
+		ErrStillUsed, name, strings.Join(held, ", "))
+}
+
+// outside lists the uses that are neither inside the declaration itself nor
+// inside something this call is also removing.
+func (d *Delete) outside(refs []lsp.Reference, decl declaration, together []declaration) []string {
+	const most = 3
+
+	out := make([]string, 0, most)
+
+	for _, ref := range refs {
+		if ref.Path == decl.path && ref.Line >= decl.start-1 && ref.Line < decl.end {
+			continue
+		}
+
+		if inAnyOf(ref, together) {
+			continue
+		}
+
+		if len(out) == most {
+			out = append(out, "and more")
+
+			break
+		}
+
+		out = append(out, fmt.Sprintf("%s:%d", relativeTo(d.root, ref.Path), ref.Line+1))
+	}
+
+	return out
+}
+
+// rangesOf locates every named declaration, skipping the ones it cannot
+// find: a name that does not resolve fails later with its own message, and
+// this is only building the set of places whose references do not count.
+func (d *Delete) rangesOf(ctx context.Context, names []string, path string) []declaration {
+	out := make([]declaration, 0, len(names))
+
+	for _, name := range names {
+		if decl, err := locate(ctx, d.index, d.root, name, path); err == nil {
+			out = append(out, decl)
+		}
+	}
+
+	return out
+}
+
+// inAnyOf reports whether a reference sits inside one of the declarations
+// this same call is removing.
+func inAnyOf(ref lsp.Reference, together []declaration) bool {
+	for _, decl := range together {
+		if ref.Path == decl.path && ref.Line >= decl.start-1 && ref.Line < decl.end {
+			return true
+		}
+	}
+
+	return false
 }
 
 // splitNames reads one name or a comma-separated several, dropping the empty

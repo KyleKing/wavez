@@ -303,3 +303,40 @@ func textEdit(e protocol.TextEdit) TextEdit {
 		NewText:   e.NewText,
 	}
 }
+
+// Reference is one place a symbol is used, as a path and a zero-based line.
+type Reference struct {
+	Path string
+	Line int
+}
+
+// References lists every use of the symbol at path:line:column, excluding
+// the declaration itself. Line and column count from zero.
+//
+// A caller about to remove a declaration asks this first: the language server
+// answers from type information, so it counts a use in another package and
+// does not count a comment that happens to spell the name.
+func (c *Client) References(ctx context.Context, path string, line, column int) ([]Reference, error) {
+	abs, err := c.abs(path)
+	if err != nil {
+		return nil, err
+	}
+
+	locations, err := c.inner.FindReferences(ctx, abs, line, column, false)
+	if err != nil {
+		return nil, fmt.Errorf("finding references to %s:%d: %w", path, line+1, err)
+	}
+
+	out := make([]Reference, 0, len(locations))
+
+	for i := range locations {
+		file, perr := locations[i].URI.Path()
+		if perr != nil {
+			return nil, fmt.Errorf("a reference is at an unreadable location: %w", perr)
+		}
+
+		out = append(out, Reference{Path: file, Line: int(locations[i].Range.Start.Line)})
+	}
+
+	return out, nil
+}

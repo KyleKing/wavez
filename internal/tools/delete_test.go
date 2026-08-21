@@ -1,13 +1,16 @@
 package tools_test
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/codeintel/lang"
+	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -45,7 +48,7 @@ func Gamma() string { return "gamma" }
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 
-	return root, tools.NewDelete(root, indexer, tools.NewScope(false))
+	return root, tools.NewDelete(root, indexer, nil, tools.NewScope(false))
 }
 
 func TestDeleteTakesTheDocCommentWithIt(t *testing.T) {
@@ -260,5 +263,75 @@ func TestDeleteNamesTheRightFileForAnExactMatch(t *testing.T) {
 
 	if !strings.Contains(res.Content, "other.go") {
 		t.Errorf("the refusal does not say where Zeta actually is: %s", res.Content)
+	}
+}
+
+// A Modifier makes removing a declaration one short call, so a misread task
+// costs a build rather than a bad diff. Measured on `h4`: a run told to leave
+// ApplyAllToFile alone deleted it, broke the build, and never recovered.
+func TestDeleteRefusesWhatIsStillUsed(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("gopls"); err != nil {
+		t.Skip("gopls is not on PATH")
+	}
+
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/m\n\ngo 1.26\n")
+	writeFile(t, root, "a.go", "package m\n\n// Alpha names the lane.\nfunc Alpha() string { return \"alpha\" }\n")
+	writeFile(t, root, "b.go", "package m\n\n// Use calls it.\nfunc Use() string { return Alpha() }\n")
+
+	store, err := codeintel.Open(t.Context(), filepath.Join(t.TempDir(), "store.db"))
+	if err != nil {
+		t.Fatalf("codeintel.Open: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if cerr := store.Close(); cerr != nil {
+			t.Errorf("closing the store: %v", cerr)
+		}
+	})
+
+	pool := lsp.NewPool(root)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), renameBudget)
+		defer cancel()
+
+		if cerr := pool.Close(ctx); cerr != nil {
+			t.Errorf("closing the pool: %v", cerr)
+		}
+	})
+
+	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
+	del := tools.NewDelete(root, indexer, pool, tools.NewScope(false))
+
+	ctx, cancel := context.WithTimeout(t.Context(), renameBudget)
+	defer cancel()
+
+	res, err := del.Run(ctx, []byte(`{"symbol":"Alpha"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("a used declaration was deleted: %s", res.Content)
+	}
+
+	if !strings.Contains(res.Content, "b.go") {
+		t.Errorf("the refusal does not name the use: %s", res.Content)
+	}
+
+	if !strings.Contains(read(t, root, "a.go"), "func Alpha()") {
+		t.Errorf("the refused declaration was removed anyway")
+	}
+
+	// Removing the caller in the same call is the ordinary case and must work.
+	res, err = del.Run(ctx, []byte(`{"symbol":"Use, Alpha"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError {
+		t.Fatalf("deleting a function and its only caller together was refused: %s", res.Content)
 	}
 }
