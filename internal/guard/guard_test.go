@@ -125,6 +125,41 @@ func TestClassify_Git(t *testing.T) {
 	})
 }
 
+// In a colocated checkout jj owns the working copy, so a git write moves the
+// tree behind its back. The jj commands that discard work stay
+// approval-worthy rather than refused, since the operation log holds them.
+func TestClassify_ColocatedJJ(t *testing.T) {
+	t.Parallel()
+
+	env := guard.Env{ProjectRoot: "/repo", ColocatedJJ: true}
+
+	tests := []struct {
+		name        string
+		command     string
+		wantVerdict guard.Verdict
+	}{
+		{name: "git commit is refused", command: "git commit -m x", wantVerdict: guard.Refuse},
+		{name: "git checkout is refused", command: "git checkout main", wantVerdict: guard.Refuse},
+		{name: "git status still reads", command: "git status --porcelain", wantVerdict: guard.Allow},
+		{name: "git log still reads", command: "git log -1", wantVerdict: guard.Allow},
+		{name: "jj commit is the way to write", command: "jj commit -m x", wantVerdict: guard.Allow},
+		{name: "jj abandon discards a change", command: "jj abandon xyz", wantVerdict: guard.NeedsApproval},
+		{name: "jj op restore rewinds everything", command: "jj op restore abc", wantVerdict: guard.NeedsApproval},
+		{name: "jj restore discards the working copy", command: "jj restore src", wantVerdict: guard.NeedsApproval},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := guard.Classify(tt.command, env); got.Verdict != tt.wantVerdict {
+				t.Errorf("Classify(%q).Verdict = %q, want %q (%s)",
+					tt.command, got.Verdict, tt.wantVerdict, got.Reason)
+			}
+		})
+	}
+}
+
 func TestClassify_ChmodChown(t *testing.T) {
 	t.Parallel()
 

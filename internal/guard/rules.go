@@ -23,6 +23,9 @@ const minPipelineStages = 2
 
 const minGitTokens = 2
 
+// propRestore is the subcommand name git and jj share.
+const propRestore = "restore"
+
 // pipeToShellReason reports whether pipeline feeds a curl or wget stage into
 // a shell interpreter stage, a pattern that runs arbitrary remote code.
 func pipeToShellReason(pipeline string) (string, bool) {
@@ -81,7 +84,9 @@ func classifyCommand(cmd string, env Env) finding {
 	case "rm":
 		candidates = append(candidates, classifyRM(cmd, tokens, env))
 	case "git":
-		candidates = append(candidates, classifyGit(cmd, tokens))
+		candidates = append(candidates, classifyGit(cmd, tokens, env))
+	case "jj":
+		candidates = append(candidates, classifyJJ(cmd, tokens))
 	case "chmod", "chown":
 		candidates = append(candidates, classifyChmodChown(cmd, tokens, env))
 	case "dd":
@@ -195,9 +200,27 @@ func hasRecursiveForce(tokens []string) bool {
 	return recursive && force
 }
 
-func classifyGit(cmd string, tokens []string) finding {
+// gitReadOnly names the git subcommands that only report. In a colocated
+// checkout everything else is refused rather than approved, because the
+// project's rule is that jj owns writes and a git write there leaves jj
+// holding a working copy that no longer matches what git did.
+var gitReadOnly = map[string]bool{
+	"blame": true, "cat-file": true, "config": true, "describe": true, "diff": true,
+	"grep": true, "log": true, "ls-files": true, "ls-remote": true, "rev-parse": true,
+	"shortlog": true, "show": true, "status": true,
+}
+
+func classifyGit(cmd string, tokens []string, env Env) finding {
 	if len(tokens) < minGitTokens {
 		return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
+	}
+
+	if env.ColocatedJJ && !gitReadOnly[tokens[1]] {
+		return finding{
+			Verdict:  Refuse,
+			Reason:   "this project is a colocated jj checkout, where jj owns the working copy; use jj",
+			Fragment: cmd,
+		}
 	}
 
 	switch tokens[1] {
@@ -215,7 +238,7 @@ func classifyGit(cmd string, tokens []string) finding {
 		return finding{Verdict: NeedsApproval, Reason: "rewrites commit history", Fragment: cmd}
 	case "stash":
 		return classifyGitStash(cmd, tokens)
-	case "checkout", "switch", "restore":
+	case "checkout", "switch", propRestore:
 		return finding{
 			Verdict: NeedsApproval, Reason: "replaces files in the working copy", Fragment: cmd,
 		}
@@ -260,6 +283,47 @@ func classifyGitStash(cmd string, tokens []string) finding {
 		return finding{
 			Verdict: NeedsApproval, Reason: "moves uncommitted work out of the working copy", Fragment: cmd,
 		}
+	}
+}
+
+// classifyJJ holds the jj commands that discard work or rewind the
+// repository. Every one is in the operation log and so recoverable, and
+// each still throws away a state nobody asked it to.
+func classifyJJ(cmd string, tokens []string) finding {
+	if len(tokens) < minGitTokens {
+		return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
+	}
+
+	sub := ""
+	if len(tokens) > minGitTokens {
+		sub = tokens[minGitTokens]
+	}
+
+	if reason, held := jjDiscards(tokens[1], sub); held {
+		return finding{Verdict: NeedsApproval, Reason: reason, Fragment: cmd}
+	}
+
+	if tokens[1] == "git" && sub == "push" && forcedPush(tokens[3:]) {
+		return finding{Verdict: NeedsApproval, Reason: "force push can overwrite remote history", Fragment: cmd}
+	}
+
+	return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
+}
+
+func jjDiscards(name, sub string) (string, bool) {
+	switch name {
+	case "abandon":
+		return "jj abandon discards a change and its descendants", true
+	case propRestore:
+		return "jj restore discards working-copy changes", true
+	case "undo":
+		return "jj undo rewinds the last operation", true
+	case "op":
+		return "jj op rewinds the whole repository", sub == propRestore || sub == "undo"
+	case "workspace":
+		return "jj workspace forget drops a working copy", sub == "forget"
+	default:
+		return "", false
 	}
 }
 

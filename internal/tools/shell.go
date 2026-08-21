@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/guard"
@@ -42,10 +43,10 @@ const reasonNoScript = "names no readable file in the project"
 type Shell struct {
 	gate       permission.Gate
 	deps       deps
-	env        guard.Env
 	root       string
 	sessionTmp string
 	threadID   string
+	env        guard.Env
 }
 
 // NewShell builds a Shell tool scoped to root and sessionTmp, gating
@@ -62,8 +63,19 @@ func NewShell(root, sessionTmp, threadID string, gate permission.Gate, opts ...O
 
 	return &Shell{
 		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate, deps: newDeps(opts),
-		env: guard.Env{ProjectRoot: root, Home: home, TempDir: os.TempDir()},
+		env: guard.Env{
+			ProjectRoot: root, Home: home, TempDir: os.TempDir(), ColocatedJJ: colocatedJJ(root),
+		},
 	}
+}
+
+// colocatedJJ reports a project jj owns the working copy of. Read once at
+// construction for the same reason the home directory is: the guard decides
+// from its inputs and looks nothing up for itself.
+func colocatedJJ(root string) bool {
+	info, err := os.Stat(filepath.Join(root, ".jj"))
+
+	return err == nil && info.IsDir()
 }
 
 // Name implements tool.Tool.

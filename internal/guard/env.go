@@ -19,6 +19,13 @@ type Env struct {
 	// variable unexpanded and therefore unresolved.
 	Home    string
 	TempDir string
+	// ColocatedJJ says the project is a jj checkout that keeps a git
+	// repository beside it. There, git owns the storage and jj owns the
+	// working copy, so a git command that writes moves the tree behind jj's
+	// back and jj is the tool for the same job. The caller decides this by
+	// looking for the directory, so a verdict stays a function of its
+	// inputs.
+	ColocatedJJ bool
 }
 
 // unresolvedChars mark a path this package cannot reduce to one location:
