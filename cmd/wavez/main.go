@@ -99,7 +99,7 @@ func run(args []string) error {
 	fs.StringVar(&opt.cycle, "cycle", "",
 		"run the prompt through a named cycle (e.g. fix) instead of one loop")
 	fs.StringVar(&opt.dir, "dir", "", "project root (defaults to the enclosing repo, then cwd)")
-	fs.StringVar(&opt.model, "model", "", "force a tier for every turn: local or hosted")
+	fs.StringVar(&opt.model, "model", "", "force a tier for every turn: fast, balanced, or deep")
 	fs.StringVar(&opt.with, "with", "", "add one file to the stable prefix for this run only")
 	fs.StringVar(&opt.socket, "socket", "", "daemon socket path (defaults to the per-laptop user config dir)")
 	fs.StringVar(&opt.resume, "resume", "", "continue an existing thread by id instead of starting a new one")
