@@ -951,3 +951,216 @@ the risk list already names, now with a second case: the list says a run that
 asked for a change and never reached an edit tool still completes, and `h1`
 says the same holds for a run that asked a question and never reached a read.
 
+
+## 2026-08-21, what the preamble is made of
+
+`wavez -preamble` accounts for the fixed prefix by section, because the prefix
+is the one cost that scales with turns rather than with work and every
+proposal to trim it so far has been an argument from memory. On this project:
+
+| kind | bytes | ~tokens | share |
+|---|---|---|---|
+| tool schemas | 4,307 | 1,076 | 41% |
+| project context | 3,475 | 868 | 33% |
+| tool descriptions | 2,085 | 521 | 20% |
+| system rules | 666 | 166 | 6% |
+| total | 10,533 | 2,633 | |
+
+The fast tier is admitted against an 8,192-token window less a 1,024-token
+reply reserve, so the prefix occupies 37% of what a fast turn can use before
+the task is stated. Against the 12k window this laptop actually serves it is
+24%.
+
+Two single sections dominate: `AGENTS.md#Verify before you report` at 2,296
+bytes and `str_replace`'s schema at 1,270.
+
+The size is the smaller half of the finding. `Verify before you report` is a
+runbook written for a human, or for an agent with a shell and a git remote: it
+names five CI jobs to reproduce, `hk`, `actionlint`, `copier`, and the
+release-asset check. Wavez's model has none of that remit, and the harness's
+own system rules already tell it that formatting is fixed for it and that
+gates decide when work is done. Across the 87 thread logs this project has
+accumulated, 40 of 261 shell calls (15%, 24 KB of results) run exactly what
+the gates run: `mise run ci`, `golangci-lint`, `gofmt`, `go vet`. Two of them
+go on to `git add -A && git commit`. The context section is not merely paid
+for on every turn, it buys turns that undo the system rules.
+
+Tool use over the same logs, which is what the schema bytes should be judged
+against:
+
+| tool | calls | share | errors |
+|---|---|---|---|
+| read | 268 | 31% | 1 |
+| shell | 261 | 31% | 2 |
+| str_replace | 151 | 18% | 41 |
+| search | 121 | 14% | 0 |
+| list | 25 | 3% | 0 |
+| context | 17 | 2% | 0 |
+| write | 11 | 1% | 0 |
+| question | 1 | 0.1% | 0 |
+
+`str_replace` fails on 27% of its calls, more than every other tool combined
+by two orders of magnitude, and it is also the single largest schema. The
+1,623 bytes it costs every turn are not buying reliability. `question` costs
+431 bytes a turn and has been called once in 855 calls.
+
+## 2026-08-21, a VCS hint the model tried to follow
+
+An `e2` run passed all three checks at turn 16 and then spent the rest of its
+three minutes on this:
+
+```
+jj workspace update-stale
+pwd && ls -ld .git .git/objects && jj root 2>&1 | head -5
+env | grep -i -E 'jj|git' ; ls -a | head -20
+cat .jj/repo/store/git/target 2>/dev/null; echo ---; ls .jj
+```
+
+Every shell call the run made was VCS archaeology, and none of it was the
+task. What sent it there was a gate message:
+
+```
+fail-to-pass gate: diffing the working copy of /tmp/wavez-replay-...:
+jj diff --from @- --to @ --git: exit status 1: Error: The working copy is
+stale (not updated since operation d6bbc06e8aab).
+Hint: Run `jj workspace update-stale` to update it.
+```
+
+The model did what the hint said. It could not have worked: the hint is
+addressed to whoever owns the repository, the shell runs in a sandbox, and
+the staleness was mine. Editing a file in the main workspace and running any
+`jj` command there rewrites the commit a replay workspace sits on, and every
+replay I ran while working in the repo went stale that way.
+
+Two fixes, one in each half. `runJJ` now recovers from a stale working copy
+by running the update jj itself prescribes and retrying once, so the error
+never leaves `internal/vcs`. `internal/vcs/jj_test.go` reproduces the
+staleness with an edit plus a `jj status` in the first workspace, which is
+the trigger, and the test fails without the recovery.
+
+The other half is a rule the harness does not yet hold: an infrastructure
+failure is not a gate failure. `GateVerifier.runStep` turns any error a gate
+returns into a failing result whose frames are the error text, which is right
+for a missing toolchain binary and wrong for a VCS error the model cannot
+reach. Nothing downstream distinguishes them.
+
+It also means every wall-clock number this harness has produced while I was
+working in the repo is suspect for a second reason, after the derived-state
+one.
+
+## 2026-08-21, what the harness can and cannot resolve
+
+Before reading any A/B on the fixed set, this is the spread of repeated runs
+of the same task, counting only runs that took a turn:
+
+| task | runs | mean turns | sd | min | max |
+|---|---|---|---|---|---|
+| e1 | 5 | 11.8 | 8.4 | 4 | 24 |
+| e2 | 8 | 8.8 | 3.5 | 2 | 13 |
+| e3 | 6 | 17.7 | 8.5 | 7 | 35 |
+| h2 | 4 | 8.2 | 1.6 | 7 | 11 |
+| q1 | 4 | 2.5 | 0.5 | 2 | 3 |
+
+The coefficient of variation runs 40-70% on every editing task. Two runs of
+`e2` on the same lane an hour apart gave 8 turns with 1 of 3 checks and 12
+turns with 3 of 3. At that spread, resolving a 30% change in turns would take
+tens of runs per arm at three minutes each, so any pair I have reported as a
+lane's result, in this file or in DESIGN, bounds nothing below roughly a
+factor of two.
+
+What survives is a metric that does not depend on the model's path through
+the task. Input tokens per turn is one: the preamble is a constant of the
+build, and `wavez -preamble` reports it exactly. Counting one named behavior
+across many runs is another, which is how the gate-duplicating shell calls
+were counted. Turns and check rate stay useful for catching a regression that
+is large, and useless for tuning.
+
+Across all 32 recorded replay runs, the preamble is a median 55% of a run's
+input tokens (range 23-92%, and above 45% in all but three runs). The three
+low outliers are the runs that read the most: a long file pushes the share
+down without making the preamble smaller. Dropping the CI runbook and adding
+one system bullet to replace it takes the preamble from 2,633 to 2,112
+tokens, so roughly a tenth of every input token the harness spends.
+
+The money it saves is smaller than that, because 80.5% of all input tokens
+across those runs were served from cache: the preamble is the most cacheable
+thing in the request and both llama-server and the hosted tier already hit on
+it. What it buys instead is window. A fast turn is admitted against 8,192
+tokens less a 1,024-token reply reserve, and 521 tokens is 7% of that.
+
+The rules themselves hold up where they are checkable. Across 175 edit calls
+in the thread logs, 5 touched an import block that already existed (3%), and
+2 added a `//nolint`, both of them the `wrapcheck` form this repo writes by
+convention. `Repeating a failed call unchanged ends the task` is enforced by
+the loop rather than trusted to the model. So the system rules are earning
+their 666 bytes; it is the borrowed project context that is not.
+
+## 2026-08-21, where the tool payload actually goes
+
+Result bytes across the 87 thread logs, which is what any further payload
+work should be aimed at:
+
+| tool | result bytes | share | avg per call |
+|---|---|---|---|
+| read | 919,884 | 67% | 3,273 |
+| shell | 202,289 | 15% | 763 |
+| search | 147,522 | 11% | 1,199 |
+| context | 48,499 | 4% | 2,309 |
+| list | 35,562 | 3% | 1,317 |
+| str_replace | 16,193 | 1% | 98 |
+
+`read` is two thirds of it, and a third of that is waste this harness can
+identify without a model. Of 281 reads, 94 re-read a path the same thread had
+already read with no edit to it in between: 336 KB, 36.5% of all read bytes,
+roughly 84k tokens. `internal/bench` already counts this (`repeat reads 16 of
+32 (26,581 bytes)` on the read-heaviest thread, 45% there), so the
+instrumentation has been reporting the problem for as long as it has existed.
+
+That looked like the next payload lever, and it is not. A tool result is
+charged again on every turn that follows it, so what a payload costs is its
+bytes times the turns left, and a re-read happens late in a run by its
+nature. Charging every duplicate in the logs at the turn it appeared and
+summing over the remaining turns gives 10.6k tokens of 1.6M on the threads
+that have any duplicate at all: 0.7% of input tokens. Doing it line by line
+rather than byte-exact, so a second read of an overlapping range counts too,
+gives 72.7k of 8.4M across every thread: 0.9%.
+
+The share of a component says nothing about the saving until it is weighted
+by how many requests still carry it. The preamble is the opposite case and
+that is the whole reason it matters: it is carried by every request, so its
+55% median share is its cumulative share too.
+
+The dedupe ships regardless, because it costs nothing. `thread.DedupeToolReads`
+already existed and ran only when `maybeCompact` crossed 75% of the routed
+tier's budget, which a hosted turn never does. It now runs when the request is
+assembled: the first copy is kept, later copies become a reference to the turn
+that produced it, and because a result deduped on one turn is deduped
+identically on the next, the provider's cached prefix does not move.
+
+## 2026-08-21, the context trim, measured as far as it can be
+
+One round of each condition on two tasks, `full` carrying
+`AGENTS.md#Verify before you report` and `trim` dropping it for one system
+bullet that forbids running the project's checks or version control:
+
+| task | lane | stop | turns | input/turn | checks |
+|---|---|---|---|---|---|
+| e2 | full | complete | 12 | 4,994 | 3/3 |
+| e2 | trim | deadline | 10 | 4,585 | 1/3 |
+| h2 | full | deadline | 10 | 4,667 | 1/2 |
+| h2 | trim | stagnant | 7 | 2,868 | 1/2 |
+
+Read this for what it is. The variance section above says a pair on this
+harness resolves nothing below a factor of two, and `e2` has produced 1 of 3
+and 3 of 3 on the same lane an hour apart. What the table shows is the
+absence of a large regression, not a win.
+
+The input-per-turn column is the only part that is close to deterministic,
+and it moved the way the arithmetic says: `e2` dropped 409 tokens a turn
+against a 521-token preamble cut, the rest being content that varies.
+
+None of the four runs made a single shell call, so the behavior the trim is
+aimed at was not exercised. That behavior is real and it is confined to
+headless runs: all 40 gate-duplicating shell calls in the logs come from
+`p-*` threads across 13 of them, and none from a daemon thread. Whatever
+made today's four runs quiet, the earlier ones were not.

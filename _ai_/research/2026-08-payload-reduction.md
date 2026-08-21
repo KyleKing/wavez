@@ -100,10 +100,20 @@ order.
    stop explaining exact-match anchors
 3. **Outline-mode `read`**, once a task set exists whose retrieval is the hard
    part. `h1` is the first
-4. **Dedup of near-identical results across turns.** The measured case here is
-   three byte-identical failing edits in one run, which the loop already
-   catches as stagnation, so the payload half needs a task that produces
-   near-identical rather than identical results before it is worth building
+4. **Dedup of identical results across turns, on every request rather than
+   only under compaction pressure.** Built, and much smaller than the first
+   measurement suggested. `read` is 67% of all tool result bytes across the
+   thread logs and 36.5% of those bytes (94 of 281 reads, 336 KB) re-read a
+   path the thread had already read with no edit in between, which is what
+   made it look like the leading lever. It is not, because a payload is
+   charged once per turn that follows it and a re-read happens late: charging
+   every duplicate at the turn it appeared and summing over the turns left
+   gives 0.7% of input tokens for byte-exact matching and 0.9% for line-exact.
+   The share of a component says nothing about the saving until it is weighted
+   by how many requests still carry it. `thread.DedupeToolReads` now runs at
+   request assembly rather than only when `maybeCompact` crosses 75% of the
+   routed budget, since it is free, keeps the first copy, and leaves the
+   cached prefix stable
 5. **A spill store** for anything a reducer dropped. The Compaction section
    already specifies the shape (the omission marker names a file id under the
    session directory and the existing `read` tool fetches it, so no new tool
