@@ -20,9 +20,12 @@ const changeInbox = 256
 // decouple: a gate run takes seconds, and an edit must not wait on one.
 //
 // DESIGN.md's Gates section is the contract it implements: gates trigger on
-// change events rather than on the model deciding to test, a passing gate
-// tells the model nothing, and a failing one hands over only the failures
-// that touch the change.
+// change events rather than on the model deciding to test, and a failing gate
+// hands over only the failures that touch the change. A passing gate is one
+// line naming what passed, because silence is not free: a run that cannot
+// tell whether the harness checked its edit checks them itself, and 20 of one
+// run's 29 shell calls were hand-written `go build`, `go test`, `go vet`, and
+// `gofmt` over changes the gates had already examined.
 type ChangeGate struct {
 	runner  *gate.Runner
 	inbox   chan tool.Change
@@ -76,16 +79,13 @@ func (g *ChangeGate) Collect(res gate.RunResult) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	for i := range res.Gates {
-		if !res.Gates[i].Pass {
-			g.pending = append(g.pending, res.Gates[i])
-		}
-	}
+	g.pending = append(g.pending, res.Gates...)
 }
 
 // TakeFeedback returns what the gates found since the last call and clears
-// it, empty when every gate passed. A passing gate is deliberately silent:
-// telling the model a check passed spends tokens to say nothing happened.
+// it, empty when no gate ran at all. A pass is one line naming the gates
+// that examined the change, which is what keeps a run from re-running them
+// through the shell; a failure carries the trimmed frames as well.
 func (g *ChangeGate) TakeFeedback() string {
 	g.mu.Lock()
 	results := g.pending
@@ -96,17 +96,55 @@ func (g *ChangeGate) TakeFeedback() string {
 		return ""
 	}
 
+	var passed []string
+	var failed []gate.Result
+
+	for i := range results {
+		switch {
+		case !results[i].Pass:
+			failed = append(failed, results[i])
+		case results[i].Examined > 0:
+			passed = append(passed, results[i].Gate)
+		}
+	}
+
 	var b strings.Builder
+
+	if len(failed) == 0 {
+		if len(passed) == 0 {
+			return ""
+		}
+
+		return "Gates ran on your changes and passed: " + strings.Join(dedupe(passed), ", ") +
+			". Do not re-run these yourself."
+	}
 
 	b.WriteString("Gates ran on your changes and found this:\n")
 
-	for i := range results {
-		b.WriteString("\n" + describeFailure(results[i]))
+	for i := range failed {
+		b.WriteString("\n" + describeFailure(failed[i]))
 	}
 
 	b.WriteString("\nFix the cause before continuing.")
 
 	return b.String()
+}
+
+// dedupe keeps the first occurrence of each name, since one turn's edits can
+// trigger several batches over the same gates.
+func dedupe(names []string) []string {
+	seen := make(map[string]bool, len(names))
+	out := make([]string, 0, len(names))
+
+	for _, n := range names {
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+
+	return out
 }
 
 // describeFailure renders one failing gate. A failure the gate could not

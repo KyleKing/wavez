@@ -22,8 +22,13 @@ func TestChangeGateFeedback(t *testing.T) {
 		wantNone bool
 	}{
 		{
-			name:     "every gate passed",
-			results:  []gate.Result{{Gate: "go-test", Pass: true, Examined: 3}},
+			name:    "a pass names the gate, so the run does not check it again through the shell",
+			results: []gate.Result{{Gate: "go-test", Pass: true, Examined: 3}},
+			want:    []string{"passed: go-test", "Do not re-run"},
+		},
+		{
+			name:     "a gate that examined nothing has abstained and says nothing",
+			results:  []gate.Result{{Gate: "go-test", Pass: true}},
 			wantNone: true,
 		},
 		{
@@ -63,7 +68,7 @@ func TestChangeGateFeedback(t *testing.T) {
 
 			if tt.wantNone {
 				if got != "" {
-					t.Errorf("TakeFeedback() = %q, want empty; a passing gate spends no tokens", got)
+					t.Errorf("TakeFeedback() = %q, want empty; an abstention is not news", got)
 				}
 
 				return
