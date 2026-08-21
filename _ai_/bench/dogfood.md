@@ -514,3 +514,30 @@ environment and passes on the new one.
 One caveat on the first run: this session was editing `internal/tui` test
 files at the same time, so some of what it read went stale underneath it.
 The toolchain finding does not depend on that, since it reproduces standalone.
+
+## 2026-08-21, what the second run's 71 tool calls were actually spent on
+
+Counted from `.wavez/threads/p-dkubt3z97r3s.jsonl`, the run that completed:
+32 read, 19 shell, 11 `str_replace`, 8 search, 1 context. Two of those
+numbers are the whole finding.
+
+**Search was abandoned after its first query.** The model asked fuzzy for
+`ChoiceFast ChoiceBalanced ChoiceDeep ChoiceLocal ChoiceHosted` and got
+`no matches for … across 473 indexed files`. `ftsQuery` quoted each term and
+joined them with a space, which is FTS5's implicit AND, so the query asked
+for one document holding all five names and no such document exists. The
+message reads as an answer about the code rather than about the query, and
+13 of the run's 19 shell calls after it were `grep` and `sed`. Terms are
+joined with OR now, and `TestSearch_FuzzyMatchesAnyTermNotEveryTerm` fails
+on the old join.
+
+**Half the reads returned lines already in the window.** 28 of the 32 reads
+named a line range, and the read cache deliberately skipped ranges, so only
+4 reads could ever be deduplicated. 16 of the 32 read a file that had not
+been edited since the previous read of it: roughly 29k characters, about 7k
+tokens, re-fed. The cache now keys on the content hash plus the spans
+already delivered, so a range inside one the model already holds comes back
+as a reference.
+
+Nothing here is about the model. Both are the harness charging a run for
+work it already did.

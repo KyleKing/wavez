@@ -135,3 +135,57 @@ func TestRead_OmittedEndLineReadsToEndOfFile(t *testing.T) {
 		t.Fatalf("read started before start_line: %s", res.Content)
 	}
 }
+
+// Ranged reads are what a run actually makes (28 of 32 in one dogfood run),
+// and they used to bypass the cache entirely, so half the reads in that run
+// returned lines already in the window.
+func TestRead_RangeAlreadyDeliveredReturnsReference(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = "// line"
+	}
+	lines[19] = "func Target() {}"
+
+	path := filepath.Join(dir, "file.go")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	r := tools.NewRead(dir, nil)
+	ctx := context.Background()
+
+	read := func(start, end int) string {
+		t.Helper()
+		res, err := r.Run(ctx, mustJSON(t, map[string]any{
+			"path": "file.go", "start_line": start, "end_line": end,
+		}))
+		if err != nil {
+			t.Fatalf("Run(%d-%d): %v", start, end, err)
+		}
+
+		return res.Content
+	}
+
+	if got := read(10, 30); !strings.Contains(got, "func Target() {}") {
+		t.Fatalf("first ranged read = %q, want the requested lines", got)
+	}
+
+	if got := read(15, 25); strings.Contains(got, "func Target() {}") {
+		t.Errorf("a range inside one already delivered returned content again: %q", got)
+	}
+
+	if got := read(1, 40); !strings.Contains(got, "func Target() {}") {
+		t.Errorf("a range wider than what was delivered = %q, want the content", got)
+	}
+
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n// more\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if got := read(15, 25); !strings.Contains(got, "func Target() {}") {
+		t.Errorf("a range of a changed file = %q, want the content", got)
+	}
+}

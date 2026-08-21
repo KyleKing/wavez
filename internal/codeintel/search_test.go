@@ -86,3 +86,25 @@ func TestSearchAcceptsQueriesThatLookLikeFTSSyntax(t *testing.T) {
 		})
 	}
 }
+
+// FTS5 ANDs bare terms, so a caller naming several symbols got "no matches"
+// for a query whose terms each exist in the index, one per file.
+func TestSearch_FuzzyMatchesAnyTermNotEveryTerm(t *testing.T) {
+	t.Parallel()
+
+	store, ctx := openStore(t)
+	if _, err := store.Index(ctx, fixtureDir, defaultRegistry()); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	results, err := store.Search(ctx, codeintel.SearchQuery{
+		Mode: codeintel.SearchFuzzy, Text: "NewGreeter new_greeter", Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("no results: each term exists in the index, in a different file")
+	}
+}

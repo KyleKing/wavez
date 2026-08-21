@@ -88,6 +88,14 @@ func (s *Store) Search(ctx context.Context, q SearchQuery) ([]SearchResult, erro
 // query syntax, so anything holding a path, an operator, or punctuation is a
 // syntax error rather than a search. Each run of query-safe characters becomes
 // its own quoted phrase, which also keeps a caller from injecting operators.
+//
+// Terms are joined with OR rather than FTS5's implicit AND. A caller listing
+// several names wants the files mentioning any of them, and requiring one
+// document to hold all of them answers "no matches" to a query whose terms
+// each exist: measured on this repo, a five-symbol query returned nothing
+// across 473 indexed files and the model abandoned the tool for shell grep
+// for the rest of the run. Ranking by bm25 still puts a document matching
+// every term above one matching a single term, so precision survives.
 func ftsQuery(text string) string {
 	fields := strings.FieldsFunc(text, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
@@ -101,7 +109,7 @@ func ftsQuery(text string) string {
 		quoted = append(quoted, `"`+f+`"`)
 	}
 
-	return strings.Join(quoted, " ")
+	return strings.Join(quoted, " OR ")
 }
 
 func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
