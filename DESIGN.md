@@ -4,8 +4,9 @@ High-level design: what each piece does, requirements per feature, decisions as 
 
 ## Starting a session
 
-Work comes off [Next](#next), top first. Say what you are taking and what is
-in the way before starting, and ask rather than guess when a choice is the
+Work comes off [Next](#next), top first, under the rules in
+[Standing objectives](#standing-objectives). Say what you are taking and what
+is in the way before starting, and ask rather than guess when a choice is the
 owner's to make.
 
 Mechanics live in the files that own them and are not repeated here:
@@ -649,7 +650,7 @@ Wavez does not auto-load `AGENTS.md`, `CLAUDE.md`, `.agents/`, or `.claude/`. Mo
 The thesis is "fewer tokens, faster, same or better code", so it needs a harness early enough to measure M3 against M1, and a comparison against Claude Code and OpenCode once the agent is whole. opencode-bench is the reference shape (a task set, per-agent adapters, a scoring rubric). Harbor and Terminal-Bench are the reference for sandboxed task execution and scoring.
 
 - Tasks come from real commits in the user's repos, replayed from the parent tree with the commit message as the prompt and the real diff plus the repo's own tests as the oracle, the same method as `_ai_/demos/intent-edits/corpus`. Twenty to thirty tasks stratified by size and kind (add, change, fix, refactor, cross-file). Public tasks (Terminal-Bench, SWE-bench-style) come later for external comparison
-- Metrics per run: pass rate against tests, output tokens, input tokens, cache hit share, wall time, hosted cost, turns, tool calls, malformed calls, gate failures, and the share of the final diff produced by resolvers and Modifiers versus model text. The last one is the number that proves or refutes the design
+- Metrics per run: pass rate against tests, output tokens, input tokens, cache hit share, wall time, hosted cost, turns, tool calls, malformed calls, gate failures, and the share of the final diff produced by resolvers and Modifiers versus model text. The last one is the number that proves or refutes the design. `wavez -stats <thread>` already reports most of them from a finished run's log, which is what makes a single lane measurable before the task set exists: turns, tool calls by name with the bytes each returned, tokens in and out with the cache share, reads that returned a file unchanged since the last read of it, searches that matched nothing, gate rounds and failures, review objections, and what compaction saved
 - Adapters: Wavez through `-p` with JSON output, Claude Code through `-p --output-format json`, OpenCode through its server API. Same task text, same sandbox, three runs each. The `_ai_/demos/intent-edits/timing` scripts are the seed
 - Two lanes: local-only (qwen3:8b, no network) and hosted-allowed. Reported separately, since the local lane is where the deterministic layer has to carry the most
 - Output is one table per model lane plus a per-task drill-down, written to `_ai_/bench/` with the run's SHAs, and rerunnable from one command in a routine
@@ -721,19 +722,77 @@ done when its condition holds, and nothing here promises a release number.
 | M4 Away | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | M5 Proof | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
 
+### Standing objectives
+
+The milestones say where this is going. These say how the work gets done, and
+they outrank the order of Next wherever the two disagree.
+
+**Quality and efficiency before speed, and speed before the comparison.**
+Timing a loop that changes every week measures the week, not the loop. The
+numbers that decide anything are tokens and turns per finished task, and those
+only mean something once the harness replays a fixed task set against a fixed
+tool surface. So the benchmark harness comes first, the efficiency work runs
+against it, and the machine probes and the Claude Code comparison wait until
+the loop underneath them has stopped moving.
+
+**The loop is both the product and the tool.** Work on Wavez runs through
+Wavez wherever the task is inside what it can already do. Every defect worth
+fixing in the last three sessions was invisible in review and obvious in a
+transcript: a sandbox that made `go build` impossible, a search tool that
+required every term at once, a read cache that skipped the read shape the model actually
+uses. A dogfood session records counts rather than impressions in
+`_ai_/bench/dogfood.md`, and a count that surprises is the next lane.
+
+**Ask each tier only what it can do.** An 8B model holds one file well and
+follows a short instruction with the answer already in front of it. It plans
+badly, and it cannot find what it was not handed. So a run that fails on the
+fast tier raises the question of which half was too hard, and so far the
+answer has always been the retrieval rather than the reasoning. Escalating is
+the last resort, because a tier that has to escalate has already spent the
+turn.
+
+**Move work out of the model, in this order:** a deterministic check, then a
+smarter tool, then a better prompt, then a bigger model. Each step costs more
+per run and reproduces less well than the one above it. A prompt fix that
+survives one model change is luck, and a gate that answers the same question
+costs nothing per run forever.
+
+**Every optimization lands with its number.** `wavez -stats <thread>` reads
+the thread log and reports what a run spent: turns, tool calls by name, result
+bytes, reads that returned lines already in the window, gate outcomes, and
+tokens. A change to a tool or a gate lands with the before and after from the
+same task, or it lands as a guess.
+
+**Gates block on broken and advise on weak**, per the Gates section. The
+corollary for this list: an efficiency change that makes a gate quieter has to
+show the gate still catches what it caught, because the cheapest way to speed
+anything up here is to stop checking.
+
+**One lane, one commit.** A lane that turns out wrong gets dropped on its own,
+which only works if the measurement, the change, and the doc update travel
+together and nothing else does.
+
 ### Next
 
-Ordered by what a quiet M4 Pro session can settle first, then by what unblocks daily use, from the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood rows. Each names what closes it.
+Ordered by the rule above: measurement, then the efficiency work it makes
+decidable, then the machine probes that need a stable loop underneath them.
+Sources are the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier
+comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood
+rows. Each names what closes it.
 
-1. Finish the M4 Pro probe. First pass on `qwen3.8:27b` is in `_ai_/bench/dogfood.md` (2026-08-19): e1 and e2 landed and completed, e3 did not, at 90 tokens/s prefill and 12 tokens/s decode, served at 12k because 16k OOMs Metal without `sudo sysctl iogpu.wired_limit_mb=20480`. Left: the other two samples, `devstral-small-2` and `qwen3-coder:30b` (pulled or pulling on the M4 Pro), a run at 32k with the wired limit raised, and the five-task harness through `localBaseURL` from the M2 Pro, which is what decides whether local writing is a property of 8B models or of local inference
-2. Finish the timed comparison: hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build (the daemon owns it), since that build was competing with the model in the first rows
-3. The efficiency spikes, in the order their numbers would change a decision: `trim-turns`, `fork-shape`, then the rest (`kv-slots`, `thinking-budget`, and the local half of `prefix-tokens` ran on the M4 Pro: `_ai_/demos/kv-slots/`, `_ai_/demos/thinking-budget/`, `_ai_/demos/prefix-tokens/`)
-4. The progress line and estimate, after the `progress-estimate` spike, which replays thread logs already on disk and so needs no particular machine. The other owner's asks (idle toast, auto-linked identifiers, parked-work inbox) shipped; the mobile push half of the toast is M4
-5. Fleet-scale local serving: size `--cache-ram` against the admission headroom (the `kv-slots` numbers) with serialization past what fits, the trimmed-output recall handle, allow-always persisted per project
-6. Routine triggers on schedule and thread lifecycle, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass (per-model runtime settings reach the supervisor now: `contextWindow` and a size saved on the models screen are what `llama-server` starts with, and the router escalates against that window less reply room)
-7. Modifiers for Go before intent edits (M3), then web search, per the audit's lever table
+1. The measurement substrate. `wavez -stats` over a thread log ships; what is left is the harness around it: the fixed task set from `_ai_/bench/timing/tasks.txt` replayed on demand, one record per run, and a diff of two records so a lane can show what it moved. Until this exists every efficiency claim in this file rests on a hand-written script over one transcript
+2. Tool-call efficiency, from whatever the stats say is largest. Two are already known and fixed (fuzzy terms ANDing, ranged reads bypassing the cache) and their effect is unmeasured. The next candidates from the same run: `context` was called once in 71 calls and never again, and 13 of 19 shell calls were `grep` doing what `search` exists to do
+3. Right-sizing the fast tier, which is the open Router heuristic question with a measurement attached. Run the task set on `qwen3:8b` alone and record which tasks it finishes, so the fast tier's remit comes from what it completed rather than from a guess about task shape. The candidate signals stay plan mode, a Cycle phase declaring its shape, and the run's own tool history
+4. Modifiers for Go (M3), because a rename through `gopls` costs a fraction of the tokens the same rename costs through `str_replace`, and it cannot half-apply. This is the largest single token lever in the audit's table
+5. Gate coverage for what a run currently spends turns discovering. Each candidate is a question a model asks the shell repeatedly, answered once and deterministically
+6. The progress line and estimate, after the `progress-estimate` spike, which replays thread logs already on disk and so needs no particular machine. The M2 Pro's corpus is the one that would settle it (52 logs here, against the six runs that decided nothing on the M4 Pro)
+7. Fleet-scale local serving: size `--cache-ram` against the admission headroom (the `kv-slots` numbers) with serialization past what fits, the trimmed-output recall handle, allow-always persisted per project
+8. Routine triggers on schedule and thread lifecycle, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
+9. The M4 Pro probe, held until the loop stops moving under it. First pass on `qwen3.8:27b` is in `_ai_/bench/dogfood.md` (2026-08-19): e1 and e2 landed and completed, e3 did not, at 90 tokens/s prefill and 12 tokens/s decode, served at 12k because 16k OOMs Metal without `sudo sysctl iogpu.wired_limit_mb=20480`. Left: the other two samples, `devstral-small-2` and `qwen3-coder:30b`, a run at 32k with the wired limit raised, and the five-task harness through the fast tier's `baseURL` from the M2 Pro, which is what decides whether local writing is a property of 8B models or of local inference
+10. The timed comparison, held for the same reason: hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build, since that build was competing with the model in the first rows
+11. Web search, per the audit's lever table
 
-The quiet-machine session (items 1 and 2) runs off two fixed lists rather than rediscovering steps: the M4 Pro probe and harness re-run in `_ai_/bench/audit-2026-08-18.md` (section 3b), then the setup and run loop in `_ai_/bench/timing/README.md`.
+The quiet-machine session (items 9 and 10) runs off two fixed lists rather than rediscovering steps: the M4 Pro probe and harness re-run in `_ai_/bench/audit-2026-08-18.md` (section 3b), then the setup and run loop in `_ai_/bench/timing/README.md`.
 
 ## Considered and deferred
 
