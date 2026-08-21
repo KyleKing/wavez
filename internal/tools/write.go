@@ -100,6 +100,11 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	}
 	defer release()
 
+	if lineNumbered(in.Content) {
+		return tool.Errorf("content carries the line numbers read prefixed each line with; " +
+			"write the file's own text, without the leading number and tab"), nil
+	}
+
 	if _, statErr := os.Lstat(abs); statErr == nil {
 		return tool.Errorf("%s already exists; use str_replace to edit it", in.Path), nil
 	} else if !errors.Is(statErr, os.ErrNotExist) {

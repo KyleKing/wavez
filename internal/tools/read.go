@@ -37,6 +37,13 @@ var readSchema = buildSchema(map[string]schemaProperty{
 // Read reads a whole file or a line range from it, refusing any path
 // outside the project root.
 //
+// Every line carries its own number, `N<tab>line`. The number is what a
+// str_replace anchor and a stack trace are both stated in, and without it a
+// model re-reads the file through the shell to get one: 14 of 40 shell calls
+// on a dogfood run were `awk`, `sed -n`, or `cat -n` over a file read had
+// already returned. See lineNumbered, which keeps a numbered block from
+// being handed back as file content.
+//
 // It always returns the lines it was asked for, even ones it has returned
 // before. Answering a repeat read with a reference to the earlier one saves
 // nothing: measured on a dogfood run, four of four references were followed
@@ -62,6 +69,8 @@ func (*Read) Name() string { return "read" }
 // Description implements tool.Tool.
 func (*Read) Description() string {
 	return "Read a file, or a 1-indexed inclusive line range of one, from the project. " +
+		"Each line comes back as its line number, a tab, then the text; strip that prefix " +
+		"before reusing a line as an edit anchor or as file content. " +
 		"Prefer search to locate code and read only the range it names; reading whole files " +
 		"to find something spends the context window on lines you will not use. " +
 		"Refuses paths outside the project root."
@@ -134,19 +143,36 @@ func rangeResult(path string, data []byte, start, end int) tool.Result {
 
 	selected := lines[start-1 : end]
 
-	truncated := false
-	if len(selected) > maxReadLines {
-		dropped := len(selected) - maxReadLines
+	truncated := len(selected) > maxReadLines
+	dropped := len(selected) - maxReadLines
+	if truncated {
 		selected = selected[:maxReadLines]
-		truncated = true
-
-		selected = append(selected, fmt.Sprintf("... [%d of %d lines truncated] ...", dropped, end-start+1))
 	}
 
-	content := fmt.Sprintf("%s (lines %d-%d of %d):\n%s", path, start, end, total, strings.Join(selected, "\n"))
+	body := numbered(selected, start)
+	if truncated {
+		body += fmt.Sprintf("\n... [%d of %d lines truncated] ...", dropped, end-start+1)
+	}
+
+	content := fmt.Sprintf("%s (lines %d-%d of %d):\n%s", path, start, end, total, body)
 	if truncated {
 		content += "\nRe-read with a narrower start_line/end_line to see the truncated lines."
 	}
 
 	return tool.Result{Content: content}
+}
+
+// numbered prefixes each line with its 1-indexed file line number,
+// separated by a tab, which is the format `cat -n` and the awk one-liners a
+// model reaches for both produce.
+func numbered(lines []string, start int) string {
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%d\t%s", start+i, line)
+	}
+
+	return b.String()
 }

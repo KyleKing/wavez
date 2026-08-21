@@ -85,8 +85,8 @@ func TestRead_LineRange(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("IsError = true, want false: %q", result.Content)
 	}
-	if !strings.Contains(result.Content, "two") || !strings.Contains(result.Content, "three") {
-		t.Errorf("Content = %q, want lines two and three", result.Content)
+	if !strings.Contains(result.Content, "2\ttwo\n3\tthree") {
+		t.Errorf("Content = %q, want lines two and three carrying their file line numbers", result.Content)
 	}
 	if strings.Contains(result.Content, "one") || strings.Contains(result.Content, "four") {
 		t.Errorf("Content = %q, want lines outside the range excluded", result.Content)
@@ -126,5 +126,43 @@ func TestRead_OmittedEndLineReadsToEndOfFile(t *testing.T) {
 	}
 	if strings.Contains(res.Content, "two") {
 		t.Fatalf("read started before start_line: %s", res.Content)
+	}
+}
+
+// A model that copies a numbered read back into an anchor or a new file
+// would otherwise get "not found" with no clue why, or a file holding the
+// numbers.
+func TestNumberedTextIsRefusedAsFileContent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.go")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	sr := tools.NewStrReplace(dir, nil)
+	result, err := sr.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "file.go", "old_string": "2\ttwo", "new_string": "TWO",
+	}))
+	if err != nil {
+		t.Fatalf("str_replace Run: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "still carries the line numbers") {
+		t.Errorf("str_replace Content = %q (IsError=%v), want the line-number hint", result.Content, result.IsError)
+	}
+
+	w := tools.NewWrite(dir, nil)
+	result, err = w.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "new.go", "content": "1\tpackage x\n2\t\n3\tfunc A() {}\n",
+	}))
+	if err != nil {
+		t.Fatalf("write Run: %v", err)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "carries the line numbers") {
+		t.Errorf("write Content = %q (IsError=%v), want the line-number refusal", result.Content, result.IsError)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "new.go")); statErr == nil {
+		t.Error("write created the file despite refusing the content")
 	}
 }

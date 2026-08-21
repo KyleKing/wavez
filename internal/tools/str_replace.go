@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/kyleking/wavez/internal/edit"
@@ -18,9 +19,10 @@ var strReplaceSchema = buildSchema(map[string]schemaProperty{
 	"old_string": {
 		Type: schemaTypeString,
 		Description: "Exact text to replace. Must match exactly one location, or the call " +
-			"fails with the matching line numbers. Copy it verbatim from a prior read rather " +
-			"than retyping it, and anchor on the shortest snippet that appears exactly once: " +
-			"a long anchor fails more often than a short one.",
+			"fails with the matching line numbers. Copy it from a prior read rather than " +
+			"retyping it, without the line number and tab read puts in front of each line, " +
+			"and anchor on the shortest snippet that appears exactly once: a long anchor " +
+			"fails more often than a short one.",
 	},
 	"new_string": {
 		Type: schemaTypeString,
@@ -97,6 +99,11 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 	change, err := edit.ApplyToFile(abs, in.OldString, in.NewString)
 	if err != nil {
+		if errors.Is(err, edit.ErrNotFound) && lineNumbered(in.OldString) {
+			return tool.Errorf("%v\n\nold_string still carries the line numbers read prefixed each "+
+				"line with. Send the file's own text, without the leading number and tab.", err), nil
+		}
+
 		return tool.Errorf("%v", err), nil
 	}
 
