@@ -80,6 +80,13 @@ func (p *execProcess) Kill() error {
 	return nil
 }
 
+// ServedSlots is how many requests the local server processes at once, the
+// `-np` it is started with. It is one because a 16 GB-class model on this
+// laptop fits once, and it is exported because a second turn admitted
+// against a single slot does not run concurrently, it queues inside
+// llama-server where no scheduler can see it.
+const ServedSlots = 1
+
 // buildArgs is the exact llama-server command line Server starts, per
 // DESIGN.md's Model routing section: n-gram speculation, tunable prefix
 // reuse, explicit jinja templating, and an explicit served context.
@@ -89,7 +96,7 @@ func buildArgs(cfg Config) []string {
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(cfg.Port),
 		"-c", strconv.Itoa(cfg.contextSize()),
-		"-np", "1",
+		"-np", strconv.Itoa(ServedSlots),
 		"--spec-type", cfg.specType(),
 		"--cache-reuse", strconv.Itoa(cfg.cacheReuse()),
 		"--jinja",

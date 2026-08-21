@@ -247,7 +247,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	leases := lease.New(root, lease.WithTTL(cfg.LeaseTTL))
 	scheduler := options.Scheduler
 	if scheduler == nil {
-		scheduler = sched.New(sched.WithHeadroom(cfg.AdmissionHeadroom))
+		scheduler = sched.New(sched.WithHeadroom(cfg.AdmissionHeadroom), sched.WithLocalSlots(runtime.ServedSlots))
 	}
 	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker, leases)
 

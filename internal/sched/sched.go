@@ -62,6 +62,7 @@ type Scheduler struct {
 	onHold   func(Hold)
 	wake     chan struct{}
 	headroom float64
+	slots    int
 	turns    int
 	gates    int
 	mu       sync.Mutex
@@ -74,6 +75,16 @@ type Option func(*Scheduler)
 // gate run stop overlapping.
 func WithHeadroom(fraction float64) Option {
 	return func(s *Scheduler) { s.headroom = fraction }
+}
+
+// WithLocalSlots bounds how many turns may occupy the local model at once.
+// Zero leaves it unbounded, which is right for a scheduler in front of a
+// hosted tier and wrong in front of llama-server: the server processes
+// runtime.ServedSlots requests at a time and queues the rest internally, so
+// an unbounded scheduler admits threads that then serialize somewhere it
+// cannot see, each spending its wall-clock deadline waiting.
+func WithLocalSlots(n int) Option {
+	return func(s *Scheduler) { s.slots = n }
 }
 
 // WithMemory replaces the memory reading, for tests and for a caller that
@@ -167,6 +178,10 @@ func (s *Scheduler) enter(ctx context.Context, isTurn bool) contention {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if isTurn && s.slots > 0 && s.turns >= s.slots {
+		return contention{wake: s.wake, reason: slotReason(s.turns, s.slots)}
+	}
+
 	rival := s.gates
 	if !isTurn {
 		rival = s.turns
@@ -235,6 +250,12 @@ func holdReason(mem sysinfo.Memory, isTurn bool) string {
 	}
 
 	return fmt.Sprintf("held for %s, %.0f%% memory free", rival, free(mem)*percent)
+}
+
+// slotReason says the local model is busy rather than that memory is tight,
+// because the two are fixed by different things and the fix differs.
+func slotReason(running, slots int) string {
+	return fmt.Sprintf("held for the local model, %d of %d slot(s) busy", running, slots)
 }
 
 // Snapshot reports what is running and what the machine looks like.

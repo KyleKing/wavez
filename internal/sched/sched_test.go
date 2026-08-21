@@ -108,3 +108,55 @@ func TestNilSchedulerAdmits(t *testing.T) {
 	release()
 	assert.Equal(t, sched.PhaseEdit, s.Snapshot(context.Background()).Phase)
 }
+
+// Three threads sharing one llama-server slot is the measured case: all
+// three were admitted, all three read as working, and each got one turn in
+// three minutes before its deadline. Memory is plentiful here on purpose,
+// since the slot bound is structural rather than a memory decision.
+func TestLocalSlotsBoundConcurrentTurns(t *testing.T) {
+	t.Parallel()
+
+	holds := make(chan sched.Hold, 4)
+	s := sched.New(sched.WithMemory(memory(12)), sched.WithLocalSlots(1))
+	s.OnHold(func(h sched.Hold) { holds <- h })
+
+	release, err := s.AdmitTurn(t.Context(), "alpha")
+	require.NoError(t, err)
+
+	admitted := make(chan struct{})
+
+	go func() {
+		r, aErr := s.AdmitTurn(t.Context(), "beta")
+		if aErr == nil {
+			r()
+		}
+		close(admitted)
+	}()
+
+	held := <-holds
+	assert.True(t, held.Held)
+	assert.Equal(t, "beta", held.Holder)
+	assert.Contains(t, held.Reason, "slot")
+
+	assert.Equal(t, 1, s.Snapshot(t.Context()).LocalTurns)
+
+	release()
+	<-admitted
+	assert.False(t, (<-holds).Held)
+}
+
+// A gate is not a local turn, so the slot bound must not hold one back.
+func TestLocalSlotsDoNotHoldGates(t *testing.T) {
+	t.Parallel()
+
+	s := sched.New(sched.WithMemory(memory(12)), sched.WithLocalSlots(1))
+
+	releaseTurn, err := s.AdmitTurn(t.Context(), "alpha")
+	require.NoError(t, err)
+
+	releaseGate, err := s.AdmitGate(t.Context())
+	require.NoError(t, err)
+
+	releaseGate()
+	releaseTurn()
+}

@@ -1164,3 +1164,41 @@ aimed at was not exercised. That behavior is real and it is confined to
 headless runs: all 40 gate-duplicating shell calls in the logs come from
 `p-*` threads across 13 of them, and none from a daemon thread. Whatever
 made today's four runs quiet, the earlier ones were not.
+
+## 2026-08-21, three threads and one slot
+
+The scheduler only ever held a turn against a gate run. Turn against turn was
+unbounded, so `fleet-probe` opening three threads across two roots got all
+three admitted at once, all three reading `working`, against a llama-server
+started with `-np 1`. What actually happened is in the logs: each thread got
+exactly one turn, landing at 13:19:24, 13:19:26, and 13:19:27, about 100
+seconds after the prompts went in, and then all three hit the three-minute
+deadline having changed nothing. The other two turns were queued inside
+llama-server, where the scheduler cannot see them and the schedule view
+cannot say so.
+
+`sched.WithLocalSlots(runtime.ServedSlots)` bounds concurrent local turns by
+the `-np` the server was started with. The same probe now renders:
+
+```
+[15:23:23] phase=edit model=qwen3:8b free=26% headroom=25%
+  93b9d2128445f9b4       working
+  2fffb4f70988cefc       held for the local model, 1 of 1 slot(s) busy
+  ec4d3bad48df85a5       held for the local model, 1 of 1 slot(s) busy
+```
+
+Each thread ran to its end and the next was admitted, three lanes draining in
+order. Two things moved. Decode ran at a median 23 tokens/s against 16.7 when
+three turns shared the slot, about 40% faster, because the server was serving
+one request rather than interleaving three. And each thread got 3, 3, and 2
+turns in the window where the contended run got one apiece, since a queued
+thread now waits before its wall-clock deadline starts rather than inside it.
+
+Free memory sat at 13-27% against a 25% headroom throughout, and the memory
+rule held nothing back either way. The rival that mattered was never a gate
+run.
+
+What is not fixed: admission is taken per run, not per turn, so a run pinned
+`fast` that escalates keeps the local slot through hosted turns that do not
+need it. Per-turn admission is the fix, and it needs the deadline to stop
+counting time a turn spent waiting.

@@ -25,6 +25,7 @@ import (
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/ollama"
+	"github.com/kyleking/wavez/internal/runtime"
 	"github.com/kyleking/wavez/internal/sched"
 	"github.com/kyleking/wavez/internal/sysinfo"
 	"github.com/kyleking/wavez/internal/vcs"
@@ -96,7 +97,9 @@ func serve(ctx context.Context, dir, sock string) error {
 	// by every project this daemon loads, built once against the fixed
 	// default headroom rather than any one project's ".wavez.pkl", which a
 	// per-project Scheduler could otherwise read.
-	scheduler := sched.New(sched.WithHeadroom(config.DefaultAdmissionHeadroom))
+	scheduler := sched.New(
+		sched.WithHeadroom(config.DefaultAdmissionHeadroom),
+		sched.WithLocalSlots(runtime.ServedSlots))
 	settingsPath := filepath.Join(userDir, "models.json")
 
 	srv, err := daemon.New(sock,
