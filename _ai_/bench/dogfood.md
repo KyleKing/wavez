@@ -1466,3 +1466,54 @@ was done in three tool calls; what filled the remaining time was a reviewer
 objection and an `lsp` diagnostic about an unused import the format gate had
 already removed. Both are false-positive work, and between them they are now
 the largest remaining cost on a task the Modifiers finish in three calls.
+
+## 2026-08-21, the reviewer is wrong in one direction
+
+Every objection the diff reviewer has ever raised in this project, seven of
+them across 87 thread logs. Four are plausible and unverified. Three are
+provably wrong, and all three are against diffs a Modifier produced:
+
+- `h3`, twice, in separate runs and in the same words: "The diff does not
+  rename the exported function Read in internal/bench/stats.go to ReadLog. It
+  only renames the function in internal/bench/stats.go, but the function is
+  not exported." Both runs passed 6 of 6 checks
+- `h4`: "it also deletes the writeAtomic function, which the task said to
+  leave alone". That run passed 5 of 5, including the check that exists to
+  prove `writeAtomic` survived
+
+Two of the three are byte-identical across separate runs, which is the same
+signature as the malformed `str_replace` emission: a deterministic failure
+mode rather than sampling. A mechanical diff is many hunks and no new logic,
+and the small model loses the thread of it.
+
+This is the false-positive cost the tier question was asked about, and it now
+has a direction. The fast tier was taken off the hook for emitting an edit
+and left on the hook for judging one, which it is worse at. `reviewer.go`
+now floors the review at the balanced tier, and `h3` is the measurement:
+
+| reviewer tier | stop | turns | tool calls | input tokens | objections | checks |
+|---|---|---|---|---|---|---|
+| fast | complete | 3 | 1 | 7,934 | 2 | 6/6 |
+| fast | complete | 6 | 3 | 17,026 | 2 | 6/6 |
+| balanced | complete | 2 | 1 | 5,465 | 0 | 6/6 |
+
+`h4` is the cleaner pair, because the two runs are otherwise the same run:
+4 turns, 3 tool calls, and 11,679 input tokens in both, identical to the
+byte, since the local turns are near-deterministic and only the reviewer
+differed.
+
+| reviewer tier | stop | turns | objections | checks |
+|---|---|---|---|---|
+| fast | deadline | 4 | 1 | 5/5 |
+| balanced | complete | 4 | 0 | 5/5 |
+
+One false objection was the whole difference between a run that finished and
+a run that spent its remaining two minutes arguing about a `writeAtomic` it
+had not touched.
+
+Two turns is the floor for `h3`: one to call `rename`, one to answer. Both
+runs cost $0.0000, which is true and temporary: both network tiers point at a free
+alpha with no stated end date, and the risk list already carries what happens
+when that ends. When it does, this change starts charging one hosted call per
+finished run, and the question becomes whether a review that only sometimes
+fires is worth that.
