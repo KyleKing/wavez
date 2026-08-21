@@ -317,8 +317,10 @@ func TestDeleteRefusesWhatIsStillUsed(t *testing.T) {
 		t.Fatalf("a used declaration was deleted: %s", res.Content)
 	}
 
-	if !strings.Contains(res.Content, "b.go") {
-		t.Errorf("the refusal does not name the use: %s", res.Content)
+	// The name is what the next call needs: told only a line number, a run
+	// answered by naming the declarations the task had told it to keep.
+	if !strings.Contains(res.Content, "Use (b.go:4)") {
+		t.Errorf("the refusal does not name the declaration holding the use: %s", res.Content)
 	}
 
 	if !strings.Contains(read(t, root, "a.go"), "func Alpha()") {

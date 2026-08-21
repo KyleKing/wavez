@@ -221,7 +221,7 @@ func (d *Delete) outside(refs []lsp.Reference, decl declaration, together []decl
 			break
 		}
 
-		out = append(out, fmt.Sprintf("%s:%d", relativeTo(d.root, ref.Path), ref.Line+1))
+		out = append(out, d.describe(ref))
 	}
 
 	return out
@@ -240,6 +240,69 @@ func (d *Delete) rangesOf(ctx context.Context, names []string, path string) []de
 	}
 
 	return out
+}
+
+// describe names the declaration holding a reference, falling back to the
+// bare location when it cannot find one. The name is what the next call
+// needs: told only that `ApplyToFile` is used at `apply_test.go:23`, a run
+// answered by naming the two declarations the task had told it to keep, and
+// stopped. Told `TestApplyToFile (apply_test.go:23)`, it has the argument.
+//
+// This shapes a message and never an edit, so walking up to the nearest
+// column-zero declaration is good enough where the index does not reach.
+func (d *Delete) describe(ref lsp.Reference) string {
+	at := fmt.Sprintf("%s:%d", relativeTo(d.root, ref.Path), ref.Line+1)
+
+	name := enclosing(ref)
+	if name == "" {
+		return at
+	}
+
+	return fmt.Sprintf("%s (%s)", name, at)
+}
+
+// enclosing reads the referencing file and walks up to the declaration the
+// reference sits in.
+func enclosing(ref lsp.Reference) string {
+	body, err := os.ReadFile(ref.Path)
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(body), "\n")
+	if ref.Line >= len(lines) {
+		return ""
+	}
+
+	for i := ref.Line; i >= 0; i-- {
+		if name := declaredOn(lines[i]); name != "" {
+			return name
+		}
+	}
+
+	return ""
+}
+
+// declaredOn returns the name a top-level declaration line declares, or "".
+func declaredOn(line string) string {
+	for _, keyword := range []string{"func ", "type ", "var ", "const "} {
+		if !strings.HasPrefix(line, keyword) {
+			continue
+		}
+
+		rest := strings.TrimPrefix(line, keyword)
+		if strings.HasPrefix(rest, "(") { // a method: skip its receiver
+			if i := strings.Index(rest, ")"); i >= 0 {
+				rest = strings.TrimSpace(rest[i+1:])
+			}
+		}
+
+		return strings.TrimSpace(strings.FieldsFunc(rest, func(r rune) bool {
+			return r == '(' || r == '[' || r == ' ' || r == '{'
+		})[0])
+	}
+
+	return ""
 }
 
 // inAnyOf reports whether a reference sits inside one of the declarations
