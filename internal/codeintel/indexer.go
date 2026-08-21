@@ -96,6 +96,11 @@ func (ix *Indexer) Search(ctx context.Context, q SearchQuery) ([]SearchResult, I
 		return nil, stats, err
 	}
 
+	stats.MatchesTotal, err = ix.store.CountMatches(ctx, q)
+	if err != nil {
+		return nil, stats, err
+	}
+
 	return results, stats, nil
 }
 

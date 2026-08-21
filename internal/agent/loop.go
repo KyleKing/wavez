@@ -50,6 +50,16 @@ const (
 	// near-miss loop (three different wrong str_replace anchors in a row)
 	// the exact-repeat detector cannot see.
 	DefaultMaxStagnantErrors = 3
+	// DefaultTurnsBeforeNudge is how many turns a run may spend without
+	// changing a file before it is told to start. Two dogfood runs spent
+	// their whole budget reading, one for 24 turns and one for 60, and
+	// neither left a file changed: the second spent 44 shell calls mapping
+	// every consumer of a struct field it was adding a key beside. It is a
+	// nudge rather than a bound, because a task can genuinely need reading
+	// first, and it repeats at most maxNudges times.
+	DefaultTurnsBeforeNudge = 15
+	// A third telling is evidence the model is not going to start.
+	maxNudges = 2
 
 	million = 1_000_000.0
 )
@@ -218,6 +228,7 @@ type Options struct {
 	MaxVerifyRounds     int
 	MaxReviewRounds     int
 	MaxStagnantErrors   int
+	TurnsBeforeNudge    int
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
 	CompactTrigger      float64
@@ -250,6 +261,11 @@ func WithMaxHostedSpendUSD(v float64) Option { return func(o *Options) { o.MaxHo
 // successful tool call resets the count. Zero disables it. This trigger is
 // independent of the exact-repeat detection Run always runs.
 func WithMaxStagnantErrors(n int) Option { return func(o *Options) { o.MaxStagnantErrors = n } }
+
+// WithTurnsBeforeNudge overrides DefaultTurnsBeforeNudge: how many turns a
+// run may go without changing a file before it is told to make its first
+// edit. Zero disables the nudge.
+func WithTurnsBeforeNudge(n int) Option { return func(o *Options) { o.TurnsBeforeNudge = n } }
 
 // WithPricing replaces the per-model dollar-per-million-token table Run
 // prices hosted usage against, in full. Start from DefaultPricing to extend
@@ -339,6 +355,7 @@ func New(
 		MaxWallClock:        DefaultMaxWallClock,
 		MaxHostedSpendUSD:   DefaultMaxHostedSpendUSD,
 		MaxStagnantErrors:   DefaultMaxStagnantErrors,
+		TurnsBeforeNudge:    DefaultTurnsBeforeNudge,
 		CompactTrigger:      DefaultCompactTrigger,
 		Clock:               gate.RealClock{},
 		Pricing:             DefaultPricing,
@@ -469,7 +486,49 @@ type run struct {
 	// escalations is how many times this run has moved up a tier, which the
 	// router reads back as PriorFailures.
 	escalations   int
+	nudges        int
 	editAttempted bool
+}
+
+// nudgeIfNothingChanged tells a run that has read for many turns and
+// changed nothing to make its first edit. It fires only where the run could
+// edit and the task asks for one, so a plan thread, whose registry holds no
+// editing tool, is never told to start editing.
+func (r *run) nudgeIfNothingChanged(ctx context.Context) error {
+	every := r.loop.options.TurnsBeforeNudge
+	if every <= 0 || r.nudges >= maxNudges || len(r.changes) > 0 {
+		return nil
+	}
+
+	if r.outcome.Turns < every*(r.nudges+1) {
+		return nil
+	}
+
+	if !r.canEdit() || (!r.editAttempted && !looksLikeEditTask(r.task)) {
+		return nil
+	}
+
+	r.nudges++
+
+	if err := r.thread.AppendUser(ctx, fmt.Sprintf(
+		"You have changed no file in %d turns. More reading is not progress on this task. "+
+			"Make the smallest edit that starts it now, and read again afterwards if you need to.",
+		r.outcome.Turns)); err != nil {
+		return fmt.Errorf("appending no-change nudge: %w", err)
+	}
+
+	return nil
+}
+
+// canEdit reports whether this run was handed a tool that changes a file.
+func (r *run) canEdit() bool {
+	for _, t := range r.tools {
+		if _, ok := editToolNames[t.Name]; ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 // routeInput describes this turn for the router at the given size.
@@ -532,6 +591,10 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	r.turnToolCalls = 0
 
 	if err := r.collectGateFeedback(ctx); err != nil {
+		return true, Outcome{}, err
+	}
+
+	if err := r.nudgeIfNothingChanged(ctx); err != nil {
 		return true, Outcome{}, err
 	}
 

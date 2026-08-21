@@ -116,7 +116,12 @@ func formatSearchResults(results []codeintel.SearchResult, stats codeintel.Index
 
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "%d results\n", len(results))
+	if stats.MatchesTotal > len(results) {
+		fmt.Fprintf(&b, "%d results, of %d that matched; raise limit or narrow the query to see the rest\n",
+			len(results), stats.MatchesTotal)
+	} else {
+		fmt.Fprintf(&b, "%d results, which is all of them\n", len(results))
+	}
 
 	for i := range results {
 		r := &results[i]

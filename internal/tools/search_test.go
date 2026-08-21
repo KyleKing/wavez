@@ -53,6 +53,7 @@ func TestSearch(t *testing.T) {
 		mode        string
 		query       string
 		wantContent string
+		limit       int
 		wantIsError bool
 	}{
 		{
@@ -83,6 +84,18 @@ func TestSearch(t *testing.T) {
 			query:       "Hello",
 			wantContent: "  3: func Hello() string { return \"hi\" }",
 		},
+		{
+			name: "a capped result set says how many it did not show",
+			sources: map[string]string{
+				"a.go": "package a\n\nfunc Hello() {}\n",
+				"b.go": "package b\n\nfunc Hello() {}\n",
+				"c.go": "package c\n\nfunc Hello() {}\n",
+			},
+			mode:        "fuzzy",
+			query:       "Hello",
+			limit:       1,
+			wantContent: "of 6 that matched",
+		},
 		{name: "unimplemented mode is an error result", mode: "semantic", query: "anything", wantIsError: true},
 		{name: "empty query is an error result", mode: "fuzzy", query: "", wantIsError: true},
 	}
@@ -92,7 +105,9 @@ func TestSearch(t *testing.T) {
 			t.Parallel()
 
 			s := tools.NewSearch(openTestIndex(t, tt.sources))
-			result, err := s.Run(context.Background(), mustJSON(t, map[string]any{"mode": tt.mode, "query": tt.query}))
+			input := mustJSON(t, map[string]any{"mode": tt.mode, "query": tt.query, "limit": tt.limit})
+
+			result, err := s.Run(context.Background(), input)
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}

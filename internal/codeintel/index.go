@@ -23,11 +23,16 @@ type IndexStats struct {
 	// different depending on which it is, so the reason has to travel with
 	// the stats rather than be inferred from a zero count.
 	EdgesUnavailable string
-	FilesScanned     int
-	FilesIndexed     int
-	FilesUnchanged   int
-	FilesRemoved     int
-	SymbolsIndexed   int
+	// MatchesTotal is how many rows the query matched before Limit cut the
+	// result set, so a caller can tell a complete answer from a page of one.
+	// It belongs to the query rather than the index, and travels here
+	// because this is what a search already hands back beside its results.
+	MatchesTotal   int
+	FilesScanned   int
+	FilesIndexed   int
+	FilesUnchanged int
+	FilesRemoved   int
+	SymbolsIndexed int
 }
 
 // skipDirs never descends into these directory names while scanning.

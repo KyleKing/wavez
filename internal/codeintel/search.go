@@ -182,6 +182,26 @@ func truncateLine(line string) string {
 	return line[:maxLineMatchWidth] + "..."
 }
 
+// CountMatches is how many rows a fuzzy query matches in full, which a
+// limited result set cannot say for itself. A model that cannot tell "these
+// are all of them" from "these are the first twenty" reaches for grep: one
+// dogfood run spent 44 shell calls, most of them `grep -rn ... | head -30`,
+// establishing what a count would have told it.
+func (s *Store) CountMatches(ctx context.Context, q SearchQuery) (int, error) {
+	if q.Mode != SearchFuzzy {
+		return 0, nil
+	}
+
+	var total int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM fts WHERE fts MATCH ?`, ftsQuery(q.Text)).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("counting matches for %q: %w", q.Text, err)
+	}
+
+	return total, nil
+}
+
 func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
 	terms := queryTerms(q.Text)
 	rows, err := s.db.QueryContext(ctx,
