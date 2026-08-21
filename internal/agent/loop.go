@@ -491,9 +491,12 @@ type run struct {
 }
 
 // nudgeIfNothingChanged tells a run that has read for many turns and
-// changed nothing to make its first edit. It fires only where the run could
-// edit and the task asks for one, so a plan thread, whose registry holds no
-// editing tool, is never told to start editing.
+// changed nothing to make its first edit. Holding an editing tool is the
+// whole test: a plan thread's registry has none and is never told to start,
+// and every other thread was given one because a change was wanted. The
+// edit-shaped task wording that gates the fatal no-change rule is too narrow
+// to gate a nudge, since it reads only the first line's verb and let a task
+// opening with "Count the tool calls that failed" through as a question.
 func (r *run) nudgeIfNothingChanged(ctx context.Context) error {
 	every := r.loop.options.TurnsBeforeNudge
 	if every <= 0 || r.nudges >= maxNudges || len(r.changes) > 0 {
@@ -504,7 +507,7 @@ func (r *run) nudgeIfNothingChanged(ctx context.Context) error {
 		return nil
 	}
 
-	if !r.canEdit() || (!r.editAttempted && !looksLikeEditTask(r.task)) {
+	if !r.canEdit() {
 		return nil
 	}
 

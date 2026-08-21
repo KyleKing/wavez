@@ -50,8 +50,10 @@ func TestRun_NudgesARunThatHasChangedNothing(t *testing.T) {
 		tool.NewRegistry(readOnlyTool{}), permission.AllowAll(),
 		agent.WithTurnsBeforeNudge(3), agent.WithMaxTurns(8))
 
+	// Wording the fatal no-change rule reads as a question, which must not
+	// keep a run holding an editing tool from being told to start.
 	if _, err := loop.Run(context.Background(), newThread(t), prefix,
-		"change the timeout in lease.go", router.Input{Override: router.ChoiceBalanced}); err != nil {
+		"Count the tool calls that failed", router.Input{Override: router.ChoiceBalanced}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
