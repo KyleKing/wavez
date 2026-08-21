@@ -81,3 +81,32 @@ func TestExec_NoCommand(t *testing.T) {
 		t.Fatal("Exec() with no args: want error, got nil")
 	}
 }
+
+// A sandboxed build resolves this module's own dependencies. The module
+// cache is on the machine and the profile denies network, so a build that
+// cannot read that cache reports a DNS failure against proxy.golang.org
+// instead of compiling, which is what made every gate and every agent-run
+// `go test` fail from inside the sandbox.
+func TestExec_GoBuildResolvesDependenciesWithoutNetwork(t *testing.T) {
+	requireSandboxExec(t)
+	t.Parallel()
+
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go toolchain on this host")
+	}
+
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	root = filepath.Dir(filepath.Dir(root))
+
+	result, err := sandbox.Exec(context.Background(), root, t.TempDir(),
+		"go", "build", "-o", os.DevNull, "./internal/tui")
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("go build exit=%d, want 0\nstderr: %s", result.ExitCode, result.Stderr)
+	}
+}

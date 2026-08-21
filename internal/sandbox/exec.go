@@ -23,10 +23,20 @@ type Result struct {
 }
 
 // Exec runs args under a Seatbelt profile scoped to projectRoot and
-// sessionTmp, with GOCACHE, GOMODCACHE, and GOTMPDIR redirected into
-// sessionTmp. It fails closed: any error resolving paths or building the
+// sessionTmp, with the caches a build writes to (GOCACHE,
+// GOLANGCI_LINT_CACHE, GOTMPDIR, and TMPDIR, which is what cgo's compiler
+// driver uses) redirected into sessionTmp. It fails closed: any error resolving paths or building the
 // profile aborts before sandbox-exec is invoked, and a nonzero exit from
 // the sandboxed command is reported in Result rather than as an error.
+//
+// The module cache is deliberately not redirected. A fresh one would be
+// empty, and the profile denies network, so every build of a package with
+// an external dependency would fail on a DNS lookup of proxy.golang.org.
+// The machine's own cache is readable under the profile and unwritable
+// outside it, which is the property that lets a build read what is already
+// there without a sandboxed command poisoning it for the rest of the
+// machine. GOPROXY=off makes a module that is genuinely missing say so
+// rather than reporting it as a network failure.
 func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (Result, error) {
 	if len(args) == 0 {
 		return Result{}, ErrNoCommand
@@ -64,18 +74,16 @@ func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (
 }
 
 type goCaches struct {
-	cache    string
-	modCache string
-	tmp      string
+	cache string
+	tmp   string
 }
 
 func prepareGoCaches(sessionTmp string) (goCaches, error) {
 	caches := goCaches{
-		cache:    filepath.Join(sessionTmp, "gocache"),
-		modCache: filepath.Join(sessionTmp, "gomodcache"),
-		tmp:      filepath.Join(sessionTmp, "gotmp"),
+		cache: filepath.Join(sessionTmp, "gocache"),
+		tmp:   filepath.Join(sessionTmp, "gotmp"),
 	}
-	for _, dir := range []string{caches.cache, caches.modCache, caches.tmp} {
+	for _, dir := range []string{caches.cache, caches.tmp} {
 		if err := os.MkdirAll(dir, sessionDirPerm); err != nil {
 			return goCaches{}, fmt.Errorf("preparing sandbox go cache dir %q: %w", dir, err)
 		}
@@ -109,8 +117,10 @@ func runSandboxed(
 	cmd.Dir = projectRoot
 	cmd.Env = append(os.Environ(),
 		"GOCACHE="+caches.cache,
-		"GOMODCACHE="+caches.modCache,
+		"GOLANGCI_LINT_CACHE="+caches.cache,
 		"GOTMPDIR="+caches.tmp,
+		"TMPDIR="+caches.tmp,
+		"GOPROXY=off",
 	)
 
 	var stdout, stderr bytes.Buffer

@@ -472,3 +472,45 @@ What the serving side says, from the raw probe before the harness:
 Still owed: the other two samples, `devstral-small-2` (pulling at the end
 of the session) and `qwen3-coder:30b`, and a run with the wired limit
 raised so the served window can reach 32k.
+
+## 2026-08-20, the three-tier router, and what stopped a run from editing
+
+The tier rename (`local`/`hosted` to `fast`/`balanced`/`deep`) landed by
+hand. The interface half was handed to `wavez -p` on `stealth/ox-alpha`,
+OpenRouter's free alpha, as a bounded task naming its five target files:
+put the balanced tier back into `routeCycle`, the palette, `routeLabel`,
+and the tui tests.
+
+The first run stopped at `max_turns` after 60 turns, 68 tool calls, 7m8s,
+and $0.0000. It made no edit call at all. Of the 68 calls, 28 were `grep`,
+26 were reads, and around 20 shell calls went to a toolchain problem that
+had nothing to do with the task:
+
+```
+go: downloading charm.land/bubbletea/v2 v2.0.8
+internal/gate/format.go:13:2: golang.org/x/tools@v0.49.0: Get
+  "https://proxy.golang.org/golang.org/x/tools/@v/v0.49.0.zip":
+  dial tcp: lookup proxy.golang.org: no such host
+```
+
+`sandbox.Exec` redirected `GOMODCACHE` into the session tmp directory,
+which starts empty, while the Seatbelt profile denies network. Every
+`go build` or `go test` on a package with an external dependency therefore
+failed, and the model spent a third of its budget rediscovering
+`GOMODCACHE=$HOME/go/pkg/mod` and a writable `TMPDIR` by trial and error
+before it ever saw a real compile error. Reproduced outside wavez, holding
+everything else fixed and varying only the module cache: the session cache
+exits 1 on DNS, the machine's cache exits 0, cgo packages included.
+
+The fix stops redirecting the module cache. The profile already allows
+reading it and denies writing it, so a sandboxed build reads what is on the
+machine and cannot poison it. `TMPDIR` joins `GOTMPDIR` in the session
+directory, which is what cgo's compiler driver actually uses, and
+`GOPROXY=off` turns a genuinely missing module into
+`module lookup disabled by GOPROXY=off` rather than a DNS error.
+`TestExec_GoBuildResolvesDependenciesWithoutNetwork` fails on the old
+environment and passes on the new one.
+
+One caveat on the first run: this session was editing `internal/tui` test
+files at the same time, so some of what it read went stale underneath it.
+The toolchain finding does not depend on that, since it reproduces standalone.
