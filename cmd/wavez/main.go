@@ -61,6 +61,7 @@ type options struct {
 	socket              string
 	undo                string
 	stats               string
+	statsVs             string
 	maxTurns            int
 	maxToolCallsPerTurn int
 	maxStagnantErrors   int
@@ -122,6 +123,8 @@ func run(args []string) error {
 		"mutate the working copy's changed lines and report the mutants the tests missed")
 	fs.StringVar(&opt.stats, "stats", "",
 		"report what a finished run spent, by thread id or log path")
+	fs.StringVar(&opt.statsVs, "stats-vs", "",
+		"with -stats, name a second run the same way to diff against it")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -230,7 +233,7 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 	case opt.undo != "":
 		return true, undo(ctx, root, opt.undo)
 	case opt.stats != "":
-		return true, statsReport(root, opt.stats, opt.jsonOut)
+		return true, statsReport(root, opt.stats, opt.statsVs, opt.jsonOut)
 	case opt.deadcode:
 		cfg, cerr := loadConfig(ctx, root, opt.with)
 		if cerr != nil {
@@ -598,6 +601,7 @@ Flags:
   -strict-scope   refuse an edit to a file this run never read or created
   -mutate         mutate the working copy's changed lines and report what the tests missed
   -stats <id>     report what a finished run spent, by thread id or log path
+  -stats-vs <id>  with -stats, name a second run the same way to diff against it
   -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn

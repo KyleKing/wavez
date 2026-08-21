@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -118,6 +119,70 @@ func TestRenderJSONRoundTripsTheCounts(t *testing.T) {
 		t.Errorf("RepeatReads = %d, RepeatReadBytes = %d, want 1 and 500",
 			decoded.RepeatReads, decoded.RepeatReadBytes)
 	}
+}
+
+// Compare must show what moved between two runs and leave what did not at
+// zero: a changed field carries its signed delta and an unchanged field
+// prints +0, so diffing this output against another comparison is exact.
+func TestCompareShowsSignedDeltaPerField(t *testing.T) {
+	t.Parallel()
+
+	before := bench.Stats{
+		Turns:       4,
+		ToolCalls:   12,
+		InputTokens: 3000,
+	}
+	after := bench.Stats{
+		Turns:       6,
+		ToolCalls:   9,
+		InputTokens: 3000,
+	}
+
+	var out strings.Builder
+	if err := bench.Compare(before, after, &out); err != nil {
+		t.Fatalf("Compare: %v", err)
+	}
+
+	// Fields, not whole lines: the columns are padding, what matters is that
+	// each row reads label, baseline value, current value, signed delta.
+	checks := []struct {
+		label string
+		want  []string
+	}{
+		{"turns", []string{"turns", "4", "6", "+2"}},
+		{"tool calls", []string{"tool", "calls", "12", "9", "-3"}},
+		{"input tokens", []string{"input", "tokens", "3000", "3000", "+0"}},
+	}
+	for _, c := range checks {
+		line, ok := lineFor(out.String(), c.label)
+		if !ok {
+			t.Errorf("Compare output has no %q row, got:\n%s", c.label, out.String())
+
+			continue
+		}
+
+		if got := strings.Fields(line); !slices.Equal(got, c.want) {
+			t.Errorf("%s row = %v, want %v", c.label, got, c.want)
+		}
+	}
+
+	if lines := strings.Count(out.String(), "\n"); lines != 12 {
+		t.Errorf("Compare wrote %d lines, want 12", lines)
+	}
+}
+
+// lineFor returns the comparison row beginning with the given label's words.
+func lineFor(report, label string) (string, bool) {
+	words := strings.Fields(label)
+
+	for _, line := range strings.Split(report, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= len(words) && slices.Equal(fields[:len(words)], words) {
+			return line, true
+		}
+	}
+
+	return "", false
 }
 
 func turn(tier string, in, out, cached int) event.Event {
