@@ -676,3 +676,51 @@ Two findings this session has not acted on yet:
 - Run 6 left a `git worktree add .tmp-clean HEAD` behind in the project root,
   6.6 MB that broke `ls-lint` until it was removed. A run that adds a worktree
   inside the project it is working in has no way to clean it up after
+
+## 2026-08-21, telling a run what the gates already checked
+
+Run 7 took a task of the same shape as runs 4-6 (`-stats` gains a shell
+command inventory, `internal/bench` only) with three changes in the harness
+since run 6: a pass from the change gates now reaches the model as one line,
+`read` and `list` take several targets in one call, and the guard holds the
+git subcommands that move the working copy.
+
+It is the first dogfood run to finish rather than stop on a bound:
+
+| | run 6 | run 7 |
+|---|---|---|
+| stop | max_turns | complete |
+| turns | 60 | 30 |
+| tool calls | 63 | 36 |
+| shell calls | 29 | 3 |
+| shell result bytes | 12,870 | 537 |
+| input tokens | 1,533,732 | 576,136 |
+| elapsed | 17m1s | 15m33s |
+
+The three shell calls left are the task's own verify line, twice, and one
+`git status`. Everything else the run needed to know about its edits arrived
+without being asked for:
+
+```
+Gates ran on your changes and passed: format, convention, lsp, go-test. Do not re-run these yourself.
+Gates ran on your changes and found this:
+go-test build github.com/kyleking/wavez/internal/bench
+  internal/bench/render.go:35:11: undefined: slices
+```
+
+Both halves matter. The pass line is what stops the re-running, and the
+failure line is what makes the pass line credible: a run told "passed" by a
+channel that never reports a failure learns nothing from it. The two
+compile errors it caught (`undefined: slices`, `undefined: fmt`) each
+reached the model one turn after the edit that caused them, where run 6 paid
+a `go build` to find the same class of error.
+
+The task is one package where run 6's was two, so some of the drop in turns
+is the task. The shell drop is not: 20 of run 6's 29 calls were `go build`,
+`go test`, `go vet`, and `gofmt` over changes the gates had already
+examined, and none of run 7's are.
+
+The reviewer objected twice and was wrong both times, once claiming a test
+asserted through `Render` what it asserts directly two lines earlier. That
+is the third objection-shaped false positive on the fast tier and it is
+still recorded rather than blocking, which is the rule earning its keep.
