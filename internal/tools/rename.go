@@ -29,8 +29,8 @@ var renameSchema = buildSchema(map[string]schemaProperty{
 	},
 	propPath: {
 		Type: schemaTypeString,
-		Description: "The file declaring the symbol, needed only when several files declare " +
-			"one by that name; the error lists them when it does.",
+		Description: "The file or directory declaring the symbol, needed only when several " +
+			"places declare one by that name; the error lists them when it does.",
 	},
 }, "symbol", "to")
 
@@ -180,7 +180,7 @@ func (r *Rename) locate(ctx context.Context, in renameInput) (declaration, error
 		return declaration{}, fmt.Errorf("searching for %s: %w", in.Symbol, err)
 	}
 
-	var found []codeintel.Symbol
+	var all, found []codeintel.Symbol
 
 	for i := range results {
 		sym := results[i].Symbol
@@ -188,16 +188,17 @@ func (r *Rename) locate(ctx context.Context, in renameInput) (declaration, error
 			continue
 		}
 
-		if in.Path != "" && sym.FilePath != in.Path {
-			continue
-		}
+		all = append(all, *sym)
 
-		found = append(found, *sym)
+		if under(sym.FilePath, in.Path) {
+			found = append(found, *sym)
+		}
 	}
 
 	switch len(found) {
 	case 0:
-		return declaration{}, fmt.Errorf("%w: %s%s", ErrSymbolNotIndexed, in.Symbol, inFile(in.Path))
+		return declaration{}, fmt.Errorf("%w: %s%s%s",
+			ErrSymbolNotIndexed, in.Symbol, inFile(in.Path), elsewhere(all))
 	case 1:
 		return r.position(found[0], in.Symbol)
 	default:
@@ -206,12 +207,35 @@ func (r *Rename) locate(ctx context.Context, in renameInput) (declaration, error
 	}
 }
 
+// under reports whether the symbol's file is at or below the caller's path,
+// which may name a file or a directory. A model narrowing by package writes
+// the directory, and refusing that would be refusing the obvious reading.
+func under(file, path string) bool {
+	if path == "" {
+		return true
+	}
+
+	clean := strings.TrimSuffix(filepath.Clean(path), string(filepath.Separator))
+
+	return file == clean || strings.HasPrefix(file, clean+string(filepath.Separator))
+}
+
 func inFile(path string) string {
 	if path == "" {
 		return ""
 	}
 
-	return " in " + path
+	return " under " + path
+}
+
+// elsewhere names where the symbol actually is, so a caller that narrowed to
+// the wrong place can correct in one turn rather than searching again.
+func elsewhere(all []codeintel.Symbol) string {
+	if len(all) == 0 {
+		return ""
+	}
+
+	return "; it is declared in " + strings.Join(declaringFiles(all), ", ")
 }
 
 func declaringFiles(syms []codeintel.Symbol) []string {

@@ -160,3 +160,52 @@ func read(t *testing.T, root, rel string) string {
 }
 
 const renameBudget = 60 * time.Second
+
+// A model narrowing a rename writes the package directory, not the file, and
+// refusing that costs a turn to discover. Measured: the first dogfood run of
+// this tool sent path "internal/bench" and was told nothing is indexed there.
+func TestRenameAcceptsADirectoryAsPath(t *testing.T) {
+	t.Parallel()
+
+	root, rn := renameProject(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), renameBudget)
+	defer cancel()
+
+	res, err := rn.Run(ctx, []byte(`{"symbol":"Alpha","to":"Beta","path":"a"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError {
+		t.Fatalf("a package directory was refused: %s", res.Content)
+	}
+
+	if got := read(t, root, "a/a.go"); !strings.Contains(got, "func Beta()") {
+		t.Errorf("the declaration was not renamed:\n%s", got)
+	}
+}
+
+// A path that narrows to the wrong place must say where the symbol is, so
+// the caller corrects in one turn rather than searching again.
+func TestRenameMissNamesWhereTheSymbolIs(t *testing.T) {
+	t.Parallel()
+
+	_, rn := renameProject(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), renameBudget)
+	defer cancel()
+
+	res, err := rn.Run(ctx, []byte(`{"symbol":"Alpha","to":"Beta","path":"nowhere"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("want a refusal, got: %s", res.Content)
+	}
+
+	if !strings.Contains(res.Content, "a/a.go") || !strings.Contains(res.Content, "c/c.go") {
+		t.Errorf("the refusal does not name where Alpha is declared: %s", res.Content)
+	}
+}
