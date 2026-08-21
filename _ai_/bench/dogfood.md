@@ -1198,7 +1198,22 @@ Free memory sat at 13-27% against a 25% headroom throughout, and the memory
 rule held nothing back either way. The rival that mattered was never a gate
 run.
 
-What is not fixed: admission is taken per run, not per turn, so a run pinned
-`fast` that escalates keeps the local slot through hosted turns that do not
-need it. Per-turn admission is the fix, and it needs the deadline to stop
-counting time a turn spent waiting.
+Bounding it at the run was wrong in a way the probe could not show, because
+nothing in the probe escalates for long: a run pinned `fast` that escalates
+would have held the one slot this laptop has through hosted turns it was not
+using it for, starving every other local thread. So the two bounds are now
+separate. `AdmitTurn` is held for a whole run and competes with gate runs for
+memory. `AdmitSlot` is held around one request, competes with other requests
+for the server, and is taken in the loop, which is the only place that knows
+a turn's tier. A run that escalates gives its slot back and keeps its
+admission.
+
+The deadline shifts by whatever a turn waited for a slot. A wall-clock bound
+that counts queueing measures the queue, and that is exactly how three
+threads came to fail at three minutes having taken one turn each.
+
+Waking every waiter to race for the freed slot is not enough either. On the
+first per-turn run, two threads took 3 and 2 turns while the third took none
+in two minutes, because nothing ordered the queue. The slot is now handed to
+whoever has waited longest, and a caller that gives up while queued gives
+back a slot it was handed on the way out.
