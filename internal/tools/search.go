@@ -13,16 +13,18 @@ import (
 var searchSchema = buildSchema(map[string]schemaProperty{
 	"mode": {
 		Type: schemaTypeString,
-		Enum: []string{"fuzzy", "graph", "semantic", "hybrid"},
+		Enum: []string{"fuzzy", "literal", "graph", "semantic", "hybrid"},
 		Description: "Retrieval strategy. fuzzy matches symbol names, paths, and file text. " +
-			"graph walks call/reference edges one hop from query. semantic and hybrid are " +
+			"literal matches an exact substring, case-sensitively. graph walks " +
+			"call/reference edges one hop from query. semantic and hybrid are " +
 			"not yet available and return an error.",
 	},
 	"query": {
 		Type: schemaTypeString,
 		Description: "For fuzzy mode, a search string. Combine several names with OR to " +
-			"find any of them in one call (\"ChoiceFast OR ChoiceDeep\"). For graph mode, " +
-			"a symbol key to walk edges from.",
+			"find any of them in one call (\"ChoiceFast OR ChoiceDeep\"). For literal mode, " +
+			"the exact text to find, punctuation and case included (\"edit.ApplyToFile\"), " +
+			"at least 3 characters. For graph mode, a symbol key to walk edges from.",
 	},
 	propPath: {
 		Type: schemaTypeString,
@@ -61,8 +63,9 @@ func (*Search) Name() string { return "search" }
 // Description implements tool.Tool.
 func (*Search) Description() string {
 	return "Search the project's code index. Use mode=fuzzy for a name or text search, " +
-		"mode=graph to find callers and callees of a symbol. Pick the narrowest query that " +
-		"names the symbol or text you want; a query that is too broad returns noise."
+		"mode=literal when the exact characters matter, mode=graph to find callers and " +
+		"callees of a symbol. Pick the narrowest query that names the symbol or text you " +
+		"want; a query that is too broad returns noise."
 }
 
 // Schema implements tool.Tool.

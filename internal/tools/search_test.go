@@ -180,3 +180,72 @@ func TestSearchFindsEitherOfTwoNames(t *testing.T) {
 		}
 	}
 }
+
+// The trigram index answers `edit.ApplyToFile` and `ApplyToFile` alike,
+// because the fuzzy path splits its query on non-word characters and ORs the
+// halves. Literal mode is what a caller reaches for when the characters
+// themselves are the question, and it was the last of the three things the
+// sampled grep calls wanted that this tool could not do.
+func TestSearchLiteralHoldsPunctuationAndCase(t *testing.T) {
+	t.Parallel()
+
+	indexer := openTestIndex(t, map[string]string{
+		"a/call.go":  "package a\n\nfunc run() { edit.ApplyToFile(p) }\n",
+		"b/other.go": "package b\n\nfunc ApplyToFile(p string) {}\n",
+		"c/case.go":  "package c\n\nfunc applytofile(p string) {}\n",
+	})
+	search := tools.NewSearch(indexer)
+
+	cases := []struct {
+		name  string
+		input string
+		want  []string
+		deny  []string
+	}{
+		{
+			name:  "fuzzy splits on the dot",
+			input: `{"mode":"fuzzy","query":"edit.ApplyToFile"}`,
+			want:  []string{"a/call.go", "b/other.go"},
+		},
+		{
+			name:  "literal keeps the dot",
+			input: `{"mode":"literal","query":"edit.ApplyToFile"}`,
+			want:  []string{"a/call.go"},
+			deny:  []string{"b/other.go"},
+		},
+		{
+			name:  "literal keeps the case",
+			input: `{"mode":"literal","query":"ApplyToFile("}`,
+			want:  []string{"a/call.go", "b/other.go"},
+			deny:  []string{"c/case.go"},
+		},
+		{
+			name:  "too short to answer",
+			input: `{"mode":"literal","query":"ap"}`,
+			want:  []string{"too short"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := search.Run(t.Context(), []byte(tc.input))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			for _, w := range tc.want {
+				if !strings.Contains(got.Content, w) {
+					t.Errorf("missing %q:\n%s", w, got.Content)
+				}
+			}
+
+			for _, d := range tc.deny {
+				if strings.Contains(got.Content, d) {
+					t.Errorf("should not have matched %q:\n%s", d, got.Content)
+				}
+			}
+		})
+	}
+}

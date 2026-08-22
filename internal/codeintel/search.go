@@ -16,6 +16,11 @@ const (
 	// SearchFuzzy matches symbol names, paths, and file text through the
 	// trigram FTS index.
 	SearchFuzzy SearchMode = "fuzzy"
+	// SearchLiteral matches an exact substring, case-sensitively, against
+	// the same trigram index SearchFuzzy queries. It exists because
+	// SearchFuzzy splits its text on non-word characters, so a query naming
+	// a qualified identifier answers for each half of it.
+	SearchLiteral SearchMode = "literal"
 	// SearchGraph walks the edges table one hop from a seed symbol key.
 	// EdgeAdapter fills that table from codegraph, so this mode returns
 	// nothing on a project codegraph has not indexed.
@@ -29,6 +34,11 @@ const (
 // ErrModeUnimplemented reports a SearchMode this build declares but does
 // not yet implement.
 var ErrModeUnimplemented = errors.New("search mode not implemented")
+
+// ErrLiteralTooShort reports a SearchLiteral query the trigram index
+// cannot answer: a trigram tokenizer indexes no term shorter than three
+// characters, so a shorter phrase matches every row rather than none.
+var ErrLiteralTooShort = errors.New("literal query is too short to search")
 
 // ErrUnknownSearchMode reports a SearchMode value Search does not
 // recognize at all.
@@ -85,6 +95,9 @@ const maxLineMatchWidth = 200
 
 const defaultSearchLimit = 20
 
+// minLiteralLength is the shortest phrase the trigram index can answer.
+const minLiteralLength = 3
+
 // Search is the store's one query entry point. Fuzzy and graph modes are
 // implemented in v0.1; semantic and hybrid are declared but return
 // ErrModeUnimplemented until v0.2. Results are ordered deterministically
@@ -96,6 +109,8 @@ func (s *Store) Search(ctx context.Context, q SearchQuery) ([]SearchResult, erro
 	switch q.Mode {
 	case SearchFuzzy:
 		return s.searchFuzzy(ctx, q)
+	case SearchLiteral:
+		return s.searchLiteral(ctx, q)
 	case SearchGraph:
 		return s.searchGraph(ctx, q)
 	case SearchSemantic, SearchHybrid:
@@ -150,14 +165,32 @@ func matchingLines(content string, terms []string) []LineMatch {
 		lowered = append(lowered, strings.ToLower(t))
 	}
 
+	return linesWhere(content, func(line string) bool {
+		return holdsAnyTerm(strings.ToLower(line), lowered)
+	})
+}
+
+// literalLines finds where an exact substring occurs in content, keeping the
+// case the caller asked for even though the index that found the file
+// ignored it.
+func literalLines(content, literal string) []LineMatch {
+	return linesWhere(content, func(line string) bool {
+		return strings.Contains(line, literal)
+	})
+}
+
+func linesWhere(content string, hit func(string) bool) []LineMatch {
 	var matches []LineMatch
+
 	for i, line := range strings.Split(content, "\n") {
 		if len(matches) >= maxLineMatches {
 			break
 		}
-		if !holdsAnyTerm(strings.ToLower(line), lowered) {
+
+		if !hit(line) {
 			continue
 		}
+
 		matches = append(matches, LineMatch{Line: i + 1, Text: truncateLine(strings.TrimSpace(line))})
 	}
 
@@ -188,6 +221,12 @@ func truncateLine(line string) string {
 // dogfood run spent 44 shell calls, most of them `grep -rn ... | head -30`,
 // establishing what a count would have told it.
 func (s *Store) CountMatches(ctx context.Context, q SearchQuery) (int, error) {
+	if q.Mode == SearchLiteral {
+		rows, err := s.literalRows(ctx, q.Text, 0)
+
+		return len(rows), err
+	}
+
 	if q.Mode != SearchFuzzy {
 		return 0, nil
 	}
@@ -220,7 +259,9 @@ func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult,
 		if err := rows.Scan(&kind, &refID, &text); err != nil {
 			return nil, fmt.Errorf("scanning fts row: %w", err)
 		}
-		result, err := s.hydrateFTSResult(ctx, kind, refID, text, terms)
+		result, err := s.hydrateFTSResult(ctx, kind, refID, text, func(c string) []LineMatch {
+			return matchingLines(c, terms)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -234,7 +275,7 @@ func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult,
 }
 
 func (s *Store) hydrateFTSResult(
-	ctx context.Context, kind string, refID int64, text string, terms []string,
+	ctx context.Context, kind string, refID int64, text string, lines func(string) []LineMatch,
 ) (SearchResult, error) {
 	switch kind {
 	case "symbol":
@@ -251,11 +292,91 @@ func (s *Store) hydrateFTSResult(
 		}
 
 		if kind == "file" {
-			return SearchResult{Kind: kind, File: path, Lines: matchingLines(text, terms)}, nil
+			return SearchResult{Kind: kind, File: path, Lines: lines(text)}, nil
 		}
 
 		return SearchResult{Kind: kind, File: path, Text: text}, nil
 	}
+}
+
+// literalRow is one FTS candidate that survived the case-sensitive filter
+// the trigram index cannot apply for itself.
+type literalRow struct {
+	kind  string
+	text  string
+	refID int64
+}
+
+// literalQuery makes text one FTS5 phrase. A trigram index answers a phrase
+// as a substring match, which is what makes an exact query possible at all:
+// the fuzzy path splits on non-word characters, so "edit.ApplyToFile" asks
+// there for anything holding "edit" or "ApplyToFile".
+func literalQuery(text string) string {
+	return `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
+}
+
+// literalRows returns the candidates holding text exactly. A limit of 0
+// means every one of them, which is how CountMatches asks. The trigram
+// tokenizer folds case, so the SQL match is a superset and the filter here
+// is what makes the mode literal.
+func (s *Store) literalRows(ctx context.Context, text string, limit int) ([]literalRow, error) {
+	if len([]rune(text)) < minLiteralLength {
+		return nil, fmt.Errorf("%w: %q is shorter than %d characters", ErrLiteralTooShort, text, minLiteralLength)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ? ORDER BY rank, kind, ref_id`,
+		literalQuery(text))
+	if err != nil {
+		return nil, fmt.Errorf("literal search %q: %w", text, err)
+	}
+	defer func() { _ = rows.Close() }() //nolint:errcheck // read-only cursor, nothing actionable on close failure
+
+	var out []literalRow
+
+	for rows.Next() {
+		var row literalRow
+		if err := rows.Scan(&row.kind, &row.refID, &row.text); err != nil {
+			return nil, fmt.Errorf("scanning fts row: %w", err)
+		}
+
+		if !strings.Contains(row.text, text) {
+			continue
+		}
+
+		out = append(out, row)
+
+		if limit > 0 && len(out) == limit {
+			break
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading fts rows: %w", err)
+	}
+
+	return out, nil
+}
+
+func (s *Store) searchLiteral(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	rows, err := s.literalRows(ctx, q.Text, q.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]SearchResult, 0, len(rows))
+
+	for i := range rows {
+		result, err := s.hydrateFTSResult(ctx, rows[i].kind, rows[i].refID, rows[i].text,
+			func(c string) []LineMatch { return literalLines(c, q.Text) })
+		if err != nil {
+			return nil, err
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
 }
 
 func (s *Store) searchGraph(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
