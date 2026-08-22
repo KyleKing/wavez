@@ -145,11 +145,19 @@ func selectByImporters(graph *ImportGraph, changes []tool.Change) ([]string, boo
 // fallbackPackages returns the changed files' own packages: graph's
 // FilePackage entry where known, otherwise the file's directory as a
 // last-resort package guess.
+//
+// The directory guess is spelled as a relative pattern, because `go test`
+// reads a bare `internal/guard` as a standard-library package and fails the
+// gate with "not in std". The graph answers for every file it has seen, so
+// this path is reached exactly when a change creates a file, and a gate that
+// reports "your new file broke the package" is worse than one that says
+// nothing: measured on `h5`, one correct `move` call drew an unattributable
+// build failure and the run spent fourteen of fifteen turns chasing it.
 func fallbackPackages(graph *ImportGraph, changes []tool.Change) []string {
 	seen := make(map[string]struct{})
 
 	for _, ch := range changes {
-		pkg := path.Dir(ch.Path)
+		pkg := relativePattern(path.Dir(ch.Path))
 		if graph != nil {
 			if p, ok := graph.FilePackage[ch.Path]; ok {
 				pkg = p
@@ -160,6 +168,16 @@ func fallbackPackages(graph *ImportGraph, changes []tool.Change) []string {
 	}
 
 	return sortedKeys(seen)
+}
+
+// relativePattern makes a repository-relative directory into the pattern
+// `go test` reads as a directory rather than as an import path.
+func relativePattern(dir string) string {
+	if dir == "" || dir == "." {
+		return "./..."
+	}
+
+	return "./" + dir
 }
 
 func sortedKeys(m map[string]struct{}) []string {

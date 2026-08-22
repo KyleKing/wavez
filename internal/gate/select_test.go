@@ -79,12 +79,17 @@ func TestSelect(t *testing.T) {
 			wantPkgs:  []string{"example.com/consumer", "example.com/pkg"},
 		},
 		{
+			// The directory guess is spelled relative because `go test pkg`
+			// reads pkg as a standard-library package and fails the gate
+			// with "not in std", which is what a change that creates a file
+			// used to draw: the graph answers for every file it has seen,
+			// so a new file is exactly what reaches this path.
 			name:      "package level when neither line coverage nor the graph can decide",
 			cov:       fakeLineCoverage{},
 			graph:     nil,
 			changes:   []tool.Change{change("pkg/a.go", 1, 5)},
 			wantLevel: gate.LevelPackage,
-			wantPkgs:  []string{"pkg"},
+			wantPkgs:  []string{"./pkg"},
 		},
 	}
 
