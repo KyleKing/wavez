@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/agent"
@@ -224,5 +225,62 @@ func TestRun_CheckpointsEveryEditSeparately(t *testing.T) {
 
 	if out.Checkpoint != "op1" {
 		t.Errorf("Outcome.Checkpoint = %q, want the run's own capture to still come first", out.Checkpoint)
+	}
+}
+
+// A fork inherits its parent's change set and none of its transcript, and a
+// resumed thread's history starts empty, so both are threads whose goal is
+// gone rather than merely far away. The loop restates it in those cases and
+// stays silent when the history already carries it, which is what keeps a
+// normal turn from paying for it.
+func TestRun_RestatesTheGoalOnlyWhenTheHistoryLostIt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		seed    string
+		goal    string
+		restate bool
+	}{
+		{name: "a resumed thread has lost it", goal: "make the lease TTL configurable", restate: true},
+		{
+			name: "a thread that was just prompted has not",
+			seed: "make the lease TTL configurable",
+			goal: "make the lease TTL configurable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := newThread(t)
+			if tt.seed != "" {
+				if err := th.AppendUser(t.Context(), tt.seed); err != nil {
+					t.Fatalf("AppendUser: %v", err)
+				}
+			}
+
+			if err := th.SetGoal(t.Context(), tt.goal); err != nil {
+				t.Fatalf("SetGoal: %v", err)
+			}
+
+			local := fake.New("local", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
+			loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(echoTool{name: "echo"}),
+				permission.AllowAll())
+
+			if _, err := loop.Run(t.Context(), th, basicPrefix(), "carry on", router.Input{}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			reqs := local.Requests()
+			if len(reqs) == 0 {
+				t.Fatal("the model was never called")
+			}
+
+			if got := strings.Contains(reqs[0].System, "## Goal"); got != tt.restate {
+				t.Errorf("system carried the goal = %v, want %v:\n%s", got, tt.restate, reqs[0].System)
+			}
+		})
 	}
 }

@@ -497,7 +497,7 @@ func (m Model) renderThread() string {
 	body := m.threadBody(info)
 	footer := footerHints(threadHints(m.thread.search, m.focus, m.thread.filter), m.width-boxPad)
 
-	return frame(m.width, title, body, footer, m.th)
+	return frame(m.width, headerGoal(title, info.Goal, m.width), body, footer, m.th)
 }
 
 // activeModel names the model serving this thread. ThreadInfo.Model carries
@@ -716,7 +716,7 @@ func changeSummary(tr *transcript, width int) []string {
 }
 
 // threadHintTail is the count of hints threadHints appends after its head.
-const threadHintTail = 12
+const threadHintTail = 13
 
 // threadHints is priority ordered; footerHints drops from the tail. The
 // composer's own keys lead while it holds focus, the way a live search
@@ -781,6 +781,7 @@ func threadHints(search searchState, focus int, filter filterCategory) []hint {
 		hint{"m", "route"},
 		hint{"t", "think"},
 		hint{"F", "fuzzy"},
+		hint{"g", "goal"},
 		hint{"c", filterHintLabel(filter)},
 		hint{"s", "summary"},
 	)

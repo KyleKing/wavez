@@ -106,6 +106,7 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 	return api.ThreadInfo{
 		ID:         mt.id,
 		Name:       mt.name,
+		Goal:       mt.th.Goal(),
 		Dir:        firstDir(mt.dirs),
 		Dirs:       append([]string(nil), mt.dirs...),
 		Parent:     mt.parent,

@@ -43,6 +43,7 @@ type Thread struct {
 	log     *eventlog.Log
 	id      ID
 	model   string
+	goal    string
 	parent  ID
 	state   event.State
 	dirs    []string
@@ -56,6 +57,36 @@ type Option func(*Thread)
 // WithModel sets a model override for the thread.
 func WithModel(model string) Option {
 	return func(t *Thread) { t.model = model }
+}
+
+// WithGoal sets the standing goal a resumed thread already had, which
+// Open cannot read for itself: it opens the log without replaying it.
+func WithGoal(goal string) Option {
+	return func(t *Thread) { t.goal = goal }
+}
+
+// SetGoalFromLog restores the goal a resumed thread already had, without
+// appending anything: this is a thread remembering, not a goal changing.
+func (t *Thread) SetGoalFromLog(events []event.Event) {
+	t.goal = GoalFrom(events)
+}
+
+// GoalFrom derives a thread's standing goal from its logged events: the
+// last goal anyone wrote, or the first prompt when nobody rewrote it.
+func GoalFrom(events []event.Event) string {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Kind == event.KindGoal {
+			return events[i].Text
+		}
+	}
+
+	for i := range events {
+		if events[i].Kind == event.KindUser {
+			return events[i].Text
+		}
+	}
+
+	return ""
 }
 
 // WithParent records the thread this one forked from.
@@ -113,6 +144,29 @@ func (t *Thread) BeginTurn() int {
 	return t.turn
 }
 
+// Goal is what this thread is for, in the words the goal was written in.
+// It is the first user prompt until SetGoal replaces it, and it is empty
+// only before the thread has been prompted at all.
+func (t *Thread) Goal() string { return t.goal }
+
+// SetGoal replaces the standing goal and records the replacement. A goal
+// that changed silently is worse than one that was never stated, so this
+// appends rather than editing, and what the goal was at any turn stays
+// readable in the log.
+func (t *Thread) SetGoal(ctx context.Context, goal string) error {
+	if err := contextErr(ctx); err != nil {
+		return err
+	}
+
+	if _, err := t.log.Append(event.Event{Kind: event.KindGoal, Text: goal}); err != nil {
+		return fmt.Errorf("appending goal: %w", err)
+	}
+
+	t.goal = goal
+
+	return nil
+}
+
 // SetState records a lifecycle transition and appends a KindState event.
 // It does nothing and returns ctx.Err() if ctx is already canceled.
 func (t *Thread) SetState(ctx context.Context, state event.State) error {
@@ -136,6 +190,10 @@ func (t *Thread) AppendUser(ctx context.Context, text string) error {
 	t.entries = append(t.entries, TurnMessage{Message: llm.Message{Role: llm.RoleUser, Content: text}, Turn: t.turn})
 	if _, err := t.log.Append(event.Event{Kind: event.KindUser, Text: text}); err != nil {
 		return fmt.Errorf("logging user turn: %w", err)
+	}
+
+	if t.goal == "" {
+		t.goal = text
 	}
 
 	return nil

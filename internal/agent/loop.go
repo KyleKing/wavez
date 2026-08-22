@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kyleking/wavez/internal/condition"
@@ -419,6 +420,10 @@ func (l *Loop) Run(
 		system += "\n\n## Session ledger\n" + prefix.Ledger
 	}
 
+	if goal := standingGoal(th); goal != "" {
+		system += "\n\n## Goal\n" + goal
+	}
+
 	if l.options.ChangeGate != nil {
 		l.options.ChangeGate.Begin()
 	}
@@ -449,6 +454,28 @@ func (l *Loop) Run(
 	r.outcome.Checkpoint = checkpoint
 
 	return r.drive(ctx)
+}
+
+// standingGoal is the thread's goal when the history about to be sent does
+// not already carry it, and empty otherwise. A goal restated on every turn
+// is the stronger form against drift and costs tokens on every turn of
+// every thread; this covers the three points that lose it outright instead,
+// which are a fork (it inherits no transcript by design), a reopen (a
+// resumed thread's history starts empty), and a rewrite (the new wording
+// was never in the history at all).
+func standingGoal(th *thread.Thread) string {
+	goal := th.Goal()
+	if goal == "" {
+		return ""
+	}
+
+	for _, msg := range th.History() {
+		if msg.Role == llm.RoleUser && strings.Contains(msg.Content, goal) {
+			return ""
+		}
+	}
+
+	return goal
 }
 
 // captureCheckpoint takes the checkpoint Run records on Outcome, when a

@@ -234,3 +234,46 @@ func TestAppendToolResultLogsTheInput(t *testing.T) {
 		t.Fatalf("tool input not logged, got %q", got)
 	}
 }
+
+// A thread's goal is its first prompt, and a rewrite appends rather than
+// editing, so what the goal was at any turn stays readable. GoalFrom is
+// what a resumed thread reads it back with, since Open never replays a log.
+func TestGoalIsTheFirstPromptUntilRewritten(t *testing.T) {
+	t.Parallel()
+
+	th := open(t)
+	ctx := t.Context()
+
+	if got := th.Goal(); got != "" {
+		t.Fatalf("Goal on a fresh thread = %q, want empty", got)
+	}
+
+	if err := th.AppendUser(ctx, "make the lease TTL configurable"); err != nil {
+		t.Fatalf("AppendUser: %v", err)
+	}
+
+	if got := th.Goal(); got != "make the lease TTL configurable" {
+		t.Fatalf("Goal = %q, want the first prompt", got)
+	}
+
+	if err := th.AppendUser(ctx, "start in internal/lease"); err != nil {
+		t.Fatalf("AppendUser: %v", err)
+	}
+
+	if got := th.Goal(); got != "make the lease TTL configurable" {
+		t.Errorf("Goal = %q, want a later prompt to leave it alone", got)
+	}
+
+	if err := th.SetGoal(ctx, "make every timeout configurable"); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+
+	events, err := th.Log().Since(0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+
+	if got := thread.GoalFrom(events); got != "make every timeout configurable" {
+		t.Errorf("GoalFrom = %q, want the rewritten goal", got)
+	}
+}

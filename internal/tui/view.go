@@ -24,6 +24,9 @@ func (m Model) render() string {
 	if m.help {
 		return m.renderHelp()
 	}
+	if m.goal {
+		return m.renderGoal()
+	}
 	if m.palette.open {
 		return m.renderPalette()
 	}

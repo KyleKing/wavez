@@ -81,6 +81,7 @@ type Model struct {
 	ascii       bool
 	noColor     bool
 	help        bool
+	goal        bool
 }
 
 // New builds a Model ready to run, before the first WindowSizeMsg arrives.
@@ -404,6 +405,14 @@ func (m Model) handleGlobalShortcut(s string) (Model, tea.Cmd, bool) {
 		return m, tea.Quit, true
 	case "?":
 		m.help = !m.help
+
+		return m, nil, true
+	case "g":
+		if m.top() != screenThread {
+			return m, nil, false
+		}
+
+		m.goal = !m.goal
 
 		return m, nil, true
 	case ":":

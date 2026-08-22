@@ -31,6 +31,11 @@ const (
 	// cause, the experiment, the observation, and the verdict. It is the
 	// content that crosses a phase boundary, and no Condition reads it.
 	KindHypothesis Kind = "hypothesis"
+	// KindGoal records the thread's standing goal, which is the first user
+	// prompt until someone rewrites it. A rewrite appends another one rather
+	// than editing the first, so what the goal was at any turn stays
+	// readable.
+	KindGoal Kind = "goal"
 	// KindReview records a model's judgment of a run's diff against its task.
 	// It is deliberately not KindGate: a review objection never fails a run,
 	// and counting it as one would report it as a run that failed a check.

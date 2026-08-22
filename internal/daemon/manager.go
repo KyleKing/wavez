@@ -143,6 +143,9 @@ func (m *manager) create(p createParams) (*managedThread, error) {
 	}
 
 	var opts []thread.Option
+	if p.Prompt != "" {
+		opts = append(opts, thread.WithGoal(p.Prompt))
+	}
 	if p.Model != "" {
 		opts = append(opts, thread.WithModel(p.Model))
 	}
@@ -194,6 +197,15 @@ func (m *manager) seedFromParent(child *managedThread, parentID string) error {
 	parent, ok := m.get(parentID)
 	if !ok {
 		return nil
+	}
+
+	// The goal comes first and comes unconditionally: a fork inherits the
+	// change set and none of the transcript, so without this it is the one
+	// kind of thread that has no record of what it is for.
+	if goal := parent.th.Goal(); goal != "" {
+		if err := child.th.SetGoal(m.ctx, goal); err != nil {
+			return fmt.Errorf("seeding fork of %s: %w", parentID, err)
+		}
 	}
 
 	changes, err := accumulatedChanges(parent)

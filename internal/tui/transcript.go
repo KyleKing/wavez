@@ -427,6 +427,8 @@ func rowLabel(k event.Kind, th theme) (string, lipgloss.Style) {
 		return "▸ cycle ", th.statusInfo
 	case event.KindHypothesis:
 		return "  hypoth", th.fgMuted
+	case event.KindGoal:
+		return "▸ goal  ", th.statusInfo
 	case event.KindLedger:
 		return "  ledger", th.fgMuted
 	case event.KindUsage:

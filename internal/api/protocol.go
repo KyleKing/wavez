@@ -237,6 +237,10 @@ type ThreadInfo struct {
 	// turn, empty until it has run one. A client offers undo only for a
 	// thread that has one.
 	Checkpoint string `json:"checkpoint,omitempty"`
+	// Goal is what the thread is for, in the words it was asked for. A
+	// client renders it because a thread's name and its current step both
+	// answer different questions from "what was this for".
+	Goal string `json:"goal,omitempty"`
 	// Step is the current activity in words, which is what Home renders.
 	Step    string      `json:"step"`
 	State   event.State `json:"state"`

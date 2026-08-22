@@ -43,11 +43,15 @@ func TestSeedFromParentCarriesChangesNotProse(t *testing.T) {
 		t.Fatalf("reading child: %v", err)
 	}
 
-	if len(events) != 1 {
-		t.Fatalf("child has %d event(s), want exactly the seed: %+v", len(events), events)
+	if len(events) != 2 {
+		t.Fatalf("child has %d event(s), want the goal and the seed: %+v", len(events), events)
 	}
 
-	seed := events[0]
+	if events[0].Kind != event.KindGoal || events[0].Text != "fix the lease ttl" {
+		t.Errorf("child's first event = %+v, want the parent's goal", events[0])
+	}
+
+	seed := events[1]
 	if len(seed.Changes) != 2 {
 		t.Fatalf("seed carries %d change(s), want 2: %+v", len(seed.Changes), seed.Changes)
 	}
@@ -63,8 +67,10 @@ func TestSeedFromParentCarriesChangesNotProse(t *testing.T) {
 	}
 }
 
-// A parent that changed nothing seeds nothing, so a fork of a fresh thread
-// is not a thread with an empty change row in it.
+// A parent that changed nothing seeds no change row, so a fork of a fresh
+// thread is not a thread with an empty change row in it. The goal crosses
+// either way: it is what the fork is for, and a parent that has written
+// nothing yet still has one.
 func TestSeedFromParentSkipsAnUntouchedTree(t *testing.T) {
 	t.Parallel()
 
@@ -85,7 +91,7 @@ func TestSeedFromParentSkipsAnUntouchedTree(t *testing.T) {
 		t.Fatalf("reading child: %v", err)
 	}
 
-	if len(events) != 0 {
-		t.Errorf("child has %d event(s), want none: %+v", len(events), events)
+	if len(events) != 1 || events[0].Kind != event.KindGoal {
+		t.Errorf("child has %d event(s), want only the inherited goal: %+v", len(events), events)
 	}
 }

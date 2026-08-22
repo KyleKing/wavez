@@ -39,7 +39,7 @@ func Ledger(events []event.Event) LedgerSummary {
 				files[ch.Path] = struct{}{}
 			}
 		case event.KindUser, event.KindPermission, event.KindState, event.KindError, event.KindLedger,
-			event.KindUsage, event.KindReview, event.KindCycle, event.KindHypothesis:
+			event.KindUsage, event.KindReview, event.KindCycle, event.KindHypothesis, event.KindGoal:
 		}
 	}
 
