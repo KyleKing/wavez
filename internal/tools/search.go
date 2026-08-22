@@ -13,11 +13,13 @@ import (
 var searchSchema = buildSchema(map[string]schemaProperty{
 	"mode": {
 		Type: schemaTypeString,
-		Enum: []string{"fuzzy", "literal", "graph", "semantic", "hybrid"},
+		// semantic and hybrid exist in the store and return an error until
+		// v0.2, so they are deliberately absent here: advertising a mode
+		// costs every request tokens to say it does not work.
+		Enum: []string{"fuzzy", "literal", "graph"},
 		Description: "Retrieval strategy. fuzzy matches symbol names, paths, and file text. " +
 			"literal matches an exact substring, case-sensitively. graph walks " +
-			"call/reference edges one hop from query. semantic and hybrid are " +
-			"not yet available and return an error.",
+			"call/reference edges one hop from query.",
 	},
 	"query": {
 		Type: schemaTypeString,
