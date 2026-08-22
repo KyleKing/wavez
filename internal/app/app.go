@@ -250,7 +250,6 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		scheduler = sched.New(sched.WithHeadroom(cfg.AdmissionHeadroom), sched.WithLocalSlots(runtime.ServedSlots))
 	}
 	lspPool := lsp.NewPool(root)
-	registry := buildRegistry(root, sandboxDir, indexer, store, scope, permGate, options.Asker, leases, lspPool)
 
 	p := buildProviders(ctx, cfg, options)
 	providers, supervisor := p.tiers, p.supervisor
@@ -265,6 +264,10 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	reviewer := NewModelReviewer(root, vcs.NewJj(), providers, tierModels(cfg))
 	changeGate := NewChangeGate(runner)
+	registry := buildRegistry(registryDeps{
+		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
+		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool, checks: changeGate,
+	})
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
 	loopOpts := append(append([]agent.Option{}, loopBase...),
 		agent.WithVerifier(verifier), agent.WithReviewer(reviewer), agent.WithChangeGate(changeGate))
@@ -569,23 +572,36 @@ func newSessionDir(stateDir string) (string, error) {
 	return dir, nil
 }
 
-func buildRegistry(
-	root, sandboxDir string, indexer *codeintel.Indexer, store *codeintel.Store, scope *tools.Scope,
-	permGate permission.Gate, asker tools.Asker, leases tools.Leases, servers tools.Servers,
-) *tool.Registry {
-	withLeases := tools.WithLeases(leases)
+// registryDeps is what the tool registry is built from. It is a struct
+// because the list grew past what a positional signature reads well at, and
+// every field is required.
+type registryDeps struct {
+	indexer    *codeintel.Indexer
+	store      *codeintel.Store
+	scope      *tools.Scope
+	permGate   permission.Gate
+	asker      tools.Asker
+	leases     tools.Leases
+	servers    tools.Servers
+	checks     tools.Checks
+	root       string
+	sandboxDir string
+}
+
+func buildRegistry(d registryDeps) *tool.Registry {
+	withLeases := tools.WithLeases(d.leases)
 
 	return tool.NewRegistry(
-		tools.NewList(root),
-		tools.NewRead(root, scope),
-		tools.NewStrReplace(root, scope, withLeases),
-		tools.NewWrite(root, scope, withLeases),
-		tools.NewShell(root, sandboxDir, DefaultThreadID, permGate, withLeases),
-		tools.NewSearch(indexer),
-		tools.NewContext(tools.StoreIndex{Indexer: indexer, Store: store}),
-		tools.NewQuestion(asker),
-		tools.NewDelete(root, indexer, servers, scope, withLeases),
-		tools.NewRename(root, indexer, servers, scope, withLeases),
+		tools.NewList(d.root),
+		tools.NewRead(d.root, d.scope),
+		tools.NewStrReplace(d.root, d.scope, withLeases),
+		tools.NewWrite(d.root, d.scope, withLeases),
+		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases, tools.WithChecks(d.checks)),
+		tools.NewSearch(d.indexer),
+		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
+		tools.NewQuestion(d.asker),
+		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
+		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),
 	)
 }
 

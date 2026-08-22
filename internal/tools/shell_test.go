@@ -141,3 +141,70 @@ func TestShell_TrimsLongOutput(t *testing.T) {
 		t.Errorf("Content = %q, want the first and last lines kept", result.Content)
 	}
 }
+
+// stubChecks is a Checks that answers however a case needs it to.
+type stubChecks struct {
+	status string
+	known  bool
+}
+
+func (s stubChecks) Status() (string, bool) { return s.status, s.known }
+
+// The system prompt has told runs not to re-run the project's checks since
+// the gates shipped, and 37 of 278 logged shell calls did it anyway. What
+// the harness knows, it answers.
+func TestShellAnswersAGateItAlreadyRan(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	tests := []struct {
+		name    string
+		command string
+		want    string
+		checks  stubChecks
+		ran     bool
+	}{
+		{
+			name:    "a module sweep is answered from what the gates found",
+			command: "go test ./...",
+			checks:  stubChecks{status: "they ran on your changes and passed: go-test", known: true},
+			want:    "Not run: this runs tests",
+		},
+		{
+			name:    "one package's tests still run",
+			command: "go test ./internal/edit/...",
+			checks:  stubChecks{status: "they ran on your changes and passed: go-test", known: true},
+			ran:     true,
+		},
+		{
+			name:    "a sweep runs when the harness knows nothing yet",
+			command: "go test ./...",
+			checks:  stubChecks{},
+			ran:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gate, _ := recordingGate(t, permission.Allow)
+			sh := tools.NewShell(root, t.TempDir(), "t", gate, tools.WithChecks(tt.checks))
+
+			res, err := sh.Run(t.Context(), mustJSON(t, map[string]any{"command": tt.command}))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			answered := strings.Contains(res.Content, "Not run:")
+			if answered == tt.ran {
+				t.Fatalf("ran = %v, want %v:\n%s", !answered, tt.ran, res.Content)
+			}
+
+			if tt.want != "" && !strings.Contains(res.Content, tt.want) {
+				t.Errorf("missing %q:\n%s", tt.want, res.Content)
+			}
+		})
+	}
+}

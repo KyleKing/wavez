@@ -108,6 +108,10 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Errorf("invalid input: %v", err), nil
 	}
 
+	if answer, ok := s.alreadyChecked(in.Command); ok {
+		return tool.Result{Content: answer}, nil
+	}
+
 	verdict := s.classify(in.Command)
 
 	switch verdict.Verdict {
@@ -146,6 +150,29 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	}
 
 	return tool.Result{Content: formatShellResult(result)}, nil
+}
+
+// alreadyChecked answers a command that re-runs the project's checks from
+// what the harness already knows, when it knows anything. This is not an
+// error: the model asked a question the harness can answer, so it gets the
+// answer rather than a refusal to look it up.
+func (s *Shell) alreadyChecked(command string) (string, bool) {
+	if s.deps.checks == nil {
+		return "", false
+	}
+
+	name, ok := guard.ProjectCheck(command)
+	if !ok {
+		return "", false
+	}
+
+	status, ok := s.deps.checks.Status()
+	if !ok {
+		return "", false
+	}
+
+	return fmt.Sprintf("Not run: this runs %s, which the harness runs for you, and %s. "+
+		"Run one package's tests if you need to watch a single failure.", name, status), true
 }
 
 // maxScriptBytes bounds how much of a script the guard reads. A file

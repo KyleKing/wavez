@@ -14,9 +14,17 @@ type Leases interface {
 	Acquire(ctx context.Context, target string) (func(), error)
 }
 
+// Checks reports what the harness's own gate runs already establish about
+// the tree. *app.ChangeGate satisfies it, and a shell built without one
+// runs every command the guard allows.
+type Checks interface {
+	Status() (string, bool)
+}
+
 // deps holds what a write tool may be given beyond its root and scope.
 type deps struct {
 	leases Leases
+	checks Checks
 }
 
 // Option configures a tool's optional dependencies.
@@ -27,6 +35,15 @@ type Option func(*deps)
 // creation because a thread's directory set does not say where it writes.
 func WithLeases(l Leases) Option {
 	return func(d *deps) { d.leases = l }
+}
+
+// WithChecks lets a tool answer a command that re-runs the project's checks
+// from what the gates already found, rather than running it. It is a
+// dependency rather than a rule in the system prompt because the prompt has
+// carried that rule since the gates shipped and 37 of 278 logged shell calls
+// ran the checks anyway.
+func WithChecks(c Checks) Option {
+	return func(d *deps) { d.checks = c }
 }
 
 func newDeps(opts []Option) deps {

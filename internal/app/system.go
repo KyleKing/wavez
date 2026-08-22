@@ -32,9 +32,8 @@ How this harness works, which differs from what you may expect:
   import block and never adjust indentation to make code look right.
 - Your work is checked by a build and by tests when you finish. Saying you are
   done does not end the task; passing those checks does. Do not claim success.
-- Do not run this project's CI or its version control: mise, hk, golangci-lint,
-  gofmt, git, and jj are the harness's job, and a call to one spends a turn and
-  changes nothing. Running a single test to watch it fail is not that.
+- Do not run this project's version control: git and jj are the harness's job,
+  and a call to one spends a turn and changes nothing.
 - Repeating a failed call unchanged ends the task. Change the arguments instead.
 - Never silence a check to make it pass. Do not add a suppression comment, skip a
   test, or widen a timeout. Fix the cause, or report that you could not.`

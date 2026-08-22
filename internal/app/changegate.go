@@ -30,7 +30,13 @@ type ChangeGate struct {
 	runner  *gate.Runner
 	inbox   chan tool.Change
 	pending []gate.Result
-	mu      sync.Mutex
+	// latest survives TakeFeedback, because a run asks "are the checks
+	// green" long after it was told, and queued counts the changes no batch
+	// has covered yet, which is the difference between a stale answer and a
+	// current one.
+	latest []gate.Result
+	queued int
+	mu     sync.Mutex
 }
 
 // NewChangeGate builds a ChangeGate over runner. Nothing flows until Start
@@ -70,6 +76,10 @@ func (g *ChangeGate) Start(ctx context.Context) {
 // far enough behind to fill the inbox, which is backpressure rather than a
 // stall worth avoiding.
 func (g *ChangeGate) Enqueue(c tool.Change) {
+	g.mu.Lock()
+	g.queued++
+	g.mu.Unlock()
+
 	g.inbox <- c
 }
 
@@ -80,6 +90,46 @@ func (g *ChangeGate) Collect(res gate.RunResult) {
 	defer g.mu.Unlock()
 
 	g.pending = append(g.pending, res.Gates...)
+	g.latest = res.Gates
+
+	g.queued -= len(res.Changes)
+	if g.queued < 0 {
+		g.queued = 0
+	}
+}
+
+// Status says what the harness's own gate runs already establish about the
+// tree, and whether it can say anything at all. It is what lets the shell
+// tool answer a command that re-runs the project's checks instead of
+// running it: the prose asking a model not to has been in the system prompt
+// since this type shipped, and 37 of 278 logged shell calls ran them
+// anyway.
+func (g *ChangeGate) Status() (string, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.queued > 0 {
+		return "they are running on your latest changes now, and what they find " +
+			"reaches you before your next turn", true
+	}
+
+	var passed []string
+
+	for i := range g.latest {
+		if !g.latest[i].Pass {
+			return "they ran on your changes and failed, and you were told what they found", true
+		}
+
+		if g.latest[i].Examined > 0 {
+			passed = append(passed, g.latest[i].Gate)
+		}
+	}
+
+	if len(passed) == 0 {
+		return "", false
+	}
+
+	return "they ran on your changes and passed: " + strings.Join(dedupe(passed), ", "), true
 }
 
 // TakeFeedback returns what the gates found since the last call and clears
