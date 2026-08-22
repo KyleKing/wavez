@@ -183,6 +183,34 @@ func TestTrimFailureDropsFramesThatDoNotTouchChangedFiles(t *testing.T) {
 	if len(got.Frames) != 0 {
 		t.Errorf("Frames = %v, want none: nothing in the output references panic_test.go", got.Frames)
 	}
+
+	if !containsSubstring(got.Context, "panic: boom") {
+		t.Errorf("Context = %v, want the head of the untrimmed output", got.Context)
+	}
+}
+
+// A build failure the harness caused prints a toolchain error and no source
+// line, so trimming keeps nothing. Measured on `h5`: told only the gate
+// name, the run spent fourteen turns hunting a defect that did not exist.
+func TestTrimFailureCarriesAToolchainErrorNoFrameCanName(t *testing.T) {
+	t.Parallel()
+
+	got := gate.TrimFailure(gate.FailedTest{
+		Package: "internal/guard",
+		Output: []string{
+			"# internal/guard\n",
+			"package internal/guard is not in std (/usr/local/go/src/internal/guard)\n",
+			"FAIL\tinternal/guard [setup failed]\n",
+		},
+	}, []string{"internal/guard/sequence.go"})
+
+	if len(got.Frames) != 0 {
+		t.Fatalf("Frames = %v, want none", got.Frames)
+	}
+
+	if !containsSubstring(got.Context, "is not in std") {
+		t.Errorf("Context = %v, want the line saying the command itself was wrong", got.Context)
+	}
 }
 
 func containsSubstring(lines []string, substr string) bool {

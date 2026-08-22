@@ -46,6 +46,14 @@ func TestChangeGateFeedback(t *testing.T) {
 			want: []string{"go-test build tmp/calc", "cannot use"},
 		},
 		{
+			name: "a failure that names no changed file carries what the command printed",
+			results: []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{{
+				Package: "internal/guard",
+				Context: []string{"package internal/guard is not in std (/usr/local/go/src/internal/guard)"},
+			}}}},
+			want: []string{"go-test build internal/guard", "is not in std"},
+		},
+		{
 			name:    "a failure the gate could not describe still names the gate",
 			results: []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{{}}}},
 			want:    []string{"go-test failed without reporting which check"},

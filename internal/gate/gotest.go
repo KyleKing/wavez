@@ -69,6 +69,10 @@ const (
 	// The go-test resource key names both GoTestGate's gate name and the
 	// build-cache resource key it shares with BuildGate.
 	goTestResource = "go-test"
+
+	// The contextLines bound caps the untrimmed output a failure carries
+	// when no line named a changed file.
+	contextLines = 6
 )
 
 // ParseGoTestJSON reads a `go test -json` event stream and summarizes it.
@@ -163,7 +167,41 @@ func TrimFailure(failure FailedTest, changedFiles []string) TrimmedFailure {
 		}
 	}
 
+	if len(frames) == 0 {
+		return TrimmedFailure{
+			Test:    failure.Name,
+			Package: failure.Package,
+			Context: outputHead(failure.Output),
+		}
+	}
+
 	return TrimmedFailure{Test: failure.Name, Package: failure.Package, Frames: frames}
+}
+
+// outputHead is the first few meaningful lines of an untrimmed failure. It
+// is bounded because the point is to say what kind of failure this is, not
+// to hand back the whole log.
+func outputHead(lines []string) []string {
+	out := make([]string, 0, contextLines)
+
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, "\n")
+		if strings.TrimSpace(trimmed) == "" {
+			continue
+		}
+
+		out = append(out, trimmed)
+
+		if len(out) == contextLines {
+			break
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 // GoTestGate runs the selected Go tests via `go test -json` and reports

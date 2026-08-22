@@ -222,29 +222,37 @@ func dedupe(names []string) []string {
 }
 
 // describeFailure renders one failing gate. A failure the gate could not
-// describe still names the gate and says so, because handing the model a
-// bare gate name and nothing else is worse than saying nothing: observed
-// on a build failure whose frames did not survive trimming, the model was
-// told `go-test` with no detail and spent 26 turns guessing at it.
+// attribute to a changed file falls back to the head of what the command
+// printed, because handing the model a bare gate name and nothing else is
+// worse than saying nothing: observed on a build failure whose frames did
+// not survive trimming, the model was told `go-test` with no detail and
+// spent 26 turns guessing at it.
 func describeFailure(r gate.Result) string {
 	var b strings.Builder
 
 	said := false
 
 	for _, f := range r.Failures {
-		if len(f.Frames) == 0 && f.Test == "" && f.Package == "" {
+		if len(f.Frames) == 0 && len(f.Context) == 0 && f.Test == "" && f.Package == "" {
 			continue
 		}
 
 		b.WriteString(r.Gate + " " + failureName(f) + "\n")
 		said = true
 
-		if len(f.Frames) == 0 {
-			b.WriteString("  no output line named a changed file, so run it yourself to see\n")
+		lines := f.Frames
+		if len(lines) == 0 {
+			if len(f.Context) == 0 {
+				b.WriteString("  no output line named a changed file, so run it yourself to see\n")
+			} else {
+				b.WriteString("  no output line named a changed file. What it printed:\n")
+			}
+
+			lines = f.Context
 		}
 
-		for _, frame := range f.Frames {
-			b.WriteString("  " + frame + "\n")
+		for _, line := range lines {
+			b.WriteString("  " + line + "\n")
 		}
 	}
 

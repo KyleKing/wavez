@@ -44,6 +44,12 @@ type TrimmedFailure struct {
 	Test    string   `json:"test"`
 	Package string   `json:"package,omitempty"`
 	Frames  []string `json:"frames,omitempty"`
+	// Context is the head of the untrimmed output, set only when Frames is
+	// empty. A failure naming no changed file is often the harness's own
+	// (a build failure whose command was wrong reports a Go toolchain
+	// error and no source line at all), and a model told the gate name and
+	// nothing else hunts the tree for a defect that is not there.
+	Context []string `json:"context,omitempty"`
 }
 
 // Result is one Gate's outcome. Timestamp and Duration are stamped by
