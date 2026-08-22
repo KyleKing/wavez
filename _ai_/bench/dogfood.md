@@ -1658,3 +1658,11 @@ which is exactly how `rename` and `delete` were judged.
 results, always the same missing check: the model never adds the table case
 proving blank-separated duplicates collapse. It is the one task in the set
 whose failure is comprehension rather than tool surface.
+
+**What is not yet observed in a real run.** The gate answer is unit-tested and
+has not fired in a replay: `h5`'s run reached for `go build ./internal/guard/`
+and `go vet ./internal/guard/`, both scoped to one package, which
+`guard.ProjectCheck` deliberately lets through. A refusal needs a run that
+edits and then sweeps the module, and none of the five tasks did that in the
+lanes recorded here. The same is true of the change-set answer: no run in this
+session called `jj` or `git`.
