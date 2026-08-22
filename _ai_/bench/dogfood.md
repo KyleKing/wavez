@@ -1666,3 +1666,55 @@ and `go vet ./internal/guard/`, both scoped to one package, which
 edits and then sweeps the module, and none of the five tasks did that in the
 lanes recorded here. The same is true of the change-set answer: no run in this
 session called `jj` or `git`.
+
+## 2026-08-22, a harness bug wearing a build failure
+
+`h5` (move two functions into a new file, fast pin) passed all six checks on
+its first tool call and then burned the rest of the run:
+
+| lane | stop | turns | tool calls | checks | input tokens | elapsed |
+| --- | --- | --- | --- | --- | --- | --- |
+| move-tool | deadline | 15 (6f 9b) | 14 | 6/6 | 64,946 | 3m18s |
+| move-atomic | verify_failed | 11 (4f 7b) | 8 | 6/6 | 45,979 | 3m12s |
+| gate-pattern | complete | 2 (2f) | 1 | 6/6 | 6,049 | 32s |
+
+Both runs did the whole task in call one (`move splitSequence, splitPipeline
+-> internal/guard/sequence.go`) and both were then told by the `go-test` gate
+that `internal/guard` failed to build, with "no output line named a changed
+file, so run it yourself to see". The first run's final message invented a
+story about copies left behind in `split.go`; the log shows no edit tool ran
+after the move at all.
+
+The first hypothesis was that `move` tore the tree: it cut from the source and
+appended to the destination as separate writes, so a declaration briefly
+existed in neither file. Making each file take exactly one write per call is a
+real improvement and **it changed nothing** — `move-atomic` drew the identical
+failure. That is what turned a plausible cause into a disproved one.
+
+The real cause was in the gate. `fallbackPackages` guesses a changed file's
+package as `path.Dir(ch.Path)` and `buildTestArgs` hands it to `go test`
+unprefixed:
+
+```
+$ go test internal/guard
+package internal/guard is not in std (…/go/1.26.6/src/internal/guard)
+FAIL	internal/guard [setup failed]
+```
+
+The model copied that spelling out of the gate message and got the same error,
+which is how it ended up believing the package was broken. The guess is only
+reached when the import graph has no entry for a changed file, which means
+**every newly created file** — so `move` and `write` hit it and `rename` and
+`delete` never could. Fixed by spelling the fallback `./internal/guard`.
+
+With the pattern fixed the task is one `move` call and a closing sentence:
+two turns, one tool call, 6,049 input tokens against 45,979, entirely on the
+local tier, 32 seconds against a three-minute deadline. Eleven turns and 40k
+tokens were the model reacting to a message the harness should never have
+sent.
+
+Two things worth keeping from this. A gate that cannot attribute its own
+failure should re-run rather than delegate, because a second of harness time
+beat fourteen turns of model time here. And a model's account of what it did
+is worth less than the tool log: the run that described a cleanup made no
+edit call after its first one.
