@@ -122,3 +122,61 @@ func TestSearch(t *testing.T) {
 		})
 	}
 }
+
+// A caller who knows where to look was reaching for `grep -n pattern one/file.go`
+// because this tool answered for the whole project: 106 of 278 shell calls in
+// the thread logs were a search the shell could scope and this could not.
+func TestSearchNarrowsToAPath(t *testing.T) {
+	t.Parallel()
+
+	indexer := openTestIndex(t, map[string]string{
+		"a/keep.go": "package a\n\nfunc Target() string { return \"a\" }\n",
+		"b/drop.go": "package b\n\nfunc Target() string { return \"b\" }\n",
+	})
+	search := tools.NewSearch(indexer)
+
+	whole, err := search.Run(t.Context(), []byte(`{"mode":"fuzzy","query":"Target"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(whole.Content, "a/keep.go") || !strings.Contains(whole.Content, "b/drop.go") {
+		t.Fatalf("an unscoped search should find both:\n%s", whole.Content)
+	}
+
+	scoped, err := search.Run(t.Context(), []byte(`{"mode":"fuzzy","query":"Target","path":"a"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(scoped.Content, "a/keep.go") {
+		t.Errorf("the scoped search lost the match inside the path:\n%s", scoped.Content)
+	}
+
+	if strings.Contains(scoped.Content, "b/drop.go") {
+		t.Errorf("the scoped search kept a match outside the path:\n%s", scoped.Content)
+	}
+}
+
+// Alternation already worked and the schema never said so, which is why the
+// model wrote `grep "A\|B"` instead: six of fourteen sampled grep calls were
+// alternations.
+func TestSearchFindsEitherOfTwoNames(t *testing.T) {
+	t.Parallel()
+
+	indexer := openTestIndex(t, map[string]string{
+		"a/alpha.go": "package a\n\nfunc Alpha() string { return \"a\" }\n",
+		"b/beta.go":  "package b\n\nfunc Beta() string { return \"b\" }\n",
+	})
+
+	res, err := tools.NewSearch(indexer).Run(t.Context(), []byte(`{"mode":"fuzzy","query":"Alpha OR Beta"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for _, want := range []string{"a/alpha.go", "b/beta.go"} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("OR did not find %s:\n%s", want, res.Content)
+		}
+	}
+}

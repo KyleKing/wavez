@@ -20,8 +20,14 @@ var searchSchema = buildSchema(map[string]schemaProperty{
 	},
 	"query": {
 		Type: schemaTypeString,
-		Description: "For fuzzy mode, a search string (FTS5 syntax). For graph mode, a " +
-			"symbol key to walk edges from.",
+		Description: "For fuzzy mode, a search string. Combine several names with OR to " +
+			"find any of them in one call (\"ChoiceFast OR ChoiceDeep\"). For graph mode, " +
+			"a symbol key to walk edges from.",
+	},
+	propPath: {
+		Type: schemaTypeString,
+		Description: "Narrow results to this file or directory, relative to the project " +
+			"root. Omit it to search the whole project.",
 	},
 	"limit": {
 		Type:        schemaTypeInteger,
@@ -65,7 +71,38 @@ func (*Search) Schema() json.RawMessage { return searchSchema }
 type searchInput struct {
 	Mode  string `json:"mode"`
 	Query string `json:"query"`
+	Path  string `json:"path"`
 	Limit int    `json:"limit"`
+}
+
+// scopeTo narrows results to a file or directory. The index answers for the
+// whole project, and a caller who already knows where to look was otherwise
+// reaching for `grep -n pattern one/file.go`: measured over the thread logs,
+// 106 of 278 shell calls were a search the shell could scope and this tool
+// could not.
+func scopeTo(results []codeintel.SearchResult, path string) []codeintel.SearchResult {
+	if path == "" {
+		return results
+	}
+
+	out := make([]codeintel.SearchResult, 0, len(results))
+
+	for i := range results {
+		if under(fileOf(results[i]), path) {
+			out = append(out, results[i])
+		}
+	}
+
+	return out
+}
+
+// fileOf is the path a result belongs to, whichever shape it has.
+func fileOf(r codeintel.SearchResult) string {
+	if r.Symbol != nil {
+		return r.Symbol.FilePath
+	}
+
+	return r.File
 }
 
 // Run implements tool.Tool.
@@ -92,7 +129,7 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Errorf("%v", err), nil
 	}
 
-	return tool.Result{Content: formatSearchResults(results, stats, in.Query)}, nil
+	return tool.Result{Content: formatSearchResults(scopeTo(results, in.Path), stats, in.Query)}, nil
 }
 
 // formatSearchResults distinguishes an empty result from an index that
