@@ -604,6 +604,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewQuestion(d.asker),
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
+		tools.NewMove(d.root, d.indexer, d.scope, withLeases),
 		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),
 	)
 }

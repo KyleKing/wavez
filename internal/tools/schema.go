@@ -9,6 +9,7 @@ const (
 	schemaTypeArray   = "array"
 	schemaTypeObject  = "object"
 	propPath          = "path"
+	propSymbol        = "symbol"
 )
 
 // schemaProperty is one property of a tool's JSON Schema input. Items

@@ -14,7 +14,7 @@ import (
 )
 
 var deleteSchema = buildSchema(map[string]schemaProperty{
-	"symbol": {
+	propSymbol: {
 		Type: schemaTypeString,
 		Description: "The name of the declaration to remove, exactly as it is declared, or " +
 			"several separated by commas to remove them in one call.",

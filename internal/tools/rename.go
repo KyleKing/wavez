@@ -16,7 +16,7 @@ import (
 )
 
 var renameSchema = buildSchema(map[string]schemaProperty{
-	"symbol": {
+	propSymbol: {
 		Type:        schemaTypeString,
 		Description: "The name to rename, exactly as it is declared. Not a path, not a signature.",
 	},
