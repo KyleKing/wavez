@@ -108,86 +108,186 @@ func (m *Move) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 		return tool.Errorf("%v", err), nil
 	}
 
-	var (
-		changes []tool.Change
-		done    []string
-	)
+	// Everything is located before anything is written, and each file is
+	// written once. A move that cut and appended per symbol left the tree in
+	// a state where a declaration was in neither file, and anything reading
+	// the tree in that window (the gates, the language server, a coverage
+	// sweep) saw a package that does not build: measured on `h5`, one
+	// correct move call was followed by a gate failure it could not
+	// attribute and fourteen turns of the model hunting for a defect that
+	// was no longer there.
+	decls := make([]declaration, 0, len(names))
 
-	// One at a time and in order: each cut moves the lines under it, and the
-	// next lookup reads the file as the last one left it.
 	for _, name := range names {
-		moved, err := m.one(ctx, name, in.Path, dest)
+		decl, err := m.plan(ctx, name, in.Path, dest)
 		if err != nil {
-			return tool.Errorf("%v%s", err, alreadyDone(done)), nil
+			return tool.Errorf("%v", err), nil
 		}
 
-		changes = append(changes, moved...)
-		done = append(done, name)
+		decls = append(decls, decl)
+	}
+
+	release, err := m.hold(ctx, decls, dest)
+	if err != nil {
+		return tool.Errorf("%v", err), nil
+	}
+	defer release()
+
+	changes, err := m.apply(decls, dest)
+	if err != nil {
+		return tool.Errorf("%v", err), nil
 	}
 
 	return tool.Result{
-		Content: fmt.Sprintf("moved %s to %s", strings.Join(done, ", "), relativeTo(m.root, dest)),
+		Content: fmt.Sprintf("moved %s to %s", strings.Join(names, ", "), relativeTo(m.root, dest)),
 		Changes: changes,
 	}, nil
 }
 
-func (m *Move) one(ctx context.Context, name, path, dest string) ([]tool.Change, error) {
+// plan resolves one name and refuses everything about the move that can be
+// refused before a byte is written.
+func (m *Move) plan(ctx context.Context, name, path, dest string) (declaration, error) {
 	decl, err := locate(ctx, m.index, m.root, name, path)
 	if err != nil {
-		return nil, err
+		return declaration{}, err
 	}
 
 	if decl.path == dest {
-		return nil, fmt.Errorf("%w: %s is already in %s", ErrNowhereToMove, name, relativeTo(m.root, dest))
+		return declaration{}, fmt.Errorf("%w: %s is already in %s", ErrNowhereToMove, name, relativeTo(m.root, dest))
 	}
 
 	if err := samePackage(decl.path, dest); err != nil {
-		return nil, err
+		return declaration{}, err
 	}
 
 	for _, p := range []string{decl.path, dest} {
 		if err := m.scope.Edit(p); err != nil {
-			return nil, err
+			return declaration{}, err
 		}
 	}
 
-	release, err := m.deps.hold(ctx, decl.path)
-	if err != nil {
-		return nil, err
-	}
-	defer release()
+	return decl, nil
+}
 
-	body, err := os.ReadFile(decl.path)
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", name, err)
-	}
+// hold takes the lease covering every file the move writes, and gives them
+// all back together.
+func (m *Move) hold(ctx context.Context, decls []declaration, dest string) (func(), error) {
+	var releases []func()
 
-	lines := strings.Split(string(body), "\n")
-
-	from, to := declSpan(lines, decl)
-	if from < 0 {
-		return nil, fmt.Errorf("%w: %s at lines %d-%d of %s",
-			ErrDeclarationMoved, name, decl.start, decl.end, relativeTo(m.root, decl.path))
+	release := func() {
+		for i := len(releases) - 1; i >= 0; i-- {
+			releases[i]()
+		}
 	}
 
-	text := strings.Join(lines[from:to], "\n")
+	for _, path := range append(sourcePaths(decls), dest) {
+		r, err := m.deps.hold(ctx, path)
+		if err != nil {
+			release()
 
-	cut, err := edit.ApplySpansToFile(decl.path, []edit.Span{{Line: from, EndLine: to}})
-	if err != nil {
-		return nil, fmt.Errorf("moving %s out of %s: %w", name, relativeTo(m.root, decl.path), err)
+			return nil, err
+		}
+
+		releases = append(releases, r)
 	}
 
-	cut.Path = relativeTo(m.root, decl.path)
-	cut.Added, cut.Removed = 0, to-from
+	return release, nil
+}
 
-	added, err := appendDecl(dest, text)
+// apply cuts every declaration from its file in one write per file, then
+// appends them all to the destination in one more.
+func (m *Move) apply(decls []declaration, dest string) ([]tool.Change, error) {
+	var (
+		changes []tool.Change
+		moved   []string
+	)
+
+	for _, src := range sourcePaths(decls) {
+		spans, text, err := cutPlan(src, decls)
+		if err != nil {
+			return nil, err
+		}
+
+		change, err := edit.ApplySpansToFile(src, spans)
+		if err != nil {
+			return nil, fmt.Errorf("moving out of %s: %w", relativeTo(m.root, src), err)
+		}
+
+		change.Path = relativeTo(m.root, src)
+		change.Added, change.Removed = 0, removedLines(spans)
+		changes = append(changes, change)
+		moved = append(moved, text...)
+	}
+
+	added, err := appendDecls(dest, moved)
 	if err != nil {
-		return nil, fmt.Errorf("moving %s into %s: %w", name, relativeTo(m.root, dest), err)
+		return nil, fmt.Errorf("moving into %s: %w", relativeTo(m.root, dest), err)
 	}
 
 	added.Path = relativeTo(m.root, dest)
 
-	return []tool.Change{cut, added}, nil
+	return append(changes, added), nil
+}
+
+// sourcePaths is every file the move cuts from, in a stable order, since one
+// call may name declarations that live in different files.
+func sourcePaths(decls []declaration) []string {
+	var out []string
+
+	seen := make(map[string]bool, len(decls))
+
+	for _, d := range decls {
+		if seen[d.path] {
+			continue
+		}
+
+		seen[d.path] = true
+
+		out = append(out, d.path)
+	}
+
+	return out
+}
+
+// cutPlan is the spans to remove from one file and the text each holds.
+func cutPlan(src string, decls []declaration) ([]edit.Span, []string, error) {
+	body, err := os.ReadFile(src) //nolint:gosec // a path the index resolved under the project root
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading %s: %w", filepath.Base(src), err)
+	}
+
+	lines := strings.Split(string(body), "\n")
+
+	var (
+		spans []edit.Span
+		text  []string
+	)
+
+	for _, d := range decls {
+		if d.path != src {
+			continue
+		}
+
+		from, to := declSpan(lines, d)
+		if from < 0 {
+			return nil, nil, fmt.Errorf("%w: lines %d-%d of %s",
+				ErrDeclarationMoved, d.start, d.end, filepath.Base(src))
+		}
+
+		spans = append(spans, edit.Span{Line: from, EndLine: to})
+		text = append(text, strings.Join(lines[from:to], "\n"))
+	}
+
+	return spans, text, nil
+}
+
+func removedLines(spans []edit.Span) int {
+	total := 0
+	for _, s := range spans {
+		total += s.EndLine - s.Line
+	}
+
+	return total
 }
 
 // destination resolves the target file, which need not exist yet.
@@ -248,12 +348,12 @@ func packageOf(path string) (string, error) {
 	return file.Name.Name, nil
 }
 
-// appendDecl adds text to the end of dest, creating the file with the
-// package clause its neighbors use when it is not there yet. Imports are
-// deliberately not touched: the format gate runs goimports over every change
-// this tool makes, so an import the moved code needs arrives without this
-// call reasoning about it.
-func appendDecl(dest, text string) (tool.Change, error) {
+// appendDecls adds every moved declaration to the end of dest in one write,
+// creating the file with the package clause its neighbors use when it is not
+// there yet. Imports are deliberately not touched: the format gate runs
+// goimports over every change this tool makes, so an import the moved code
+// needs arrives without this call reasoning about it.
+func appendDecls(dest string, texts []string) (tool.Change, error) {
 	body, err := os.ReadFile(dest) //nolint:gosec // a path already resolved under the project root
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -267,14 +367,26 @@ func appendDecl(dest, text string) (tool.Change, error) {
 		return tool.Change{}, fmt.Errorf("reading %s: %w", filepath.Base(dest), err)
 	}
 
-	out := strings.TrimRight(string(body), "\n") + "\n\n" + strings.Trim(text, "\n") + "\n"
+	var out strings.Builder
 
-	//nolint:gosec // dest is checked against the project root in destination
-	if err := os.WriteFile(dest, []byte(out), newFilePerm); err != nil {
+	out.WriteString(strings.TrimRight(string(body), "\n"))
+
+	added := 0
+
+	for _, text := range texts {
+		trimmed := strings.Trim(text, "\n")
+		out.WriteString("\n\n" + trimmed)
+
+		added += strings.Count(trimmed, "\n") + 1
+	}
+
+	out.WriteString("\n")
+
+	if err := os.WriteFile(dest, []byte(out.String()), newFilePerm); err != nil {
 		return tool.Change{}, fmt.Errorf("writing %s: %w", filepath.Base(dest), err)
 	}
 
-	return tool.Change{Added: strings.Count(strings.Trim(text, "\n"), "\n") + 1}, nil
+	return tool.Change{Added: added}, nil
 }
 
 // neighbourPackage is the package the destination's directory already

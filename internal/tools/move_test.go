@@ -174,3 +174,44 @@ func TestMoveTakesSeveralSymbols(t *testing.T) {
 		t.Errorf("the arrivals left a double blank line:\n%s", dest)
 	}
 }
+
+// A move that cut and appended per symbol left the tree in a state where a
+// declaration was in neither file, and anything reading the tree in that
+// window sees a package that does not build. Measured on `h5`: one correct
+// move was followed by a gate build failure the gate could not attribute and
+// fourteen turns of the model hunting a defect that was no longer there.
+// Each file this call writes, it writes once.
+func TestMoveWritesEachFileOnce(t *testing.T) {
+	t.Parallel()
+
+	root, mv := moveProject(t)
+
+	res, err := mv.Run(t.Context(), []byte(`{"symbol":"Alpha, Beta","to":"b.go"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError {
+		t.Fatalf("move failed: %s", res.Content)
+	}
+
+	seen := make(map[string]int, len(res.Changes))
+	for _, c := range res.Changes {
+		seen[c.Path]++
+	}
+
+	for path, writes := range seen {
+		if writes != 1 {
+			t.Errorf("%s was written %d times in one call, want once", path, writes)
+		}
+	}
+
+	if len(seen) != 2 {
+		t.Errorf("the call touched %d file(s), want the source and the destination: %v", len(seen), seen)
+	}
+
+	// The source has to be readable Go after one write, not after two.
+	if src := read(t, root, "a.go"); strings.Contains(src, "\n\n\n") {
+		t.Errorf("cutting both declarations at once left a double blank line:\n%s", src)
+	}
+}
