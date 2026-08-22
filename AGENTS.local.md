@@ -62,3 +62,9 @@ are specific to this codebase and not visible from the code.
   a declaration the language server says is still used, so removing a
   function and its tests means naming them in the same call, and the refusal
   lists the declarations holding the uses for exactly that purpose
+- A replay measures the laptop as much as the tree. One `e2` lane recorded 2
+  turns and a deadline at 68 output tokens in 180 seconds because
+  `hk check --all` and `go test ./...` were running beside it; the same lane
+  on an idle machine finished in 13 turns with every check passing. Start a
+  replay, then stay off the CPU until it records, and read output tokens per
+  second before reading turns

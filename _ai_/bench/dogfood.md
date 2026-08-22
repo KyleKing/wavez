@@ -1718,3 +1718,15 @@ failure should re-run rather than delegate, because a second of harness time
 beat fourteen turns of model time here. And a model's account of what it did
 is worth less than the tool log: the run that described a cleanup made no
 edit call after its first one.
+
+**The controls, and one contaminated row.** On the fixed tree `h4` is
+unchanged (complete, 4 turns, 5/5) and `e2` matches its previous best
+(complete, 13 turns, 3/3, 67,120 input tokens against 65,732), so the gate
+fix cost nothing on tasks that never hit it. The first `e2` attempt recorded
+2 turns, a deadline, and 68 output tokens in 180 seconds; it ran while
+`hk check --all` and `go test ./...` were competing for the same laptop, so
+it measures contention rather than the tree. It is kept as
+`gate-pattern-contended` rather than deleted, because a lane that measures
+the machine is worth being able to recognize later. Two rules follow: run a
+replay on an idle laptop, and read output tokens per second before reading
+turns, since a stall and a bad decision look the same in a turn count.
