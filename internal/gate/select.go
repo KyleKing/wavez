@@ -173,6 +173,8 @@ func fallbackPackages(graph *ImportGraph, changes []tool.Change) []string {
 // relativePattern makes a repository-relative directory into the pattern
 // `go test` reads as a directory rather than as an import path.
 func relativePattern(dir string) string {
+	// A file at the repository root widens to the module rather than to
+	// `./.`, which fails outright on a root holding no Go files of its own.
 	if dir == "" || dir == "." {
 		return "./..."
 	}
