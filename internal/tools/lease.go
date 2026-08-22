@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 // Leases coordinates concurrent writes between threads. *lease.Manager
@@ -21,10 +23,18 @@ type Checks interface {
 	Status() (string, bool)
 }
 
+// Changes reports what the current run has written. *app.ChangeGate
+// satisfies it, and a shell built without one runs a version-control
+// command rather than answering it.
+type Changes interface {
+	Changed() []tool.Change
+}
+
 // deps holds what a write tool may be given beyond its root and scope.
 type deps struct {
-	leases Leases
-	checks Checks
+	leases  Leases
+	checks  Checks
+	changes Changes
 }
 
 // Option configures a tool's optional dependencies.
@@ -44,6 +54,12 @@ func WithLeases(l Leases) Option {
 // ran the checks anyway.
 func WithChecks(c Checks) Option {
 	return func(d *deps) { d.checks = c }
+}
+
+// WithChanges lets a tool answer a version-control command that only asks
+// what this run has written, from what the harness recorded as it wrote it.
+func WithChanges(c Changes) Option {
+	return func(d *deps) { d.changes = c }
 }
 
 func newDeps(opts []Option) deps {

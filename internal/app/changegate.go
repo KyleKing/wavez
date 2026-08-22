@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 
@@ -35,8 +36,13 @@ type ChangeGate struct {
 	// has covered yet, which is the difference between a stale answer and a
 	// current one.
 	latest []gate.Result
-	queued int
-	mu     sync.Mutex
+	// changed is every path this run has written, in the order the changes
+	// landed. It answers the question 24 of 278 logged shell calls asked jj
+	// and git, and it is per run because the answer to "what have I changed"
+	// is about this run and no other.
+	changed []tool.Change
+	queued  int
+	mu      sync.Mutex
 }
 
 // NewChangeGate builds a ChangeGate over runner. Nothing flows until Start
@@ -72,12 +78,30 @@ func (g *ChangeGate) Start(ctx context.Context) {
 	}()
 }
 
+// Begin forgets the previous run. The gate results go with it: a report
+// about a tree two runs ago is worse than saying nothing.
+func (g *ChangeGate) Begin() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.latest, g.changed, g.queued = nil, nil, 0
+}
+
+// Changed is every file this run has written, most recent last.
+func (g *ChangeGate) Changed() []tool.Change {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return slices.Clone(g.changed)
+}
+
 // Enqueue records one change for gating. It blocks only when the runner is
 // far enough behind to fill the inbox, which is backpressure rather than a
 // stall worth avoiding.
 func (g *ChangeGate) Enqueue(c tool.Change) {
 	g.mu.Lock()
 	g.queued++
+	g.changed = append(g.changed, c)
 	g.mu.Unlock()
 
 	g.inbox <- c

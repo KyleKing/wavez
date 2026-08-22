@@ -266,7 +266,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	changeGate := NewChangeGate(runner)
 	registry := buildRegistry(registryDeps{
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
-		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool, checks: changeGate,
+		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
+		checks: changeGate, changes: changeGate,
 	})
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
 	loopOpts := append(append([]agent.Option{}, loopBase...),
@@ -584,6 +585,7 @@ type registryDeps struct {
 	leases     tools.Leases
 	servers    tools.Servers
 	checks     tools.Checks
+	changes    tools.Changes
 	root       string
 	sandboxDir string
 }
@@ -596,7 +598,8 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewRead(d.root, d.scope),
 		tools.NewStrReplace(d.root, d.scope, withLeases),
 		tools.NewWrite(d.root, d.scope, withLeases),
-		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases, tools.WithChecks(d.checks)),
+		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases,
+			tools.WithChecks(d.checks), tools.WithChanges(d.changes)),
 		tools.NewSearch(d.indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewQuestion(d.asker),

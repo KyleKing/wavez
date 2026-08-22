@@ -108,7 +108,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Errorf("invalid input: %v", err), nil
 	}
 
-	if answer, ok := s.alreadyChecked(in.Command); ok {
+	if answer, ok := s.alreadyKnown(in.Command); ok {
 		return tool.Result{Content: answer}, nil
 	}
 
@@ -150,6 +150,72 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	}
 
 	return tool.Result{Content: formatShellResult(result)}, nil
+}
+
+// alreadyKnown answers a command whose answer the harness is already
+// holding, rather than spending a subprocess and a turn to rediscover it.
+func (s *Shell) alreadyKnown(command string) (string, bool) {
+	if answer, ok := s.alreadyChecked(command); ok {
+		return answer, true
+	}
+
+	return s.alreadyWritten(command)
+}
+
+// alreadyWritten answers a read-only version-control command with what this
+// run has written. The system prompt has told runs not to call git or jj
+// since the harness took over checkpointing, and 24 of 278 logged shell
+// calls called one anyway, every time to ask a question answered here.
+func (s *Shell) alreadyWritten(command string) (string, bool) {
+	if s.deps.changes == nil || !guard.VCSInspect(command) {
+		return "", false
+	}
+
+	changed := s.deps.changes.Changed()
+	if len(changed) == 0 {
+		return "Not run: version control is the harness's job. You have changed nothing " +
+			"this run.", true
+	}
+
+	var b strings.Builder
+
+	b.WriteString("Not run: version control is the harness's job. You have changed " +
+		"these files this run:\n")
+
+	for _, c := range dedupeChanges(changed) {
+		fmt.Fprintf(&b, "  %s (+%d/-%d)\n", c.Path, c.Added, c.Removed)
+	}
+
+	return strings.TrimSuffix(b.String(), "\n"), true
+}
+
+// dedupeChanges folds repeated writes to one path into one row carrying
+// every line the run added or removed there, since a model asking what it
+// changed wants the file list and not the edit history.
+func dedupeChanges(changes []tool.Change) []tool.Change {
+	order := make([]string, 0, len(changes))
+	total := make(map[string]tool.Change, len(changes))
+
+	for _, c := range changes {
+		seen, ok := total[c.Path]
+		if !ok {
+			order = append(order, c.Path)
+			total[c.Path] = c
+
+			continue
+		}
+
+		seen.Added += c.Added
+		seen.Removed += c.Removed
+		total[c.Path] = seen
+	}
+
+	out := make([]tool.Change, 0, len(order))
+	for _, p := range order {
+		out = append(out, total[p])
+	}
+
+	return out
 }
 
 // alreadyChecked answers a command that re-runs the project's checks from

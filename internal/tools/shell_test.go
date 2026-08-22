@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -203,6 +204,62 @@ func TestShellAnswersAGateItAlreadyRan(t *testing.T) {
 			}
 
 			if tt.want != "" && !strings.Contains(res.Content, tt.want) {
+				t.Errorf("missing %q:\n%s", tt.want, res.Content)
+			}
+		})
+	}
+}
+
+// stubChanges answers with a fixed change set.
+type stubChanges struct {
+	changes []tool.Change
+}
+
+func (s stubChanges) Changed() []tool.Change { return s.changes }
+
+// 24 of 278 logged shell calls asked jj or git what the run had changed,
+// which the harness recorded as it changed it.
+func TestShellAnswersWhatTheRunChanged(t *testing.T) {
+	t.Parallel()
+
+	changes := stubChanges{changes: []tool.Change{
+		{Path: "a.go", Added: 3, Removed: 1},
+		{Path: "a.go", Added: 2, Removed: 0},
+		{Path: "b_test.go", Added: 9},
+	}}
+
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{name: "a status is answered", command: "jj st", want: "a.go (+5/-1)"},
+		{name: "a diff is answered too", command: "git diff", want: "b_test.go (+9/-0)"},
+		{name: "a write is not this tool's business", command: "jj commit -m x", want: ""},
+		{name: "another command is untouched", command: "echo hi", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gate, _ := recordingGate(t, permission.Allow)
+			sh := tools.NewShell(t.TempDir(), t.TempDir(), "t", gate, tools.WithChanges(changes))
+
+			res, err := sh.Run(t.Context(), mustJSON(t, map[string]any{"command": tt.command}))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if tt.want == "" {
+				if strings.Contains(res.Content, "Not run:") {
+					t.Fatalf("answered a command it should have run:\n%s", res.Content)
+				}
+
+				return
+			}
+
+			if !strings.Contains(res.Content, tt.want) {
 				t.Errorf("missing %q:\n%s", tt.want, res.Content)
 			}
 		})

@@ -188,8 +188,12 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 // cannot be diagnosed after the fact without it. A result the tool reported as
 // an error is marked with an is_error detail, so downstream stats can tell a
 // failed call from a successful one.
+// The checkpoint is the jj operation holding the tree just after this call's
+// changes, empty when the call changed nothing. It rides on the event rather
+// than in history because undo is the harness's business and never the
+// model's.
 func (t *Thread) AppendToolResult(
-	ctx context.Context, toolCallID, toolName string, input json.RawMessage, result tool.Result,
+	ctx context.Context, toolCallID, toolName string, input json.RawMessage, result tool.Result, checkpoint string,
 ) error {
 	if err := contextErr(ctx); err != nil {
 		return err
@@ -211,6 +215,12 @@ func (t *Thread) AppendToolResult(
 			ev.Detail = map[string]any{}
 		}
 		ev.Detail["is_error"] = true
+	}
+	if checkpoint != "" {
+		if ev.Detail == nil {
+			ev.Detail = map[string]any{}
+		}
+		ev.Detail["checkpoint"] = checkpoint
 	}
 	if _, err := t.log.Append(ev); err != nil {
 		return fmt.Errorf("logging tool turn: %w", err)

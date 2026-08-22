@@ -62,7 +62,7 @@ func TestHistoryIsAppendOnlyAndCopied(t *testing.T) {
 	if err := th.AppendAssistant(ctx, llm.Message{Content: "hi"}, nil, thread.TurnMeta{}); err != nil {
 		t.Fatalf("AppendAssistant: %v", err)
 	}
-	if err := th.AppendToolResult(ctx, "call-1", "read", nil, tool.Result{Content: "file contents"}); err != nil {
+	if err := th.AppendToolResult(ctx, "call-1", "read", nil, tool.Result{Content: "file contents"}, ""); err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 
@@ -211,7 +211,7 @@ func TestAppendToolResultLogsTheInput(t *testing.T) {
 	})
 
 	input := json.RawMessage(`{"path":"a.go","old_string":"x"}`)
-	if err := th.AppendToolResult(t.Context(), "c1", "str_replace", input, tool.Result{Content: "ok"}); err != nil {
+	if err := th.AppendToolResult(t.Context(), "c1", "str_replace", input, tool.Result{Content: "ok"}, ""); err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 

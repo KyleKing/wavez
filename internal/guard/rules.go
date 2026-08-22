@@ -23,6 +23,12 @@ const minPipelineStages = 2
 
 const minGitTokens = 2
 
+// cmdGit and subShow name literals several rules share.
+const (
+	cmdGit  = "git"
+	subShow = "show"
+)
+
 // propRestore is the subcommand name git and jj share.
 const propRestore = "restore"
 
@@ -83,7 +89,7 @@ func classifyCommand(cmd string, env Env) finding {
 	switch name {
 	case "rm":
 		candidates = append(candidates, classifyRM(cmd, tokens, env))
-	case "git":
+	case cmdGit:
 		candidates = append(candidates, classifyGit(cmd, tokens, env))
 	case "jj":
 		candidates = append(candidates, classifyJJ(cmd, tokens))
@@ -207,7 +213,7 @@ func hasRecursiveForce(tokens []string) bool {
 var gitReadOnly = map[string]bool{
 	"blame": true, "cat-file": true, "config": true, "describe": true, "diff": true,
 	"grep": true, "log": true, "ls-files": true, "ls-remote": true, "rev-parse": true,
-	"shortlog": true, "show": true, "status": true,
+	"shortlog": true, subShow: true, "status": true,
 }
 
 func classifyGit(cmd string, tokens []string, env Env) finding {

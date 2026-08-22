@@ -314,3 +314,46 @@ func TestJjRecoversStaleWorkingCopy(t *testing.T) {
 		t.Errorf("want the stale workspace's own edit reported, got %v", changed)
 	}
 }
+
+// Per-edit undo needs no commit, because jj snapshots the working copy on
+// every command: capturing an operation id after each edit records that
+// edit's tree, and restoring to one brings the tree back to exactly there.
+// This is what an edit-by-edit checkpoint rests on, so it is worth a test
+// rather than a claim.
+func TestJjCaptureAfterEachEditRestoresThatEdit(t *testing.T) {
+	t.Parallel()
+
+	dir := newFixtureRepo(t)
+	j := vcs.NewJj()
+	ctx := context.Background()
+
+	points := make([]string, 0, 2)
+
+	for _, body := range []string{"package a\n\nvar one = 1\n", "package a\n\nvar two = 2\n"} {
+		writeFile(t, dir, "a.go", body)
+
+		op, err := j.Capture(ctx, dir)
+		if err != nil {
+			t.Fatalf("Capture: %v", err)
+		}
+
+		points = append(points, op)
+	}
+
+	if points[0] == points[1] {
+		t.Fatalf("both edits captured the same operation %q, so neither is reachable on its own", points[0])
+	}
+
+	if err := j.Restore(ctx, dir, points[0]); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "a.go")) //nolint:gosec // fixed fixture filename under t.TempDir()
+	if err != nil {
+		t.Fatalf("reading restored file: %v", err)
+	}
+
+	if string(got) != "package a\n\nvar one = 1\n" {
+		t.Fatalf("a.go after restoring the first edit = %q, want the tree as that edit left it", got)
+	}
+}

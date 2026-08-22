@@ -91,3 +91,27 @@ func goCheck(tokens []string) (string, bool) {
 
 	return "", false
 }
+
+// vcsReads are the version-control subcommands that only look. A run asks
+// them to find out what it has changed, which the harness has already
+// recorded: 24 of 278 logged shell calls were this question.
+var vcsReads = map[string]bool{
+	"diff": true, "log": true, subShow: true, "st": true, "status": true,
+}
+
+// VCSInspect reports whether command only asks version control what the
+// working copy holds. A write (`jj commit`, `git add`) is not this: the
+// guard classifies those on their own terms and this says nothing about
+// them.
+func VCSInspect(command string) bool {
+	tokens := tokenize(strings.TrimSpace(command))
+	if len(tokens) < minGitTokens {
+		return false
+	}
+
+	if head := baseName(tokens[0]); head != cmdGit && head != "jj" {
+		return false
+	}
+
+	return vcsReads[tokens[1]]
+}

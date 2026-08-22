@@ -2,7 +2,9 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/agent"
@@ -153,5 +155,74 @@ func TestLoop_RestoreCheckpointWithNoCheckpointerErrors(t *testing.T) {
 
 	if err := loop.RestoreCheckpoint(context.Background(), "op123"); err == nil {
 		t.Fatal("RestoreCheckpoint: want an error with no Checkpointer configured")
+	}
+}
+
+// countingCheckpointer hands out a distinct operation id per capture, the
+// way jj does once the working copy has moved between them.
+type countingCheckpointer struct {
+	captures int
+}
+
+func (c *countingCheckpointer) Capture(context.Context, string) (string, error) {
+	c.captures++
+
+	return fmt.Sprintf("op%d", c.captures), nil
+}
+
+func (*countingCheckpointer) Restore(context.Context, string, string) error { return nil }
+
+// writingTool reports a change, which is what a checkpoint hangs on.
+type writingTool struct {
+	echoTool
+	path string
+}
+
+func (w writingTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
+	return tool.Result{Content: "wrote " + w.path, Changes: []tool.Change{{Path: w.path, Added: 1}}}, nil
+}
+
+// A run's checkpoint used to be one operation id for the whole run, so undo
+// was all-or-nothing. One per accepted change costs a jj command per edit
+// (40-70 ms on this repo) and makes each edit reachable on its own.
+func TestRun_CheckpointsEveryEditSeparately(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local",
+		fake.Turn{
+			ToolCalls:  []llm.ToolCall{{ID: "1", Name: "write", Input: json.RawMessage(`{"n":1}`)}},
+			StopReason: llm.StopToolUse,
+		},
+		fake.Turn{
+			ToolCalls:  []llm.ToolCall{{ID: "2", Name: "write", Input: json.RawMessage(`{"n":2}`)}},
+			StopReason: llm.StopToolUse,
+		},
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
+	hosted := fake.New("hosted")
+
+	th := newThread(t)
+	reg := tool.NewRegistry(writingTool{echoTool: echoTool{name: "write"}, path: "a.go"})
+	cp := &countingCheckpointer{}
+
+	out, err := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
+		agent.WithCheckpointer(cp, "/repo")).Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(out.Edits) != 2 {
+		t.Fatalf("Outcome.Edits = %v, want one point per accepted change", out.Edits)
+	}
+
+	if out.Edits[0].Op == out.Edits[1].Op {
+		t.Errorf("both edits share operation %q, so neither is reachable on its own", out.Edits[0].Op)
+	}
+
+	if got := out.Edits[0].Paths; len(got) != 1 || got[0] != "a.go" {
+		t.Errorf("Edits[0].Paths = %v, want the path the edit wrote", got)
+	}
+
+	if out.Checkpoint != "op1" {
+		t.Errorf("Outcome.Checkpoint = %q, want the run's own capture to still come first", out.Checkpoint)
 	}
 }
