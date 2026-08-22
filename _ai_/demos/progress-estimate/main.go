@@ -36,15 +36,18 @@ type run struct {
 
 func main() {
 	minTurns := flag.Int("min-turns", 2, "skip runs with fewer turn boundaries")
+	whole := flag.Bool("whole-thread", false,
+		"score whole threads instead of one run per user prompt, which counts human think time as run time")
 	flag.Parse()
 
 	var runs []run
 	for _, dir := range flag.Args() {
 		files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 		for _, f := range files {
-			r, ok := load(f)
-			if ok && len(r.turns) >= *minTurns {
-				runs = append(runs, r)
+			for _, r := range load(f, *whole) {
+				if len(r.turns) >= *minTurns {
+					runs = append(runs, r)
+				}
 			}
 		}
 	}
@@ -54,6 +57,8 @@ func main() {
 	}
 
 	fmt.Printf("%d runs, %d turn boundaries\n\n", len(runs), boundaries(runs))
+	mae, med, hit := scoreNextTurn(runs)
+	fmt.Printf("next turn from own mean gap: MAE %.1fs median %.1fs within 2x %.0f%%\n\n", mae, med, hit*100)
 	fmt.Printf("%-28s %10s %10s %8s\n", "estimator", "MAE (s)", "median (s)", "within 2x")
 	for _, e := range estimators() {
 		mae, med, hit := score(runs, e.fn)
@@ -61,39 +66,83 @@ func main() {
 	}
 }
 
-// load reads one thread log into a run. A turn boundary is an agent note
-// carrying usage, which is where one model call ended; the run ends at the
-// last event, whatever state it reached.
-func load(path string) (run, bool) {
+// load reads one thread log into the runs it holds. A run is one user
+// prompt and the work it caused: it starts at a user event and ends at the
+// last event before the next one, so the minutes a thread spends waiting
+// for its human are not counted as work a progress line could predict.
+// With whole set, a thread is one run, which is what the first pass
+// measured.
+//
+// A turn boundary is an agent note carrying usage, which is where one model
+// call ended; a run ends at its last event, whatever state it reached.
+func load(path string, whole bool) []run {
 	f, err := os.Open(path)
 	if err != nil {
-		return run{}, false
+		return nil
 	}
 	defer f.Close()
 
-	r := run{name: filepath.Base(path)}
+	var (
+		runs []run
+		cur  run
+		open bool
+	)
+
+	base := filepath.Base(path)
+
+	closeRun := func(end time.Time, start time.Time) {
+		if !open {
+			return
+		}
+		cur.total = end.Sub(start)
+		if cur.total > 0 {
+			runs = append(runs, cur)
+		}
+		open = false
+	}
+
 	var start, last time.Time
+
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+
 	for sc.Scan() {
 		var ev event
 		if json.Unmarshal(sc.Bytes(), &ev) != nil {
 			continue
 		}
-		if start.IsZero() {
+
+		if ev.Kind == "user" && !whole {
+			closeRun(last, start)
+			cur = run{name: fmt.Sprintf("%s#%d", base, len(runs)+1)}
 			start = ev.At
+			open = true
 		}
+
+		if !open {
+			if start.IsZero() {
+				start = ev.At
+				cur = run{name: base}
+				open = true
+			} else {
+				continue
+			}
+		}
+
 		last = ev.At
+
 		if ev.Kind == "agent" && ev.Role == "note" && ev.Extra["usage"] != nil {
-			r.turns = append(r.turns, ev.At.Sub(start))
+			cur.turns = append(cur.turns, ev.At.Sub(start))
 		}
+
 		if ev.Kind == "tool" && (ev.Tool == "str_replace" || ev.Tool == "write") {
-			r.edits++
+			cur.edits++
 		}
 	}
-	r.total = last.Sub(start)
 
-	return r, !start.IsZero() && r.total > 0
+	closeRun(last, start)
+
+	return runs
 }
 
 func boundaries(runs []run) int {
@@ -168,6 +217,39 @@ func score(runs []run, fn func(run, int, []run) time.Duration) (mae, med, hit fl
 		}
 	}
 	sort.Float64s(errs)
+	sum := 0.0
+	for _, e := range errs {
+		sum += e
+	}
+
+	return sum / float64(len(errs)), errs[len(errs)/2], float64(hits) / float64(len(errs))
+}
+
+// scoreNextTurn asks the easier question a progress line can also ask: how
+// long until this turn ends, predicted from the mean gap so far.
+func scoreNextTurn(runs []run) (mae, med, hit float64) {
+	var errs []float64
+
+	hits := 0
+
+	for _, r := range runs {
+		for i := 0; i+1 < len(r.turns); i++ {
+			actual := (r.turns[i+1] - r.turns[i]).Seconds()
+			pred := (r.turns[i] / time.Duration(i+1)).Seconds()
+			errs = append(errs, math.Abs(pred-actual))
+
+			if actual > 0 && pred >= actual/2 && pred <= actual*2 {
+				hits++
+			}
+		}
+	}
+
+	if len(errs) == 0 {
+		return 0, 0, 0
+	}
+
+	sort.Float64s(errs)
+
 	sum := 0.0
 	for _, e := range errs {
 		sum += e
