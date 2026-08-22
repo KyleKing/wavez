@@ -1003,3 +1003,34 @@ func TestThreadHints_NameEnterOnlyWhereItBinds(t *testing.T) {
 		assert.NotContains(t, got, "[enter]")
 	})
 }
+
+// The goal is in the header when the width allows it and behind `g` when it
+// does not, so coming back to a thread never means reading the transcript to
+// remember what it was for.
+func TestGoal_HeaderWhenItFitsKeyWhenItDoesNot(t *testing.T) {
+	t.Parallel()
+
+	const goal = "make the lease TTL configurable from pkl"
+
+	m := New(Options{NoColor: true})
+	resized, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	rm, ok := resized.(Model)
+	require.True(t, ok)
+	m = rm
+
+	m.applyReply(api.Reply{Kind: api.RepThreads, Threads: []api.ThreadInfo{
+		{ID: "t1", Name: "fix-lock", Dir: "wavez", Goal: goal, State: event.StateWorking},
+	}})
+	m.thread.activeID = "t1"
+	m.stack = append(m.stack, screenThread)
+
+	assert.Contains(t, m.render(), "make the lease TTL", "a wide header should carry the goal")
+
+	long := "wavez · fix-lock-timeout · qwen3:8b 2.8k/8.2k · $0.00 · filtered · 2 need input"
+	assert.Equal(t, long, headerGoal(long, goal, minWidth),
+		"a header with no room left should drop the goal rather than truncate it to nothing")
+
+	opened := pressKey(t, m, 'g')
+	assert.True(t, opened.goal, "g should open the goal")
+	assert.Contains(t, opened.render(), "configurable", "the goal panel should hold the whole goal")
+}
