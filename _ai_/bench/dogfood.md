@@ -1608,3 +1608,53 @@ accumulates them, while `Checkpointer` captures one operation id for a whole
 run and nothing finer. Committing after each accepted change would make the
 change log the record, make undo per-edit, and make those 24 calls pointless
 because the harness can simply say what changed.
+
+## 2026-08-22, the deterministic pass, and what a wider tool surface costs
+
+Five roadmap items landed in one session: literal search, the gate-run answer,
+per-edit checkpoints with the change set answered back, the standing goal, and
+the `move` Modifier. Two of them are worth the numbers.
+
+**Literal search, on this repo's own index.** The trigram FTS splits a fuzzy
+query on non-word characters and ORs the halves, so a qualified identifier asks
+for each half of itself. Against `.wavez/index.db` at 473 files:
+
+| query | fuzzy | literal |
+| --- | --- | --- |
+| `edit.ApplyToFile` | 335 matches | 1 |
+| `router.ChoiceFast` | 110 matches | 15 |
+
+The literal path is the same FTS phrase query plus a case-sensitive filter in
+Go, because the trigram tokenizer folds case. `CountMatches` runs the same
+filter so a capped result set still reports a true total.
+
+**Per-edit checkpoints need no commits.** jj snapshots the working copy on
+every command, so capturing an operation id after each accepted change records
+that edit's tree: restoring to one brings the file content back exactly as that
+edit left it, at 40-70 ms per capture on this repo (434 files). Committing per
+change would have added a description to write and a change-log entry per edit
+and no recoverability the operation log does not already hold. That is the
+second time this project has found the cheaper mechanism already present.
+
+**The cost of the wider tool surface, measured against itself.** `h4` on the
+fast pin, same task, same pin, before and after four tool changes:
+
+| | 630d578 | e5e5231-fast |
+| --- | --- | --- |
+| turns | 4 | 4 |
+| tool calls | 3 | 3 |
+| checks | 5/5 | 5/5 |
+| input tokens | 11,679 | 12,498 |
+
+Nothing about the run changed; the extra 819 tokens (7%) are the preamble
+growing by the `path` property, the literal mode's wording, and `move`'s
+schema. The preamble went 2,527 → 2,584 → 2,560 (the CI half of the system
+rule came out once the harness enforced it) → 2,767 with `move`. So a tool
+that does not fire on a task still costs that task roughly a percent per
+schema, and the case for each one has to be made on the tasks it does fire on,
+which is exactly how `rename` and `delete` were judged.
+
+**h2 stays unsolved and is not this session's doing.** Six lanes, six 1/2
+results, always the same missing check: the model never adds the table case
+proving blank-separated duplicates collapse. It is the one task in the set
+whose failure is comprehension rather than tool surface.
