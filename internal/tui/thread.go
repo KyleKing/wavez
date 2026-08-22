@@ -593,6 +593,9 @@ func (m Model) threadBody(info api.ThreadInfo) []string {
 
 	var body []string
 	body = append(body, m.th.fgMuted.Render("ledger  "+truncate(ledgerLine(info), inner-ledgerLabelWidth)))
+	if progress := progressLine(info, m.now()); progress != "" {
+		body = append(body, m.th.fgMuted.Render("        "+truncate(progress, inner-ledgerLabelWidth)))
+	}
 
 	tr := m.transcripts[info.ID]
 	if tr != nil {

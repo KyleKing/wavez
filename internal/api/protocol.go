@@ -212,6 +212,12 @@ type ModelInfo struct {
 // ThreadInfo is one row in Home: what the thread is doing and what it cost.
 type ThreadInfo struct {
 	LastEvent time.Time `json:"last_event"`
+	// TurnStart is when the current turn began and TurnMean is what a turn
+	// of this run has cost so far, zero until one has finished. A client
+	// renders them with Turn as the progress line, because how long this
+	// turn has been going is predictable from a run's own history and how
+	// long the run has left is not.
+	TurnStart time.Time `json:"turn_start,omitempty"`
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	// Root is the project this thread belongs to (the daemon-loaded root
@@ -242,14 +248,17 @@ type ThreadInfo struct {
 	// answer different questions from "what was this for".
 	Goal string `json:"goal,omitempty"`
 	// Step is the current activity in words, which is what Home renders.
-	Step    string      `json:"step"`
-	State   event.State `json:"state"`
-	Dirs    []string    `json:"dirs,omitempty"`
-	Spend   float64     `json:"spend"`
-	Tokens  int         `json:"tokens"`
-	Context int         `json:"context"`
-	Window  int         `json:"window"`
-	Seq     uint64      `json:"seq"`
+	Step   string      `json:"step"`
+	State  event.State `json:"state"`
+	Dirs   []string    `json:"dirs,omitempty"`
+	Spend  float64     `json:"spend"`
+	Tokens int         `json:"tokens"`
+	// Turn is which turn of the current run is in flight, counting from one.
+	Turn     int           `json:"turn,omitempty"`
+	TurnMean time.Duration `json:"turn_mean,omitempty"`
+	Context  int           `json:"context"`
+	Window   int           `json:"window"`
+	Seq      uint64        `json:"seq"`
 }
 
 // RoutineInfo is one row in the routines panel: what fires the routine,

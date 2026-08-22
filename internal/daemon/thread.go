@@ -20,10 +20,19 @@ import (
 type managedThread struct {
 	lastAt  time.Time
 	created time.Time
-	lastErr error
-	th      *thread.Thread
-	cancel  context.CancelFunc
-	done    chan struct{}
+	// runStart is when the current run's prompt arrived and turnStart is
+	// when its most recent turn began. They exist because a progress line
+	// can honestly say how long this turn has been going against what this
+	// run's turns have cost, and cannot honestly say how long the run has
+	// left: over 108 runs on this project's own logs, the best remaining-run
+	// estimator landed within a factor of two 23% of the time and the
+	// next-turn one 54% (`_ai_/demos/progress-estimate`).
+	runStart  time.Time
+	turnStart time.Time
+	lastErr   error
+	th        *thread.Thread
+	cancel    context.CancelFunc
+	done      chan struct{}
 	// release gives back this thread's turn admission. It is set while a
 	// turn holds the scheduler and cleared while parked (a Broker prompt is
 	// blocking the turn on an answer), so the same slot is never released
@@ -55,6 +64,8 @@ type managedThread struct {
 	dirs     []string
 	usage    usage
 	spendUSD float64
+	// turns is how many turns of the current run have finished.
+	turns int
 	// compactions and tokensSaved follow the thread's own compaction events,
 	// which is the only place the saving is recorded.
 	compactions int
@@ -121,6 +132,9 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 		Seq:        mt.th.Log().Head(),
 		LastEvent:  mt.lastAt,
 		Spend:      mt.spendUSD,
+		Turn:       mt.turns + 1,
+		TurnStart:  mt.turnStart,
+		TurnMean:   mt.turnMean(),
 		Tokens:     mt.usage.tokens(),
 		Context:    mt.usage.context,
 		// The served window is the budget the router admits a turn against,
@@ -169,6 +183,8 @@ func (mt *managedThread) apply(ev event.Event) {
 	mt.processed = ev.Seq
 
 	mt.lastAt = ev.At
+	mt.applyTiming(ev)
+
 	if ev.Kind == event.KindState {
 		mt.state = ev.State
 		mt.samples = append(mt.samples, stateSample{at: ev.At, state: ev.State})
@@ -190,6 +206,33 @@ func (mt *managedThread) apply(ev event.Event) {
 	if phase, ok := phaseOf(ev); ok {
 		mt.phase = phase
 	}
+}
+
+// applyTiming tracks the current run's turn boundaries. A run starts at the
+// prompt that caused it, so the minutes a thread waits for its human are
+// not counted as work; a turn boundary is an event carrying usage, which is
+// where one model call ended.
+func (mt *managedThread) applyTiming(ev event.Event) {
+	if ev.Kind == event.KindUser {
+		mt.runStart, mt.turnStart, mt.turns = ev.At, ev.At, 0
+
+		return
+	}
+
+	if _, ok := usageFromEvent(ev); ok {
+		mt.turns++
+		mt.turnStart = ev.At
+	}
+}
+
+// turnMean is what a turn of this run has cost so far, zero until one has
+// finished.
+func (mt *managedThread) turnMean() time.Duration {
+	if mt.turns == 0 || mt.runStart.IsZero() {
+		return 0
+	}
+
+	return mt.turnStart.Sub(mt.runStart) / time.Duration(mt.turns)
 }
 
 // compactionFromEvent reads the saving a compaction pass recorded on its own
