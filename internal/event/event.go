@@ -36,6 +36,11 @@ const (
 	// than editing the first, so what the goal was at any turn stays
 	// readable.
 	KindGoal Kind = "goal"
+	// KindFinish records what the deterministic finish checks found on a
+	// run that completed. It is not KindReview: those are a model's
+	// judgment, and these are bounds the harness settles with the index,
+	// the coverage map, and the task's own words.
+	KindFinish Kind = "finish"
 	// KindReview records a model's judgment of a run's diff against its task.
 	// It is deliberately not KindGate: a review objection never fails a run,
 	// and counting it as one would report it as a run that failed a check.

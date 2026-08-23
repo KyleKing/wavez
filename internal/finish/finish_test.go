@@ -16,12 +16,12 @@ type stubIndex map[string]bool
 
 func (s stubIndex) Search(
 	_ context.Context, q codeintel.SearchQuery,
-) ([]codeintel.SearchResult, codeintel.IndexStats, error) {
+) ([]codeintel.SearchResult, error) {
 	if !s[q.Text] {
-		return nil, codeintel.IndexStats{}, nil
+		return nil, nil
 	}
 
-	return []codeintel.SearchResult{{Symbol: &codeintel.Symbol{Name: q.Text}}}, codeintel.IndexStats{}, nil
+	return []codeintel.SearchResult{{Symbol: &codeintel.Symbol{Name: q.Text}}}, nil
 }
 
 // `h1` asked a run to name the file and the function that handle a

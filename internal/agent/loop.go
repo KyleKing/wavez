@@ -172,11 +172,16 @@ type Outcome struct {
 	Stop         Stop
 	// Edits holds one operation id per accepted change, in the order they
 	// landed, so undo reaches a single edit rather than only the whole run.
-	Edits        []EditPoint
-	Turns        int
-	ToolCalls    int
-	InputTokens  int
-	OutputTokens int
+	Edits []EditPoint
+	// FinishFindings is what the deterministic finish checks found on a run
+	// that otherwise completed. It is a bound rather than a judgment: an
+	// empty slice says the run did something of the right shape, never that
+	// it is correct.
+	FinishFindings []string
+	Turns          int
+	ToolCalls      int
+	InputTokens    int
+	OutputTokens   int
 	// TokensCompacted is the estimated saving deterministic compaction made
 	// across the run, zero when compaction never ran.
 	TokensCompacted int
@@ -247,6 +252,7 @@ type Checkpointer interface {
 type Options struct {
 	Verifier     Verifier
 	Reviewer     Reviewer
+	Finisher     Finisher
 	LocalSlots   LocalSlots
 	Checkpointer Checkpointer
 	Clock        gate.Clock
@@ -572,6 +578,9 @@ func (l *Loop) RestoreCheckpoint(ctx context.Context, checkpoint string) error {
 }
 
 // run holds the mutable state of one Loop.Run call.
+// The log detail key every harness verdict writes.
+const detailPass = "pass"
+
 type run struct {
 	startTime time.Time
 	deadline  time.Time
@@ -581,6 +590,9 @@ type run struct {
 	loop      *Loop
 	system    string
 	task      string
+	// answer is the prose of the turn that ended the run with no pending
+	// tool call, which is what the finish checks read.
+	answer    string
 	changes   []tool.Change
 	tools     []llm.ToolSpec
 	compacted []thread.TurnMessage
@@ -835,6 +847,10 @@ func (r *run) finishOrVerify(ctx context.Context) (bool, Outcome, error) {
 }
 
 func (r *run) complete(ctx context.Context) (bool, Outcome, error) {
+	if err := r.runFinishChecks(ctx); err != nil {
+		return true, Outcome{}, err
+	}
+
 	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopComplete
 	r.outcome.Reason = fmt.Sprintf(
@@ -874,7 +890,7 @@ func (r *run) logVerify(ok bool) error {
 	ev := event.Event{
 		Kind:   event.KindGate,
 		Text:   fmt.Sprintf("verification round %d", r.verifyRounds),
-		Detail: map[string]any{"round": r.verifyRounds, "pass": ok},
+		Detail: map[string]any{"round": r.verifyRounds, detailPass: ok},
 	}
 	if _, err := r.thread.Log().Append(ev); err != nil {
 		return fmt.Errorf("logging verification round: %w", err)
@@ -991,6 +1007,8 @@ func (r *run) handleToolCallAsText(ctx context.Context) (bool, Outcome, error) {
 // such turns are the model reporting it is done; the three checks here are
 // the ones that are not, each a turn that changed nothing it said it would.
 func (r *run) endTurnWithoutCalls(ctx context.Context, text string) (bool, Outcome, error) {
+	r.answer = text
+
 	switch {
 	case looksLikeToolCallText(text, r.toolNames()):
 		return r.handleToolCallAsText(ctx)
@@ -1240,7 +1258,7 @@ func (r *run) logFalseAlarms() error {
 			Kind: event.KindGate,
 			Text: name + " passed over the change set it just failed over",
 			Detail: map[string]any{
-				"gate": name, "pass": true, "false_alarm": true,
+				"gate": name, detailPass: true, "false_alarm": true,
 			},
 		}); err != nil {
 			return fmt.Errorf("logging a gate false alarm: %w", err)
@@ -1349,7 +1367,7 @@ func (r *run) verifyAbandoned(ctx context.Context) {
 
 	feedback, ok := r.loop.options.Verifier.Verify(ctx, r.changes)
 	r.outcome.GatesPassedAtEnd = ok
-	detail := map[string]any{"pass": ok, "abandoned": true}
+	detail := map[string]any{detailPass: ok, "abandoned": true}
 	if !ok {
 		detail["feedback"] = feedback
 	}

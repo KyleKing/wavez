@@ -50,7 +50,7 @@ func (r Report) String() string {
 // interface the search tool consumes, so the check reads the index the run
 // itself read.
 type Index interface {
-	Search(ctx context.Context, q codeintel.SearchQuery) ([]codeintel.SearchResult, codeintel.IndexStats, error)
+	Search(ctx context.Context, q codeintel.SearchQuery) ([]codeintel.SearchResult, error)
 }
 
 // pathPattern matches a project-relative file path: at least one directory
@@ -143,7 +143,7 @@ const minSymbolLen = 3
 const symbolProbeLimit = 5
 
 func indexHolds(ctx context.Context, index Index, name string) (bool, error) {
-	results, _, err := index.Search(ctx, codeintel.SearchQuery{
+	results, err := index.Search(ctx, codeintel.SearchQuery{
 		Mode: codeintel.SearchFuzzy, Text: name, Limit: symbolProbeLimit,
 	})
 	if err != nil {

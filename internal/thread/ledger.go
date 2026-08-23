@@ -38,7 +38,8 @@ func Ledger(events []event.Event) LedgerSummary {
 			for _, ch := range ev.Changes {
 				files[ch.Path] = struct{}{}
 			}
-		case event.KindUser, event.KindPermission, event.KindState, event.KindError, event.KindLedger,
+		case event.KindFinish, event.KindUser, event.KindPermission, event.KindState, event.KindError,
+			event.KindLedger,
 			event.KindUsage, event.KindReview, event.KindCycle, event.KindHypothesis, event.KindGoal:
 		}
 	}
