@@ -237,8 +237,15 @@ func (s *Shell) alreadyChecked(command string) (string, bool) {
 		return "", false
 	}
 
-	return fmt.Sprintf("Not run: this runs %s, which the harness runs for you, and %s. "+
-		"Run one package's tests if you need to watch a single failure.", name, status), true
+	answer := fmt.Sprintf("Not run: this runs %s, which the harness runs for you, and %s",
+		name, status)
+	advice := "Run one package's tests if you need to watch a single failure."
+
+	if strings.Contains(status, "\n") {
+		return answer + "\n\n" + advice, true
+	}
+
+	return answer + ". " + advice, true
 }
 
 // maxScriptBytes bounds how much of a script the guard reads. A file

@@ -128,6 +128,12 @@ func (g *ChangeGate) Collect(res gate.RunResult) {
 // running it: the prose asking a model not to has been in the system prompt
 // since this type shipped, and 37 of 278 logged shell calls ran them
 // anyway.
+//
+// A failure repeats what the gates found rather than pointing at the turn
+// that carried it. Feedback is delivered once and a run that has since
+// compacted or simply moved on has no way back to it, so one `h6` run spent
+// six turns trying to establish a build state it had already been told and
+// could not re-read.
 func (g *ChangeGate) Status() (string, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -141,7 +147,7 @@ func (g *ChangeGate) Status() (string, bool) {
 
 	for i := range g.latest {
 		if !g.latest[i].Pass {
-			return "they ran on your changes and failed, and you were told what they found", true
+			return "they ran on your changes and failed:\n\n" + failureReport(g.latest), true
 		}
 
 		if g.latest[i].Examined > 0 {
@@ -154,6 +160,20 @@ func (g *ChangeGate) Status() (string, bool) {
 	}
 
 	return "they ran on your changes and passed: " + strings.Join(dedupe(passed), ", "), true
+}
+
+// failureReport renders every failing gate in results, which is what a run
+// asking whether the build is fixed needs in front of it.
+func failureReport(results []gate.Result) string {
+	var b strings.Builder
+
+	for i := range results {
+		if !results[i].Pass {
+			b.WriteString(describeFailure(results[i]))
+		}
+	}
+
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 // TakeFeedback returns what the gates found since the last call and clears

@@ -94,3 +94,28 @@ func TestChangeGateFeedback(t *testing.T) {
 		})
 	}
 }
+
+// A run whose gates failed asks the shell whether the build is fixed, and
+// being told it was already answered leaves it nowhere: feedback is
+// delivered once. One `h6` run spent six turns on that.
+func TestChangeGateStatusRepeatsWhatFailed(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil)
+	g.Collect(gate.RunResult{Gates: []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{{
+		Package: "internal/thread", Frames: []string{"thread.go:31:9: undefined: utf8"},
+	}}}}})
+
+	g.TakeFeedback()
+
+	status, ok := g.Status()
+	if !ok {
+		t.Fatal("Status() said nothing about a failure it holds")
+	}
+
+	for _, want := range []string{"failed", "go-test build internal/thread", "undefined: utf8"} {
+		if !strings.Contains(status, want) {
+			t.Errorf("Status() = %q, want it to contain %q", status, want)
+		}
+	}
+}
