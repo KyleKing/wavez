@@ -183,6 +183,10 @@ type Outcome struct {
 	Elapsed         time.Duration
 	HostedSpendUSD  float64
 	StagnantCount   int
+	// GateFalseAlarms counts the gates that retracted a failure over an
+	// unchanged change set during this run, which is a harness defect
+	// presenting as a code defect.
+	GateFalseAlarms int
 	// GatesPassedAtEnd reports whether the gates passed on the change set of
 	// a run that stopped on a bound, and is false when no such check ran. A
 	// run that hit a bound having left the tree building and its tests
@@ -364,6 +368,11 @@ type ChangeGate interface {
 	Begin()
 	Enqueue(c tool.Change)
 	TakeFeedback() string
+	// FalseAlarms returns the gates that have passed over the same change
+	// set they just failed over, and clears them. A retraction is the
+	// harness reporting a defect that was never in the code, so it is
+	// recorded rather than quietly dropped.
+	FalseAlarms() []string
 }
 
 // WithChangeGate configures Run to feed every change into a debounced gate
@@ -1203,6 +1212,10 @@ func (r *run) collectGateFeedback(ctx context.Context) error {
 		return nil
 	}
 
+	if err := r.logFalseAlarms(); err != nil {
+		return err
+	}
+
 	feedback := r.loop.options.ChangeGate.TakeFeedback()
 	if feedback == "" {
 		return nil
@@ -1210,6 +1223,28 @@ func (r *run) collectGateFeedback(ctx context.Context) error {
 
 	if err := r.thread.AppendUser(ctx, feedback); err != nil {
 		return fmt.Errorf("appending gate feedback: %w", err)
+	}
+
+	return nil
+}
+
+// logFalseAlarms records every gate that retracted a failure. It reaches
+// the log and never the model: a gate that was wrong twice is a fact about
+// the harness, and telling a run about it invites it to discount the next
+// failure.
+func (r *run) logFalseAlarms() error {
+	for _, name := range r.loop.options.ChangeGate.FalseAlarms() {
+		r.outcome.GateFalseAlarms++
+
+		if _, err := r.thread.Log().Append(event.Event{
+			Kind: event.KindGate,
+			Text: name + " passed over the change set it just failed over",
+			Detail: map[string]any{
+				"gate": name, "pass": true, "false_alarm": true,
+			},
+		}); err != nil {
+			return fmt.Errorf("logging a gate false alarm: %w", err)
+		}
 	}
 
 	return nil

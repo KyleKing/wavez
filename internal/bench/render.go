@@ -48,8 +48,9 @@ func (s Stats) Render(w io.Writer) error {
 
 	fmt.Fprintf(&b, "\nrepeat reads %d of %d (%d bytes), empty searches %d, error results %d\n",
 		s.RepeatReads, callsOf(s.Tools, readTool), s.RepeatReadBytes, s.EmptySearches, s.ErrorResults)
-	fmt.Fprintf(&b, "gate rounds %d, failed %d, review objections %d, compaction saved ~%d tokens\n",
-		s.GateRounds, s.GateFailures, s.ReviewObjections, s.CompactionSaved)
+	fmt.Fprintf(&b, "gate rounds %d, failed %d, retracted %d, review objections %d, "+
+		"compaction saved ~%d tokens\n",
+		s.GateRounds, s.GateFailures, s.GateFalseAlarms, s.ReviewObjections, s.CompactionSaved)
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return fmt.Errorf("writing stats: %w", err)

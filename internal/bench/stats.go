@@ -95,6 +95,7 @@ type Stats struct {
 	EmptySearches    int            `json:"empty_searches"`
 	GateRounds       int            `json:"gate_rounds"`
 	GateFailures     int            `json:"gate_failures"`
+	GateFalseAlarms  int            `json:"gate_false_alarms"`
 	ReviewObjections int            `json:"review_objections"`
 	CompactionSaved  int            `json:"compaction_saved"`
 }
@@ -246,6 +247,12 @@ func shellCommand(detail map[string]any) string {
 }
 
 func (s *Stats) countGate(ev *event.Event) {
+	if boolField(ev.Detail, "false_alarm") {
+		s.GateFalseAlarms++
+
+		return
+	}
+
 	s.GateRounds++
 
 	if pass, ok := ev.Detail["pass"].(bool); ok && !pass {

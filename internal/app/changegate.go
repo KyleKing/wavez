@@ -41,8 +41,19 @@ type ChangeGate struct {
 	// and git, and it is per run because the answer to "what have I changed"
 	// is about this run and no other.
 	changed []tool.Change
-	queued  int
-	mu      sync.Mutex
+	// verdict is each gate's last pass/fail and how many changes this run
+	// had made when it was recorded, which is what makes a false alarm
+	// detectable: the same gate passing later over the same change set means
+	// the first answer was about the harness rather than the code.
+	verdict     map[string]gateVerdict
+	falseAlarms []string
+	queued      int
+	mu          sync.Mutex
+}
+
+type gateVerdict struct {
+	changes int
+	pass    bool
 }
 
 // NewChangeGate builds a ChangeGate over runner. Nothing flows until Start
@@ -85,6 +96,7 @@ func (g *ChangeGate) Begin() {
 	defer g.mu.Unlock()
 
 	g.latest, g.changed, g.queued = nil, nil, 0
+	g.verdict, g.falseAlarms = nil, nil
 }
 
 // Changed is every file this run has written, most recent last.
@@ -116,10 +128,45 @@ func (g *ChangeGate) Collect(res gate.RunResult) {
 	g.pending = append(g.pending, res.Gates...)
 	g.latest = res.Gates
 
+	g.noteFalseAlarms(res.Gates)
+
 	g.queued -= len(res.Changes)
 	if g.queued < 0 {
 		g.queued = 0
 	}
+}
+
+// noteFalseAlarms records every gate in results that passes over the same
+// change set it just failed over. `h5` was exactly that and it cost three
+// re-runs to name: nothing about the code had changed, so the failure was
+// the harness's and the pass is the proof.
+func (g *ChangeGate) noteFalseAlarms(results []gate.Result) {
+	if g.verdict == nil {
+		g.verdict = make(map[string]gateVerdict, len(results))
+	}
+
+	for i := range results {
+		name := results[i].Gate
+
+		prior, seen := g.verdict[name]
+		if seen && !prior.pass && results[i].Pass && prior.changes == len(g.changed) {
+			g.falseAlarms = append(g.falseAlarms, name)
+		}
+
+		g.verdict[name] = gateVerdict{pass: results[i].Pass, changes: len(g.changed)}
+	}
+}
+
+// FalseAlarms returns the gates that have retracted a failure since the last
+// call, and clears them.
+func (g *ChangeGate) FalseAlarms() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	out := g.falseAlarms
+	g.falseAlarms = nil
+
+	return out
 }
 
 // Status says what the harness's own gate runs already establish about the

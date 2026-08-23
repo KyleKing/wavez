@@ -91,6 +91,8 @@ func (g *scriptedGate) Begin() { g.next = 0 }
 
 func (*scriptedGate) Enqueue(tool.Change) {}
 
+func (*scriptedGate) FalseAlarms() []string { return nil }
+
 func (g *scriptedGate) TakeFeedback() string {
 	if g.next >= len(g.feedback) {
 		return ""

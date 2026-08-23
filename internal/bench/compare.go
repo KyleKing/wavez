@@ -27,6 +27,7 @@ func Compare(baseline, current Stats, w io.Writer) error {
 		{"empty searches", baseline.EmptySearches, current.EmptySearches},
 		{"gate rounds", baseline.GateRounds, current.GateRounds},
 		{"gate failures", baseline.GateFailures, current.GateFailures},
+		{"gate false alarms", baseline.GateFalseAlarms, current.GateFalseAlarms},
 		{"review objections", baseline.ReviewObjections, current.ReviewObjections},
 		{"compaction saved", baseline.CompactionSaved, current.CompactionSaved},
 	}

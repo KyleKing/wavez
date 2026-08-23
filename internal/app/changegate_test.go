@@ -6,6 +6,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/gate"
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 // A passing gate says nothing and a failing one always says something. The
@@ -117,5 +118,52 @@ func TestChangeGateStatusRepeatsWhatFailed(t *testing.T) {
 		if !strings.Contains(status, want) {
 			t.Errorf("Status() = %q, want it to contain %q", status, want)
 		}
+	}
+}
+
+// A gate that fails and then passes over the same change set was wrong the
+// first time, and nothing about the code moved between the two answers.
+// `h5` was exactly that, and naming it took three re-runs.
+func TestChangeGateNamesAGateThatRetractedItsFailure(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil)
+
+	g.Collect(gate.RunResult{Gates: []gate.Result{
+		{Gate: "go-test", Failures: []gate.TrimmedFailure{{Package: "internal/guard"}}},
+		{Gate: "format", Pass: true, Examined: 1},
+	}})
+
+	if alarms := g.FalseAlarms(); len(alarms) != 0 {
+		t.Fatalf("FalseAlarms() = %v on the first verdict, want none", alarms)
+	}
+
+	g.Collect(gate.RunResult{Gates: []gate.Result{{Gate: "go-test", Pass: true, Examined: 1}}})
+
+	alarms := g.FalseAlarms()
+	if len(alarms) != 1 || alarms[0] != "go-test" {
+		t.Fatalf("FalseAlarms() = %v, want [go-test]", alarms)
+	}
+
+	if again := g.FalseAlarms(); len(again) != 0 {
+		t.Errorf("FalseAlarms() = %v on a second call, want it cleared", again)
+	}
+}
+
+// An edit between the two verdicts explains the change of answer, so the
+// gate was right both times and this must stay silent.
+func TestChangeGateKeepsQuietWhenAnEditExplainsThePass(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil)
+	g.Collect(gate.RunResult{Gates: []gate.Result{
+		{Gate: "go-test", Failures: []gate.TrimmedFailure{{Package: "internal/guard"}}},
+	}})
+
+	g.Enqueue(tool.Change{Path: "internal/guard/guard.go", Added: 1})
+	g.Collect(gate.RunResult{Gates: []gate.Result{{Gate: "go-test", Pass: true, Examined: 1}}})
+
+	if alarms := g.FalseAlarms(); len(alarms) != 0 {
+		t.Errorf("FalseAlarms() = %v, want none: an edit landed between the two verdicts", alarms)
 	}
 }
