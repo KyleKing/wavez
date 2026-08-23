@@ -235,6 +235,78 @@ func TestAppendToolResultLogsTheInput(t *testing.T) {
 	}
 }
 
+// A failed call's arguments are the whole evidence for why it failed, and
+// the successful call's bound is short enough to cut a degenerate emission
+// off before the part that names it. Classifying this project's logged
+// edit failures ran into exactly that: 13 malformed calls were all stored
+// at the 2000-character bound with their tails gone.
+func TestAppendToolResultKeepsAFailedCallsArgumentsWhole(t *testing.T) {
+	t.Parallel()
+
+	th, err := thread.Open(t.TempDir(), "t1", []string{"."})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := th.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+
+	// Long enough that the successful call's bound would cut it, and marked
+	// at the end so the assertion reads the tail rather than the head.
+	filler := strings.Repeat("Status: M2 in progress.\n", 400)
+	input := json.RawMessage(`{"path":"a.go","old_string":"` + filler + `TAIL"}`)
+
+	ctx := t.Context()
+	if err := th.AppendToolResult(ctx, "c1", "str_replace", input,
+		tool.Result{Content: "not found", IsError: true}, ""); err != nil {
+		t.Fatalf("AppendToolResult: %v", err)
+	}
+	if err := th.AppendToolResult(ctx, "c2", "str_replace", input,
+		tool.Result{Content: "ok"}, ""); err != nil {
+		t.Fatalf("AppendToolResult: %v", err)
+	}
+
+	events, err := th.Log().Since(0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+
+	var logged []string
+	for _, ev := range events {
+		if ev.Kind == event.KindTool {
+			s, ok := ev.Detail["input"].(string)
+			if !ok {
+				t.Fatalf("tool event detail has no string input: %v", ev.Detail)
+			}
+			logged = append(logged, s)
+		}
+	}
+
+	if len(logged) != 2 {
+		t.Fatalf("logged %d tool events, want 2", len(logged))
+	}
+
+	if !strings.HasSuffix(logged[0], `TAIL"}`) {
+		t.Errorf("failed call's input ends %q, want the arguments whole", tailOf(logged[0]))
+	}
+
+	if len(logged[1]) >= len(logged[0]) {
+		t.Errorf("successful call kept %d bytes against the failed call's %d, want the shorter bound",
+			len(logged[1]), len(logged[0]))
+	}
+}
+
+func tailOf(s string) string {
+	const n = 40
+	if len(s) <= n {
+		return s
+	}
+
+	return s[len(s)-n:]
+}
+
 // A thread's goal is its first prompt, and a rewrite appends rather than
 // editing, so what the goal was at any turn stays readable. GoalFrom is
 // what a resumed thread reads it back with, since Open never replays a log.

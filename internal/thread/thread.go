@@ -14,8 +14,18 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
-// maxLoggedInput bounds the tool input kept in the event log.
+// maxLoggedInput bounds the tool input kept in the event log for a call that
+// succeeded, where the change it made is the record and the arguments are
+// not.
 const maxLoggedInput = 2000
+
+// maxLoggedFailedInput bounds the tool input kept for a call that failed,
+// where the arguments are the whole evidence. The two differ because
+// truncating a failure to the successful call's bound loses the part that
+// says what went wrong: a degenerate emission repeats itself for thousands
+// of characters, so the tail is what names it and the head reads like any
+// other call.
+const maxLoggedFailedInput = 32 << 10
 
 // ID names one thread. It is the eventlog file's base name, so it must be
 // filesystem-safe.
@@ -242,8 +252,9 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 
 // AppendToolResult appends a tool's result to history, tagged to toolCallID,
 // and logs a KindTool event carrying the changes it produced and the input the
-// model sent, truncated. The input is logged because a failed edit anchor
-// cannot be diagnosed after the fact without it. A result the tool reported as
+// model sent, truncated to a bound that depends on whether the call failed.
+// The input is logged because a failed edit anchor cannot be diagnosed after
+// the fact without it. A result the tool reported as
 // an error is marked with an is_error detail, so downstream stats can tell a
 // failed call from a successful one.
 // The checkpoint is the jj operation holding the tree just after this call's
@@ -266,7 +277,12 @@ func (t *Thread) AppendToolResult(
 
 	ev := event.Event{Kind: event.KindTool, Tool: toolName, Text: result.Content, Changes: result.Changes}
 	if len(input) > 0 {
-		ev.Detail = map[string]any{"input": truncate(string(input), maxLoggedInput)}
+		limit := maxLoggedInput
+		if result.IsError {
+			limit = maxLoggedFailedInput
+		}
+
+		ev.Detail = map[string]any{"input": truncate(string(input), limit)}
 	}
 	if result.IsError {
 		if ev.Detail == nil {

@@ -1829,3 +1829,31 @@ Not verified: no replay lane has been run against this. The A/B above is
 the enforcement measurement, not a task measurement, and what it cannot say
 is how many turns the 19 affected threads get back. The corpus rate (52 of
 52 fast-tier calls) is the estimate to check the next lane against.
+
+## 2026-08-23 — re-aiming item 2, and the log that hid the rest
+
+With the pairless class named, the 85 logged `str_replace` failures got
+re-counted by call shape. 51 of them (60%) are that one hole: 32 of the 40
+`old_string` not found errors were pairless calls rather than anchors that
+missed, and 19 of the 22 refused repeats were repeats of a pairless call.
+So the roadmap's three problems (text matching, a loop that repeats, a tier
+that cannot emit JSON) were one problem wearing three masks, and what is
+actually left is 6 genuine anchor misses, 13 malformed emissions, 6 hosted
+`edits` calls with no path, 3 identical pairs, 3 repeats of a complete
+call, and 1 ambiguous match.
+
+Corroboration worth keeping: all 6 path-less calls came from the hosted
+tiers and none from the fast tier. The hosted tiers do not decode under the
+grammar and the fast tier does, so the one field the old schema did require
+was the one the grammar-decoded tier never dropped.
+
+The malformed 13 could not be classified at all, because the thread log
+bounded every tool input at 2000 characters and all 13 were longer. A
+failed call's arguments are the whole evidence for why it failed, so that
+bound now applies only to a call that succeeded, where the change is the
+record. A failure keeps 32 KB, which is enough to hold a degenerate
+emission's tail, and the event log's reader already allows 8 MB a line.
+
+Not verified: the 13 stay unclassified until runs recorded under the new
+bound exist. This buys the next classification pass rather than answering
+this one.
