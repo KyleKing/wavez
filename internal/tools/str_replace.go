@@ -118,36 +118,38 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 	var in strReplaceInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 
 	abs, err := resolvePath(s.root, in.Path)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 
 	if err := s.scope.Edit(abs); err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 
 	release, err := s.deps.hold(ctx, abs)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 	defer release()
 
 	if len(in.Edits) > 0 && (in.OldString != "" || in.NewString != "") {
-		return tool.Errorf("send either edits or one old_string/new_string pair, not both"), nil
+		return tool.Fail(tool.CauseBadInput,
+			"send either edits or one old_string/new_string pair, not both"), nil
 	}
 
 	change, err := edit.ApplyAllToFile(abs, in.pairs())
 	if err != nil {
 		if errors.Is(err, edit.ErrNotFound) && lineNumbered(in.OldString) {
-			return tool.Errorf("%v\n\nold_string still carries the line numbers read prefixed each "+
-				"line with. Send the file's own text, without the leading number and tab.", err), nil
+			return tool.Fail(tool.CauseBadInput,
+				"%v\n\nold_string still carries the line numbers read prefixed each "+
+					"line with. Send the file's own text, without the leading number and tab.", err), nil
 		}
 
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 
 	change.Path = in.Path

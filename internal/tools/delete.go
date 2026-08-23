@@ -80,12 +80,12 @@ func (d *Delete) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 
 	var in deleteInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 
 	names := splitNames(in.Symbol)
 	if len(names) == 0 {
-		return tool.Errorf("symbol is required"), nil
+		return tool.Fail(tool.CauseBadInput, "symbol is required"), nil
 	}
 
 	// Where every named declaration sits, taken before anything moves: the
@@ -103,7 +103,7 @@ func (d *Delete) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 	for _, name := range names {
 		change, err := d.one(ctx, name, in.Path, together)
 		if err != nil {
-			return tool.Errorf("%v%s", err, alreadyDone(done)), nil
+			return tool.Fail(causeOf(err), "%v%s", err, alreadyDone(done)), nil
 		}
 
 		changes = append(changes, change)

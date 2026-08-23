@@ -29,12 +29,17 @@ type Change struct {
 // Result is what a tool returns. Content is the only part the model sees, so it
 // is already trimmed by the tool's own rules.
 type Result struct {
-	Content string   `json:"content"`
+	Content string `json:"content"`
+	// Cause classifies a failure. It never reaches the model, which is told
+	// what went wrong in Content; it is for the harness's own accounting of
+	// which kinds of failure a tool surface produces.
+	Cause   Cause    `json:"cause,omitempty"`
 	Changes []Change `json:"changes,omitempty"`
 	IsError bool     `json:"is_error,omitempty"`
 }
 
-// Errorf builds a Result carrying a failure the model is expected to correct.
+// Errorf builds a Result carrying a failure the model is expected to
+// correct, leaving the cause unclassified. Prefer Fail, which names it.
 func Errorf(format string, args ...any) Result {
 	return Result{Content: fmt.Sprintf(format, args...), IsError: true}
 }

@@ -27,8 +27,8 @@ func (s Stats) Render(w io.Writer) error {
 	b.WriteString("\ntool calls by name\n")
 
 	for _, t := range s.Tools {
-		fmt.Fprintf(&b, "  %-14s %3d calls %8d result bytes %d errors\n",
-			t.Name, t.Calls, t.ResultBytes, t.Errors)
+		fmt.Fprintf(&b, "  %-14s %3d calls %8d result bytes %d errors%s\n",
+			t.Name, t.Calls, t.ResultBytes, t.Errors, causeLine(t))
 	}
 
 	if len(s.ShellCmds) > 0 {
@@ -80,6 +80,36 @@ func callsOf(tools []ToolStat, name string) int {
 	}
 
 	return 0
+}
+
+// causeLine names why a tool's errors happened, most common first. It is
+// appended rather than tabulated because a run whose tools all worked
+// should print nothing extra, and because the count that matters is the
+// share of a rate that was the tool refusing on purpose.
+func causeLine(t ToolStat) string {
+	if len(t.Causes) == 0 {
+		return ""
+	}
+
+	causes := make([]string, 0, len(t.Causes))
+	for cause := range t.Causes {
+		causes = append(causes, cause)
+	}
+
+	slices.SortStableFunc(causes, func(a, b string) int {
+		if n := t.Causes[b] - t.Causes[a]; n != 0 {
+			return n
+		}
+
+		return strings.Compare(a, b)
+	})
+
+	parts := make([]string, 0, len(causes))
+	for _, cause := range causes {
+		parts = append(parts, fmt.Sprintf("%s %d", cause, t.Causes[cause]))
+	}
+
+	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 func percent(part, whole int) string {

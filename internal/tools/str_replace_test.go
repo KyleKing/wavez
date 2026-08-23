@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -150,5 +151,68 @@ func TestStrReplace_AppliesSeveralEditsInOneCall(t *testing.T) {
 	}
 	if !both.IsError || !strings.Contains(both.Content, "not both") {
 		t.Errorf("Content = %q (IsError=%v), want the two shapes refused together", both.Content, both.IsError)
+	}
+}
+
+// The taxonomy exists to aim work at a class of failure, and str_replace is
+// where the failures are: it errored on 78 of 140 calls across this
+// project's first 77 recorded runs. Ambiguity, a missing field, and a
+// containment refusal are three different problems and were one number.
+func TestStrReplace_ErrorsSayWhichKindOfFailureTheyAre(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.go")
+
+	if err := os.WriteFile(path, []byte("a := 1\nb := a + 1\na := 1\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+
+	tests := []struct {
+		input map[string]any
+		name  string
+		want  tool.Cause
+	}{
+		{
+			name:  "text that occurs twice",
+			input: map[string]any{"path": "file.go", "old_string": "a := 1", "new_string": "a := 2"},
+			want:  tool.CauseAmbiguous,
+		},
+		{
+			name:  "text that occurs nowhere",
+			input: map[string]any{"path": "file.go", "old_string": "z := 9", "new_string": "z := 8"},
+			want:  tool.CauseNoMatch,
+		},
+		{
+			name:  "a path outside the project",
+			input: map[string]any{"path": "/etc/passwd", "old_string": "a", "new_string": "b"},
+			want:  tool.CauseRefused,
+		},
+		{
+			name:  "no path at all",
+			input: map[string]any{"edits": []map[string]string{{"old_string": "a", "new_string": "b"}}},
+			want:  tool.CauseBadInput,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := s.Run(context.Background(), mustJSON(t, tt.input))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if !result.IsError {
+				t.Fatalf("IsError = false, want an error")
+			}
+
+			if result.Cause != tt.want {
+				t.Errorf("Cause = %q, want %q (content: %s)", result.Cause, tt.want, result.Content)
+			}
+		})
 	}
 }

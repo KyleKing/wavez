@@ -91,21 +91,21 @@ func (m *Move) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	var in moveInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 
 	names := splitNames(in.Symbol)
 	if len(names) == 0 {
-		return tool.Errorf("symbol is required"), nil
+		return tool.Fail(tool.CauseBadInput, "symbol is required"), nil
 	}
 
 	if in.To == "" {
-		return tool.Errorf("to is required"), nil
+		return tool.Fail(tool.CauseBadInput, "to is required"), nil
 	}
 
 	dest, err := m.destination(in.To)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 
 	// Everything is located before anything is written, and each file is
@@ -121,7 +121,7 @@ func (m *Move) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 	for _, name := range names {
 		decl, err := m.plan(ctx, name, in.Path, dest)
 		if err != nil {
-			return tool.Errorf("%v", err), nil
+			return failWith(err), nil
 		}
 
 		decls = append(decls, decl)
@@ -129,13 +129,13 @@ func (m *Move) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	release, err := m.hold(ctx, decls, dest)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 	defer release()
 
 	changes, err := m.apply(decls, dest)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 
 	return tool.Result{

@@ -11,6 +11,7 @@ import (
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/lsp"
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -98,14 +99,28 @@ func TestDeleteRefusalsNameWhatToDoNext(t *testing.T) {
 
 	root, del := deleteProject(t)
 
+	// The cause is checked alongside the words because a report that
+	// counts a safeguard as a defect is what made the recorded 60% error
+	// rate on this tool unreadable: a declaration something still uses is
+	// a refusal, and a symbol nothing declares is a miss.
 	tests := []struct {
-		name  string
-		input string
-		want  string
+		name      string
+		input     string
+		want      string
+		wantCause tool.Cause
 	}{
-		{name: "missing symbol", input: `{}`, want: "symbol is required"},
-		{name: "unknown symbol", input: `{"symbol":"Nowhere"}`, want: "Nowhere"},
-		{name: "narrowed to the wrong place", input: `{"symbol":"Beta","path":"nowhere"}`, want: "a.go"},
+		{
+			name: "missing symbol", input: `{}`,
+			want: "symbol is required", wantCause: tool.CauseBadInput,
+		},
+		{
+			name: "unknown symbol", input: `{"symbol":"Nowhere"}`,
+			want: "Nowhere", wantCause: tool.CauseNoMatch,
+		},
+		{
+			name: "narrowed to the wrong place", input: `{"symbol":"Beta","path":"nowhere"}`,
+			want: "a.go", wantCause: tool.CauseNoMatch,
+		},
 	}
 
 	for _, tc := range tests {
@@ -123,6 +138,10 @@ func TestDeleteRefusalsNameWhatToDoNext(t *testing.T) {
 
 			if !strings.Contains(res.Content, tc.want) {
 				t.Errorf("refusal %q does not say %q", res.Content, tc.want)
+			}
+
+			if res.Cause != tc.wantCause {
+				t.Errorf("Cause = %q, want %q", res.Cause, tc.wantCause)
 			}
 		})
 	}
@@ -321,6 +340,12 @@ func TestDeleteRefusesWhatIsStillUsed(t *testing.T) {
 	// answered by naming the declarations the task had told it to keep.
 	if !strings.Contains(res.Content, "Use (b.go:4)") {
 		t.Errorf("the refusal does not name the declaration holding the use: %s", res.Content)
+	}
+
+	// This is the safeguard working, so it must never be counted with the
+	// failures: a rising refusal rate here is the tool doing its job.
+	if res.Cause != tool.CauseRefused {
+		t.Errorf("Cause = %q, want %q", res.Cause, tool.CauseRefused)
 	}
 
 	if !strings.Contains(read(t, root, "a.go"), "func Alpha()") {

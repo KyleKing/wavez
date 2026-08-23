@@ -109,25 +109,25 @@ func (r *Rename) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 
 	var in renameInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 
 	if msg := checkNames(in); msg != "" {
-		return tool.Errorf("%s", msg), nil
+		return tool.Fail(tool.CauseBadInput, "%s", msg), nil
 	}
 
 	decl, err := locate(ctx, r.index, r.root, in.Symbol, in.Path)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 
 	edits, err := r.ask(ctx, decl, in.To)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return failWith(err), nil
 	}
 
 	if len(edits) == 0 {
-		return tool.Errorf("the language server found nothing to rename for %s", in.Symbol), nil
+		return tool.Fail(tool.CauseNoMatch, "the language server found nothing to rename for %s", in.Symbol), nil
 	}
 
 	return r.apply(ctx, in, edits)
@@ -193,12 +193,12 @@ func (r *Rename) apply(ctx context.Context, in renameInput, edits map[string][]l
 
 	for _, abs := range paths {
 		if err := r.scope.Edit(abs); err != nil {
-			return tool.Errorf("%v", err), nil
+			return failWith(err), nil
 		}
 
 		release, err := r.deps.hold(ctx, abs)
 		if err != nil {
-			return tool.Errorf("%v", err), nil
+			return failWith(err), nil
 		}
 
 		change, err := edit.ApplySpansToFile(abs, spansOf(edits[abs]))
@@ -206,7 +206,7 @@ func (r *Rename) apply(ctx context.Context, in renameInput, edits map[string][]l
 		release()
 
 		if err != nil {
-			return tool.Errorf("renaming in %s: %v", relativeTo(r.root, abs), err), nil
+			return tool.Fail(tool.CauseIO, "renaming in %s: %v", relativeTo(r.root, abs), err), nil
 		}
 
 		change.Path = relativeTo(r.root, abs)

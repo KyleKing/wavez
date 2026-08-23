@@ -273,6 +273,10 @@ func (t *Thread) AppendToolResult(
 			ev.Detail = map[string]any{}
 		}
 		ev.Detail["is_error"] = true
+
+		if result.Cause != tool.CauseUnspecified {
+			ev.Detail["cause"] = string(result.Cause)
+		}
 	}
 	if checkpoint != "" {
 		if ev.Detail == nil {

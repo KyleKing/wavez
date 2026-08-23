@@ -24,14 +24,47 @@ const (
 	// what made an empty result worth counting. This is the prefix the search
 	// tool reports one with.
 	noMatchPrefix = "no matches"
+
+	// The unspecifiedCause bucket files an error from a call site the
+	// taxonomy has not reached; refusedCause matches tool.CauseRefused.
+	unspecifiedCause = "unspecified"
+	refusedCause     = "refused"
 )
 
 // ToolStat is one tool's share of a run.
 type ToolStat struct {
-	Name        string `json:"name"`
-	Calls       int    `json:"calls"`
-	ResultBytes int    `json:"result_bytes"`
-	Errors      int    `json:"errors"`
+	// Causes counts this tool's errors by why they failed, so a refusal
+	// that worked is never read as a defect. An error from a call site the
+	// taxonomy has not reached counts under "unspecified", which is a gap
+	// in the accounting rather than a kind of failure.
+	Causes      map[string]int `json:"causes,omitempty"`
+	Name        string         `json:"name"`
+	Calls       int            `json:"calls"`
+	ResultBytes int            `json:"result_bytes"`
+	Errors      int            `json:"errors"`
+	// Refusals is the share of Errors that were the tool declining by
+	// design, pulled out because it is the number that changes how every
+	// other error rate reads.
+	Refusals int `json:"refusals"`
+}
+
+// recordCause files one error under why it happened, naming an
+// unclassified one so a report can say how much of the taxonomy is missing
+// rather than quietly reporting a smaller total.
+func (t *ToolStat) recordCause(cause string) {
+	if cause == "" {
+		cause = unspecifiedCause
+	}
+
+	if t.Causes == nil {
+		t.Causes = map[string]int{}
+	}
+
+	t.Causes[cause]++
+
+	if cause == refusedCause {
+		t.Refusals++
+	}
 }
 
 // ShellCmd is one shell call a run made: the command line it ran and the
@@ -169,6 +202,7 @@ func (s *Stats) countTool(ev *event.Event, tools map[string]*ToolStat, tracker *
 	if boolField(ev.Detail, "is_error") {
 		s.ErrorResults++
 		stat.Errors++
+		stat.recordCause(stringField(ev.Detail, "cause"))
 	}
 
 	if len(ev.Changes) > 0 {
