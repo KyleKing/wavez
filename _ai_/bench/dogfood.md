@@ -1933,3 +1933,38 @@ Not verified: every number here reads a corpus recorded under the old
 the failure rates for them are lower bounds on nothing in particular. Reads
 of this table after runs accumulate under the new bound should redo it
 rather than cite it.
+
+## 2026-08-23 — e2 is outside the fast tier, so it cannot measure a fast-tier change
+
+Reading `tier_turns` across every recorded `fast`-pinned run settles a
+question the last three lanes kept tripping over. No `e2` run has ever
+completed without the hosted tier. All seven completions spent most of
+their turns on `balanced`, and all four fast-only attempts failed:
+`fast-remit` malformed at 2 turns, `fast-retry` stagnant at 6,
+`gate-pattern-contended` deadline at 2, and `pair-required` stagnant at 8.
+
+That invalidates the comparison drawn in this file earlier today. The
+`pair-required` lane ran 8 of 8 turns on the fast tier and was set against
+a 13-turn baseline that spent 6 of its turns on `balanced`. Among fast-only
+`e2` runs the record is 0 of 4 on both sides of the change, so the lane
+says nothing about the fix in either direction. What it does say stands
+without it: no call in the run was pairless.
+
+The pattern holds across the set and matches [Standing
+objectives](../../DESIGN.md#standing-objectives) on asking a tier only what
+it can do. `q1` retrieves an answer and completes fast-only in 2 or 3 turns
+every time. `h2` has never completed at all. `e2` needs the hosted tier.
+
+The counter-example is the one worth building on. `e3` needed escalation
+before `rename` existed, at 16, 14, and 18 turns with `balanced` and `deep`
+carrying them, plus a 35-turn deadline. After `rename` it completes in 2
+turns entirely on the fast tier, twice over. The Modifier did not make the
+model better at the task, it turned the task into one call the model could
+emit.
+
+Two things follow for how this set gets used. A fast-tier tool change
+measured against a task the fast tier cannot do measures nothing, so the
+baseline for such a lane has to be a fast-only run of the same task or a
+task the tier can finish. And the case for a Modifier is not the bytes it
+saves but whether it moves a task inside the tier's remit, which is what
+`e3` demonstrates and what any new one should be measured against.
