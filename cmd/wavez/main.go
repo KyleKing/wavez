@@ -65,6 +65,7 @@ type options struct {
 	replay              string
 	replayLabel         string
 	replayReport        string
+	preambleMax         int
 	maxTurns            int
 	maxToolCallsPerTurn int
 	maxStagnantErrors   int
@@ -140,6 +141,8 @@ func run(args []string) error {
 		"report the rates across every recorded replay run, which one run cannot show")
 	fs.BoolVar(&opt.preamble, "preamble", false,
 		"account for the fixed prefix every turn pays, by section")
+	fs.IntVar(&opt.preambleMax, "preamble-max", 0,
+		"with -preamble, fail when the fixed prefix costs more than this many tokens")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -653,6 +656,7 @@ Flags:
   -replay-label <name>   with -replay, name the lane (defaults to the current commit)
   -replay-report <task>  print every recorded run of one task and diff the last two
   -stats-corpus          report the rates across every recorded run
+  -preamble-max <n>      with -preamble, fail when the fixed prefix exceeds n tokens
   -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
   -preamble       account for the fixed prefix every turn pays, by section
   -max-turns <n>                cap model turns, a dead-man's switch

@@ -2,6 +2,10 @@
 description = "Report functions no main reaches (wavez -deadcode)"
 run = "go run ./cmd/wavez -deadcode"
 
+[tasks."preamble:budget"]
+description = "Fail when the fixed prefix every turn pays exceeds its ceiling"
+run = "go run ./cmd/wavez -preamble -preamble-max 3100"
+
 [tasks.daemon]
 description = "Run wavezd from source (owns the socket the TUI/CLI dial into)"
 run = "go run ./cmd/wavezd"

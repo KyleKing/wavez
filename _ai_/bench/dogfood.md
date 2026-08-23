@@ -2129,3 +2129,40 @@ from one that repeated itself to the limit, and the likely cause is the
 fast tier running out of its 8k window mid-argument rather than anything
 about repetition. Nothing here measures that, and the fix for it would sit
 with the payload work in item 3 rather than with sampling.
+
+## 2026-08-23 — twelve lanes off the roadmap, and what none of them measured
+
+Twelve items taken in the roadmap's own order. Every one is deterministic
+and none of them needed a model, so no replay lane ran and none of the
+numbers below came from one. That is the honest limit of this session: the
+measurement got much better and nothing has been measured with it yet.
+
+**What shipped.** The guard repeats what the gates found instead of
+pointing at a past turn (the six turns one `h6` run lost). Transcript
+fixtures (`internal/transcript`) replay a frozen run's turns against the
+real loop and diff a golden frame. Gate false alarms are recorded when a
+gate passes over the change set it just failed over. `-stats-corpus`
+reports the rates across `records.jsonl`. Turn attribution splits a run
+into productive, retrieval, harness, and prose. The four finish checks
+(`internal/finish`) run when a run completes. Undo reaches one edit rather
+than only the whole run. A prompt sent mid-turn queues, and `ctrl+g`
+interrupts. `-preamble-max` fails over a ceiling.
+
+**One number that came out of it.** The preamble is 3,029 tokens, 42% of
+what a fast turn can use. DESIGN.md recorded 2,633 when the audit ran, so
+it has grown 15% since, and nothing was watching. The ceiling is set at
+3,100 for that reason.
+
+**What the corpus says now that it can be asked.** `-stats-corpus` over 90
+runs: 46% ended complete, 73% of 268 checks held, and `str_replace` failed
+106 of 173 calls against `read` at 3 of 160 and `search` at 0 of 67. The
+causes cover 28 of `str_replace`'s 106, because the taxonomy reached the
+call sites gradually, and the report says so rather than presenting a
+partial breakdown as a whole one.
+
+**Not verified.** No lane ran, so nothing here has a before and after.
+Four things are worth reading first once one does: whether gate false
+alarms are nonzero at all, whether harness turns are the share the item-11
+numbers imply, whether `FinishFindings` fires on runs that completed, and
+whether the guard's repeated failure shortens a run that used to spend
+turns re-checking. All four are now one command rather than a script.

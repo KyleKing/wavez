@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +22,11 @@ const (
 	kindContext = "context"
 	kindTool    = "tool"
 	kindSchema  = "schema"
+	// The description text inside a schema, split out from the structure it
+	// hangs on. The split is the point: structure is the grammar a local
+	// turn decodes under and cannot be trimmed, and prose is teaching,
+	// which can be.
+	kindProse = "prose"
 )
 
 // section is one accountable part of what every turn pays before the first
@@ -59,7 +66,38 @@ func preambleReport(ctx context.Context, root string, opt options) error {
 		return err
 	}
 
-	return writePreamble(os.Stdout, sections)
+	if err := writePreamble(os.Stdout, sections); err != nil {
+		return err
+	}
+
+	return withinBudget(sections, opt.preambleMax)
+}
+
+// errPreambleOverBudget reports a fixed prefix past the ceiling CI holds it
+// to.
+var errPreambleOverBudget = errors.New("preamble is over budget")
+
+// withinBudget fails when the fixed prefix costs more than ceiling tokens. The
+// prefix is 41% of what a fast turn can use and only shrinks when somebody
+// remembers to look, so a ceiling that fails the build makes every new
+// tool's cost a decision rather than a discovery.
+func withinBudget(sections []section, ceiling int) error {
+	if ceiling <= 0 {
+		return nil
+	}
+
+	total := 0
+	for _, s := range sections {
+		total += s.Bytes
+	}
+
+	tokens := total / tokensPerByte
+	if tokens <= ceiling {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %d tokens against a ceiling of %d. Trim a section above, or raise "+
+		"the ceiling deliberately and say what bought the room", errPreambleOverBudget, tokens, ceiling)
 }
 
 // sectionsOf sizes each part on its own. BuildPrefix joins the context
@@ -78,12 +116,78 @@ func sectionsOf(root string, entries []string, registry *tool.Registry) ([]secti
 	}
 
 	for _, s := range registry.Specs() {
+		cost, err := splitSchema(s.Schema)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s's schema: %w", s.Name, err)
+		}
+
 		out = append(out,
 			section{Name: s.Name + " (text)", Kind: kindTool, Bytes: len(s.Name) + len(s.Description)},
-			section{Name: s.Name + " (schema)", Kind: kindSchema, Bytes: len(s.Schema)})
+			section{Name: s.Name + " (schema prose)", Kind: kindProse, Bytes: cost.Prose},
+			section{Name: s.Name + " (schema)", Kind: kindSchema, Bytes: cost.Structure})
 	}
 
 	return out, nil
+}
+
+// splitSchema separates a JSON Schema's description prose from the
+// structure it describes, by re-marshaling the document with every
+// description removed.
+//
+// The two are different kinds of cost. Structure is what llama.cpp compiles
+// into the grammar a fast turn decodes under, so it buys correctness on
+// every call. Prose is teaching, and teaching that only says what a failure
+// will say is paid on every turn of every thread to prevent a failure that
+// pays for itself once.
+// The two halves are derived rather than counted so they always add up to
+// the schema the model is actually sent: prose is what removing every
+// description saves, which includes the key and quoting each one costs.
+func splitSchema(raw json.RawMessage) (schemaCost, error) {
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return schemaCost{}, fmt.Errorf("parsing the schema: %w", err)
+	}
+
+	body, err := json.Marshal(stripDescriptions(doc))
+	if err != nil {
+		return schemaCost{}, fmt.Errorf("re-encoding the schema: %w", err)
+	}
+
+	return schemaCost{Prose: len(raw) - len(body), Structure: len(body)}, nil
+}
+
+// schemaCost is one schema's two halves in bytes.
+type schemaCost struct {
+	Prose     int
+	Structure int
+}
+
+func stripDescriptions(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+
+		for k, val := range t {
+			if k == "description" {
+				if _, ok := val.(string); ok {
+					continue
+				}
+			}
+
+			out[k] = stripDescriptions(val)
+		}
+
+		return out
+	case []any:
+		out := make([]any, 0, len(t))
+		for _, e := range t {
+			out = append(out, stripDescriptions(e))
+		}
+
+		return out
+	default:
+		return v
+	}
 }
 
 func writePreamble(w io.Writer, sections []section) error {
@@ -107,7 +211,7 @@ func writePreamble(w io.Writer, sections []section) error {
 
 	p.printf("\n%-34s %-8s %8d %8d\n", "total", "", total, total/tokensPerByte)
 
-	for _, kind := range []string{kindSystem, kindContext, kindTool, kindSchema} {
+	for _, kind := range []string{kindSystem, kindContext, kindTool, kindProse, kindSchema} {
 		p.printf("  %-32s %8d %8d %6.1f%%\n",
 			kind, byKind[kind], byKind[kind]/tokensPerByte, share(byKind[kind], total))
 	}

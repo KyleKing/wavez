@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -79,5 +81,56 @@ func TestWritePreamble(t *testing.T) {
 
 	if !strings.Contains(out, "57.1%") {
 		t.Errorf("want the schema kind at 400/700, got:\n%s", out)
+	}
+}
+
+// The fixed prefix is 42% of what a fast turn can use and only shrinks when
+// somebody remembers to look. A ceiling that fails the build makes every
+// new tool's cost a decision rather than a discovery.
+func TestPreambleBudget(t *testing.T) {
+	t.Parallel()
+
+	sections := []section{{Bytes: 4000}, {Bytes: 400}}
+
+	if err := withinBudget(sections, 0); err != nil {
+		t.Errorf("withinBudget with no ceiling = %v, want it to abstain", err)
+	}
+
+	if err := withinBudget(sections, 1100); err != nil {
+		t.Errorf("withinBudget under the ceiling = %v, want nil", err)
+	}
+
+	err := withinBudget(sections, 1000)
+	if !errors.Is(err, errPreambleOverBudget) {
+		t.Fatalf("withinBudget over the ceiling = %v, want %v", err, errPreambleOverBudget)
+	}
+
+	if !strings.Contains(err.Error(), "1100") {
+		t.Errorf("error = %q, want it to say what the prefix actually costs", err)
+	}
+}
+
+// The preamble's two costs are different kinds of thing and the report has
+// to keep them apart: structure is the grammar a fast turn decodes under,
+// and prose is teaching. The halves are derived rather than counted so the
+// rollup still totals the bytes the model is actually sent.
+func TestSplitSchemaAccountsForEveryByte(t *testing.T) {
+	t.Parallel()
+
+	raw := json.RawMessage(`{"type":"object","properties":` +
+		`{"path":{"type":"string","description":"where the file is"}},"required":["path"]}`)
+
+	cost, err := splitSchema(raw)
+	if err != nil {
+		t.Fatalf("splitSchema: %v", err)
+	}
+
+	if cost.Prose+cost.Structure != len(raw) {
+		t.Errorf("prose %d + structure %d = %d, want the schema's %d bytes",
+			cost.Prose, cost.Structure, cost.Prose+cost.Structure, len(raw))
+	}
+
+	if cost.Prose <= len("where the file is") {
+		t.Errorf("prose = %d, want it to carry the description's key and quoting too", cost.Prose)
 	}
 }
