@@ -329,7 +329,7 @@ func (c *conn) handleNew(cmd api.Command) {
 	if cmd.Prompt == "" {
 		return
 	}
-	if err := p.mgr.send(mt.id, cmd.Prompt); err != nil {
+	if err := p.mgr.send(mt.id, cmd.Prompt, false); err != nil {
 		c.reply("", errorReply(err.Error()))
 	}
 }
@@ -410,7 +410,7 @@ func (c *conn) handleSend(cmd api.Command) {
 	if !ok {
 		return
 	}
-	if err := p.mgr.send(cmd.ThreadID, cmd.Prompt); err != nil {
+	if err := p.mgr.send(cmd.ThreadID, cmd.Prompt, cmd.Interrupt); err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
 		return

@@ -28,6 +28,12 @@ const (
 // has no use for.
 const keyCompose = "ctrl+f"
 
+// keyInterrupt sends what the composer holds and cancels the turn in
+// flight, so a wrong instruction does not wait for the run that is acting
+// on it. Enter alone queues instead, and the queued prompt starts at the
+// next turn boundary.
+const keyInterrupt = "ctrl+g"
+
 // threadState is the active thread id, transcript scroll offset, and the
 // modal composer.
 type threadState struct {
@@ -80,6 +86,10 @@ func (m Model) updateThreadKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 
 	if s == keyCompose {
 		return m.toggleCompose(), nil
+	}
+
+	if s == keyInterrupt && m.focus == focusInput {
+		return m.interruptThreadInput()
 	}
 
 	if m.focus == focusInput {
@@ -468,7 +478,14 @@ func (m Model) askLine() Model {
 	return m
 }
 
-func (m Model) sendThreadInput() (Model, tea.Cmd) {
+func (m Model) sendThreadInput() (Model, tea.Cmd) { return m.submit(false) }
+
+// interruptThreadInput sends what the composer holds and cancels the turn
+// in flight, which is the redirect half of the queue: a queue with no
+// interrupt makes a wrong instruction wait for the run acting on it.
+func (m Model) interruptThreadInput() (Model, tea.Cmd) { return m.submit(true) }
+
+func (m Model) submit(interrupt bool) (Model, tea.Cmd) {
 	text := strings.TrimSpace(m.thread.input.Value())
 	if text == "" {
 		return m, nil
@@ -478,7 +495,7 @@ func (m Model) sendThreadInput() (Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	if m.client != nil {
-		cmd = m.client.send(m.thread.activeID, text)
+		cmd = m.client.sendPrompt(m.thread.activeID, text, interrupt)
 	}
 
 	return m, cmd
@@ -736,6 +753,7 @@ func threadHints(search searchState, focus int, filter filterCategory) []hint {
 	if focus == focusInput {
 		return []hint{
 			{keyEnter, labelSend},
+			{keyInterrupt, "send now"},
 			{keyCompose, "fullscreen"},
 			{keyEsc, "normal mode"},
 			{keyTab, labelPanel},

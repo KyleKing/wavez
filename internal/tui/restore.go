@@ -57,7 +57,7 @@ func (m Model) requestRestore() (Model, tea.Cmd) {
 
 	m.status = ""
 
-	return m, m.client.restore(info.ID, false)
+	return m, m.client.restoreTo(info.ID, "", false)
 }
 
 func (m Model) updateRestoreKey(s string) (Model, tea.Cmd) {

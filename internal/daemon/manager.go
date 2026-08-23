@@ -457,7 +457,7 @@ func (m *manager) setThinking(threadID string, thinking *bool) error {
 // send starts a turn against threadID's thread, running against m.ctx (not a
 // caller's context) so the turn keeps going after any connection that
 // started it disconnects.
-func (m *manager) send(threadID, prompt string) error {
+func (m *manager) send(threadID, prompt string, interrupt bool) error {
 	mt, ok := m.get(threadID)
 	if !ok {
 		return ErrThreadNotFound
@@ -465,20 +465,49 @@ func (m *manager) send(threadID, prompt string) error {
 
 	mt.mu.Lock()
 	if mt.running {
+		mt.pending = append(mt.pending, prompt)
+		cancel := mt.cancel
 		mt.mu.Unlock()
 
-		return ErrThreadBusy
+		// Canceling ends the turn in flight and leaves the thread alive,
+		// so the queued prompt is what runs next rather than waiting for
+		// the run it is meant to redirect.
+		if interrupt && cancel != nil {
+			cancel()
+		}
+
+		return nil
 	}
+
+	m.startTurn(mt, prompt)
+	mt.mu.Unlock()
+
+	return nil
+}
+
+// startTurn begins one turn against mt. Callers must hold mt.mu, and mt
+// must not already be running.
+func (m *manager) startTurn(mt *managedThread, prompt string) {
 	turnCtx, cancel := context.WithCancel(m.ctx)
 	mt.running = true
 	mt.cancel = cancel
 	done := make(chan struct{})
 	mt.done = done
-	mt.mu.Unlock()
 
 	go m.runTurn(turnCtx, mt, done, prompt)
+}
 
-	return nil
+// Queued reports how many prompts are waiting behind threadID's turn.
+func (m *manager) queued(threadID string) int {
+	mt, ok := m.get(threadID)
+	if !ok {
+		return 0
+	}
+
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	return len(mt.pending)
 }
 
 func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan struct{}, prompt string) {
@@ -532,7 +561,26 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 		mt.baseline = outcome.Checkpoint
 	}
 
+	m.drainPending(mt) //nolint:contextcheck // the next turn runs against m.ctx, not the finished turn's
 	mt.mu.Unlock()
+}
+
+// drainPending starts the next queued prompt at the turn boundary, which is
+// where the history is consistent and the model is between requests.
+// Callers must hold mt.mu.
+//
+// A prompt that arrived mid-turn was dropped before this, so a user who
+// thought of something while a run was going had to wait for it to stop and
+// then retype.
+func (m *manager) drainPending(mt *managedThread) {
+	if len(mt.pending) == 0 {
+		return
+	}
+
+	next := mt.pending[0]
+	mt.pending = mt.pending[1:]
+
+	m.startTurn(mt, next)
 }
 
 // runCycle drives the thread's cycle instead of one loop. The thread's own

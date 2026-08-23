@@ -70,7 +70,7 @@ func TestCycleThreadEndsOnItsCondition(t *testing.T) {
 				t.Fatalf("create: %v", err)
 			}
 
-			if err := m.send(mt.id, "fix it"); err != nil {
+			if err := m.send(mt.id, "fix it", false); err != nil {
 				t.Fatalf("send: %v", err)
 			}
 

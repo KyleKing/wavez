@@ -206,3 +206,38 @@ func TestManagerRestoreTargetsOneRecordedEdit(t *testing.T) {
 		t.Errorf("restore error = %v, want %v", err, ErrUnknownCheckpoint)
 	}
 }
+
+// Sending to a working thread used to return ErrThreadBusy and drop the
+// text, so a user who thought of something mid-run had to wait for it to
+// stop and retype. It queues now and starts at a turn boundary.
+func TestManagerQueuesAPromptSentMidTurn(t *testing.T) {
+	t.Parallel()
+
+	m := newManager(t.TempDir(), &agent.Loop{}, agent.Prefix{})
+
+	mt, err := m.create(createParams{Prompt: "first", Dirs: []string{t.TempDir()}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	mt.mu.Lock()
+	mt.running = true
+	mt.mu.Unlock()
+
+	if err := m.send(mt.id, "and also this", false); err != nil {
+		t.Fatalf("send while running = %v, want it queued", err)
+	}
+
+	if got := m.queued(mt.id); got != 1 {
+		t.Fatalf("queued = %d, want the prompt held rather than dropped", got)
+	}
+
+	mt.mu.Lock()
+	mt.running = false
+	pending := mt.pending
+	mt.mu.Unlock()
+
+	if len(pending) != 1 || pending[0] != "and also this" {
+		t.Errorf("pending = %v, want the prompt verbatim", pending)
+	}
+}

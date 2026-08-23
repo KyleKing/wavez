@@ -65,6 +65,10 @@ type managedThread struct {
 	// samples is the recent state history one schedule lane is drawn from,
 	// oldest first and bounded, since a lane covers minutes rather than a
 	// thread's whole life.
+	// pending is the prompts that arrived while a turn was running, oldest
+	// first. They start one at a time at turn boundaries rather than being
+	// dropped, which is what sending to a working thread used to do.
+	pending  []string
 	samples  []stateSample
 	dirs     []string
 	usage    usage

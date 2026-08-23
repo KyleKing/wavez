@@ -114,6 +114,11 @@ type Command struct {
 	Dirs []string `json:"dirs,omitempty"`
 	// From resumes a subscription after the client's last seen Seq.
 	From uint64 `json:"from,omitempty"`
+	// Interrupt cancels the turn in flight so the prompt this command
+	// carries runs next, instead of waiting behind it. Without it a prompt
+	// sent to a working thread queues and starts at the next turn
+	// boundary; either way it is never dropped.
+	Interrupt bool `json:"interrupt,omitempty"`
 	// Confirm performs a restore instead of previewing what it would
 	// discard, since destroying uncommitted work without asking is worse
 	// than leaving it.

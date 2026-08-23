@@ -383,8 +383,9 @@ type answered struct {
 }
 
 type sentMsg struct {
-	threadID string
-	text     string
+	threadID  string
+	text      string
+	interrupt bool
 }
 
 func (f *fakeClient) routines() tea.Cmd {
@@ -405,14 +406,10 @@ func (f *fakeClient) subscribe(id string) tea.Cmd {
 	return nil
 }
 
-func (f *fakeClient) send(threadID, text string) tea.Cmd {
-	f.sent = append(f.sent, sentMsg{threadID: threadID, text: text})
+func (f *fakeClient) sendPrompt(threadID, text string, interrupt bool) tea.Cmd {
+	f.sent = append(f.sent, sentMsg{threadID: threadID, text: text, interrupt: interrupt})
 
 	return nil
-}
-
-func (f *fakeClient) restore(threadID string, confirm bool) tea.Cmd {
-	return f.restoreTo(threadID, "", confirm)
 }
 
 func (f *fakeClient) restoreTo(threadID, checkpoint string, confirm bool) tea.Cmd {

@@ -24,11 +24,10 @@ type daemonClient interface {
 // threadClient is the daemonClient half that targets one thread.
 type threadClient interface {
 	subscribe(threadID string) tea.Cmd
-	send(threadID, text string) tea.Cmd
+	sendPrompt(threadID, text string, interrupt bool) tea.Cmd
 	answer(promptID, text string, decision permission.Decision) tea.Cmd
 	diff(threadID string) tea.Cmd
 	cancel(threadID string) tea.Cmd
-	restore(threadID string, confirm bool) tea.Cmd
 	restoreTo(threadID, checkpoint string, confirm bool) tea.Cmd
 	route(threadID string, override router.Choice) tea.Cmd
 	think(threadID string, thinking *bool) tea.Cmd
@@ -140,12 +139,17 @@ func (b *bridge) subscribe(threadID string) tea.Cmd {
 	}
 }
 
-func (b *bridge) send(threadID, text string) tea.Cmd {
+// sendPrompt sends text, canceling the turn in flight when interrupt is
+// set. Without it a prompt sent to a working thread queues and starts at
+// the next turn boundary; either way the daemon never drops it.
+func (b *bridge) sendPrompt(threadID, text string, interrupt bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
 
-		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdSend, ThreadID: threadID, Prompt: text})
+		reply, err := b.client.Do(ctx, api.Command{
+			Kind: api.CmdSend, ThreadID: threadID, Prompt: text, Interrupt: interrupt,
+		})
 		if err != nil {
 			return connErrMsg{err: err}
 		}
@@ -212,15 +216,11 @@ func (b *bridge) diff(threadID string) tea.Cmd {
 	}
 }
 
-// restore previews an undo of threadID's checkpoint, or performs it when
-// confirm is set. A daemon refusal comes back as restoreErrMsg rather than
-// connErrMsg: the connection is fine, the undo is what failed.
-func (b *bridge) restore(threadID string, confirm bool) tea.Cmd {
-	return b.restoreTo(threadID, "", confirm)
-}
-
-// restoreTo aims the undo at one recorded edit point, empty for the run's
-// own baseline.
+// restoreTo previews an undo back to checkpoint, or performs it when
+// confirm is set. An empty checkpoint means the run's own baseline, and any
+// other value must name one of the run's recorded edit points. A daemon
+// refusal comes back as restoreErrMsg rather than connErrMsg: the
+// connection is fine, the undo is what failed.
 func (b *bridge) restoreTo(threadID, checkpoint string, confirm bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
