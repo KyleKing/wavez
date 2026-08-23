@@ -1002,7 +1002,7 @@ func (r *run) handleMalformedCall(ctx context.Context, call llm.ToolCall) (bool,
 		return true, out, err
 	}
 
-	if err := r.appendToolResult(ctx, call, tool.Errorf(
+	if err := r.appendToolResult(ctx, call, tool.Fail(tool.CauseMalformed,
 		"the arguments for %s were not valid JSON, so the call never ran. Send it again with the "+
 			"arguments as one JSON object, writing any multi-line text as a single string with "+
 			`\n escapes rather than real line breaks`, call.Name), ""); err != nil {
@@ -1034,7 +1034,7 @@ func (r *run) handleRepeatedCall(ctx context.Context, call llm.ToolCall) (bool, 
 		return true, out, err
 	}
 
-	if err := r.appendToolResult(ctx, call, tool.Errorf(
+	if err := r.appendToolResult(ctx, call, tool.Fail(tool.CauseRepeat,
 		"you already made this exact %s call and it did not move the task forward; "+
 			"read the previous result, then either change the arguments or stop", call.Name), ""); err != nil {
 		return true, Outcome{}, err

@@ -853,27 +853,29 @@ measured and what it did not settle.
 
 **Take next**, when nothing else is asked for, in this order:
 
-1. **Item 2, aimed by item 14's taxonomy.** Across the 77 recorded replay
-   runs, `str_replace` errors on 56% of its calls (78 of 140), `delete` on
-   60% (24 of 40), and `rename` on 45% (5 of 11), while `read`, `search`,
-   `list`, `context`, and `move` sit at or near zero. Over half of every
-   edit attempt this project has recorded failed. That is the largest
-   measured inefficiency anywhere in the harness and it is the thesis
-   restated as a number: the tools that take names and ranges do not fail,
-   and the one that takes source text fails more often than it works. Fix
-   the built-in tools until reaching for `grep` and free-text editing is the
-   worse option, rather than asking a model not to
-2. **Item 14, first the taxonomy**, because the number above is currently
-   uninterpretable: a `delete` that refuses a declaration still in use is
-   counted the same as one that failed, so the 60% conflates a working
-   safeguard with a defect. Nothing else on this list can be aimed until
-   that separation exists
-3. **Item 15's transcript fixtures**, which make a harness change verifiable
+1. **Item 2, aimed by the taxonomy that now exists.** Across the 77 recorded
+   replay runs, `str_replace` errored on 56% of its calls (78 of 140),
+   `delete` on 60% (24 of 40), and `rename` on 45% (5 of 11), while `read`,
+   `search`, `list`, `context`, and `move` sat at or near zero. Classifying
+   every logged error by cause changes what those numbers mean, and the
+   detail is where the work is. Of `str_replace`'s 77 logged errors: 36 are
+   `old_string` not found, 19 are the loop refusing a call identical to one
+   that already failed, 13 are arguments that never parsed as JSON, 7 are a
+   missing or invalid field, and exactly 1 is an ambiguous match. Of
+   `delete`'s 25, 12 are the safeguard refusing a declaration something
+   still uses, which leaves a real failure rate of a third rather than
+   three-fifths. So there are three distinct problems behind one rate: text
+   matching that misses, a model that repeats a failed call instead of
+   changing it, and a tier that cannot emit the JSON. The first is a tool
+   fix, the second is a loop fix, and the third is the argument for
+   Modifiers. Fix the built-in tools until reaching for `grep` and free-text
+   editing is the worse option, rather than asking a model not to
+2. **Item 15's transcript fixtures**, which make a harness change verifiable
    in a second instead of a three-minute lane on an idle laptop
-4. Then the per-edit undo picker under item 11, and message queueing and the
+3. Then the per-edit undo picker under item 11, and message queueing and the
    interrupt from [Parked](#parked), which have no blocker and cost a wait
    in daily use every day they are not built
-5. Then harder replay tasks, because item 4 cannot be decided until the set
+4. Then harder replay tasks, because item 4 cannot be decided until the set
    contains work the fast tier plausibly fails at for a reason other than
    emitting a malformed call. `h2` has been 1 of 2 in six lanes and its
    failure is comprehension rather than tool surface, which makes it the one
@@ -909,7 +911,7 @@ rows. Each names what closes it.
     What the build changed against that design: the goal is derived rather than stored twice, because a thread's log already holds it. It is the last `KindGoal` event, or the first prompt when nobody rewrote one, so a resumed thread reads it back with no new persistence and a rewrite is auditable beside what it replaced. The injection rule collapsed to one test rather than three hooks: at run start, restate the goal only when the history about to be sent does not already carry it, which covers a fork, a reopen, and a rewrite together and stays silent on every ordinary turn.
 13. Web search. Shipped, and it cost 221 preamble tokens for the pair rather than the ~1.5k a schema of that shape usually runs, so the `web` toggle that turns them off matters less than expected. What the survey changed: the plan was to mark fetched text untrusted and stop there, and the literature and the field both say a marker is the weakest layer. OpenCode's own `webfetch` blocks nothing (no private-address check, no redirect rule, no boundary) and its injection defenses live in third-party plugins that pay a judge model per tool result; the research converged on enforcing policy outside the model with deterministic checks and constrained egress rather than on asking it nicely. So the boundary shipped last, behind credential refusal, private-address refusal at dial time, a same-host redirect rule, and permission-gated fetches of any host this thread's searches did not return
 14. Harness observability. Everything here is deterministic, needs no model, and answers a question this project has repeatedly answered by hand and slowly.
-    - **A tool error taxonomy.** Every tool error carries its cause (no match, ambiguous match, malformed arguments, refused by design, lease or scope refusal), so a refusal that worked is never counted as a failure. Without it the 56% edit error rate above cannot be acted on, and with it the next fix is aimed rather than guessed. The causes are already distinct in the code; what is missing is that the result does not carry which one
+    - **A tool error taxonomy.** Shipped. Every failing tool result carries a cause (no match, ambiguous, bad input, refused by design, conflict, io, upstream, malformed arguments, repeated call), the thread log records it, and `-stats` breaks each tool's errors down by it. The rule it enforces is that a refusal that worked is never counted as a failure, and the payoff was immediate: `delete`'s 60% error rate is a third once its 12 correct refusals come out, and `str_replace`'s single number turns out to be three separate problems in different parts of the system. An error from a call site the taxonomy has not reached counts as `unspecified` rather than being guessed at, so the report says how much of itself is missing
     - **Gate false-alarm detection.** Record when a gate failure is followed by that same gate passing with no edit in between. That is exactly what `h5` was, it costs nothing to detect, and it would have named the harness as the problem on the run that hit it rather than three re-runs later. It is also the signal that says whether the trimming and selection work is making the gates quieter or just wronger
     - **A corpus-wide stats command.** `-stats` reads one run, where a rate reads as noise. Every number in this list came from ad-hoc scripts over `records.jsonl`, which means the dogfood loop's own evidence is not reachable from the tool it is about
     - **Turn attribution.** Classify each turn as productive (it produced an accepted change), retrieval, or harness-caused (it reacted to gate feedback or a tool error). The first two are exact from the log; the third is the one worth having and the one that needs judgment, so it ships marked as an estimate rather than a count
@@ -983,7 +985,7 @@ No:
 - The replay harness cannot resolve a small effect. Repeated runs of one task on one lane vary 40-70% in turns, so any A/B below roughly a factor of two is noise at the two or three runs a lane gets. Claims about turns in this document that rest on a pair are bounded by that, and a lane that needs a smaller effect measured needs a metric that does not depend on the model's path, such as the exact preamble size `wavez -preamble` reports
 - A change-gate batch can report a diagnostic the format pre-pass in that same batch has already fixed. Seen once, on `h4`: `delete` removed a function, the `lsp` gate told the model that `internal/edit/apply.go` imports `internal/tool` without using it, and by the end of the run the import was gone because `FormatGate` runs `goimports` over the same changed files. Whichever half is wrong (the gate order within a batch, or the LSP client answering from a view older than the write), the model spent a turn on something already repaired, which is the false-positive class the tier work is meant to remove rather than add to
 - A gate failure the gate cannot attribute is handed to the model as work. `describeFailure` ends "no output line named a changed file, so run it yourself to see", which is right when the harness has nothing and expensive when the harness is the thing that is wrong. Measured on `h5`: one `move` call did the whole task, the `go-test` gate reported a build failure in `internal/guard`, and the run spent fourteen of its fifteen turns re-reading files and re-running builds that all passed, then wrote a summary describing a defect that never existed. The cause was the gate's own command. `fallbackPackages` guessed a changed file's package as its directory and passed it to `go test` unprefixed, so `go test internal/guard` resolved against the standard library and failed with "package internal/guard is not in std" before compiling anything. That path is reached exactly when a change creates a file, because the import graph answers for every file it has already seen, which is why `move` and `write` hit it and `rename` and `delete` never did. Fixed by spelling the guess `./internal/guard`. The response was the other half, and it is now closed cheaper than by re-running: `go test -json` had already carried the toolchain's own line ("package internal/guard is not in std") in the stream, and trimming dropped it because it names no `.go` file. A failure with no frames now carries the head of what the command printed, so the same run would have read the diagnosis instead of the gate name. The first fix tried here (making `move` write each file once, which is a real improvement) changed nothing about the failure and was only shown not to be the cause by re-running the task
-- Over half of every recorded edit attempt failed. Across the 77 runs in `_ai_/bench/replay/records.jsonl`, `str_replace` errored on 78 of 140 calls, `delete` on 24 of 40, and `rename` on 5 of 11, against roughly zero for `read`, `search`, `list`, `context`, and `move`. The number is not yet interpretable, because a `delete` that correctly refuses a declaration still in use is recorded the same way as one that failed, which is what item 14's taxonomy exists to separate. Two readings survive that caveat either way: no run of any recorded lane escaped without several failed edit calls, and the tools that take names and ranges do not fail while the one that takes source text does
+- Over half of every recorded edit attempt failed, and the reasons are now separated. Across the 77 runs in `_ai_/bench/replay/records.jsonl`, `str_replace` errored on 78 of 140 calls, `delete` on 24 of 40, and `rename` on 5 of 11, against roughly zero for `read`, `search`, `list`, `context`, and `move`. Classified by cause over the same thread logs, `delete`'s rate is half safeguard and its real failure rate is a third, while `str_replace`'s 77 errors are 36 misses, 19 refused repeats, 13 unparsable argument blocks, 7 bad fields, and 1 ambiguity. The classification of the backlog is inferred from the recorded messages rather than from the causes themselves, since the taxonomy postdates those runs, so it is good enough to aim work and not good enough to quote as a measurement. The reading that survives either way is that the tools taking names and ranges do not fail while the one taking source text does
 - The web tools have no injection detector and are not claimed to. Every protection they carry is about what a request may contain and where it may go, so a page that talks the model into a bad edit is caught by the gates and the permission prompt on whatever it tries next, not by anything in `internal/web`. The residual case is a run whose user approves every prompt: provenance then stops deciding anything, and the marker is all that is left
 - DuckDuckGo's HTML endpoint is parsed by class name (`result__a`, `result__snippet`) and returns nothing rather than guessing when it recognizes neither. A silent change to their markup therefore reads as "that search returned nothing" for every query, which is a failure mode worth recognizing before debugging the query
 - Coverage-map adapters per language are the long tail. Importer-based selection from `codegraph` is the fallback, and on this repo it is close to running everything

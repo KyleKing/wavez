@@ -40,6 +40,15 @@ const (
 	// CauseUpstream is something outside this process saying no: a language
 	// server, a network endpoint, a tool it shells out to.
 	CauseUpstream Cause = "upstream"
+	// CauseMalformed is arguments that never parsed as JSON, so no tool ran
+	// at all. It is separate from CauseBadInput because the fix is the
+	// model's emission rather than the values it chose, and because it is
+	// the failure a small local tier produces most.
+	CauseMalformed Cause = "malformed"
+	// CauseRepeat is the loop refusing a call identical to one that already
+	// failed. It says the run is stuck rather than that the call was wrong,
+	// and counting it as a tool failure hides both.
+	CauseRepeat Cause = "repeat"
 )
 
 // Fail builds an error Result carrying why it failed.
