@@ -2097,3 +2097,35 @@ Not verified: nothing yet reads `GatesPassedAtEnd`, so this is the signal
 and not yet the report. Whether the guard should let a model re-check a
 build when the gates have nothing new to run on is open, and is the thing
 that actually cost this run its six turns.
+
+## 2026-08-23 — the precursors measured, and what is left
+
+Three `h6` lanes with the search fallback, the no-op drop, and the repeat
+collapse in place. Every recorded `h6` run to date:
+
+| lane | complete | runs |
+|---|---|---|
+| baseline-str-replace | 0 | 1, stagnant at 5 turns, escalated |
+| presence-1.5 | 0 | 1, stagnant at 6 |
+| repeat-1.1 | 0 | 1, stagnant at 7 |
+| presence-plus-dupe | 1 | 2 |
+| collapse-repeats | 0 | 3, one passing 4 of 4 as loop_detected |
+| precursors | 2 | 3, both completions at 6 turns and entirely on the fast tier |
+
+Two completions at the same turn count on the same tier is the first result
+here that looks like a task the fast tier can do rather than one it
+sometimes survives. It is still 3 runs, and the whole set is 3 completions
+in 11, so this is a direction and not a rate.
+
+The kept workspace earned itself on its first failure. The run left
+`truncate` untouched, which settles "it edited the wrong thing" against
+"it never edited at all" without inferring anything from the log.
+
+That run also names what is left, and it is not degeneration. Its malformed
+call is 1,959 characters at a compression ratio of 0.241, well clear of the
+degenerate band, and it ends mid-expression: `s[i-2] == 0x8, s[i`. An
+emission cut off partway through with normal entropy is a different failure
+from one that repeated itself to the limit, and the likely cause is the
+fast tier running out of its 8k window mid-argument rather than anything
+about repetition. Nothing here measures that, and the fix for it would sit
+with the payload work in item 3 rather than with sampling.
