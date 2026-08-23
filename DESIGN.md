@@ -461,7 +461,7 @@ Attempts themselves need no storage, since jj snapshots the working copy on ever
 
 **Where the sweep works.** Measured in the since-removed `_ai_/demos/pattern-sweep` demo on two real causes: a local syntactic cause (a gate returning pass after examining nothing) resolved to an `ast-grep` pattern that found all four sibling sites across three files with no false positives, while a dataflow cause spanning functions returned 100 hits of noise. So the generalize phase is seedable, not automatic, and its exit condition must accept "the sweep does not discriminate here, and the durable artifact is a helper or a boundary test instead".
 
-### Mutation testing as a verification gate (M3, running on demand)
+### Mutation testing as a command (M3, run on demand)
 
 Coverage says a line ran, not that anything checked it, and this project has already shipped a gate that reported green having run zero tests. Mutation testing is the general form of that question.
 
@@ -472,6 +472,7 @@ Coverage says a line ran, not that anything checked it, and this project has alr
 - Mutants are written into a throwaway jj workspace, never the tree being edited, so a crashed run cannot leave mutated source behind. `jj workspace add` costs 0.31 s for this repo's 628 files and shares the main tree's Go build cache. It must be given `-r @`: by default jj bases a new workspace on the *parent* of the current working-copy commit, so every uncommitted change is missing and the gate would examine a tree without the change it was asked about
 - It stays out of the default gate list. Measured on this repo, 6.35 s per mutant at package-level selection, which makes a 30-mutant change 190 s and a verification round unusable. That number is a property of running whole packages, so the cost falls with the coverage map: line-level selection runs a handful of tests per mutant instead of a package
 - It answers whether the suite would notice a behavior change, not whether the change was the one asked for. Measured on the append-instead-of-replace case in the Gates section: the gate produced one mutant and the suite killed it, so a change that did the wrong thing scored clean. Coverage, the fail-to-pass gate, and mutation all bound what a green suite means, and none of them reads the task
+- It is not on the roadmap as a gate and is not becoming one. Reviewed against what it costs: it stays out of the default gate list, its findings are advisories the model is never told, and the only thing that reads them is `wavez -mutate`. Dropping the `Gate` wrapper and keeping the command was considered and is not worth doing, because `cmd/wavez/mutate.go` invokes the gate directly, so the wrapper is the command's implementation rather than a layer over it
 - `gremlins` is the maintained Go tool (v0.6.0, December 2025) and already skips uncovered mutants and gates on a score, but it runs a whole module and gathers full coverage first, which is minutes here, and it has no diff mode. It stays a candidate for a cadence backstop, not for the per-run gate
 
 ### Modifiers (M3)
@@ -673,19 +674,19 @@ Shipped as `internal/web` plus two tools. One search, one fetch, both read-only,
 - Version pinning stays a prompt matter: the schema asks for the library and version in the query, because an answer about a different version is worse than no answer
 - Dash docsets as a local first hop remain deferred
 
-### Benchmark (harness M3, comparison M5)
+### Benchmark (harness M3)
 
-The thesis is "fewer tokens, faster, same or better code", so it needs a harness early enough to measure M3 against M1, and a comparison against Claude Code and OpenCode once the agent is whole. opencode-bench is the reference shape (a task set, per-agent adapters, a scoring rubric). Harbor and Terminal-Bench are the reference for sandboxed task execution and scoring.
+The thesis is "fewer tokens, faster, same or better code", so it needs a harness early enough to measure M3 against M1.
 
-- Tasks come from real commits in the user's repos, replayed from the parent tree with the commit message as the prompt and the real diff plus the repo's own tests as the oracle, the same method as `_ai_/demos/intent-edits/corpus`. Twenty to thirty tasks stratified by size and kind (add, change, fix, refactor, cross-file). Public tasks (Terminal-Bench, SWE-bench-style) come later for external comparison
+**The external comparison is cut.** Adapters for Claude Code and OpenCode, a shared sandbox, and a scoring rubric are a program in their own right, and what they would produce is a claim to other people about a tool with one user. The replay set already answers the question that changes what gets built next, which is whether a change made this harness better than it was yesterday on the same task. The reference shapes stay recorded (opencode-bench for the task set and adapters, Harbor and Terminal-Bench for sandboxed execution and scoring) in case that ever stops being true.
+
+- Tasks come from real commits in the user's repos, replayed from the parent tree with the commit message as the prompt and the real diff plus the repo's own tests as the oracle, the same method as `_ai_/demos/intent-edits/corpus`. Twenty to thirty tasks stratified by size and kind (add, change, fix, refactor, cross-file).
 - Metrics per run: pass rate against tests, output tokens, input tokens, cache hit share, wall time, hosted cost, turns, tool calls, malformed calls, gate failures, and the share of the final diff produced by resolvers and Modifiers versus model text. The last one is the number that proves or refutes the design. `wavez -stats <thread>` already reports most of them from a finished run's log, which is what makes a single lane measurable before the task set exists: turns, tool calls by name with the bytes each returned, tokens in and out with the cache share, reads that returned a file unchanged since the last read of it, searches that matched nothing, gate rounds and failures, review objections, and what compaction saved
-- Adapters: Wavez through `-p` with JSON output, Claude Code through `-p --output-format json`, OpenCode through its server API. Same task text, same sandbox, three runs each. The `_ai_/demos/intent-edits/timing` scripts are the seed
 - Two lanes: local-only (qwen3:8b, no network) and hosted-allowed. Reported separately, since the local lane is where the deterministic layer has to carry the most
 - Output is one table per model lane plus a per-task drill-down, written to `_ai_/bench/` with the run's SHAs, and rerunnable from one command in a routine
 - `wavez -replay <task>` is the single-task half of that, and it is what a lane is judged on today. It runs one prompt from `_ai_/bench/timing/tasks.txt` in a jj workspace, so a task naming the files it edits starts from the same tree every time, and appends one record: the task and a hash of its prompt, the lane label (the commit, unless named), the tier and turn cap it ran under, the stop reason, the checks, and the whole `-stats` summary. The run's thread log is copied back into the project before the workspace goes, since the counters say what changed and the transcript says why
 - A task carries its own oracle, because `complete` is the loop's verdict on itself and says nothing about whether the work is right: one fast-tier run finished a question task with a confidently wrong count. A check is `path:substring`, `answer:substring` against the run's final text, `build:<pattern>` or `test:<pattern>` for a go command, or any of them with a leading `!`, evaluated in the workspace before it is removed. Substrings alone are not enough on their own: a rename that missed a caller in a second file passed every substring its task had, and the compiler is what caught it. A run that ends `complete` with a failing check is a failure, and the report carries both
 - `-replay-report <task>` prints every recorded run of that task and diffs it against the most recent earlier run that took a turn. It says so when the pair ran under different tiers or caps, or when the task's own text changed between them, because either makes the diff measure something other than the lane
-- What Wavez adds that the reference tools do not capture: turn count, gate failures, resolver share, and per-thread spend from the ledger
 - Extreme-ends performance set, run on a cadence and before each version: index a 500k LOC monorepo cold and after a one-file change, twenty threads streaming with three gates running, a 100k-row transcript opened and searched, an 8k-token prompt against the local model's served window with compaction on, memory ceiling with the model loaded plus a Go test suite plus a compose stack, `.wavez.pkl` reload under a burst of file events, and the TUI at 80x24 and 200x60 with all panels. Each has a budget (index time, p95 frame time, RSS, event lag) recorded in the diagnostics numbers, and a regression fails the release routine
 
 ## Decisions
@@ -751,9 +752,9 @@ done when its condition holds, and nothing here promises a release number.
 |---|---|---|
 | M1 Loop | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
 | M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold. Both hold on the fake-loop harness (`internal/daemon/schedule_test.go`, `internal/cycle`). The fix cycle's refusal has also been watched on a real model run, recorded in `_ai_/bench/dogfood.md`, and the three-thread condition has not | Shipped: pkl routines, DAG runner, Cycles with the fix cycle, leases, schedule view, diagnostics panel, sub-threads and fork, routines panel, memory-aware admission, local model management, `llama-server` timings on the panel, the remote local tier, one daemon per laptop with fleet Home, composer snippets. Left for the ordered list below: PTY recordings, semantic index and similarity notes, repo map, Semgrep routine with capability delta, schedule and thread-lifecycle triggers firing, per-model settings reaching the supervisor |
-| M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, mutation gate advising in the verification round (it runs on demand today), Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim` with `$EDITOR` prompt handoff and a `wavez lsp` completion server, MCP on demand, web search, context manifest and Ask-a-line |
+| M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim` with `$EDITOR` prompt handoff and a `wavez lsp` completion server, MCP on demand, context manifest and Ask-a-line |
 | M4 Away | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
-| M5 Proof | A benchmark table against Claude Code and OpenCode on the same tasks in both lanes | Browser recordings, benchmark adapters for Claude Code and OpenCode, public task set |
+| M5 Reach | Wavez runs the work that leaves the terminal | Browser recordings. The external benchmark table is cut: see the Benchmark section |
 
 ### Standing objectives
 
@@ -850,15 +851,33 @@ measured and what it did not settle.
 
 ### Next
 
-**Take next**, when nothing else is asked for: the per-edit undo picker
-under item 11, which is recorded on every tool event and reachable from
-nothing; then message queueing and the interrupt beside it from
-[Parked](#parked), which have no blocker and cost a wait in daily use every
-day they are not built; then harder replay tasks, because item 4 cannot be
-decided until the set contains work the fast tier plausibly fails at for a
-reason other than emitting a malformed call. `h2` has been 1 of 2 in six
-lanes and its failure is comprehension rather than tool surface, which makes
-it the one existing task worth studying rather than replacing.
+**Take next**, when nothing else is asked for, in this order:
+
+1. **Item 2, aimed by item 14's taxonomy.** Across the 77 recorded replay
+   runs, `str_replace` errors on 56% of its calls (78 of 140), `delete` on
+   60% (24 of 40), and `rename` on 45% (5 of 11), while `read`, `search`,
+   `list`, `context`, and `move` sit at or near zero. Over half of every
+   edit attempt this project has recorded failed. That is the largest
+   measured inefficiency anywhere in the harness and it is the thesis
+   restated as a number: the tools that take names and ranges do not fail,
+   and the one that takes source text fails more often than it works. Fix
+   the built-in tools until reaching for `grep` and free-text editing is the
+   worse option, rather than asking a model not to
+2. **Item 14, first the taxonomy**, because the number above is currently
+   uninterpretable: a `delete` that refuses a declaration still in use is
+   counted the same as one that failed, so the 60% conflates a working
+   safeguard with a defect. Nothing else on this list can be aimed until
+   that separation exists
+3. **Item 15's transcript fixtures**, which make a harness change verifiable
+   in a second instead of a three-minute lane on an idle laptop
+4. Then the per-edit undo picker under item 11, and message queueing and the
+   interrupt from [Parked](#parked), which have no blocker and cost a wait
+   in daily use every day they are not built
+5. Then harder replay tasks, because item 4 cannot be decided until the set
+   contains work the fast tier plausibly fails at for a reason other than
+   emitting a malformed call. `h2` has been 1 of 2 in six lanes and its
+   failure is comprehension rather than tool surface, which makes it the one
+   existing task worth studying rather than replacing
 
 Ordered by the rule above: measurement, then the efficiency work it makes
 decidable, then the machine probes that need a stable loop underneath them.
@@ -889,6 +908,23 @@ rows. Each names what closes it.
 
     What the build changed against that design: the goal is derived rather than stored twice, because a thread's log already holds it. It is the last `KindGoal` event, or the first prompt when nobody rewrote one, so a resumed thread reads it back with no new persistence and a rewrite is auditable beside what it replaced. The injection rule collapsed to one test rather than three hooks: at run start, restate the goal only when the history about to be sent does not already carry it, which covers a fork, a reopen, and a rewrite together and stays silent on every ordinary turn.
 13. Web search. Shipped, and it cost 221 preamble tokens for the pair rather than the ~1.5k a schema of that shape usually runs, so the `web` toggle that turns them off matters less than expected. What the survey changed: the plan was to mark fetched text untrusted and stop there, and the literature and the field both say a marker is the weakest layer. OpenCode's own `webfetch` blocks nothing (no private-address check, no redirect rule, no boundary) and its injection defenses live in third-party plugins that pay a judge model per tool result; the research converged on enforcing policy outside the model with deterministic checks and constrained egress rather than on asking it nicely. So the boundary shipped last, behind credential refusal, private-address refusal at dial time, a same-host redirect rule, and permission-gated fetches of any host this thread's searches did not return
+14. Harness observability. Everything here is deterministic, needs no model, and answers a question this project has repeatedly answered by hand and slowly.
+    - **A tool error taxonomy.** Every tool error carries its cause (no match, ambiguous match, malformed arguments, refused by design, lease or scope refusal), so a refusal that worked is never counted as a failure. Without it the 56% edit error rate above cannot be acted on, and with it the next fix is aimed rather than guessed. The causes are already distinct in the code; what is missing is that the result does not carry which one
+    - **Gate false-alarm detection.** Record when a gate failure is followed by that same gate passing with no edit in between. That is exactly what `h5` was, it costs nothing to detect, and it would have named the harness as the problem on the run that hit it rather than three re-runs later. It is also the signal that says whether the trimming and selection work is making the gates quieter or just wronger
+    - **A corpus-wide stats command.** `-stats` reads one run, where a rate reads as noise. Every number in this list came from ad-hoc scripts over `records.jsonl`, which means the dogfood loop's own evidence is not reachable from the tool it is about
+    - **Turn attribution.** Classify each turn as productive (it produced an accepted change), retrieval, or harness-caused (it reacted to gate feedback or a tool error). The first two are exact from the log; the third is the one worth having and the one that needs judgment, so it ships marked as an estimate rather than a count
+    - **A run timeline a human can read.** The three above are numbers; this is the picture. One page per run: turns as bars, tool calls colored by outcome, gate rounds, escalation points, and the operation id captured at each accepted change. It converges with the per-edit undo picker under item 11, because the thing a person points at to say "put it back to there" and the thing they read to see where the time went are the same list
+15. Harness testing and developer experience. The expensive part of changing this harness is proving the change did something, and today that costs a three-minute replay lane on a machine quiet enough for the result to mean anything.
+    - **Transcript fixtures.** Freeze a recorded run's model turns and replay them against the harness, asserting what the harness says at each step: golden frames for the agent loop, with no model, no idle machine, and no variance. It is only valid for changes that do not alter what the model sees, which covers gate messages, output reduction, tool result formatting, and the preamble, and it would have caught the gate-pattern bug the moment its message changed
+    - **A preamble budget in CI.** The fixed prefix is 41% of what a fast turn can use and only shrinks when somebody remembers to look. A ceiling that fails the build makes every new tool's cost a decision rather than a discovery
+    - **`-deadcode` in CI.** It exists, it currently fails on this tree with ten unreachable functions, and nothing notices. Either it gates the build or it should stop shipping as a command
+    - **`mise run scratch`.** One task for a throwaway daemon and TUI on a short socket path, with cleanup. The socket path limit is 104 characters and the scratchpad path is longer, which is a mistake worth making once
+16. A finish check, designed from first principles to replace the model reviewer. The reviewer as built asks a model whether a diff does what the task asked, and the recorded evidence is that it objects to correct diffs: 3 objections in 77 runs, both traceable ones on runs whose diff was right, and no run where an objection turned a failure into a success. It is also a model judging a model, which the critique experiment under [Risks](#risks-and-unverified-claims) already found wraps its own words around the same invention. What replaces it is not a better prompt but the deterministic checks that answer the same question, each able to fail a run on its own:
+    - Every path and symbol the closing answer names exists. The code index settles it, and it is exactly what `h1` invented
+    - The change set intersects what the task's own words name, where the task names a file or a symbol at all
+    - The changed lines are executed by a test, which the coverage map already answers per line
+    - The change set intersects what the standing goal names, which is the harness observation parked under item 12 rather than a model-authored goal
+    Each is a bound rather than a judgment, so a run that passes them all has not been declared correct, only found to have done something of the right shape. The reviewer stays in the tree behind a flag until enough of these exist to replace it.
 
 ### Parked
 
@@ -920,6 +956,7 @@ Likely later:
 
 Maybe:
 
+- A benchmark table against Claude Code and OpenCode. Cut rather than deferred: it is a claim addressed to other people about a tool with one user, and the replay set already decides what gets built next
 - Comprehension quizzes from transcripts (`../what-did-ai-do`). Works today as its own tool against Wavez's session IR
 - Dash docsets as a local first hop for web search
 - Learned router heuristics from usage. Start fixed
@@ -946,6 +983,7 @@ No:
 - The replay harness cannot resolve a small effect. Repeated runs of one task on one lane vary 40-70% in turns, so any A/B below roughly a factor of two is noise at the two or three runs a lane gets. Claims about turns in this document that rest on a pair are bounded by that, and a lane that needs a smaller effect measured needs a metric that does not depend on the model's path, such as the exact preamble size `wavez -preamble` reports
 - A change-gate batch can report a diagnostic the format pre-pass in that same batch has already fixed. Seen once, on `h4`: `delete` removed a function, the `lsp` gate told the model that `internal/edit/apply.go` imports `internal/tool` without using it, and by the end of the run the import was gone because `FormatGate` runs `goimports` over the same changed files. Whichever half is wrong (the gate order within a batch, or the LSP client answering from a view older than the write), the model spent a turn on something already repaired, which is the false-positive class the tier work is meant to remove rather than add to
 - A gate failure the gate cannot attribute is handed to the model as work. `describeFailure` ends "no output line named a changed file, so run it yourself to see", which is right when the harness has nothing and expensive when the harness is the thing that is wrong. Measured on `h5`: one `move` call did the whole task, the `go-test` gate reported a build failure in `internal/guard`, and the run spent fourteen of its fifteen turns re-reading files and re-running builds that all passed, then wrote a summary describing a defect that never existed. The cause was the gate's own command. `fallbackPackages` guessed a changed file's package as its directory and passed it to `go test` unprefixed, so `go test internal/guard` resolved against the standard library and failed with "package internal/guard is not in std" before compiling anything. That path is reached exactly when a change creates a file, because the import graph answers for every file it has already seen, which is why `move` and `write` hit it and `rename` and `delete` never did. Fixed by spelling the guess `./internal/guard`. The response was the other half, and it is now closed cheaper than by re-running: `go test -json` had already carried the toolchain's own line ("package internal/guard is not in std") in the stream, and trimming dropped it because it names no `.go` file. A failure with no frames now carries the head of what the command printed, so the same run would have read the diagnosis instead of the gate name. The first fix tried here (making `move` write each file once, which is a real improvement) changed nothing about the failure and was only shown not to be the cause by re-running the task
+- Over half of every recorded edit attempt failed. Across the 77 runs in `_ai_/bench/replay/records.jsonl`, `str_replace` errored on 78 of 140 calls, `delete` on 24 of 40, and `rename` on 5 of 11, against roughly zero for `read`, `search`, `list`, `context`, and `move`. The number is not yet interpretable, because a `delete` that correctly refuses a declaration still in use is recorded the same way as one that failed, which is what item 14's taxonomy exists to separate. Two readings survive that caveat either way: no run of any recorded lane escaped without several failed edit calls, and the tools that take names and ranges do not fail while the one that takes source text does
 - The web tools have no injection detector and are not claimed to. Every protection they carry is about what a request may contain and where it may go, so a page that talks the model into a bad edit is caught by the gates and the permission prompt on whatever it tries next, not by anything in `internal/web`. The residual case is a run whose user approves every prompt: provenance then stops deciding anything, and the marker is all that is left
 - DuckDuckGo's HTML endpoint is parsed by class name (`result__a`, `result__snippet`) and returns nothing rather than guessing when it recognizes neither. A silent change to their markup therefore reads as "that search returned nothing" for every query, which is a failure mode worth recognizing before debugging the query
 - Coverage-map adapters per language are the long tail. Importer-based selection from `codegraph` is the fallback, and on this repo it is close to running everything
