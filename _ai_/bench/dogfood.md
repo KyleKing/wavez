@@ -1730,3 +1730,54 @@ it measures contention rather than the tree. It is kept as
 the machine is worth being able to recognize later. Two rules follow: run a
 replay on an idle laptop, and read output tokens per second before reading
 turns, since a stall and a bad decision look the same in a turn count.
+
+## 2026-08-23 — the progress line, and what the corpus refused
+
+The `progress-estimate` spike finally ran on a corpus big enough to decide
+anything: 138 thread logs on this laptop, 108 runs, 836 turn boundaries.
+Two things came out of it, and the second is the one worth carrying.
+
+The remaining run is not predictable. No estimator landed within a factor of
+two more than a third of the time, and the two that read no history at all
+(elapsed doubles, own mean turn) matched the three that read the project's,
+so there is nothing to store. The conditional estimators buy their
+within-2x share with a long tail and report a 1,511 s mean error doing it.
+
+The turn is predictable enough to show: 54% within a factor of two at a
+median error of 4.9 s, from the run's own mean gap and nothing else. So the
+thread view renders `turn 4 · 12s of ~9s` and never a countdown.
+
+The measurement trap is the carry-forward. The first pass scored whole
+thread logs, which counts the minutes a thread waits for its human as work
+the model is doing. On the same 138 logs that inflates the mean error
+threefold (694.7 s against 221.4 s for the same estimator). A unit that
+includes idle time measures the human.
+
+## 2026-08-23 — web search, and the defense that does not depend on belief
+
+Built `internal/web` plus `web_search` and `web_fetch`. The survey moved the
+design: the plan was to mark fetched text untrusted and stop, and both the
+field and the literature say a marker is the weakest layer. OpenCode's own
+`webfetch` has no private-address check, no redirect rule, and no boundary,
+and its injection defenses live in third-party plugins that pay a judge
+model on every tool result.
+
+So the deterministic layers went first and the marker went last: no
+credential can ride on the request and a credential-shaped URL is refused
+before anything is sent, a host resolving to a loopback or private address
+is refused at dial time (checked in the dialer, so a name that resolves
+differently the second time is caught too), a redirect may not change host,
+the body is capped, and a host no search in this thread returned goes
+through the permission gate.
+
+Measured: the pair costs 221 preamble tokens, against the ~1,500 estimated
+from the schema shape. The `web` toggle that turns them off therefore
+matters much less than the question it was added to answer, and the general
+lesson is that `wavez -preamble` answers in a second what a guess gets wrong
+by 7x.
+
+Not verified: no replay lane exercises the web tools, because no task in the
+set asks a question about the world outside this repository. The live check
+was a scratch test run by hand (DuckDuckGo returned five usable results for
+"go 1.26 release notes" and the fetch reduced go.dev's release notes to
+27 KB of clean text) and deleted rather than committed.

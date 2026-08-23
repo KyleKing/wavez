@@ -68,3 +68,16 @@ are specific to this codebase and not visible from the code.
   on an idle machine finished in 13 turns with every check passing. Start a
   replay, then stay off the CPU until it records, and read output tokens per
   second before reading turns
+- A gate failure that names no changed file now carries the head of what
+  the command printed. If that head shows a toolchain error rather than a
+  source diagnostic (`package internal/x is not in std`, a missing binary),
+  the gate's own command is wrong and the tree is fine: read
+  `gate.Selection` before reading the code
+- The web tools reach the network from `internal/web` and nothing else
+  does. A test there must not depend on a live site; the live check is a
+  scratch test run by hand and deleted, because a network test in CI fails
+  for reasons that have nothing to do with the change
+- `wavez -preamble` is the deterministic metric for anything the replay
+  harness cannot resolve. Every new tool's cost is one run of it, and the
+  pair of web tools came to 221 tokens against an estimate of 1,500, so
+  estimate nothing here that can be measured in a second

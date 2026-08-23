@@ -22,13 +22,26 @@ is worth saying once, here:
   `jj abandon <change>+` abandons every descendant, not the one just made, and
   `jj op restore` is how that gets undone
 - Commit per lane with a subject that says what changed and why, so a lane that
-  turns out wrong can be dropped on its own
+  turns out wrong can be dropped on its own. One lane is the change, its test,
+  and the doc update that describes it, and nothing else; a measurement belongs
+  in the doc rather than in a comment. Commit as its own command, never piped or
+  chained, since a pipe reports its own exit status and a failing hook then
+  reads as success
+- `jj` does not run hk's git hooks, so a commit made here can carry what a hook
+  would have fixed. Run `mise exec -- hk check --all` before pushing, and when a
+  hook rewrites a file, squash the fix into the change that broke it rather than
+  leaving a repair commit behind
 - Push at a milestone, never mid-lane: a `feat:` or `fix:` landing on `main`
   cuts a release, so `main` has to be green before the push rather than after
 - Green means all five CI jobs and a full `go test ./...`, run on a machine
   quiet enough for the result to mean anything. A test that fails only under a
   parallel run is evidence about something, and which thing is a question to
   answer rather than a reason to rerun it
+- Reach for wavez's own tools on this repository before the shell, because every
+  gap that shows up in daily use is an item on Next: `search` with `mode=literal`
+  for an exact identifier, `rename`, `delete`, and `move` for the edits they
+  cover, and the gates rather than a hand-run `go test`. What the shell is still
+  needed for is the finding
 - A TUI change is not done until it has been driven in a PTY. The defects worth
   fixing have consistently been invisible in review and obvious within seconds
   against a real model, with the unit tests green throughout.
@@ -792,7 +805,60 @@ anything up here is to stop checking.
 which only works if the measurement, the change, and the doc update travel
 together and nothing else does.
 
+### Dogfooding
+
+The loop this project is optimized by: take the top item off Next, build it
+with wavez's own tools where they reach, and measure it on a replay lane
+when it touches the tool surface, a gate, or the preamble. A change to any
+of those lands with a before and after from the same task, or it lands as a
+guess.
+
+**Running a lane.** `wavez -replay <task> -replay-label <name> -model fast`
+runs one task of the fixed set in a throwaway jj workspace and appends a
+record to `_ai_/bench/replay/records.jsonl`; `-replay-report <task>` prints
+every record for that task and diffs the last two. The tasks live in
+`_ai_/bench/timing/tasks.txt`, one line each, with the checks that decide
+whether the run did the work. A change whose effect no existing task
+exercises needs a new task rather than a hopeful reading of an old one:
+`h3`, `h4`, and `h5` were each written for the Modifier they measure.
+
+**Reading a lane.** Read output tokens per second before reading turns. A
+replay measures the laptop as much as the tree, and a contended run reads as
+a stupid model: one `e2` lane recorded 2 turns and a deadline at 68 output
+tokens in 180 seconds with `hk check --all` and `go test ./...` running
+beside it, and the same lane on an idle machine finished in 13 turns with
+every check passing. Start a replay, then stay off the CPU until it records.
+A run that turns out contended gets relabelled rather than deleted, because
+the row is evidence about the method.
+
+**What a lane can and cannot settle.** Repeated runs of one task vary 40-70%
+in turns, so an A/B below roughly a factor of two is noise at the two or
+three runs a lane gets. Anything smaller needs a metric that does not depend
+on the model's path, such as the exact preamble size `wavez -preamble`
+reports.
+
+**The model's own account of a run is not evidence.** Read the tool log.
+Twice now a closing summary has confidently described a defect that the tool
+log shows never existed, both times after the harness handed the run a
+failure it could not attribute. When a run behaves strangely, suspect the
+harness before the model: the last two efficiency wins were both harness
+bugs presenting as a confused model, and both were found by re-running the
+task rather than by reasoning about it.
+
+**Every lane ends in `_ai_/bench/dogfood.md`**, dated, with what was
+measured and what it did not settle.
+
 ### Next
+
+**Take next**, when nothing else is asked for: the per-edit undo picker
+under item 11, which is recorded on every tool event and reachable from
+nothing; then message queueing and the interrupt beside it from
+[Parked](#parked), which have no blocker and cost a wait in daily use every
+day they are not built; then harder replay tasks, because item 4 cannot be
+decided until the set contains work the fast tier plausibly fails at for a
+reason other than emitting a malformed call. `h2` has been 1 of 2 in six
+lanes and its failure is comprehension rather than tool surface, which makes
+it the one existing task worth studying rather than replacing.
 
 Ordered by the rule above: measurement, then the efficiency work it makes
 decidable, then the machine probes that need a stable loop underneath them.
