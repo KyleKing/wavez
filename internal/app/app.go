@@ -81,7 +81,11 @@ const (
 // because no deterministic check decides whether a command a model wrote
 // only reads, which is the same reason DESIGN.md puts shell behind the
 // permission gate.
-var ReadOnlyTools = []string{"list", "read", "search", "context", "question"}
+// The web tools are here because they change nothing in the tree, which is
+// what read-only means for a plan thread. What they return is untrusted
+// text either way, and a plan thread acts on it no more than an ordinary
+// one does.
+var ReadOnlyTools = []string{"list", "read", "search", "context", "question", "web_search", "web_fetch"}
 
 // App is one project's assembled object graph. Construct it with New and
 // release it with Close; do not copy it after construction.
@@ -268,6 +272,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
 		checks: changeGate, changes: changeGate,
+		web: cfg.Web, webSearchURL: cfg.WebSearchURL,
 	})
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
 	loopOpts := append(append([]agent.Option{}, loopBase...),
@@ -588,12 +593,16 @@ type registryDeps struct {
 	changes    tools.Changes
 	root       string
 	sandboxDir string
+	// webSearchURL names the search instance the web tools query, empty for
+	// the keyless default, and web offers them at all.
+	webSearchURL string
+	web          bool
 }
 
 func buildRegistry(d registryDeps) *tool.Registry {
 	withLeases := tools.WithLeases(d.leases)
 
-	return tool.NewRegistry(
+	set := []tool.Tool{
 		tools.NewList(d.root),
 		tools.NewRead(d.root, d.scope),
 		tools.NewStrReplace(d.root, d.scope, withLeases),
@@ -606,7 +615,14 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
 		tools.NewMove(d.root, d.indexer, d.scope, withLeases),
 		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),
-	)
+	}
+
+	if d.web {
+		search, fetch := tools.NewWeb(d.webSearchURL, DefaultThreadID, d.permGate)
+		set = append(set, search, fetch)
+	}
+
+	return tool.NewRegistry(set...)
 }
 
 // DerivedState names the files under a project's state directory that are

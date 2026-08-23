@@ -29,6 +29,17 @@ deep: Tier = new { model = "stealth/ox-alpha" }
 /// falls back to the OPENROUTER_API_KEY environment variable.
 hostedKeyCommand: String = ""
 
+/// Base URL of a SearxNG instance the web search tool queries, such as
+/// "http://searx.example:8888". Empty searches through DuckDuckGo's HTML
+/// endpoint, which needs no key and no service and breaks whenever their
+/// markup changes. Either way no key is stored and no account is used.
+webSearchURL: String = ""
+
+/// Whether the web search and fetch tools are offered at all. They cost
+/// their schemas out of every turn's context, so a project that never asks
+/// questions about the world outside it can turn them off.
+web: Boolean = true
+
 /// Served context window, in tokens, of a llama-server Wavez starts for the
 /// fast tier. Wavez starts the server with it, moves a turn up a tier once
 /// the request plus reply room would not fit it, and compacts against it. A

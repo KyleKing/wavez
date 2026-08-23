@@ -75,8 +75,11 @@ type Config struct {
 	// network endpoint with no key command of its own. Empty means fall back
 	// to the OPENROUTER_API_KEY environment variable.
 	HostedKeyCommand string
-	Context          []string
-	ExtraDirs        []string
+	// WebSearchURL names a SearxNG instance for the web search tool, empty
+	// to search through DuckDuckGo's HTML endpoint.
+	WebSearchURL string
+	Context      []string
+	ExtraDirs    []string
 	// Cycles are the phased ways of working this project defines, beside the
 	// ones wavez ships. A definition here replaces a built-in of the same
 	// name outright.
@@ -110,6 +113,10 @@ type Config struct {
 	LocalPort int
 	// LocalStartTimeout bounds one llama-server start attempt.
 	LocalStartTimeout time.Duration
+	// Web offers the search and fetch tools at all, since their schemas
+	// cost every turn whether or not a project ever asks the internet
+	// anything.
+	Web bool
 }
 
 // Tier is one routing tier's model and the OpenAI-compatible endpoint it is
@@ -153,5 +160,6 @@ func Defaults(root string) Config {
 		LeaseTTL:          DefaultLeaseTTL,
 		LocalPort:         DefaultLocalPort,
 		LocalStartTimeout: DefaultLocalStartTimeout,
+		Web:               true,
 	}
 }

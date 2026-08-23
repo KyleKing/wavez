@@ -39,6 +39,7 @@ type pklConfig struct {
 	Balanced         pklTier               `pkl:"balanced"`
 	Deep             pklTier               `pkl:"deep"`
 	HostedKeyCommand string                `pkl:"hostedKeyCommand"`
+	WebSearchURL     string                `pkl:"webSearchURL"`
 	Context          []string              `pkl:"context"`
 	ExtraDirs        []string              `pkl:"extraDirs"`
 	AstGrepRules     []string              `pkl:"astGrepRules"`
@@ -55,6 +56,7 @@ type pklConfig struct {
 	LocalPort        int                   `pkl:"localPort"`
 	LocalStartSecs   int                   `pkl:"localStartTimeoutSeconds"`
 	LeaseTTLMinutes  int                   `pkl:"leaseTtlMinutes"`
+	Web              bool                  `pkl:"web"`
 }
 
 // pklTier mirrors the Tier class in pkl/Wavez.pkl.
@@ -247,6 +249,8 @@ func fromPkl(root string, p pklConfig) Config {
 	if p.HostedKeyCommand != "" {
 		cfg.HostedKeyCommand = p.HostedKeyCommand
 	}
+
+	cfg.Web, cfg.WebSearchURL = p.Web, p.WebSearchURL
 
 	if p.ContextWindow != 0 {
 		cfg.ContextWindow = p.ContextWindow
