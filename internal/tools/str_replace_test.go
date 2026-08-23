@@ -104,6 +104,17 @@ func TestStrReplace_NamesAMissingPath(t *testing.T) {
 	if !result.IsError || !strings.Contains(result.Content, "path is required") {
 		t.Errorf("result = %+v, want an error naming the missing path", result)
 	}
+
+	// An empty call is missing its path too, and a hosted tier sends one:
+	// it is not grammar-constrained, so nothing stops it. Naming the absent
+	// replacement first would send the reader past the earlier absence.
+	empty, err := s.Run(context.Background(), mustJSON(t, map[string]any{}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !empty.IsError || !strings.Contains(empty.Content, "path is required") {
+		t.Errorf("result = %+v, want an empty call to name the missing path", empty)
+	}
 }
 
 // One call per replacement costs a turn each, and the turns are what a run
@@ -199,6 +210,11 @@ func TestStrReplace_ErrorsSayWhichKindOfFailureTheyAre(t *testing.T) {
 		{
 			name:  "a replacement with no new_string",
 			input: map[string]any{"path": "file.go", "old_string": "b := a + 1"},
+			want:  tool.CauseBadInput,
+		},
+		{
+			name:  "an empty object",
+			input: map[string]any{},
 			want:  tool.CauseBadInput,
 		},
 	}
@@ -327,5 +343,47 @@ func TestStrReplace_EveryBranchRequiresEveryPropertyItDeclares(t *testing.T) {
 				t.Errorf("branch %d leaves %q optional, which lets a call close without it", i, name)
 			}
 		}
+	}
+}
+
+// A batch that anchors in two files fails with only "not found", which
+// names nothing the model can change, so it resends the same call. One
+// replay lane spent three of its eight turns that way: `path` was
+// memory.go and two of the three edits anchored in memory_test.go.
+func TestStrReplace_ABatchSaysItAppliesToOneFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package p\n\nfunc A() {}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	testFile := filepath.Join(dir, "a_test.go")
+	if err := os.WriteFile(testFile, []byte("package p\n\nfunc TestA(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "a.go",
+		"edits": []map[string]string{
+			{"old_string": "func A() {}", "new_string": "func A() { _ = 1 }"},
+			{"old_string": "func TestA(t *testing.T) {}", "new_string": "func TestA(t *testing.T) { _ = 1 }"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError {
+		t.Fatalf("IsError = false, want the batch refused: %q", result.Content)
+	}
+
+	if !strings.Contains(result.Content, "a.go") || !strings.Contains(result.Content, "its own call") {
+		t.Errorf("Content = %q, want it to name the path every edit applies to", result.Content)
+	}
+
+	if result.Cause != tool.CauseNoMatch {
+		t.Errorf("Cause = %q, want %q", result.Cause, tool.CauseNoMatch)
 	}
 }

@@ -121,6 +121,13 @@ type editPair struct {
 // as a deletion turns a lost argument into a destructive edit reported as a
 // success, which is what one logged run did to a README line.
 func (in *strReplaceInput) shapeError() (string, bool) {
+	// A call with no path at all is missing more than its replacement, and
+	// naming the last absent field first sends the reader past the first
+	// one. resolvePath names it.
+	if in.Path == "" {
+		return "", true
+	}
+
 	if len(in.Edits) > 0 {
 		if in.OldString != "" || in.NewString != nil {
 			return "send either edits or one old_string/new_string pair, not both", false
@@ -188,6 +195,12 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 			return tool.Fail(tool.CauseBadInput,
 				"%v\n\nold_string still carries the line numbers read prefixed each "+
 					"line with. Send the file's own text, without the leading number and tab.", err), nil
+		}
+
+		if errors.Is(err, edit.ErrNotFound) && len(in.Edits) > 1 {
+			return tool.Fail(tool.CauseNoMatch,
+				"%v\n\nEvery edit in one call applies to %s. An anchor belonging to another "+
+					"file needs its own call with that path.", err, in.Path), nil
 		}
 
 		return failWith(err), nil

@@ -1857,3 +1857,45 @@ emission's tail, and the event log's reader already allows 8 MB a line.
 Not verified: the 13 stay unclassified until runs recorded under the new
 bound exist. This buys the next classification pass rather than answering
 this one.
+
+## 2026-08-23 — two e2 lanes, and what they did and did not settle
+
+Ran `e2` twice on the fast tier against the schema fix. Neither run passed,
+and neither is evidence that the fix helped the task: `pair-required`
+stopped stagnant at 8 turns with 1 of 3 checks, `batch-one-file` stopped
+loop_detected at 9 turns with the same 1 of 3. The recent baselines for
+this task are stagnant at 7 turns, deadline at 10, and complete at 13, so
+both runs sit inside the band this set varies over and an A/B this size is
+noise by the rule in [Dogfooding](../../DESIGN.md#dogfooding).
+
+What is settled, because it does not depend on the model's path: no call in
+either run was pairless, against 52 of 52 fast-tier calls before. The first
+lane's three `str_replace` calls all came back as complete pairs with a
+`no_match` cause and no escalation, so the failure moved from a lost field
+to a wrong anchor rather than going away.
+
+The tool log then paid for the logging change twice over, and both findings
+were invisible under the old 2000-character bound.
+
+The first: `e2` needs two files, and `edits` is per file. The model sent one
+batch of three edits with `path` set to memory.go while two of them
+anchored in memory_test.go, and the error said only "old_string not found
+in source", which names nothing to change, so it resent the same call until
+the stagnation bound stopped the run. A failed batch now says every edit
+applies to that one path. The re-run did not turn that into a pass, so the
+message is a correct thing to say and not a fix for this task.
+
+The second: the malformed emission class has a shape. `batch-one-file`'s
+seq 10 is 8,765 characters and ends mid-array, so a malformed call here is
+the model trying to write an entire multi-file batch in one argument and
+being cut off, rather than a degeneration loop. Against an 8k window that
+one argument is roughly 2,200 tokens. That points at the size of what the
+tool asks the model to emit, which is the argument for a per-edit `path`
+and against larger batches, and it is the first direct evidence for either.
+
+One defect this found in the fix itself: the hosted tier sent `{}` twice,
+and the absent-`new_string` message fired on a call whose path was missing
+too, naming the later absence first. `shapeError` now defers to the path
+check when there is no path. Worth keeping in view: the hosted tiers are
+not grammar-constrained, so the tool-level check is what holds the shape
+there, which is why both halves of the fix exist.

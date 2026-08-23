@@ -889,8 +889,14 @@ measured and what it did not settle.
    of the 22 refused repeats were repeats of a pairless call. The three
    problems above were one problem wearing three masks, and what is left is
    6 genuine anchor misses, 13 malformed emissions, and a tail of single
-   cases. What the lane cannot say is how many turns this returns, since
-   the measurement is enforcement rather than a replay lane
+   cases. Two `e2` lanes then ran against it and settled less than hoped: no
+   call in either was pairless, and both still failed at 8 and 9 turns
+   inside the band this task already varies over, so the turn effect is
+   noise at this sample and the structural change is what holds. The
+   failure moved to a wrong anchor, and the tool log named two causes the
+   old log bound had hidden: `edits` is per file where `e2` needs two, and
+   a malformed call is an 8,765-character multi-file batch cut off
+   mid-emission rather than a degeneration loop
 2. **Item 15's transcript fixtures**, which make a harness change verifiable
    in a second instead of a three-minute lane on an idle laptop
 3. Then the per-edit undo picker under item 11, and message queueing and the
