@@ -387,3 +387,87 @@ func TestStrReplace_ABatchSaysItAppliesToOneFile(t *testing.T) {
 		t.Errorf("Cause = %q, want %q", result.Cause, tool.CauseNoMatch)
 	}
 }
+
+// A pair repeated exactly is the fast tier repeating itself, and applying
+// it once is what the call asked for. Measured on `h6`, one run sent the
+// same pair five times and the next sent it twice, and naming the
+// repetition to the model did not stop it. A repeat carrying a different
+// replacement is undecidable and stays refused.
+func TestStrReplace_CollapsesARepeatedPairAndRefusesAConflictingOne(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.go")
+
+	if err := os.WriteFile(path, []byte("package p\n\nfunc A() {}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	same := map[string]string{"old_string": "func A() {}", "new_string": "func A() { _ = 1 }"}
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path":  "a.go",
+		"edits": []map[string]string{same, same, same},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want the repeated pair applied once: %q", result.Content)
+	}
+
+	if strings.Contains(result.Content, "across") {
+		t.Errorf("Content = %q, want it to report one edit rather than a batch", result.Content)
+	}
+
+	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if got := string(after); !strings.Contains(got, "_ = 1") {
+		t.Errorf("file = %q, want the edit applied", got)
+	}
+}
+
+func TestStrReplace_RefusesABatchThatRepeatsAnAnchor(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.go")
+	source := "package p\n\nfunc A() {}\n"
+
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "a.go",
+		"edits": []map[string]string{
+			{"old_string": "func A() {}", "new_string": "func A() { _ = 1 }"},
+			{"old_string": "func A() {}", "new_string": "func A() { _ = 2 }"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError {
+		t.Fatalf("IsError = false, want the batch refused: %q", result.Content)
+	}
+
+	if !strings.Contains(result.Content, "undecidable") {
+		t.Errorf("Content = %q, want it to name the conflict", result.Content)
+	}
+
+	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if string(after) != source {
+		t.Errorf("file = %q, want it untouched at %q", after, source)
+	}
+}

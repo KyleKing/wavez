@@ -20,6 +20,8 @@ type wireRequest struct {
 	Tools              []wireTool     `json:"tools,omitempty"`
 	MaxTokens          int            `json:"max_tokens,omitempty"`
 	Temperature        float64        `json:"temperature,omitempty"`
+	PresencePenalty    float64        `json:"presence_penalty,omitempty"`
+	RepeatPenalty      float64        `json:"repeat_penalty,omitempty"`
 	Stream             bool           `json:"stream"`
 }
 
@@ -92,14 +94,16 @@ func toWireRequest(model string, req llm.Request) wireRequest {
 	}
 
 	return wireRequest{
-		Model:          model,
-		Messages:       messages,
-		Tools:          tools,
-		MaxTokens:      req.MaxTokens,
-		Temperature:    req.Temperature,
-		Stream:         true,
-		StreamOptions:  &wireStreamOptions{IncludeUsage: true},
-		ResponseFormat: toWireResponseFormat(req.ResponseFormat),
+		Model:           model,
+		Messages:        messages,
+		Tools:           tools,
+		MaxTokens:       req.MaxTokens,
+		Temperature:     req.Temperature,
+		PresencePenalty: req.PresencePenalty,
+		RepeatPenalty:   req.RepeatPenalty,
+		Stream:          true,
+		StreamOptions:   &wireStreamOptions{IncludeUsage: true},
+		ResponseFormat:  toWireResponseFormat(req.ResponseFormat),
 
 		ChatTemplateKwargs: toChatTemplateKwargs(req.Thinking),
 	}

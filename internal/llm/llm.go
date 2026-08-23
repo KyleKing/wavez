@@ -67,6 +67,14 @@ type Request struct {
 	Tools       []ToolSpec `json:"tools,omitempty"`
 	MaxTokens   int        `json:"max_tokens,omitempty"`
 	Temperature float64    `json:"temperature,omitempty"`
+	// PresencePenalty and RepeatPenalty bound repetition. Both are off in
+	// llama.cpp by default (0 and 1.0), and a grammar-constrained tool
+	// argument cannot stop early the way free text can, so a model that
+	// starts repeating inside one has no exit. Measured over this project's
+	// thread logs, 7 of 128 tool arguments over 400 bytes degenerated and
+	// none of 39 prose turns did.
+	PresencePenalty float64 `json:"presence_penalty,omitempty"`
+	RepeatPenalty   float64 `json:"repeat_penalty,omitempty"`
 }
 
 // Usage counts tokens for one model call.

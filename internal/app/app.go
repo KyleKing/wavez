@@ -390,6 +390,18 @@ func buildCycles(cfg config.Config) (*cycle.AstGrepSweeper, map[string]cycle.Cyc
 	return sweeper, cycles, nil
 }
 
+// Repetition bounds for fast-tier turns. Every penalty is disabled by
+// default in llama.cpp, and a grammar-constrained tool argument has no stop token to
+// reach, so a fast turn that starts repeating inside one runs to the context
+// limit. Measured on `h6`: the unbounded baseline emitted 15,544 characters
+// at a compression ratio of 0.037, and this setting 1,186 at 0.271. Presence
+// rather than repeat because it penalizes a token once instead of per
+// occurrence, which is what code full of tabs and `err` needs.
+const (
+	fastPresencePenalty = 1.5
+	fastRepeatPenalty   = 0
+)
+
 // loopOptions maps the Options a caller set to agent.Option values. A zero
 // bound means "leave the loop's own default", never "no bound".
 func loopOptions(root string, cfg config.Config, options Options) []agent.Option {
@@ -401,6 +413,7 @@ func loopOptions(root string, cfg config.Config, options Options) []agent.Option
 			hook.WithPreToolUse(cfg.PreToolUseHook...),
 			hook.WithPostToolUse(cfg.PostToolUseHook...),
 			hook.WithTimeout(cfg.HookTimeout))),
+		agent.WithFastSampling(fastPresencePenalty, fastRepeatPenalty),
 		agent.WithCompaction(thread.CompactOptions{
 			KeepLines:   compactKeepLines,
 			MaxToolAge:  compactMaxToolAge,

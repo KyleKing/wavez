@@ -555,3 +555,46 @@ func TestClient_Stream_ParsesLlamaServerTimings(t *testing.T) {
 		t.Errorf("PrefixHit() = %v, want %v", got, wantHit)
 	}
 }
+
+// The fast tier's repetition bounds have to reach the server or they are a
+// constant nobody applies. Every penalty is disabled by default in
+// llama.cpp, so an unsent field is indistinguishable from no bound at all.
+func TestRequestCarriesTheRepetitionBounds(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan []byte, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading request body: %v", err)
+		}
+		bodies <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+			t.Logf("writing SSE body: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	req := llm.Request{
+		Model:           "m",
+		Messages:        []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+		PresencePenalty: 1.5,
+	}
+	if _, err := collectAll(newClient(t, srv), req); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(<-bodies, &got); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+
+	if got["presence_penalty"] != 1.5 {
+		t.Errorf("presence_penalty = %v, want 1.5", got["presence_penalty"])
+	}
+
+	if _, ok := got["repeat_penalty"]; ok {
+		t.Errorf("repeat_penalty = %v, want it omitted when unset", got["repeat_penalty"])
+	}
+}

@@ -259,7 +259,30 @@ type Options struct {
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
 	CompactTrigger      float64
+	// FastPresencePenalty and FastRepeatPenalty bound repetition on the fast
+	// tier only, where every degenerate emission this project has recorded
+	// happened. Zero and zero leave llama.cpp's own defaults, which disable
+	// both.
+	FastPresencePenalty float64
+	FastRepeatPenalty   float64
 	CompactEnabled      bool
+}
+
+// samplingFor is the repetition bound for one turn, which is zero off the
+// fast tier: no hosted turn in this project's thread logs has degenerated,
+// and a hosted model prices and samples on its own terms.
+func (o Options) samplingFor(route router.Decision) sampling {
+	if route.Choice != router.ChoiceFast {
+		return sampling{}
+	}
+
+	return sampling{presence: o.FastPresencePenalty, repeat: o.FastRepeatPenalty}
+}
+
+// sampling is one turn's repetition bound.
+type sampling struct {
+	presence float64
+	repeat   float64
 }
 
 // Option configures a Loop.
@@ -285,6 +308,14 @@ func WithMaxWallClock(d time.Duration) Option { return func(o *Options) { o.MaxW
 // ceiling on one run's accumulated hosted-tier spend. Local turns never
 // accrue cost, so this only bites once a turn escalates. Zero disables it.
 func WithMaxHostedSpendUSD(v float64) Option { return func(o *Options) { o.MaxHostedSpendUSD = v } }
+
+// WithFastSampling bounds repetition on fast-tier turns. A
+// grammar-constrained tool argument cannot stop early the way free text
+// can, so a model that starts repeating inside one has no exit and runs to
+// the context limit.
+func WithFastSampling(presence, repeat float64) Option {
+	return func(o *Options) { o.FastPresencePenalty, o.FastRepeatPenalty = presence, repeat }
+}
 
 // WithMaxStagnantErrors overrides DefaultMaxStagnantErrors: the number of
 // consecutive tool-call results that must return an error, regardless of
@@ -680,6 +711,8 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		Messages: messages,
 		Thinking: r.hint.Thinking,
 	}
+	bound := r.loop.options.samplingFor(route)
+	req.PresencePenalty, req.RepeatPenalty = bound.presence, bound.repeat
 
 	releaseSlot, err := r.admitSlot(ctx, route.Choice)
 	if err != nil {

@@ -1968,3 +1968,59 @@ baseline for such a lane has to be a fast-only run of the same task or a
 task the tier can finish. And the case for a Modifier is not the bytes it
 saves but whether it moves a task inside the tier's remit, which is what
 `e3` demonstrates and what any new one should be measured against.
+
+## 2026-08-23 — degeneration has a cause and a fix, and h6 still fails most of the time
+
+`h6` was written as a fast-tier baseline for a declaration-replace Modifier
+and immediately measured something else. The baseline run died emitting
+15,544 characters of one repeated sentence, so the lane could not have
+measured a tool change at all.
+
+Sizing it across every thread log: 7 of 128 tool arguments over 400 bytes
+are degenerate by compression ratio, and 0 of 39 prose turns are. The gap is
+clean, 0.037 to 0.056 and then nothing until 0.175. All 7 are on the fast
+tier, all in `str_replace`, 4 of 7 killed their run, and 5 of 7 struck at
+the run's first tool call. Length does not explain the split: the two
+distributions match to p90 (2001 against 1934 bytes) and 6 prose turns over
+1500 bytes came through clean.
+
+The cause is that nothing was bounding it. llama.cpp disables every penalty
+by default (`repeat-penalty 1.00`, `presence-penalty 0.00`,
+`frequency-penalty 0.00`) and wavez sent none of them. The hypothesis for
+why it lands in arguments and not prose, unproven and worth holding
+loosely: a grammar-constrained JSON string has no stop token to reach, so a
+turn that starts repeating inside one runs to the context limit, where free
+text can simply end.
+
+Measured on `h6`, one run each:
+
+| lane | ratio | largest call | tiers | stop |
+|---|---|---|---|---|
+| none | 0.037 | 15,544 | 3f 2b | stagnant, 5 turns |
+| presence 1.5 | 0.271 | 1,186 | 6f | stagnant, 6 turns |
+| repeat 1.1 | 0.405 | 828 | 6f 1b | stagnant, 7 turns |
+
+Both bound it and one run each cannot separate them, so `presence` ships on
+Qwen3's own guidance and because it penalizes a token once rather than per
+occurrence, which is what code full of tabs and `err` needs.
+
+Underneath the degeneration was a milder form of the same thing. Freed of
+it, runs began sending the same edit pair several times in one batch: five
+identical pairs in one run, two in the next. Naming the repetition in the
+error did not stop it, which is the standing objective's own point about
+asking a model not to do something. An exactly repeated pair is
+unambiguous, so `str_replace` now applies it once, and refuses only the
+undecidable case where one anchor carries two different replacements.
+
+What none of this bought: a pass rate. Across 6 penalty runs of `h6`, 2
+reached 4 of 4 checks and 1 stopped `complete`. The failures moved rather
+than stopped, which is progress in kind and not in outcome: the baseline
+never landed an edit at all, and the later runs land the edit and then miss
+the `utf8` import, or finish the work and fail to notice. At 3 runs a
+configuration none of the differences between the penalty lanes are
+readable, and this file should not be read as saying otherwise.
+
+One harness observation to follow up separately: `collapse-repeats` run 3
+passed all 4 checks and still stopped `loop_detected`, so the run did the
+work and the loop did not recognize it. That is the question item 16's
+finish check exists to answer.

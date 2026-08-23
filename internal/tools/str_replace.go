@@ -133,7 +133,7 @@ func (in *strReplaceInput) shapeError() (string, bool) {
 			return "send either edits or one old_string/new_string pair, not both", false
 		}
 
-		return "", true
+		return in.conflictingEdit()
 	}
 
 	if in.NewString == nil {
@@ -145,14 +145,60 @@ func (in *strReplaceInput) shapeError() (string, bool) {
 	return "", true
 }
 
+// conflictingEdit reports a batch that names one anchor twice with two
+// different replacements. Which one should win is unanswerable, so the call
+// is refused rather than resolved.
+//
+// A pair repeated exactly is a different thing and is not refused: a fast
+// turn that starts repeating itself emits the same edit several times, and
+// applying it once is what the call asked for. Measured on `h6`, one run
+// sent the same pair five times and the next sent it twice, and naming the
+// repetition to the model did not stop it doing so.
+func (in *strReplaceInput) conflictingEdit() (string, bool) {
+	replacement := make(map[string]string, len(in.Edits))
+	for i, e := range in.Edits {
+		prior, seen := replacement[e.OldString]
+		if seen && prior != e.NewString {
+			return fmt.Sprintf("edit %d has the same old_string as an earlier edit but a "+
+				"different new_string, so which one should apply is undecidable. Send one "+
+				"replacement per anchor.", i+1), false
+		}
+
+		replacement[e.OldString] = e.NewString
+	}
+
+	return "", true
+}
+
+// dedupedEdits is the batch with any exactly repeated pair dropped, in the
+// order the call named them.
+func (in *strReplaceInput) dedupedEdits() []editPair {
+	out := make([]editPair, 0, len(in.Edits))
+	seen := make(map[editPair]bool, len(in.Edits))
+
+	for _, e := range in.Edits {
+		if seen[e] {
+			continue
+		}
+
+		seen[e] = true
+
+		out = append(out, e)
+	}
+
+	return out
+}
+
 // pairs is the replacements one call asked for, in order.
 func (in *strReplaceInput) pairs() []edit.Pair {
 	if len(in.Edits) == 0 {
 		return []edit.Pair{{OldString: in.OldString, NewString: *in.NewString}}
 	}
 
-	out := make([]edit.Pair, 0, len(in.Edits))
-	for _, e := range in.Edits {
+	deduped := in.dedupedEdits()
+
+	out := make([]edit.Pair, 0, len(deduped))
+	for _, e := range deduped {
 		out = append(out, edit.Pair{OldString: e.OldString, NewString: e.NewString})
 	}
 
@@ -199,8 +245,9 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 		if errors.Is(err, edit.ErrNotFound) && len(in.Edits) > 1 {
 			return tool.Fail(tool.CauseNoMatch,
-				"%v\n\nEvery edit in one call applies to %s. An anchor belonging to another "+
-					"file needs its own call with that path.", err, in.Path), nil
+				"%v\n\nEvery edit in one call applies to %s, and they apply in order, so an "+
+					"anchor in another file or one an earlier edit already replaced will not "+
+					"match. Send it as its own call.", err, in.Path), nil
 		}
 
 		return failWith(err), nil
@@ -209,8 +256,8 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	change.Path = in.Path
 
 	content := fmt.Sprintf("%s: +%d -%d lines", in.Path, change.Added, change.Removed)
-	if len(in.Edits) > 1 {
-		content = fmt.Sprintf("%s across %d edits", content, len(in.Edits))
+	if applied := len(in.pairs()); applied > 1 {
+		content = fmt.Sprintf("%s across %d edits", content, applied)
 	}
 	if len(change.Ranges) > 0 {
 		content = fmt.Sprintf("%s (now lines %d-%d)", content, change.Ranges[0].Start, change.Ranges[0].End)
