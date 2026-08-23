@@ -1899,3 +1899,37 @@ too, naming the later absence first. `shapeError` now defers to the path
 check when there is no path. Worth keeping in view: the hosted tiers are
 not grammar-constrained, so the tool-level check is what holds the shape
 there, which is why both halves of the fix exist.
+
+## 2026-08-23 — smaller batches, measured and dropped
+
+The multi-file batch that failed `e2` suggested capping how much one
+`str_replace` call may carry. Measured over the 217 logged calls before
+building it, and the hypothesis does not survive.
+
+Batch count does not predict failure: 1 edit fails at 39%, 2 at 40%, 3 at
+57% on 7 calls, and every 4-edit batch landed. Argument size does, but only
+at first glance: the 21 calls stored at the old 2000-character bound fail
+at 71% against 39% for the rest, and insertions, which are the large
+structured calls, fail at 10% against 42% overall. Their repeated anchor is
+20% of their bytes, so an insert mode that skipped it would save a fifth of
+the bytes on the calls that already work.
+
+Splitting those 21 by compression ratio separates two failures that were
+one number. Five are degeneration loops, ratio at or below 0.052, one
+phrase repeated to the token limit, and all five failed. The other sixteen
+are normal-entropy code, six of which landed. So there is no size threshold
+to cap at, and a cap is the wrong shape of fix regardless: requiring the
+pair worked because the grammar forced more correctness at no cost to a
+legitimate call, while `maxItems` or `maxLength` would forbid legitimate
+large edits to discourage a failure that is mostly not about size.
+
+What it leaves: the degeneration class is small (5 of 217) and detectable
+in one line, and wavez sends no sampling parameters at all, so
+llama-server's defaults decide repetition. That is where the class would be
+attacked, and it is unmeasured.
+
+Not verified: every number here reads a corpus recorded under the old
+2000-character bound, so the true size of the largest 10% is unknown and
+the failure rates for them are lower bounds on nothing in particular. Reads
+of this table after runs accumulate under the new bound should redo it
+rather than cite it.
