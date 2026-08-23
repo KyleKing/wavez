@@ -222,6 +222,18 @@ func replayReport(root, task string) error {
 	return replay.Report(recs, task, os.Stdout) //nolint:wrapcheck // Report's error already names the writer
 }
 
+// corpusReport prints the rates across every recorded run. One run's
+// counters read as noise, which is why every rate in the roadmap came from
+// an ad-hoc script over this same file.
+func corpusReport(root string) error {
+	recs, err := replay.Load(filepath.Join(root, replay.DefaultRecordsPath))
+	if err != nil {
+		return err //nolint:wrapcheck // Load already names the file and the failure
+	}
+
+	return replay.Corpus(recs, os.Stdout) //nolint:wrapcheck // Corpus's error already names the writer
+}
+
 // replayLabel names the lane a record measures. The commit the run was
 // built from is the answer whenever the caller does not give a better one,
 // since that is what a later reader needs to find the change.

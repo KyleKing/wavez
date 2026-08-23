@@ -77,6 +77,7 @@ type options struct {
 	plan                bool
 	deadcode            bool
 	preamble            bool
+	statsCorpus         bool
 }
 
 func main() {
@@ -135,6 +136,8 @@ func run(args []string) error {
 		"with -replay, name the lane the record measures (defaults to the current commit)")
 	fs.StringVar(&opt.replayReport, "replay-report", "",
 		"print every recorded run of one task and diff the last two")
+	fs.BoolVar(&opt.statsCorpus, "stats-corpus", false,
+		"report the rates across every recorded replay run, which one run cannot show")
 	fs.BoolVar(&opt.preamble, "preamble", false,
 		"account for the fixed prefix every turn pays, by section")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
@@ -250,6 +253,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 		return true, replayRun(ctx, root, opt)
 	case opt.replayReport != "":
 		return true, replayReport(root, opt.replayReport)
+	case opt.statsCorpus:
+		return true, corpusReport(root)
 	case opt.preamble:
 		return true, preambleReport(ctx, root, opt)
 	case opt.deadcode:
@@ -268,7 +273,7 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 // given.
 func wantsSubcommand(opt options) bool {
 	return opt.undo != "" || opt.stats != "" || opt.replay != "" || opt.replayReport != "" ||
-		opt.deadcode || opt.mutate || opt.preamble
+		opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus
 }
 
 func headless(ctx context.Context, opt options) error {
@@ -647,6 +652,7 @@ Flags:
   -replay <task>  run one task of the fixed set in a throwaway workspace and record it
   -replay-label <name>   with -replay, name the lane (defaults to the current commit)
   -replay-report <task>  print every recorded run of one task and diff the last two
+  -stats-corpus          report the rates across every recorded run
   -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
   -preamble       account for the fixed prefix every turn pays, by section
   -max-turns <n>                cap model turns, a dead-man's switch
