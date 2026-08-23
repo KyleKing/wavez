@@ -77,6 +77,13 @@ are specific to this codebase and not visible from the code.
   does. A test there must not depend on a live site; the live check is a
   scratch test run by hand and deleted, because a network test in CI fails
   for reasons that have nothing to do with the change
+- A tool's JSON schema is a grammar on the fast tier, not documentation. A
+  local turn decodes tool arguments under a grammar `llama-server` compiles
+  from the schema, so any property left out of `required` is an exit the
+  model can take mid-call. State alternative input shapes as a top-level
+  `oneOf` of whole objects (`buildOneOf`), because an `anyOf` written beside
+  `properties` is silently ignored, and never let an absent field mean
+  something destructive
 - `wavez -preamble` is the deterministic metric for anything the replay
   harness cannot resolve. Every new tool's cost is one run of it, and the
   pair of web tools came to 221 tokens against an estimate of 1,500, so

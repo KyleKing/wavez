@@ -13,6 +13,17 @@ type jsonSchema struct {
 	Properties map[string]json.RawMessage `json:"properties"`
 	Type       string                     `json:"type"`
 	Required   []string                   `json:"required"`
+	OneOf      []jsonSchema               `json:"oneOf"` //nolint:tagliatelle // JSON Schema spells it oneOf
+}
+
+// branches is the input shapes a schema accepts: its oneOf alternatives, or
+// the schema itself when it states one shape.
+func (s jsonSchema) branches() []jsonSchema {
+	if len(s.OneOf) > 0 {
+		return s.OneOf
+	}
+
+	return []jsonSchema{s}
 }
 
 type property struct {
@@ -62,21 +73,29 @@ func validateSchema(t *testing.T, tl tool.Tool) {
 		t.Fatalf("Schema() is not valid JSON: %v", err)
 	}
 
+	for i, b := range schema.branches() {
+		validateBranch(t, i, b)
+	}
+}
+
+func validateBranch(t *testing.T, i int, schema jsonSchema) {
+	t.Helper()
+
 	if schema.Type != "object" {
-		t.Errorf("type = %q, want %q", schema.Type, "object")
+		t.Errorf("branch %d: type = %q, want %q", i, schema.Type, "object")
 	}
 
 	if len(schema.Properties) == 0 {
-		t.Fatalf("properties is empty")
+		t.Fatalf("branch %d: properties is empty", i)
 	}
 
 	if len(schema.Required) == 0 {
-		t.Fatalf("required is empty")
+		t.Fatalf("branch %d: required is empty", i)
 	}
 
 	for _, name := range schema.Required {
 		if _, ok := schema.Properties[name]; !ok {
-			t.Errorf("required %q is not a key in properties", name)
+			t.Errorf("branch %d: required %q is not a key in properties", i, name)
 		}
 	}
 

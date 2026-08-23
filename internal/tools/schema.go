@@ -38,12 +38,38 @@ type jsonSchemaDoc struct {
 	Required   []string                  `json:"required"`
 }
 
+// oneOfSchemaDoc is a schema whose input is exactly one of several object
+// shapes.
+type oneOfSchemaDoc struct {
+	OneOf []jsonSchemaDoc `json:"oneOf"` //nolint:tagliatelle // JSON Schema spells it oneOf
+}
+
 // buildSchema renders properties and required into a JSON Schema object.
 // It panics on a marshal failure, which only a build-time bug in a
 // package-level schema literal could cause.
 func buildSchema(properties map[string]schemaProperty, required ...string) json.RawMessage {
-	doc := jsonSchemaDoc{Type: "object", Properties: properties, Required: required}
+	return marshalSchema(jsonSchemaDoc{Type: "object", Properties: properties, Required: required})
+}
 
+// buildOneOf renders alternative input shapes, each with its own required
+// list, as a top-level oneOf.
+//
+// The nesting is load-bearing rather than stylistic. A local turn decodes
+// under a grammar compiled from this schema, so every field a branch leaves
+// out of required is an exit the model can take mid-call. A top-level oneOf
+// compiles to alternative productions, while an anyOf placed beside
+// properties is ignored, so alternatives have to be whole objects to bind.
+func buildOneOf(branches ...jsonSchemaDoc) json.RawMessage {
+	return marshalSchema(oneOfSchemaDoc{OneOf: branches})
+}
+
+// branch is one alternative input shape, with every property it accepts
+// required.
+func branch(properties map[string]schemaProperty, required ...string) jsonSchemaDoc {
+	return jsonSchemaDoc{Type: "object", Properties: properties, Required: required}
+}
+
+func marshalSchema(doc any) json.RawMessage {
 	data, err := json.Marshal(doc)
 	if err != nil {
 		panic("tools: invalid schema: " + err.Error())

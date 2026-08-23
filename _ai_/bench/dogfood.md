@@ -1781,3 +1781,51 @@ set asks a question about the world outside this repository. The live check
 was a scratch test run by hand (DuckDuckGo returned five usable results for
 "go 1.26 release notes" and the fetch reduced go.dev's release notes to
 27 KB of clean text) and deleted rather than committed.
+
+## 2026-08-23 — the edit failure rate was a hole in the schema
+
+Item 2's taxonomy pointed at `str_replace`, so the 139 single-pair calls in
+the 138 thread logs got classified by shape rather than by message. The
+split is not the one the roadmap assumed. 52 of them carried no
+`new_string` key at all, and every one came from the fast tier: `qwen3:8b`
+sent 52 pairless calls and not a single well-formed pair, while the hosted
+tiers sent 102 calls and never once dropped the field.
+
+The cause is the tool's own schema. It declared `required: ["path"]`,
+because a flat required list cannot say "either the pair or `edits`", so
+`old_string` and `new_string` were optional. A local turn decodes tool
+arguments under a grammar compiled from that schema, which is measurable
+rather than assumed: an `enum` sentinel placed in the schema came back in
+the emitted call, so `required` binds at decode time. The optionality is
+therefore a legal exit right after `old_string`. When the model's quoting
+slipped mid-anchor it was not blocked, it closed the object and sent a
+complete, valid, useless call, which is where the `', ` and `”, ` tails in
+those anchors come from.
+
+Measured against `llama-server` on `qwen3:8b`, asked for a path-only call:
+
+| schema | pairless call accepted |
+|---|---|
+| `required: ["path"]` | 6 of 6 |
+| `anyOf` beside `properties` | 6 of 6 |
+| top-level `oneOf` of two whole branches | 0 of 5 |
+
+The middle row is the one worth keeping: an `anyOf` written next to
+`properties` is ignored, so alternatives only bind as whole objects. Under
+the shipped `oneOf` the grammar forces both fields 8 times out of 8 over
+streaming even when the prompt asks for them to be left out, and the
+`edits` branch still gets chosen when the task needs two changes (5 of 5).
+
+The second half is a correctness fix and stands on its own. Absence was
+read as an empty string, so a call cut short deleted its anchor: one logged
+run dropped a README line and reported `+0 -1 lines` as a change. An absent
+`new_string` is now refused, and a deletion is spelled `""`.
+
+Cost: the preamble's `str_replace` schema grows 1,270 bytes to 1,518, so
+the fixed prefix goes from 2,967 to 3,029 tokens, 41% to 42% of what a fast
+turn can use.
+
+Not verified: no replay lane has been run against this. The A/B above is
+the enforcement measurement, not a task measurement, and what it cannot say
+is how many turns the 19 affected threads get back. The corpus rate (52 of
+52 fast-tier calls) is the estimate to check the next lane against.

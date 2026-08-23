@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,6 +196,11 @@ func TestStrReplace_ErrorsSayWhichKindOfFailureTheyAre(t *testing.T) {
 			input: map[string]any{"edits": []map[string]string{{"old_string": "a", "new_string": "b"}}},
 			want:  tool.CauseBadInput,
 		},
+		{
+			name:  "a replacement with no new_string",
+			input: map[string]any{"path": "file.go", "old_string": "b := a + 1"},
+			want:  tool.CauseBadInput,
+		},
 	}
 
 	for _, tt := range tests {
@@ -214,5 +220,112 @@ func TestStrReplace_ErrorsSayWhichKindOfFailureTheyAre(t *testing.T) {
 				t.Errorf("Cause = %q, want %q (content: %s)", result.Cause, tt.want, result.Content)
 			}
 		})
+	}
+}
+
+// A call that names old_string and no new_string is one cut short, not a
+// deletion. Across this project's thread logs the fast tier sent 52 of
+// them and no well-formed pair at all, and the one that matched deleted a
+// README line and reported it as a change.
+func TestStrReplace_AbsentNewStringNeverDeletes(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.go")
+	source := "package foo\n\nfunc a() {}\n"
+
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "file.go", "old_string": "func a() {}",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError {
+		t.Fatalf("IsError = false, want the call refused: %q", result.Content)
+	}
+
+	if !strings.Contains(result.Content, "new_string") {
+		t.Errorf("Content = %q, want it to name new_string as what is missing", result.Content)
+	}
+
+	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if string(after) != source {
+		t.Errorf("file = %q, want it untouched at %q", after, source)
+	}
+}
+
+// An empty new_string still deletes, since that is how a deletion is
+// spelled once absence stops meaning it.
+func TestStrReplace_EmptyNewStringDeletes(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.go")
+
+	if err := os.WriteFile(path, []byte("package foo\n\nfunc a() {}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "file.go", "old_string": "func a() {}", "new_string": "",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want the deletion applied: %q", result.Content)
+	}
+
+	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if strings.Contains(string(after), "func a") {
+		t.Errorf("file = %q, want func a deleted", after)
+	}
+}
+
+// A local turn decodes tool arguments under a grammar compiled from this
+// schema, so a property a branch leaves out of required is an exit the
+// model can take mid-call. Measured against llama-server on qwen3:8b:
+// asked for a path-only call, the schema as it was accepted one 6 times
+// out of 6, and branches that require every property they declare forced
+// the pair 5 times out of 5.
+func TestStrReplace_EveryBranchRequiresEveryPropertyItDeclares(t *testing.T) {
+	t.Parallel()
+
+	var schema jsonSchema
+	if err := json.Unmarshal(tools.NewStrReplace(t.TempDir(), nil).Schema(), &schema); err != nil {
+		t.Fatalf("Schema() is not valid JSON: %v", err)
+	}
+
+	if len(schema.OneOf) < 2 {
+		t.Fatalf("oneOf has %d branches, want the pair and the edits shapes stated separately", len(schema.OneOf))
+	}
+
+	for i, b := range schema.OneOf {
+		required := make(map[string]bool, len(b.Required))
+		for _, name := range b.Required {
+			required[name] = true
+		}
+
+		for name := range b.Properties {
+			if !required[name] {
+				t.Errorf("branch %d leaves %q optional, which lets a call close without it", i, name)
+			}
+		}
 	}
 }
