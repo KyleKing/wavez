@@ -183,6 +183,13 @@ type Outcome struct {
 	Elapsed         time.Duration
 	HostedSpendUSD  float64
 	StagnantCount   int
+	// GatesPassedAtEnd reports whether the gates passed on the change set of
+	// a run that stopped on a bound, and is false when no such check ran. A
+	// run that hit a bound having left the tree building and its tests
+	// passing is a different outcome from one that left it broken, and both
+	// stop as failures otherwise: measured on `h6`, a run stopped
+	// loop_detected with every gate passing on what it had written.
+	GatesPassedAtEnd bool
 }
 
 // Condition reports the stop condition that held as the Verdict a Cycle
@@ -1306,6 +1313,7 @@ func (r *run) verifyAbandoned(ctx context.Context) {
 	}
 
 	feedback, ok := r.loop.options.Verifier.Verify(ctx, r.changes)
+	r.outcome.GatesPassedAtEnd = ok
 	detail := map[string]any{"pass": ok, "abandoned": true}
 	if !ok {
 		detail["feedback"] = feedback

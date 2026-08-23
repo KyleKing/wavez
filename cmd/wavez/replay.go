@@ -44,7 +44,21 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return err
 	}
 
+	// A run whose checks did not all pass is the one worth looking at, and
+	// the workspace is the only place its tree survives: the thread log says
+	// what the model asked for, never what the file ended up holding. One h6
+	// run reported every check passing while its own last gate feedback said
+	// the build was broken, and the tree that would have settled it was
+	// already deleted.
+	keep := false
+
 	defer func() {
+		if keep {
+			fmt.Fprintf(os.Stderr, "kept the workspace at %s (jj workspace forget %s to drop it)\n", dir, name)
+
+			return
+		}
+
 		_ = jj.ForgetWorkspace(ctx, root, name) //nolint:errcheck // cleanup
 		_ = os.RemoveAll(dir)                   //nolint:errcheck // cleanup
 	}()
@@ -71,6 +85,13 @@ func replayRun(ctx context.Context, root string, opt options) error {
 	}
 
 	checks := replay.Verify(ctx, task, dir, info.Text)
+	for i := range checks {
+		if !checks[i].Pass {
+			keep = true
+
+			break
+		}
+	}
 
 	if err := keepLog(root, dir, string(info.ID)); err != nil {
 		return err

@@ -2064,3 +2064,36 @@ prevents them.
 Not verified: none of this has been measured on a lane yet. The counts say
 what was wasted, not what removing the waste buys, and `h6` varies enough
 that a rate needs more runs than the fixes have had.
+
+## 2026-08-23 — the run that did the work and stopped anyway
+
+Item 16 exists because the model reviewer objects to correct diffs. The
+`h6` lanes turned up the opposite failure and it needs no model at all: a
+run stopped `loop_detected` with every one of its 4 checks passing and the
+gates passing on what it had written.
+
+The trace says why it kept going. The edit landed on turn 6 and used
+`utf8` without importing it, the gates said so, and the model then spent
+six turns trying to establish whether it had fixed that. It read the import
+block, tried `go build`, and was refused by the guard with "they ran on
+your changes and failed, and you were told what they found" (true, and
+stale, since no accepted change had happened since). Its next edit arrived
+with no path and loop detection ended the run.
+
+The disagreement is the part worth keeping: the last gate feedback the
+model saw said the build was broken, and the end-of-run verification on the
+same change set passed. One of them is stale and the tree that would settle
+it had already been deleted, because the replay harness removes its
+workspace on the way out. So a run now keeps its workspace whenever a check
+fails, and says where it is.
+
+The deterministic half of the finish check ships as the smallest thing that
+distinguishes these cases: `Outcome.GatesPassedAtEnd` records whether the
+gates passed on the change set of a run that stopped on a bound. A run that
+hit a bound with the tree building and its tests passing is not the same
+outcome as one that left it broken, and both read as `failed` today.
+
+Not verified: nothing yet reads `GatesPassedAtEnd`, so this is the signal
+and not yet the report. Whether the guard should let a model re-check a
+build when the gates have nothing new to run on is open, and is the thing
+that actually cost this run its six turns.
