@@ -15,7 +15,22 @@ import (
 type restoreState struct {
 	threadID string
 	summary  []string
-	open     bool
+	// edits is the run's accepted changes, oldest first. Cursor picks how
+	// far back the undo goes: 0 is the whole run, and n is the tree as the
+	// nth edit left it.
+	edits  []api.EditPoint
+	cursor int
+	open   bool
+}
+
+// target is the operation the current selection restores to, empty for the
+// run's own baseline.
+func (r restoreState) target() string {
+	if r.cursor == 0 || r.cursor > len(r.edits) {
+		return ""
+	}
+
+	return r.edits[r.cursor-1].Op
 }
 
 // restoreErrMsg reports a restore the daemon refused or could not finish.
@@ -48,7 +63,7 @@ func (m Model) requestRestore() (Model, tea.Cmd) {
 func (m Model) updateRestoreKey(s string) (Model, tea.Cmd) {
 	switch s {
 	case "y", keyEnter:
-		threadID := m.restore.threadID
+		threadID, target := m.restore.threadID, m.restore.target()
 		m.restore = restoreState{}
 		m.status = "restoring…"
 
@@ -56,7 +71,25 @@ func (m Model) updateRestoreKey(s string) (Model, tea.Cmd) {
 			return m, nil
 		}
 
-		return m, m.client.restore(threadID, true)
+		return m, m.client.restoreTo(threadID, target, true)
+	case "j", keyDown:
+		if m.restore.cursor < len(m.restore.edits) {
+			m.restore.cursor++
+			m.status = ""
+
+			return m, m.client.restoreTo(m.restore.threadID, m.restore.target(), false)
+		}
+
+		return m, nil
+	case "k", keyUp:
+		if m.restore.cursor > 0 {
+			m.restore.cursor--
+			m.status = ""
+
+			return m, m.client.restoreTo(m.restore.threadID, m.restore.target(), false)
+		}
+
+		return m, nil
 	case "n":
 		m.restore = restoreState{}
 		m.status = "undo canceled"
@@ -75,7 +108,10 @@ func (m *Model) applyRestore(r api.Restore) {
 		return
 	}
 
-	m.restore = restoreState{open: true, threadID: r.ThreadID, summary: summaryLines(r.Summary)}
+	m.restore = restoreState{
+		open: true, threadID: r.ThreadID, summary: summaryLines(r.Summary),
+		edits: r.Edits, cursor: m.restore.cursor,
+	}
 }
 
 func summaryLines(summary string) []string {
@@ -113,21 +149,60 @@ func shortCheckpoint(id string) string {
 	return id[:checkpointDisplay]
 }
 
+// editChoices lists the run's start and each accepted change, so undo
+// reaches one edit rather than only the whole run. The operation ids ride
+// on the tool events the harness already wrote.
+func (m Model) editChoices(inner int) []string {
+	out := make([]string, 0, len(m.restore.edits)+1)
+	out = append(out, m.choiceLine(0, "before the run", inner))
+
+	for i, e := range m.restore.edits {
+		label := e.Tool + " " + strings.Join(e.Paths, ", ")
+		out = append(out, m.choiceLine(i+1, strings.TrimSpace(label), inner))
+	}
+
+	return out
+}
+
+func (m Model) choiceLine(i int, label string, inner int) string {
+	marker := "  "
+	if i == m.restore.cursor {
+		marker = "> "
+	}
+
+	line := truncate(marker+label, inner)
+	if i == m.restore.cursor {
+		return m.th.statusWarn.Render(line)
+	}
+
+	return line
+}
+
 func (m Model) renderRestore() string {
 	inner := m.width - boxPad
 
 	const chrome = 4
 
-	body := make([]string, 0, len(m.restore.summary)+chrome)
+	body := make([]string, 0, len(m.restore.summary)+len(m.restore.edits)+chrome)
 	body = append(body, m.th.statusWarn.Render("undo discards this uncommitted work, permanently:"), "")
 
 	for _, line := range m.restore.summary {
 		body = append(body, truncate("  "+line, inner))
 	}
 
-	body = append(body, "", "restore the thread's checkpoint?  [y]es  [n]o")
+	if len(m.restore.edits) > 0 {
+		body = append(body, "", "undo back to:")
+		body = append(body, m.editChoices(inner)...)
+	}
 
-	footer := footerHints([]hint{{"y", "restore"}, {"n", labelCancel}, {keyEsc, labelCancel}}, inner)
+	body = append(body, "", "restore?  [y]es  [n]o")
+
+	hints := []hint{{"y", "restore"}, {"n", labelCancel}, {keyEsc, labelCancel}}
+	if len(m.restore.edits) > 0 {
+		hints = append([]hint{{"j/k", "pick edit"}}, hints...)
+	}
+
+	footer := footerHints(hints, inner)
 
 	return frame(m.width, "undo", body, footer, m.th)
 }

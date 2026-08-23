@@ -363,8 +363,9 @@ type thinkCall struct {
 }
 
 type restoreCall struct {
-	threadID string
-	confirm  bool
+	threadID   string
+	checkpoint string
+	confirm    bool
 }
 
 type created struct {
@@ -411,7 +412,11 @@ func (f *fakeClient) send(threadID, text string) tea.Cmd {
 }
 
 func (f *fakeClient) restore(threadID string, confirm bool) tea.Cmd {
-	f.restores = append(f.restores, restoreCall{threadID: threadID, confirm: confirm})
+	return f.restoreTo(threadID, "", confirm)
+}
+
+func (f *fakeClient) restoreTo(threadID, checkpoint string, confirm bool) tea.Cmd {
+	f.restores = append(f.restores, restoreCall{threadID: threadID, checkpoint: checkpoint, confirm: confirm})
 
 	return nil
 }

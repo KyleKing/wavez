@@ -105,6 +105,11 @@ type Command struct {
 	// Settings carries the runtime flags a model is served with, for
 	// model_settings.
 	Settings *ModelSettings `json:"settings,omitempty"`
+	// Checkpoint targets one of the run's recorded edit points instead of
+	// the run's own baseline. An id the thread did not record is refused:
+	// restoring is destructive, and an arbitrary operation id from a client
+	// is not something the daemon should act on.
+	Checkpoint string `json:"checkpoint,omitempty"`
 	// Dirs is the directory set for new, defaulting to the daemon's scope.
 	Dirs []string `json:"dirs,omitempty"`
 	// From resumes a subscription after the client's last seen Seq.
@@ -315,16 +320,31 @@ type Diff struct {
 	Unified string `json:"unified"`
 }
 
+// EditPoint is one accepted change of a run and the operation holding the
+// tree just after it, which is what lets undo reach a single edit.
+type EditPoint struct {
+	// Op is the jj operation holding the tree just after this change, which
+	// is what a restore rewinds to.
+	Op    string   `json:"op"`
+	Tool  string   `json:"tool,omitempty"`
+	Paths []string `json:"paths,omitempty"`
+}
+
 // Restore is a thread's checkpoint and the work restoring it costs. A
-// preview reports Summary with Restored false; the confirming command
+// preview reports Summary with Restored false, and the confirming command
 // reports what it discarded with Restored true.
 type Restore struct {
+	// Edits is one entry per accepted change of the run, oldest first, so a
+	// client can offer undo of a single edit rather than only of the run.
 	ThreadID   string `json:"thread_id"`
 	Checkpoint string `json:"checkpoint"`
 	// Summary is the per-file diff stat between the checkpoint and the
 	// working copy, which is the uncommitted work a restore destroys.
-	Summary  string `json:"summary"`
-	Restored bool   `json:"restored"`
+	Summary string `json:"summary"`
+	// Edits is one entry per accepted change of the run, oldest first, so a
+	// client can offer undo of a single edit rather than only of the run.
+	Edits    []EditPoint `json:"edits,omitempty"`
+	Restored bool        `json:"restored"`
 }
 
 // Schedule is the fleet as the scheduler sees it: one lane per thread over

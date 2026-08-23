@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -36,6 +37,10 @@ var (
 	// is a refusal rather than a successful no-op.
 	ErrNothingToRestore  = errors.New("daemon: nothing has changed since the checkpoint")
 	ErrRestoreIncomplete = errors.New("daemon: restore left the working copy changed")
+	// ErrUnknownCheckpoint reports a restore aimed at an operation this
+	// thread never recorded, which is refused because restoring destroys
+	// uncommitted work.
+	ErrUnknownCheckpoint = errors.New("daemon: thread recorded no such checkpoint")
 	ErrUnknownTier       = errors.New("daemon: unknown routing tier")
 	// ErrNoCycles reports a cycle asked of a Server built without one, which
 	// is refused rather than run as an ordinary turn.
@@ -743,14 +748,14 @@ type Restorer interface {
 //
 // Nothing to discard is an error rather than a successful no-op, so a
 // client never reports an undo that undid nothing.
-func (m *manager) restore(ctx context.Context, r Restorer, threadID string, confirm bool) (api.Restore, error) {
-	mt, ok := m.get(threadID)
+func (m *manager) restore(ctx context.Context, r Restorer, cmd api.Command) (api.Restore, error) {
+	mt, ok := m.get(cmd.ThreadID)
 	if !ok {
 		return api.Restore{}, ErrThreadNotFound
 	}
 
 	mt.mu.Lock()
-	baseline, dir, running := mt.baseline, firstDir(mt.dirs), mt.running
+	baseline, dir, running, edits := mt.baseline, firstDir(mt.dirs), mt.running, slices.Clone(mt.edits)
 	mt.mu.Unlock()
 
 	switch {
@@ -762,31 +767,54 @@ func (m *manager) restore(ctx context.Context, r Restorer, threadID string, conf
 		return api.Restore{}, ErrNoRepository
 	}
 
-	changed, err := r.ChangedFiles(ctx, dir, baseline)
+	target, err := restoreTarget(baseline, edits, cmd.Checkpoint)
 	if err != nil {
-		return api.Restore{}, fmt.Errorf("listing what thread %s would discard: %w", threadID, err)
+		return api.Restore{}, err
+	}
+
+	changed, err := r.ChangedFiles(ctx, dir, target)
+	if err != nil {
+		return api.Restore{}, fmt.Errorf("listing what thread %s would discard: %w", cmd.ThreadID, err)
 	}
 	if len(changed) == 0 {
 		return api.Restore{}, ErrNothingToRestore
 	}
 
-	summary, err := r.DiffStat(ctx, dir, baseline)
+	summary, err := r.DiffStat(ctx, dir, target)
 	if err != nil {
-		return api.Restore{}, fmt.Errorf("summarizing what thread %s would discard: %w", threadID, err)
+		return api.Restore{}, fmt.Errorf("summarizing what thread %s would discard: %w", cmd.ThreadID, err)
 	}
 
-	out := api.Restore{ThreadID: threadID, Checkpoint: baseline, Summary: summary}
-	if !confirm {
+	out := api.Restore{ThreadID: cmd.ThreadID, Checkpoint: target, Summary: summary, Edits: edits}
+	if !cmd.Confirm {
 		return out, nil
 	}
 
-	if err := performRestore(ctx, r, dir, baseline); err != nil {
+	if err := performRestore(ctx, r, dir, target); err != nil {
 		return api.Restore{}, err
 	}
 
 	out.Restored = true
 
 	return out, nil
+}
+
+// restoreTarget resolves which operation a restore rewinds to. An id the
+// thread did not record is refused rather than passed to jj: restoring
+// destroys uncommitted work, and a client naming an arbitrary operation is
+// not a request the daemon should carry out.
+func restoreTarget(baseline string, edits []api.EditPoint, want string) (string, error) {
+	if want == "" || want == baseline {
+		return baseline, nil
+	}
+
+	for _, e := range edits {
+		if e.Op == want {
+			return want, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrUnknownCheckpoint, want)
 }
 
 // performRestore reverts dir and proves it: jj reports "Nothing changed"

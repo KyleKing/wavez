@@ -359,7 +359,7 @@ func (c *conn) handleRestore(cmd api.Command) {
 		return
 	}
 
-	res, err := p.mgr.restore(c.ctx, p.restorer, cmd.ThreadID, cmd.Confirm)
+	res, err := p.mgr.restore(c.ctx, p.restorer, cmd)
 	if err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 

@@ -49,8 +49,13 @@ type managedThread struct {
 	// turn, so a diff covers everything the thread did rather than only
 	// its most recent turn.
 	baseline string
-	parent   string
-	phase    string
+	// edits is one operation id per accepted change of the current run,
+	// oldest first, which is what makes undo reach a single edit rather
+	// than only the whole run. It is rebuilt from the log, so a reopened
+	// thread keeps its picker.
+	edits  []api.EditPoint
+	parent string
+	phase  string
 	// override pins every turn to one routing tier, empty for automatic
 	// routing.
 	override router.Choice
@@ -206,6 +211,36 @@ func (mt *managedThread) apply(ev event.Event) {
 	if phase, ok := phaseOf(ev); ok {
 		mt.phase = phase
 	}
+
+	mt.applyEditPoint(ev)
+}
+
+// applyEditPoint records the operation holding the tree just after one
+// accepted change. A new prompt clears the list, since undo is offered over
+// the run in front of the user rather than over every edit the thread has
+// ever made.
+func (mt *managedThread) applyEditPoint(ev event.Event) {
+	if ev.Kind == event.KindUser {
+		mt.edits = nil
+
+		return
+	}
+
+	if ev.Kind != event.KindTool || len(ev.Changes) == 0 {
+		return
+	}
+
+	op, ok := ev.Detail["checkpoint"].(string)
+	if !ok || op == "" {
+		return
+	}
+
+	paths := make([]string, 0, len(ev.Changes))
+	for _, c := range ev.Changes {
+		paths = append(paths, c.Path)
+	}
+
+	mt.edits = append(mt.edits, api.EditPoint{Op: op, Tool: ev.Tool, Paths: paths})
 }
 
 // applyTiming tracks the current run's turn boundaries. A run starts at the

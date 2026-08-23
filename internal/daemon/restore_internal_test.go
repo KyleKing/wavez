@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/agent"
@@ -109,7 +110,7 @@ func TestManagerRestore(t *testing.T) {
 			mt.baseline = tc.baseline
 			mt.running = tc.running
 
-			got, err := m.restore(context.Background(), tc.restorer, mt.id, tc.confirm)
+			got, err := m.restore(context.Background(), tc.restorer, api.Command{ThreadID: mt.id, Confirm: tc.confirm})
 
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {
@@ -137,7 +138,7 @@ func TestManagerRestore(t *testing.T) {
 func checkRestore(t *testing.T, got, want api.Restore, r *fakeRestorer, confirm bool) {
 	t.Helper()
 
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("restore = %+v, want %+v", got, want)
 	}
 
@@ -162,7 +163,46 @@ func TestManagerRestoreWithoutARestorer(t *testing.T) {
 
 	mt.baseline = "op1"
 
-	if _, err := m.restore(context.Background(), nil, mt.id, true); !errors.Is(err, ErrNoRepository) {
+	_, err = m.restore(context.Background(), nil, api.Command{ThreadID: mt.id, Confirm: true})
+	if !errors.Is(err, ErrNoRepository) {
 		t.Fatalf("restore error = %v, want %v", err, ErrNoRepository)
+	}
+}
+
+// The operation ids ride on each accepted change so undo reaches one edit
+// rather than only the whole run. An id the thread never recorded is
+// refused: restoring destroys uncommitted work, and a client naming an
+// arbitrary operation is not a request to carry out.
+func TestManagerRestoreTargetsOneRecordedEdit(t *testing.T) {
+	t.Parallel()
+
+	m := newManager(t.TempDir(), &agent.Loop{}, agent.Prefix{})
+
+	mt, err := m.create(createParams{Prompt: "undo me", Dirs: []string{t.TempDir()}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	mt.baseline = "op0"
+	mt.edits = []api.EditPoint{{Op: "op1", Tool: "str_replace", Paths: []string{"a.go"}}}
+
+	r := &fakeRestorer{changed: [][]string{{"a.go"}, {"a.go"}}, stat: "a.go | 1 +\n"}
+
+	got, err := m.restore(context.Background(), r, api.Command{ThreadID: mt.id, Checkpoint: "op1"})
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	if got.Checkpoint != "op1" {
+		t.Errorf("Checkpoint = %q, want the picked edit point", got.Checkpoint)
+	}
+
+	if len(got.Edits) != 1 {
+		t.Errorf("Edits = %v, want the picker's own list back", got.Edits)
+	}
+
+	_, err = m.restore(context.Background(), r, api.Command{ThreadID: mt.id, Checkpoint: "opX"})
+	if !errors.Is(err, ErrUnknownCheckpoint) {
+		t.Errorf("restore error = %v, want %v", err, ErrUnknownCheckpoint)
 	}
 }

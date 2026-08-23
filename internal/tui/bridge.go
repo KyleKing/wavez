@@ -29,6 +29,7 @@ type threadClient interface {
 	diff(threadID string) tea.Cmd
 	cancel(threadID string) tea.Cmd
 	restore(threadID string, confirm bool) tea.Cmd
+	restoreTo(threadID, checkpoint string, confirm bool) tea.Cmd
 	route(threadID string, override router.Choice) tea.Cmd
 	think(threadID string, thinking *bool) tea.Cmd
 	newThread(prompt, model, parent, cycle string, dirs []string) tea.Cmd
@@ -215,11 +216,19 @@ func (b *bridge) diff(threadID string) tea.Cmd {
 // confirm is set. A daemon refusal comes back as restoreErrMsg rather than
 // connErrMsg: the connection is fine, the undo is what failed.
 func (b *bridge) restore(threadID string, confirm bool) tea.Cmd {
+	return b.restoreTo(threadID, "", confirm)
+}
+
+// restoreTo aims the undo at one recorded edit point, empty for the run's
+// own baseline.
+func (b *bridge) restoreTo(threadID, checkpoint string, confirm bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
 
-		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdRestore, ThreadID: threadID, Confirm: confirm})
+		reply, err := b.client.Do(ctx, api.Command{
+			Kind: api.CmdRestore, ThreadID: threadID, Confirm: confirm, Checkpoint: checkpoint,
+		})
 		if err != nil {
 			return restoreErrMsg{err: err}
 		}
