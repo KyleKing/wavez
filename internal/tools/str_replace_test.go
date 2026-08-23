@@ -431,6 +431,58 @@ func TestStrReplace_CollapsesARepeatedPairAndRefusesAConflictingOne(t *testing.T
 	}
 }
 
+// A no-op edit beside a real one cost three h6 runs every change they had
+// made, because the batch is atomic and one edit that replaces text with
+// itself failed all of them.
+func TestStrReplace_DropsANoOpEditAndKeepsTheRest(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.go")
+
+	if err := os.WriteFile(path, []byte("package p\n\nfunc A() {}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "a.go",
+		"edits": []map[string]string{
+			{"old_string": "func A() {}", "new_string": "func A() { _ = 1 }"},
+			{"old_string": "package p", "new_string": "package p"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want the real edit applied: %q", result.Content)
+	}
+
+	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	if got := string(after); !strings.Contains(got, "_ = 1") {
+		t.Errorf("file = %q, want the real edit applied", got)
+	}
+
+	// A batch with nothing but no-ops has nothing to apply and says so.
+	empty, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path":  "a.go",
+		"edits": []map[string]string{{"old_string": "package p", "new_string": "package p"}},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !empty.IsError || !strings.Contains(empty.Content, "nothing") {
+		t.Errorf("result = %+v, want an all-no-op batch refused", empty)
+	}
+}
+
 func TestStrReplace_RefusesABatchThatRepeatsAnAnchor(t *testing.T) {
 	t.Parallel()
 

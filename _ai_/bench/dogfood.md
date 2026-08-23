@@ -2024,3 +2024,43 @@ One harness observation to follow up separately: `collapse-repeats` run 3
 passed all 4 checks and still stopped `loop_detected`, so the run did the
 work and the loop did not recognize it. That is the question item 16's
 finish check exists to answer.
+
+## 2026-08-23 — the precursors, found by counting what the h6 runs wasted
+
+With degeneration bounded, the 8 `h6` runs make a readable corpus: 64 tool
+calls, 27 of them (42%) wasted. The split says where the turns go.
+
+| wasted | cause |
+|---|---|
+| 6 | `search` returned nothing |
+| 5 | refused repeat |
+| 5 | anchor missed |
+| 3 | call with no path |
+| 3 | `old_string` equal to `new_string` |
+| 2 | malformed arguments |
+| 2 | duplicate edits in a batch |
+| 1 | `read` past the end of the file |
+
+The largest class is retrieval and it is not what it looked like. Every one
+of the 6 failures used `mode=literal`, and the queries were descriptions:
+"truncate function in internal/thread/thread.go". Literal matches an exact
+substring, so those correctly match nothing, while all three literal
+searches naming one identifier landed. The mode shipped under item 11 and
+the model over-applies it. A literal query carrying whitespace that returns
+nothing is now retried as fuzzy and the answer says so, which is the shape
+`searchWidening` already uses for symbol lookups. A literal phrase that
+does match is still answered as asked, since only an empty result retries.
+
+The no-op edits were costing more than they looked. Three runs sent one
+real edit beside a second replacing text with itself, and the batch is
+atomic, so all three landed nothing at all. A no-op cannot change a file,
+so it is now dropped and the rest of the batch applies; a batch of nothing
+but no-ops still fails, because it asked for nothing.
+
+The 3 pathless calls all came from the hosted tier on a run already
+failing, and the message names the missing field. Nothing at the tool layer
+prevents them.
+
+Not verified: none of this has been measured on a lane yet. The counts say
+what was wasted, not what removing the waste buys, and `h6` varies enough
+that a rate needs more runs than the fixes have had.

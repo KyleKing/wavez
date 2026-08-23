@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/tool"
@@ -38,6 +39,17 @@ var searchSchema = buildSchema(map[string]schemaProperty{
 		Description: "Maximum results to return. Defaults to 20 if omitted or zero.",
 	},
 }, "mode", "query")
+
+// worthRetryingAsFuzzy reports a literal query that reads as a description
+// rather than as text in a file. A phrase with whitespace can occur
+// literally, so a hit is answered as asked and only an empty result is
+// retried. Measured across the `h6` lanes, 6 of 9 searches asked for
+// literal text like "truncate function in internal/thread/thread.go" and
+// got nothing, while every literal search naming one identifier landed.
+func worthRetryingAsFuzzy(in searchInput) bool {
+	return codeintel.SearchMode(in.Mode) == codeintel.SearchLiteral &&
+		strings.ContainsFunc(in.Query, unicode.IsSpace)
+}
 
 // Index is the code index Search queries. Search refreshes as a side effect
 // of querying, so a caller can never read an index that has drifted from
@@ -134,7 +146,29 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Errorf("%v", err), nil
 	}
 
-	return tool.Result{Content: formatSearchResults(scopeTo(results, in.Path), stats, in.Query)}, nil
+	scoped := scopeTo(results, in.Path)
+	if len(scoped) > 0 || !worthRetryingAsFuzzy(in) {
+		return tool.Result{Content: formatSearchResults(scoped, stats, in.Query)}, nil
+	}
+
+	retried, stats, err := s.index.Search(ctx, codeintel.SearchQuery{
+		Mode:  codeintel.SearchFuzzy,
+		Text:  in.Query,
+		Limit: in.Limit,
+	})
+	if err != nil {
+		return tool.Errorf("%v", err), nil
+	}
+
+	scoped = scopeTo(retried, in.Path)
+	if len(scoped) == 0 {
+		return tool.Result{Content: formatSearchResults(scoped, stats, in.Query)}, nil
+	}
+
+	return tool.Result{Content: fmt.Sprintf(
+		"no literal match for %q, which is several words and literal matches an exact "+
+			"substring. Searched fuzzy instead:\n%s",
+		in.Query, formatSearchResults(scoped, stats, in.Query))}, nil
 }
 
 // formatSearchResults distinguishes an empty result from an index that

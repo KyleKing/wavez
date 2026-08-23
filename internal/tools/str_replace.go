@@ -133,6 +133,11 @@ func (in *strReplaceInput) shapeError() (string, bool) {
 			return "send either edits or one old_string/new_string pair, not both", false
 		}
 
+		if len(in.dedupedEdits()) == 0 {
+			return "every edit in this call replaces text with itself, so there is nothing " +
+				"to apply. Send the text you want in new_string.", false
+		}
+
 		return in.conflictingEdit()
 	}
 
@@ -170,14 +175,20 @@ func (in *strReplaceInput) conflictingEdit() (string, bool) {
 	return "", true
 }
 
-// dedupedEdits is the batch with any exactly repeated pair dropped, in the
-// order the call named them.
+// dedupedEdits is the batch with any exactly repeated pair dropped and any
+// edit that replaces text with itself removed, in the order the call named
+// them.
+//
+// A no-op cannot change the file, so failing the whole batch over one
+// throws away the edits that would have applied. Measured across the `h6`
+// lanes, three runs sent one real edit alongside a second that replaced
+// text with itself, and all three landed nothing.
 func (in *strReplaceInput) dedupedEdits() []editPair {
 	out := make([]editPair, 0, len(in.Edits))
 	seen := make(map[editPair]bool, len(in.Edits))
 
 	for _, e := range in.Edits {
-		if seen[e] {
+		if seen[e] || e.OldString == e.NewString {
 			continue
 		}
 

@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -247,5 +248,47 @@ func TestSearchLiteralHoldsPunctuationAndCase(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The model reaches for literal mode and then writes a description into it.
+// Across the h6 lanes 6 of 9 searches did exactly that and got nothing back
+// while the symbol sat in the index, and a run that cannot retrieve spends
+// the rest of itself guessing.
+func TestSearchRetriesAWordyLiteralAsFuzzy(t *testing.T) {
+	t.Parallel()
+
+	search := tools.NewSearch(openTestIndex(t, map[string]string{
+		"thread/thread.go": "package thread\n\nfunc truncate(s string, limit int) string { return s }\n",
+	}))
+
+	result, err := search.Run(context.Background(),
+		json.RawMessage(`{"mode":"literal","query":"truncate function in thread/thread.go"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.IsError {
+		t.Fatalf("IsError = true: %q", result.Content)
+	}
+
+	if !strings.Contains(result.Content, "thread/thread.go") {
+		t.Errorf("Content = %q, want the fuzzy retry to find the symbol", result.Content)
+	}
+
+	if !strings.Contains(result.Content, "no literal match") {
+		t.Errorf("Content = %q, want it to say the literal search was retried", result.Content)
+	}
+
+	// A literal query naming one identifier is answered as asked, with no
+	// retry to explain.
+	exact, err := search.Run(context.Background(),
+		json.RawMessage(`{"mode":"literal","query":"truncate"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if strings.Contains(exact.Content, "no literal match") {
+		t.Errorf("Content = %q, want a single-word literal answered directly", exact.Content)
 	}
 }
