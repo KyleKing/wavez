@@ -96,6 +96,7 @@ type Stats struct {
 	GateRounds       int            `json:"gate_rounds"`
 	GateFailures     int            `json:"gate_failures"`
 	GateFalseAlarms  int            `json:"gate_false_alarms"`
+	TurnsBy          Attribution    `json:"turn_attribution"`
 	ReviewObjections int            `json:"review_objections"`
 	CompactionSaved  int            `json:"compaction_saved"`
 }
@@ -160,6 +161,7 @@ func Summarize(evs []event.Event) Stats {
 	}
 
 	s.Tools = rankTools(tools)
+	s.TurnsBy = Attribute(evs)
 	s.Elapsed = span(evs)
 
 	return s

@@ -48,6 +48,8 @@ func (s Stats) Render(w io.Writer) error {
 
 	fmt.Fprintf(&b, "\nrepeat reads %d of %d (%d bytes), empty searches %d, error results %d\n",
 		s.RepeatReads, callsOf(s.Tools, readTool), s.RepeatReadBytes, s.EmptySearches, s.ErrorResults)
+	fmt.Fprintf(&b, "turns: %d productive, %d retrieval, %d prose, ~%d reacting to the harness\n",
+		s.TurnsBy.Productive, s.TurnsBy.Retrieval, s.TurnsBy.Prose, s.TurnsBy.Harness)
 	fmt.Fprintf(&b, "gate rounds %d, failed %d, retracted %d, review objections %d, "+
 		"compaction saved ~%d tokens\n",
 		s.GateRounds, s.GateFailures, s.GateFalseAlarms, s.ReviewObjections, s.CompactionSaved)

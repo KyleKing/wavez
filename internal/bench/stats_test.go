@@ -167,8 +167,8 @@ func TestCompareShowsSignedDeltaPerField(t *testing.T) {
 		}
 	}
 
-	if lines := strings.Count(out.String(), "\n"); lines != 13 {
-		t.Errorf("Compare wrote %d lines, want 13", lines)
+	if lines := strings.Count(out.String(), "\n"); lines != 15 {
+		t.Errorf("Compare wrote %d lines, want 15", lines)
 	}
 }
 
