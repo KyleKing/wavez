@@ -13,17 +13,18 @@ import (
 // bounds, each able to fail a run on its own, and none of them a claim that
 // the diff is correct.
 type FinishChecker struct {
-	index finish.Index
-	cov   finish.Coverage
-	root  string
+	index  finish.Index
+	cov    finish.Coverage
+	differ Differ
+	root   string
 }
 
 // NewFinishChecker builds a checker rooted at root. A nil index or coverage
 // map makes the checks that need it abstain rather than fail, since a
 // workspace that never built one would otherwise fail every run for the
 // workspace's reason.
-func NewFinishChecker(root string, index finish.Index, cov finish.Coverage) *FinishChecker {
-	return &FinishChecker{root: root, index: index, cov: cov}
+func NewFinishChecker(root string, index finish.Index, cov finish.Coverage, differ Differ) *FinishChecker {
+	return &FinishChecker{root: root, index: index, cov: cov, differ: differ}
 }
 
 // Check implements agent.Finisher.
@@ -60,9 +61,26 @@ func (c *FinishChecker) Check(ctx context.Context, f agent.Finish) ([]string, er
 		return nil, err //nolint:wrapcheck // the check already names the file that failed
 	}
 
-	reports = append(reports, tested)
+	reports = append(reports, tested, c.substance(ctx, f, changed))
 
 	return findings(reports), nil
+}
+
+// substance reads what the run actually wrote. A diff that cannot be
+// produced abstains: this bound exists to catch a run that did nothing, and
+// failing one because version control was unavailable would say something
+// about the machine instead.
+func (c *FinishChecker) substance(ctx context.Context, f agent.Finish, changed []string) finish.Report {
+	if c.differ == nil || f.Checkpoint == "" || len(changed) == 0 {
+		return finish.Report{}
+	}
+
+	diff, err := c.differ.Diff(ctx, c.root, f.Checkpoint, changed)
+	if err != nil {
+		return finish.Report{}
+	}
+
+	return finish.ChangeHasSubstance(diff)
 }
 
 func findings(reports []finish.Report) []string {

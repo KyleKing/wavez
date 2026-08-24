@@ -12,10 +12,15 @@ import (
 // Finish is what a Finisher is given: the task as the user stated it, the
 // thread's standing goal, the run's closing prose, and what it wrote.
 type Finish struct {
-	Task    string
-	Goal    string
-	Answer  string
-	Changes []tool.Change
+	Task string
+	Goal string
+	// Answer is the prose of the turn that ended the run.
+	Answer string
+	// Checkpoint is the run's starting operation id, so a check that needs
+	// what the run actually wrote can diff the whole run rather than guess
+	// from the paths.
+	Checkpoint string
+	Changes    []tool.Change
 }
 
 // Finisher answers deterministically whether a finished run did something
@@ -44,7 +49,8 @@ func (r *run) runFinishChecks(ctx context.Context) error {
 	}
 
 	findings, err := r.loop.options.Finisher.Check(ctx, Finish{
-		Task: r.task, Goal: r.thread.Goal(), Answer: r.answer, Changes: r.changes,
+		Task: r.task, Goal: r.thread.Goal(), Answer: r.answer,
+		Checkpoint: r.outcome.Checkpoint, Changes: r.changes,
 	})
 	if err != nil {
 		return fmt.Errorf("running the finish checks: %w", err)
