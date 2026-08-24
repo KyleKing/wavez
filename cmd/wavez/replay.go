@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,8 @@ func replayRun(ctx context.Context, root string, opt options) error {
 	name := filepath.Base(dir)
 	jj := vcs.NewJj()
 
+	pruneKeptWorkspaces(ctx, jj, root)
+
 	if err := jj.AddWorkspace(ctx, root, name, dir); err != nil {
 		return fmt.Errorf("replay: %w", err)
 	}
@@ -54,13 +57,14 @@ func replayRun(ctx context.Context, root string, opt options) error {
 
 	defer func() {
 		if keep {
-			fmt.Fprintf(os.Stderr, "kept the workspace at %s (jj workspace forget %s to drop it)\n", dir, name)
+			fmt.Fprintf(os.Stderr,
+				"kept the workspace at %s; the %d most recent survive and a later replay drops the rest\n",
+				dir, keptReplayWorkspaces)
 
 			return
 		}
 
-		_ = jj.ForgetWorkspace(ctx, root, name) //nolint:errcheck // cleanup
-		_ = os.RemoveAll(dir)                   //nolint:errcheck // cleanup
+		dropWorkspace(ctx, jj, root, name)
 	}()
 
 	run := replay.Run{
@@ -118,6 +122,78 @@ func replayRun(ctx context.Context, root string, opt options) error {
 	}
 
 	return runErr
+}
+
+// replayWorkspacePrefix names the workspaces this harness creates, which
+// is how a sweep tells its own from a workspace someone is working in.
+const replayWorkspacePrefix = "wavez-replay-"
+
+// keptReplayWorkspaces is how many failing runs' trees survive a later run.
+// A kept tree answers what a run left behind, which is a question worth
+// hours rather than weeks, and nothing else expires them: 78 accumulated
+// here, every jj command in the repo rebased their commits, and half their
+// directories had already been cleared out from under the records that
+// still pointed at them.
+const keptReplayWorkspaces = 5
+
+// pruneKeptWorkspaces drops all but the most recent keptReplayWorkspaces
+// trees earlier runs kept. Forgetting a workspace leaves its working-copy
+// commit in the graph, so each one is abandoned as well, and a failure to
+// prune never fails the run that was about to start.
+func pruneKeptWorkspaces(ctx context.Context, jj *vcs.Jj, root string) {
+	names, err := jj.Workspaces(ctx, root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "replay: could not list workspaces to prune: %v\n", err)
+
+		return
+	}
+
+	kept := make([]string, 0, len(names))
+
+	for _, n := range names {
+		if strings.HasPrefix(n, replayWorkspacePrefix) {
+			kept = append(kept, n)
+		}
+	}
+
+	// The suffix is the creation time in base 36, so sorting by it orders
+	// by age without stat-ing directories that may no longer exist.
+	sort.Slice(kept, func(i, j int) bool {
+		return replayWorkspaceAge(kept[i]) < replayWorkspaceAge(kept[j])
+	})
+
+	if len(kept) <= keptReplayWorkspaces {
+		return
+	}
+
+	for _, n := range kept[:len(kept)-keptReplayWorkspaces] {
+		dropWorkspace(ctx, jj, root, n)
+	}
+}
+
+func dropWorkspace(ctx context.Context, jj *vcs.Jj, root, name string) {
+	if err := jj.Abandon(ctx, root, name+"@"); err != nil {
+		fmt.Fprintf(os.Stderr, "replay: could not abandon %s: %v\n", name, err)
+	}
+
+	if err := jj.ForgetWorkspace(ctx, root, name); err != nil {
+		fmt.Fprintf(os.Stderr, "replay: could not forget %s: %v\n", name, err)
+
+		return
+	}
+
+	if err := os.RemoveAll(filepath.Join(scratchBase(), name)); err != nil {
+		fmt.Fprintf(os.Stderr, "replay: could not remove %s: %v\n", name, err)
+	}
+}
+
+func replayWorkspaceAge(name string) int64 {
+	n, err := strconv.ParseInt(strings.TrimPrefix(name, replayWorkspacePrefix), 36, 64)
+	if err != nil {
+		return 0
+	}
+
+	return n
 }
 
 // keepLog copies the run's thread log out of the workspace before the

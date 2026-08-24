@@ -140,6 +140,36 @@ func (*Jj) AddWorkspace(ctx context.Context, repoRoot, name, dir string) error {
 	return nil
 }
 
+// Workspaces names every workspace of repoRoot, the default one included.
+func (*Jj) Workspaces(ctx context.Context, repoRoot string) ([]string, error) {
+	out, err := runJJ(ctx, repoRoot, "workspace", "list")
+	if err != nil {
+		return nil, fmt.Errorf("listing workspaces of %s: %w", repoRoot, err)
+	}
+
+	var names []string
+
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		name, _, ok := strings.Cut(line, ":")
+		if ok && name != "" {
+			names = append(names, name)
+		}
+	}
+
+	return names, nil
+}
+
+// Abandon drops the revisions rev names, moving anything below them onto
+// their parents. It destroys the content of a revision that is not
+// committed anywhere else.
+func (*Jj) Abandon(ctx context.Context, repoRoot, rev string) error {
+	if _, err := runJJ(ctx, repoRoot, "abandon", "-r", rev); err != nil {
+		return fmt.Errorf("abandoning %s: %w", rev, err)
+	}
+
+	return nil
+}
+
 // ForgetWorkspace drops the repository's record of a workspace. It does not
 // delete dir, so a caller removes the directory itself.
 func (*Jj) ForgetWorkspace(ctx context.Context, repoRoot, name string) error {

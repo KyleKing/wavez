@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -356,4 +357,88 @@ func TestJjCaptureAfterEachEditRestoresThatEdit(t *testing.T) {
 	if string(got) != "package a\n\nvar one = 1\n" {
 		t.Fatalf("a.go after restoring the first edit = %q, want the tree as that edit left it", got)
 	}
+}
+
+// Forgetting a workspace leaves its working-copy commit in the graph, so a
+// sweep that only forgets keeps every tree it meant to drop and every jj
+// command in the repo goes on rebasing them. Seventy-eight of them
+// accumulated here before anything noticed.
+func TestJjForgottenWorkspaceLeavesItsCommitUntilAbandoned(t *testing.T) {
+	t.Parallel()
+
+	main := newFixtureRepo(t)
+	side := filepath.Join(t.TempDir(), "side")
+	j := vcs.NewJj()
+	ctx := context.Background()
+
+	if err := j.AddWorkspace(ctx, main, "side", side); err != nil {
+		t.Fatalf("AddWorkspace: %v", err)
+	}
+
+	writeFile(t, side, "b.go", "package a\n\nvar B = 1\n")
+	runJJCmd(t, side, "status")
+
+	names, err := j.Workspaces(ctx, main)
+	if err != nil {
+		t.Fatalf("Workspaces: %v", err)
+	}
+
+	if !slices.Contains(names, "side") {
+		t.Fatalf("Workspaces = %v, want it to name side", names)
+	}
+
+	before := visibleCommits(t, main)
+	rev := revisionOf(t, main, "side@")
+
+	if err := j.ForgetWorkspace(ctx, main, "side"); err != nil {
+		t.Fatalf("ForgetWorkspace: %v", err)
+	}
+
+	if after := visibleCommits(t, main); after != before {
+		t.Errorf("visible commits = %d after forgetting alone, want the commit left at %d", after, before)
+	}
+
+	if err := j.Abandon(ctx, main, rev); err != nil {
+		t.Fatalf("Abandon: %v", err)
+	}
+
+	if after := visibleCommits(t, main); after >= before {
+		t.Errorf("visible commits = %d after abandoning, want fewer than %d", after, before)
+	}
+
+	names, err = j.Workspaces(ctx, main)
+	if err != nil {
+		t.Fatalf("Workspaces after forgetting: %v", err)
+	}
+
+	if slices.Contains(names, "side") {
+		t.Errorf("Workspaces = %v, want side gone", names)
+	}
+}
+
+func visibleCommits(t *testing.T, dir string) int {
+	t.Helper()
+
+	return strings.Count(jjOutput(t, dir, "log", "-r", "all()", "--no-graph", "-T", `"x\n"`), "x")
+}
+
+func revisionOf(t *testing.T, dir, rev string) string {
+	t.Helper()
+
+	return strings.TrimSpace(jjOutput(t, dir, "log", "-r", rev, "--no-graph", "-T", "change_id.short()"))
+}
+
+func jjOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	//nolint:gosec // this test's own fixed commands against its own fixture
+	cmd := exec.CommandContext(context.Background(), "jj", args...)
+	cmd.Dir = dir
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("jj %v: %v: %s", args, err, out)
+	}
+
+	return string(out)
 }
