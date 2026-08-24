@@ -172,9 +172,14 @@ func (g *ChangeGate) noteFalseAlarms(results []gate.Result) {
 
 		// Only a failure the run has edited against counts: the same tree
 		// gets the same answer, and blaming the tier for that would fire on
-		// every debounced re-run of one change.
-		if seen && next.failure != "" && next.failure == prior.failure && next.changes > prior.changes {
-			next.repeats = prior.repeats + 1
+		// every debounced re-run of one change. A re-run carries the count
+		// rather than clearing it, because a batch that says nothing new is
+		// not evidence the run has started converging.
+		if seen && next.failure != "" && next.failure == prior.failure {
+			next.repeats = prior.repeats
+			if next.changes > prior.changes {
+				next.repeats++
+			}
 		}
 
 		g.verdict[name] = next

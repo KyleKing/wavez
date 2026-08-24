@@ -213,6 +213,26 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 		}
 	})
 
+	// Gate batches are debounced, so one turn's edits can arrive as two
+	// results. A run that edits, is told the same thing, edits again, and is
+	// told it twice more reached three edits against one failure, and the
+	// re-run in the middle is not evidence it started converging.
+	t.Run("a re-run between edits does not clear the count", func(t *testing.T) {
+		t.Parallel()
+
+		g := app.NewChangeGate(nil)
+
+		for range 3 {
+			g.Enqueue(tool.Change{Path: "internal/sysinfo/memory_test.go", Added: 1})
+			g.Collect(gate.RunResult{Gates: failing})
+			g.Collect(gate.RunResult{Gates: failing})
+		}
+
+		if name, stuck := g.Stuck(); !stuck {
+			t.Errorf("Stuck() = %q, %v after three edits against one failure, want true", name, stuck)
+		}
+	})
+
 	t.Run("a failure that moved is progress", func(t *testing.T) {
 		t.Parallel()
 
