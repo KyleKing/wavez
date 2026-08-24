@@ -35,14 +35,8 @@ deadcodeAllow = new Listing {
   // Resources is the gate interface every gate implements; this one is
   // unreachable because MutationGate itself is behind a flag.
   "gate.MutationGate.Resources"
-  // Gate cadence and the import graph that scopes a full run, built and not
-  // yet wired into the runner.
-  "gate.NeedsFullRun"
+  // The import graph that scopes a full run, built and not yet wired.
   "gate.NewImportGraph"
-  // Local model management (M2): reading what ollama has pulled.
-  "runtime.ListModels"
-  "runtime.ParseOllamaList"
-  "runtime.isOllamaListHeader"
   // Single-file editing, superseded by ApplyToFiles when str_replace learned
   // to span files. Kept until a lane proves the batch path covers every case
   // internal/edit's own tests still pin here.
@@ -51,6 +45,5 @@ deadcodeAllow = new Listing {
   // Orphans with no caller and no roadmap home. Each is a deletion waiting
   // on someone to confirm nothing outside this module wants it.
   "daemon.manager.queued"
-  "replay.Passed"
   "routine.Registry.Names"
 }

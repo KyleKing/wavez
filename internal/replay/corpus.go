@@ -105,17 +105,7 @@ func writeTasks(b *strings.Builder, recs []Record) {
 // allChecksHeld is the honest completion signal: the loop's own `complete`
 // says a run ended tidily and says nothing about whether it did the task.
 func allChecksHeld(r Record) bool {
-	if len(r.Checks) == 0 {
-		return false
-	}
-
-	for _, c := range r.Checks {
-		if !c.Pass {
-			return false
-		}
-	}
-
-	return true
+	return len(r.Checks) > 0 && Passed(r.Checks)
 }
 
 func writeTools(b *strings.Builder, recs []Record) {

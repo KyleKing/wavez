@@ -80,6 +80,7 @@ type options struct {
 	deadcode            bool
 	preamble            bool
 	statsCorpus         bool
+	models              bool
 }
 
 func main() {
@@ -140,6 +141,8 @@ func run(args []string) error {
 		"print every recorded run of one task and diff the last two")
 	fs.StringVar(&opt.statsSince, "stats-since", "",
 		"with -stats-corpus, read only runs recorded on or after this date (2006-01-02)")
+	fs.BoolVar(&opt.models, "models", false,
+		"list the models ollama has pulled on this machine")
 	fs.BoolVar(&opt.statsCorpus, "stats-corpus", false,
 		"report the rates across every recorded replay run, which one run cannot show")
 	fs.BoolVar(&opt.preamble, "preamble", false,
@@ -263,6 +266,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 		return true, replayRun(ctx, root, opt)
 	case opt.replayReport != "":
 		return true, replayReport(root, opt.replayReport)
+	case opt.models:
+		return true, modelsReport(ctx)
 	case opt.statsCorpus:
 		return true, corpusReport(root, opt.statsSince)
 	case opt.preamble:
@@ -283,7 +288,7 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 // given.
 func wantsSubcommand(opt options) bool {
 	return opt.undo != "" || opt.stats != "" || opt.replay != "" || opt.replayReport != "" ||
-		opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus
+		opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus || opt.models
 }
 
 func headless(ctx context.Context, opt options) error {
@@ -667,6 +672,7 @@ Flags:
   -replay <task>  run one task of the fixed set in a throwaway workspace and record it
   -replay-label <name>   with -replay, name the lane (defaults to the current commit)
   -replay-report <task>  print every recorded run of one task and diff the last two
+  -models                list the models ollama has pulled on this machine
   -stats-corpus          report the rates across every recorded run
   -stats-since <date>    with -stats-corpus, read only runs from this date on
   -preamble-max <n>      with -preamble, fail when the fixed prefix exceeds n tokens

@@ -89,13 +89,7 @@ func replayRun(ctx context.Context, root string, opt options) error {
 	}
 
 	checks := replay.Verify(ctx, task, dir, info.Text)
-	for i := range checks {
-		if !checks[i].Pass {
-			keep = true
-
-			break
-		}
-	}
+	keep = !replay.Passed(checks)
 
 	if err := keepLog(root, dir, string(info.ID)); err != nil {
 		return err
