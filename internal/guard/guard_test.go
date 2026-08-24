@@ -93,9 +93,9 @@ func TestClassify_Git(t *testing.T) {
 	runClassifyCases(t, []classifyCase{
 		{
 			name: "git push force", command: "git push --force origin main",
-			wantVerdict: guard.NeedsApproval, wantReason: "force push",
+			wantVerdict: guard.Refuse, wantReason: "cannot be undone",
 		},
-		{name: "git push force with lease", command: "git push --force-with-lease", wantVerdict: guard.NeedsApproval},
+		{name: "git push force with lease", command: "git push --force-with-lease", wantVerdict: guard.Refuse},
 		{name: "git push ordinary", command: "git push origin main", wantVerdict: guard.Allow},
 		{
 			name: "git reset hard", command: "git reset --hard HEAD~1",
@@ -240,7 +240,7 @@ func TestClassify_MetacharacterSplitting(t *testing.T) {
 		},
 		{name: "or-or splits every command", command: "false || rm -rf /", wantVerdict: guard.Refuse},
 		{
-			name: "pipe splits every stage", command: "find /repo -name '*.tmp' | xargs rm -rf",
+			name: "pipe splits every stage", command: "ls /repo | xargs rm -rf",
 			wantVerdict: guard.NeedsApproval,
 		},
 		{name: "backgrounding splits the command", command: "sleep 5 & sudo reboot", wantVerdict: guard.Refuse},
@@ -249,5 +249,45 @@ func TestClassify_MetacharacterSplitting(t *testing.T) {
 			wantVerdict: guard.Refuse, wantFrag: "rm -rf /",
 		},
 		{name: "backtick substitution is classified", command: "echo `sudo whoami`", wantVerdict: guard.Refuse},
+	})
+}
+
+// A command a built-in tool does better is refused rather than approved,
+// because the point is to redirect. Around 70% of what the shell was used
+// for across 278 logged calls was work a tool already did, and the prompt
+// asking a model not to reach for `find` never moved it.
+func TestClassify_SupersededByATool(t *testing.T) {
+	t.Parallel()
+
+	runClassifyCases(t, []classifyCase{
+		{name: "find deletes", command: "find . -delete", wantVerdict: guard.Refuse, wantReason: "list"},
+		{
+			name: "find only lists and is still refused", command: "find . -name '*.go'",
+			wantVerdict: guard.Refuse, wantReason: "search",
+		},
+		{
+			name: "truncate destroys a file's tail", command: "truncate -s 0 main.go",
+			wantVerdict: guard.Refuse, wantReason: "str_replace",
+		},
+		{
+			name: "the redirect survives xargs", command: "xargs find",
+			wantVerdict: guard.Refuse, wantReason: "list",
+		},
+		{name: "a path that merely contains one is untouched", command: "ls ./findings", wantVerdict: guard.Allow},
+	})
+}
+
+// A force push is refused rather than approved: overwriting published
+// history is not recoverable from this side of the remote, and an approval
+// prompt puts the destructive path one keystroke from the ordinary one.
+func TestClassify_ForcePushIsPreventedNotOffered(t *testing.T) {
+	t.Parallel()
+
+	runClassifyCases(t, []classifyCase{
+		{
+			name: "jj git push force", command: "jj git push --force -b main",
+			wantVerdict: guard.Refuse, wantReason: "cannot be undone",
+		},
+		{name: "jj git push ordinary", command: "jj git push -b main", wantVerdict: guard.Allow},
 	})
 }

@@ -49,14 +49,14 @@ func TestShellJudgesTheScriptItRuns(t *testing.T) {
 		},
 		{
 			name:        "an approval-worthy line inside is caught",
-			script:      "#!/bin/sh\necho hello\ngit push --force\n",
+			script:      "#!/bin/sh\necho hello\ngit stash\n",
 			command:     "./s.sh",
 			wantAsked:   true,
 			wantRefused: true,
 		},
 		{
 			name:        "and through an interpreter too",
-			script:      "#!/bin/sh\ngit push --force\n",
+			script:      "#!/bin/sh\ngit stash\n",
 			command:     "sh s.sh",
 			wantAsked:   true,
 			wantRefused: true,

@@ -62,7 +62,7 @@ func TestShell_NeedsApprovalConsultsGateAndDenyBlocksExec(t *testing.T) {
 	gate, consulted := recordingGate(t, permission.Deny)
 
 	sh := tools.NewShell(root, root, "thread-1", gate)
-	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": "git push --force"}))
+	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": "git stash"}))
 	if err != nil {
 		t.Fatalf("Run returned an error (exec was reached): %v", err)
 	}

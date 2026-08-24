@@ -32,6 +32,12 @@ const (
 // propRestore is the subcommand name git and jj share.
 const propRestore = "restore"
 
+// reasonForcePush is a refusal rather than an approval prompt. Overwriting
+// published history is not recoverable from this side of the remote, and an
+// approval prompt makes the destructive path one keystroke away from the
+// ordinary one.
+const reasonForcePush = "a force push overwrites history on the remote and cannot be undone from here"
+
 // pipeToShellReason reports whether pipeline feeds a curl or wget stage into
 // a shell interpreter stage, a pattern that runs arbitrary remote code.
 func pipeToShellReason(pipeline string) (string, bool) {
@@ -104,9 +110,7 @@ func classifyCommand(cmd string, env Env) finding {
 	case "xargs":
 		candidates = append(candidates, classifyXargs(cmd, tokens, env))
 	}
-	if strings.HasPrefix(name, "mkfs") {
-		candidates = append(candidates, finding{Verdict: Refuse, Reason: "formats a filesystem", Fragment: cmd})
-	}
+	candidates = append(candidates, byName(cmd, name)...)
 	if killallProcessWide(name, tokens) {
 		candidates = append(candidates, finding{
 			Verdict: NeedsApproval, Reason: "kills processes by name across the whole user", Fragment: cmd,
@@ -117,6 +121,40 @@ func classifyCommand(cmd string, env Env) finding {
 	}
 
 	return worst(candidates, cmd)
+}
+
+// byName gathers the rules that key off the command's own name rather than
+// its arguments.
+func byName(cmd, name string) []finding {
+	var out []finding
+
+	if instead, superseded := supersededTools[name]; superseded {
+		out = append(out, finding{
+			Verdict:  Refuse,
+			Reason:   name + " is not available here: " + instead,
+			Fragment: cmd,
+		})
+	}
+
+	if strings.HasPrefix(name, "mkfs") {
+		out = append(out, finding{Verdict: Refuse, Reason: "formats a filesystem", Fragment: cmd})
+	}
+
+	return out
+}
+
+// supersededTools name shell commands a built-in tool does better, and what
+// to reach for instead. They are refused rather than approved because the
+// point is to redirect: measured over 278 logged shell calls, around 70% of
+// what the shell was used for was work a tool already did, and asking a
+// model not to reach for `find` has never moved that number.
+//
+// `truncate` has no read-only use at all; it destroys a file's tail in
+// place, which is what `write` and `str_replace` do with the content stated.
+var supersededTools = map[string]string{
+	"find": "list names what is under a directory (with a glob), and search reads " +
+		"contents through the code index",
+	"truncate": "write replaces a whole file and str_replace replaces part of one",
 }
 
 // classifyXargs classifies the command xargs would invoke per input line,
@@ -232,7 +270,7 @@ func classifyGit(cmd string, tokens []string, env Env) finding {
 	switch tokens[1] {
 	case "push":
 		if forcedPush(tokens[2:]) {
-			return finding{Verdict: NeedsApproval, Reason: "force push can overwrite remote history", Fragment: cmd}
+			return finding{Verdict: Refuse, Reason: reasonForcePush, Fragment: cmd}
 		}
 	case "reset":
 		if slices.Contains(tokens[2:], "--hard") {
@@ -310,7 +348,7 @@ func classifyJJ(cmd string, tokens []string) finding {
 	}
 
 	if tokens[1] == "git" && sub == "push" && forcedPush(tokens[3:]) {
-		return finding{Verdict: NeedsApproval, Reason: "force push can overwrite remote history", Fragment: cmd}
+		return finding{Verdict: Refuse, Reason: reasonForcePush, Fragment: cmd}
 	}
 
 	return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
