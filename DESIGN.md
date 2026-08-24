@@ -930,9 +930,14 @@ measured and what it did not settle.
    not land here: `.github/workflows/` is template-owned, so the preamble
    ceiling and `-deadcode` need a change against
    [my_go_template](https://github.com/KyleKing/my_go_template) rather than
-   a local edit. Both gate locally now (`mise run preamble:budget` at 2,400
-   tokens against 2,356, `mise run deadcode` against a named allowlist), so
-   the upstream change is two task invocations
+   a local edit. The generic half of that is written and sitting uncommitted
+   in the template checkout: a `project` job that runs `mise run ci:project`
+   when the task exists and says so when it does not, which lets any project
+   add a gate CI runs without editing a file `copier update` overwrites. The
+   wavez half is `ci:project` depending on `deadcode` and `preamble:budget`,
+   which is committed here and passes. What is left is reviewing the template
+   change and cutting it upstream
+
 6. **Measure whether the `vcs` tool displaces the shell calls it replaced.**
    24 of 278 logged shell calls asked version control something and the tool
    costs 129 preamble tokens, so the trade is one turn saved per call

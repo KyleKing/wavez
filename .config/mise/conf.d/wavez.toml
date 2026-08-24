@@ -1,3 +1,7 @@
+[tasks."ci:project"]
+description = "Gates only this project has, run by the template's CI project job"
+depends = ["deadcode", "preamble:budget"]
+
 [tasks.deadcode]
 description = "Fail when a function no main reaches is not in the allowlist"
 run = "go run ./cmd/wavez -deadcode"
