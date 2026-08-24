@@ -16,9 +16,9 @@ import (
 // and discards the exit status, so anything it cannot fix reached nobody
 // until CI. The prompt carried the rules instead, which is the expensive
 // way to answer a question a tool answers for nothing.
+//
+//nolint:paralleltest // golangci-lint takes a machine-wide lock; two of these at once abort each other
 func TestLintGateReportsWhatTheFixPassCannotFix(t *testing.T) {
-	t.Parallel()
-
 	if _, err := exec.LookPath("golangci-lint"); err != nil {
 		t.Skip("golangci-lint is not installed")
 	}
@@ -105,9 +105,9 @@ func runLintGate(t *testing.T, root string) gate.Result {
 // as its own finding, and BuildGate reports the same errors in the same
 // round. 168 of the 264 lint findings logged against a model were that
 // duplicate, so this gate now says nothing and lets the build gate speak.
+//
+//nolint:paralleltest // same lock as the test above
 func TestLintGateLeavesCompileErrorsToTheBuildGate(t *testing.T) {
-	t.Parallel()
-
 	if _, err := exec.LookPath("golangci-lint"); err != nil {
 		t.Skip("golangci-lint is not installed")
 	}

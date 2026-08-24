@@ -23,8 +23,9 @@ const (
 	gofmtTabWidth     = 8
 )
 
-// FormatGate runs gofmt, goimports, and golangci-lint --fix when the
-// binary is on PATH, over changed Go files. DESIGN.md's Gates section puts
+// FormatGate inserts the t.Parallel() call a changed test is missing, then
+// runs gofmt, goimports, and golangci-lint --fix when the binary is on
+// PATH, over changed Go files. DESIGN.md's Gates section puts
 // this before the model ever sees a diff: the missing import and the
 // indentation failures in _ai_/bench/dogfood.md were both deterministic,
 // so they belong here rather than in a retry against the model.
@@ -62,6 +63,10 @@ func (g *FormatGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			fmt.Errorf("go not found on PATH, so imports cannot be resolved: %w", err)
 	}
 
+	if err := g.parallelizeTests(files); err != nil {
+		return Result{Gate: g.Name(), Level: rc.Selection.Level}, err
+	}
+
 	if err := g.formatFiles(files); err != nil {
 		return Result{Gate: g.Name(), Level: rc.Selection.Level}, err
 	}
@@ -73,6 +78,28 @@ func (g *FormatGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	}
 
 	return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: len(files), Pass: true}, nil
+}
+
+// parallelizeTests inserts the t.Parallel() call the project requires into
+// every changed test that can take one, before gofmt runs over the splice.
+func (g *FormatGate) parallelizeTests(files []string) error {
+	root, err := filepath.Abs(g.repoRoot)
+	if err != nil {
+		return fmt.Errorf("resolving repo root: %w", err)
+	}
+
+	for _, f := range files {
+		path, err := containedPath(root, f)
+		if err != nil {
+			return err
+		}
+
+		if err := parallelizeFile(path); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // containedPath resolves f against root and refuses anything that escapes it.
