@@ -510,7 +510,7 @@ func buildProviders(ctx context.Context, cfg config.Config, options Options) pro
 		}
 
 		supervisor = server.supervisor
-		tiers.Fast = openaic.New("fast", fastProviderOptions(ctx, fast, server.baseURL)...)
+		tiers.Fast = openaic.New("fast", fastProviderOptions(ctx, cfg, fast, server.baseURL)...)
 	}
 
 	if tiers.Balanced == nil {
@@ -571,12 +571,23 @@ func localRuntime(cfg config.Config, options Options) runtime.Config {
 }
 
 // fastProviderOptions dials baseURL, adding a bearer token only for a
-// remote endpoint with a key command, since the loopback server takes none.
-func fastProviderOptions(ctx context.Context, fast config.Tier, baseURL string) []openaic.Option {
+// remote endpoint, since the loopback server takes none. The tier's own key
+// command wins and hostedKeyCommand is the fallback, the same way every
+// other tier resolves one: a fast tier pointed at a provider is a hosted
+// tier whatever its name, and without this it sent no credential at all.
+func fastProviderOptions(
+	ctx context.Context, cfg config.Config, fast config.Tier, baseURL string,
+) []openaic.Option {
 	opts := []openaic.Option{openaic.WithBaseURL(baseURL), openaic.WithModel(fast.Model)}
-	if fast.BaseURL != "" && fast.KeyCommand != "" {
+
+	command := fast.KeyCommand
+	if command == "" {
+		command = cfg.HostedKeyCommand
+	}
+
+	if fast.BaseURL != "" && command != "" {
 		keyFn := func() (string, error) {
-			return keyFromCommand(context.WithoutCancel(ctx), "fast", fast.KeyCommand)
+			return keyFromCommand(context.WithoutCancel(ctx), "fast", command)
 		}
 		opts = append(opts, openaic.WithAPIKeyFunc(keyFn))
 	}
