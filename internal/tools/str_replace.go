@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/kyleking/wavez/internal/edit"
 	"github.com/kyleking/wavez/internal/tool"
@@ -45,9 +46,8 @@ var strReplaceSchema = buildOneOf(
 		propPath: strReplacePathProp,
 		propEdits: {
 			Type: schemaTypeArray,
-			Description: "Several replacements in one file, applied in order. All of them land " +
-				"or none do. Prefer this over one call per replacement when a file needs more " +
-				"than one change.",
+			Description: "Several replacements in one call. All of them land or none do. Each " +
+				"one may name its own path, so a change spanning two files is one call.",
 			Items: &schemaItems{
 				Type: schemaTypeObject,
 				Properties: map[string]schemaProperty{
@@ -106,6 +106,10 @@ type strReplaceInput struct {
 type editPair struct {
 	OldString string `json:"old_string"`
 	NewString string `json:"new_string"`
+	// Path is the file this one edit applies to, empty for the call's own
+	// path. A change rarely fits in one file and a call could only name
+	// one, which is what every recorded `e2` failure was.
+	Path string `json:"path,omitempty"`
 }
 
 // shapeError reports whether the call names a complete replacement, and
@@ -197,7 +201,14 @@ func (in *strReplaceInput) dedupedEdits() []editPair {
 
 // pairs is the replacements one call asked for, in order.
 func (in *strReplaceInput) pairs() []edit.Pair {
+	// A call with no path at all is refused by resolvePath before anything
+	// reads this, and shapeError lets that one through so the missing field
+	// named first is the first one missing.
 	if len(in.Edits) == 0 {
+		if in.NewString == nil {
+			return nil
+		}
+
 		return []edit.Pair{{OldString: in.OldString, NewString: *in.NewString}}
 	}
 
@@ -209,6 +220,44 @@ func (in *strReplaceInput) pairs() []edit.Pair {
 	}
 
 	return out
+}
+
+// byFile groups the call's replacements by the file each one names, in the
+// order the paths first appear, so a change spanning two files is one call
+// and its report reads in the order it was written.
+func (in *strReplaceInput) byFile() []pathGroup {
+	if len(in.Edits) == 0 {
+		return []pathGroup{{Path: in.Path, Pairs: in.pairs()}}
+	}
+
+	order := make([]string, 0, len(in.Edits))
+	pairs := map[string][]edit.Pair{}
+
+	for _, e := range in.dedupedEdits() {
+		path := e.Path
+		if path == "" {
+			path = in.Path
+		}
+
+		if _, seen := pairs[path]; !seen {
+			order = append(order, path)
+		}
+
+		pairs[path] = append(pairs[path], edit.Pair{OldString: e.OldString, NewString: e.NewString})
+	}
+
+	out := make([]pathGroup, 0, len(order))
+	for _, path := range order {
+		out = append(out, pathGroup{Path: path, Pairs: pairs[path]})
+	}
+
+	return out
+}
+
+// pathGroup is one file's share of a call.
+type pathGroup struct {
+	Path  string
+	Pairs []edit.Pair
 }
 
 // Run implements tool.Tool.
@@ -226,48 +275,105 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 		return tool.Fail(tool.CauseBadInput, "%s", msg), nil
 	}
 
-	abs, err := resolvePath(s.root, in.Path)
-	if err != nil {
-		return failWith(err), nil
-	}
+	groups := in.byFile()
 
-	if err := s.scope.Edit(abs); err != nil {
-		return failWith(err), nil
-	}
-
-	release, err := s.deps.hold(ctx, abs)
-	if err != nil {
-		return failWith(err), nil
+	edits, release, failure := s.prepare(ctx, groups)
+	if failure != nil {
+		return *failure, nil
 	}
 	defer release()
 
-	change, err := edit.ApplyAllToFile(abs, in.pairs())
+	changes, err := edit.ApplyToFiles(edits)
 	if err != nil {
-		if errors.Is(err, edit.ErrNotFound) && lineNumbered(in.OldString) {
-			return tool.Fail(tool.CauseBadInput,
-				"%v\n\nold_string still carries the line numbers read prefixed each "+
-					"line with. Send the file's own text, without the leading number and tab.", err), nil
+		return s.failedEdit(&in, err), nil
+	}
+
+	for i := range changes {
+		changes[i].Path = groups[i].Path
+	}
+
+	return tool.Result{Content: describeChanges(changes, len(in.pairs())), Changes: changes}, nil
+}
+
+// prepare resolves and locks every file the call names, returning one
+// release for all of them. Every lease is taken before any edit applies,
+// because a batch spanning two files must not half-apply when the second
+// file is held by another thread.
+func (s *StrReplace) prepare(
+	ctx context.Context, groups []pathGroup,
+) ([]edit.FileEdit, func(), *tool.Result) {
+	edits := make([]edit.FileEdit, 0, len(groups))
+	held := make([]func(), 0, len(groups))
+
+	release := func() {
+		for i := len(held) - 1; i >= 0; i-- {
+			held[i]()
+		}
+	}
+
+	for _, g := range groups {
+		abs, err := resolvePath(s.root, g.Path)
+		if err == nil {
+			err = s.scope.Edit(abs)
 		}
 
-		if errors.Is(err, edit.ErrNotFound) && len(in.Edits) > 1 {
-			return tool.Fail(tool.CauseNoMatch,
-				"%v\n\nEvery edit in one call applies to %s, and they apply in order, so an "+
-					"anchor in another file or one an earlier edit already replaced will not "+
-					"match. Send it as its own call.", err, in.Path), nil
+		var hold func()
+		if err == nil {
+			hold, err = s.deps.hold(ctx, abs)
 		}
 
-		return failWith(err), nil
+		if err != nil {
+			release()
+			failure := failWith(err)
+
+			return nil, func() {}, &failure
+		}
+
+		held = append(held, hold)
+		edits = append(edits, edit.FileEdit{Path: abs, Pairs: g.Pairs})
 	}
 
-	change.Path = in.Path
+	return edits, release, nil
+}
 
-	content := fmt.Sprintf("%s: +%d -%d lines", in.Path, change.Added, change.Removed)
-	if applied := len(in.pairs()); applied > 1 {
-		content = fmt.Sprintf("%s across %d edits", content, applied)
-	}
-	if len(change.Ranges) > 0 {
-		content = fmt.Sprintf("%s (now lines %d-%d)", content, change.Ranges[0].Start, change.Ranges[0].End)
+// failedEdit explains a batch that did not apply, adding what the error
+// alone cannot say.
+func (*StrReplace) failedEdit(in *strReplaceInput, err error) tool.Result {
+	if errors.Is(err, edit.ErrNotFound) && lineNumbered(in.OldString) {
+		return tool.Fail(tool.CauseBadInput,
+			"%v\n\nold_string still carries the line numbers read prefixed each "+
+				"line with. Send the file's own text, without the leading number and tab.", err)
 	}
 
-	return tool.Result{Content: content, Changes: []tool.Change{change}}, nil
+	if errors.Is(err, edit.ErrNotFound) && len(in.Edits) > 1 {
+		return tool.Fail(tool.CauseNoMatch,
+			"%v\n\nAn edit applies to %s unless it names its own path, and every anchor is "+
+				"matched against the file as you last read it. Give the edit a path if it "+
+				"belongs to another file.", err, in.Path)
+	}
+
+	return failWith(err)
+}
+
+// describeChanges reports what landed: file and line counts rather than the
+// diff, per the Modifiers principle that the model needs the fact of the
+// change and not to re-read it.
+func describeChanges(changes []tool.Change, applied int) string {
+	parts := make([]string, 0, len(changes))
+
+	for i := range changes {
+		part := fmt.Sprintf("%s: +%d -%d lines", changes[i].Path, changes[i].Added, changes[i].Removed)
+		if len(changes[i].Ranges) > 0 {
+			part = fmt.Sprintf("%s (now lines %d-%d)", part, changes[i].Ranges[0].Start, changes[i].Ranges[0].End)
+		}
+
+		parts = append(parts, part)
+	}
+
+	out := strings.Join(parts, "; ")
+	if applied > 1 {
+		out = fmt.Sprintf("%s across %d edits", out, applied)
+	}
+
+	return out
 }

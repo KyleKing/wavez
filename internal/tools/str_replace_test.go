@@ -379,12 +379,44 @@ func TestStrReplace_ABatchSaysItAppliesToOneFile(t *testing.T) {
 		t.Fatalf("IsError = false, want the batch refused: %q", result.Content)
 	}
 
-	if !strings.Contains(result.Content, "a.go") || !strings.Contains(result.Content, "its own call") {
-		t.Errorf("Content = %q, want it to name the path every edit applies to", result.Content)
+	if !strings.Contains(result.Content, "a.go") || !strings.Contains(result.Content, "own path") {
+		t.Errorf("Content = %q, want it to say the edit can name its own path", result.Content)
 	}
 
 	if result.Cause != tool.CauseNoMatch {
 		t.Errorf("Cause = %q, want %q", result.Cause, tool.CauseNoMatch)
+	}
+
+	// The same call lands once the second edit says where it belongs. Every
+	// recorded `e2` failure on the fast tier was this shape: a test file's
+	// anchor in a call whose path was the source file.
+	ok, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "a.go",
+		"edits": []map[string]string{
+			{"old_string": "func A() {}", "new_string": "func A() { _ = 1 }"},
+			{
+				"old_string": "func TestA(t *testing.T) {}",
+				"new_string": "func TestA(t *testing.T) { _ = 1 }",
+				"path":       "a_test.go",
+			},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if ok.IsError {
+		t.Fatalf("a two-file batch was refused: %q", ok.Content)
+	}
+
+	if len(ok.Changes) != 2 {
+		t.Fatalf("Changes = %+v, want one per file", ok.Changes)
+	}
+
+	for _, want := range []string{"a.go", "a_test.go"} {
+		if !strings.Contains(ok.Content, want) {
+			t.Errorf("Content = %q, want it to report %s", ok.Content, want)
+		}
 	}
 }
 

@@ -37,42 +37,107 @@ type Pair struct {
 // from the file's before and after rather than from each replacement, since
 // a later edit shifts the line numbers an earlier one reported.
 func ApplyAllToFile(path string, pairs []Pair) (tool.Change, error) {
-	if len(pairs) == 0 {
-		return tool.Change{}, ErrEmptyOldString
-	}
-
-	info, err := os.Lstat(path)
-	if err != nil {
-		return tool.Change{}, fmt.Errorf("stat %s: %w", path, err)
-	}
-
-	if info.Mode()&os.ModeSymlink != 0 {
-		return tool.Change{}, fmt.Errorf("%s: %w", path, ErrSymlink)
-	}
-
-	data, err := os.ReadFile(path) // #nosec G304 -- path is the file this tool exists to edit
-	if err != nil {
-		return tool.Change{}, fmt.Errorf("reading %s: %w", path, err)
-	}
-
-	before := string(data)
-
-	out, err := applyAll(before, pairs)
+	changes, err := ApplyToFiles([]FileEdit{{Path: path, Pairs: pairs}})
 	if err != nil {
 		return tool.Change{}, err
 	}
 
-	source, added, removed := out.source, out.added, out.removed
+	return changes[0], nil
+}
 
-	if err := writeAtomic(path, info.Mode(), []byte(source)); err != nil {
-		return tool.Change{}, fmt.Errorf("writing %s: %w", path, err)
+// FileEdit is one file's batch of replacements.
+type FileEdit struct {
+	Path  string
+	Pairs []Pair
+}
+
+// ApplyToFiles applies every file's batch, resolving and checking all of
+// them before writing any, so a bad anchor in the second file leaves the
+// first as it was.
+//
+// It exists because one call could name one file and a change rarely does.
+// Measured over this project's replay set, every `e2` failure on the fast
+// tier was the model putting a test file's anchor in a call whose path was
+// the source file, because the task needs both and the schema allowed one.
+//
+// The all-or-nothing guarantee holds across files for everything the tool
+// can decide in advance, which is every matching failure. A write that
+// fails partway through is an I/O error rather than a bad edit, and is
+// reported naming the file it stopped at.
+func ApplyToFiles(edits []FileEdit) ([]tool.Change, error) {
+	if len(edits) == 0 {
+		return nil, ErrEmptyOldString
 	}
 
-	return tool.Change{
-		Path:    path,
-		Added:   added,
-		Removed: removed,
-		Ranges:  changedSpan(before, source),
+	planned := make([]plannedWrite, 0, len(edits))
+
+	for _, fe := range edits {
+		p, err := planFile(fe)
+		if err != nil {
+			return nil, err
+		}
+
+		planned = append(planned, p)
+	}
+
+	changes := make([]tool.Change, 0, len(planned))
+
+	for _, p := range planned {
+		if err := writeAtomic(p.path, p.mode, []byte(p.after)); err != nil {
+			return nil, fmt.Errorf("writing %s: %w", p.path, err)
+		}
+
+		changes = append(changes, tool.Change{
+			Path:    p.path,
+			Added:   p.added,
+			Removed: p.removed,
+			Ranges:  changedSpan(p.before, p.after),
+		})
+	}
+
+	return changes, nil
+}
+
+// plannedWrite is one file's resolved batch, held until every file's batch
+// has resolved.
+type plannedWrite struct {
+	path    string
+	before  string
+	after   string
+	mode    os.FileMode
+	added   int
+	removed int
+}
+
+func planFile(fe FileEdit) (plannedWrite, error) {
+	if len(fe.Pairs) == 0 {
+		return plannedWrite{}, ErrEmptyOldString
+	}
+
+	info, err := os.Lstat(fe.Path)
+	if err != nil {
+		return plannedWrite{}, fmt.Errorf("stat %s: %w", fe.Path, err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return plannedWrite{}, fmt.Errorf("%s: %w", fe.Path, ErrSymlink)
+	}
+
+	data, err := os.ReadFile(fe.Path) // #nosec G304 -- path is the file this tool exists to edit
+	if err != nil {
+		return plannedWrite{}, fmt.Errorf("reading %s: %w", fe.Path, err)
+	}
+
+	before := string(data)
+
+	out, err := applyAll(before, fe.Pairs)
+	if err != nil {
+		return plannedWrite{}, err
+	}
+
+	return plannedWrite{
+		path: fe.Path, before: before, after: out.source, mode: info.Mode(),
+		added: out.added, removed: out.removed,
 	}, nil
 }
 
