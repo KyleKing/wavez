@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -50,8 +51,11 @@ func TestWrite_RefusesExistingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !result.IsError {
-		t.Errorf("IsError = false, want true for an existing file")
+	// Recorded as a plain error, a refusal that worked reads as a defect:
+	// the corpus counted write at 5 failures in 7 calls when all five were
+	// this one and the path check below.
+	if !result.IsError || result.Cause != tool.CauseRefused {
+		t.Errorf("result = %+v, want a refusal for an existing file", result)
 	}
 
 	got, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
@@ -75,7 +79,7 @@ func TestWrite_RefusesPathOutsideRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !result.IsError {
-		t.Errorf("IsError = false, want true for a path outside the root")
+	if !result.IsError || result.Cause != tool.CauseRefused {
+		t.Errorf("result = %+v, want a refusal for a path outside the root", result)
 	}
 }

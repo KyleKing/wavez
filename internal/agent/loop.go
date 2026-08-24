@@ -1242,7 +1242,7 @@ func (r *run) checkStagnation(ctx context.Context, toolName string, isError bool
 func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, error) {
 	t, err := r.loop.tools.Get(call.Name)
 	if err != nil {
-		unknown := tool.Errorf("unknown tool %q", call.Name)
+		unknown := tool.Fail(tool.CauseBadInput, "unknown tool %q", call.Name)
 
 		return unknown, r.appendToolResult(ctx, call, unknown, "")
 	}
@@ -1252,7 +1252,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 		return tool.Result{}, fmt.Errorf("checking permission for %q: %w", call.Name, err)
 	}
 	if !allowed {
-		denied := tool.Errorf("permission denied for %q", call.Name)
+		denied := tool.Fail(tool.CauseRefused, "permission denied for %q", call.Name)
 
 		return denied, r.appendToolResult(ctx, call, denied, "")
 	}
@@ -1262,14 +1262,14 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 		return tool.Result{}, err
 	}
 	if !proceed {
-		refused := tool.Errorf("pre-tool-use hook refused %q", call.Name)
+		refused := tool.Fail(tool.CauseRefused, "pre-tool-use hook refused %q", call.Name)
 
 		return refused, r.appendToolResult(ctx, call, refused, "")
 	}
 
 	result, err := t.Run(ctx, call.Input)
 	if err != nil {
-		result = tool.Errorf("%s: %v", call.Name, err)
+		result = tool.Fail(tool.CauseIO, "%s: %v", call.Name, err)
 	}
 	r.changes = append(r.changes, result.Changes...)
 	r.gateChanges(result.Changes)

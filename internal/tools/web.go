@@ -112,16 +112,16 @@ func (w *WebSearch) Run(ctx context.Context, input json.RawMessage) (tool.Result
 	}
 
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	if strings.TrimSpace(in.Query) == "" {
-		return tool.Errorf("query is required"), nil
+		return tool.Fail(tool.CauseBadInput, "query is required"), nil
 	}
 
 	results, err := w.searcher.Search(ctx, in.Query, defaultWebResults)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
 	var b strings.Builder
@@ -158,23 +158,23 @@ func (w *WebFetch) Run(ctx context.Context, input json.RawMessage) (tool.Result,
 	}
 
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	u, err := web.ParseFetchable(in.URL)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseRefused, "%v", err), nil
 	}
 
 	if !w.seen.has(u.Host) {
 		if err := w.approve(ctx, u.Host, u.String()); err != nil {
-			return tool.Errorf("%v", err), nil
+			return tool.Fail(tool.CauseRefused, "%v", err), nil
 		}
 	}
 
 	page, err := w.fetcher.Get(ctx, u.String())
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
 	w.seen.add(page.URL)

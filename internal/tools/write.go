@@ -84,33 +84,34 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 
 	var in writeInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	abs, err := resolvePath(w.root, in.Path)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseRefused, "%v", err), nil
 	}
 
 	release, err := w.deps.hold(ctx, abs)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseConflict, "%v", err), nil
 	}
 	defer release()
 
 	if lineNumbered(in.Content) {
-		return tool.Errorf("content carries the line numbers read prefixed each line with; " +
-			"write the file's own text, without the leading number and tab"), nil
+		return tool.Fail(tool.CauseBadInput,
+			"content carries the line numbers read prefixed each line with; "+
+				"write the file's own text, without the leading number and tab"), nil
 	}
 
 	if _, statErr := os.Lstat(abs); statErr == nil {
-		return tool.Errorf("%s already exists; use str_replace to edit it", in.Path), nil
+		return tool.Fail(tool.CauseRefused, "%s already exists; use str_replace to edit it", in.Path), nil
 	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return tool.Errorf("checking %s: %v", in.Path, statErr), nil
+		return tool.Fail(tool.CauseIO, "checking %s: %v", in.Path, statErr), nil
 	}
 
 	if err := os.WriteFile(abs, []byte(in.Content), permFor(in.Content)); err != nil {
-		return tool.Errorf("writing %s: %v", in.Path, err), nil
+		return tool.Fail(tool.CauseIO, "writing %s: %v", in.Path, err), nil
 	}
 
 	w.scope.Observe(abs)

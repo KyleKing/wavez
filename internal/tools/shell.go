@@ -104,7 +104,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 
 	var in shellInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	if answer, ok := s.alreadyKnown(in.Command); ok {
@@ -115,7 +115,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 
 	switch verdict.Verdict {
 	case guard.Refuse:
-		return tool.Errorf("refused: %s (%q)", verdict.Reason, verdict.Fragment), nil
+		return tool.Fail(tool.CauseRefused, "refused: %s (%q)", verdict.Reason, verdict.Fragment), nil
 	case guard.NeedsApproval:
 		decision, err := s.gate.Ask(ctx, permission.Request{
 			ThreadID: s.threadID,
@@ -126,11 +126,11 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 			Reason:   verdict.Reason,
 		})
 		if err != nil {
-			return tool.Errorf("requesting approval: %v", err), nil
+			return tool.Fail(tool.CauseUpstream, "requesting approval: %v", err), nil
 		}
 
 		if decision == permission.Deny {
-			return tool.Errorf("denied: %s (%q)", verdict.Reason, verdict.Fragment), nil
+			return tool.Fail(tool.CauseRefused, "denied: %s (%q)", verdict.Reason, verdict.Fragment), nil
 		}
 	case guard.Allow:
 	}
@@ -139,7 +139,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	// the edit tools are not the only way a thread changes the tree.
 	release, err := s.deps.holdAll(ctx, existingDirs(guard.WriteTargets(in.Command, s.env)))
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseIO, "%v", err), nil
 	}
 	defer release()
 

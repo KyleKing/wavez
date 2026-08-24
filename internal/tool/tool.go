@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 )
 
 // ErrNotFound reports a tool call naming a tool that is not registered.
@@ -36,12 +35,6 @@ type Result struct {
 	Cause   Cause    `json:"cause,omitempty"`
 	Changes []Change `json:"changes,omitempty"`
 	IsError bool     `json:"is_error,omitempty"`
-}
-
-// Errorf builds a Result carrying a failure the model is expected to
-// correct, leaving the cause unclassified. Prefer Fail, which names it.
-func Errorf(format string, args ...any) Result {
-	return Result{Content: fmt.Sprintf(format, args...), IsError: true}
 }
 
 // Spec advertises one tool to a provider.

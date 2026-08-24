@@ -59,16 +59,16 @@ func (q *Question) Run(ctx context.Context, input json.RawMessage) (tool.Result,
 
 	var in questionInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	if in.Question == "" {
-		return tool.Errorf("question is required"), nil
+		return tool.Fail(tool.CauseBadInput, "question is required"), nil
 	}
 
 	answer, err := q.asker.Ask(ctx, in.Question)
 	if err != nil {
-		return tool.Errorf("could not get an answer: %v", err), nil
+		return tool.Fail(tool.CauseUpstream, "could not get an answer: %v", err), nil
 	}
 
 	return tool.Result{Content: answer}, nil

@@ -130,11 +130,11 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 
 	var in searchInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	if in.Query == "" {
-		return tool.Errorf("query is required"), nil
+		return tool.Fail(tool.CauseBadInput, "query is required"), nil
 	}
 
 	results, stats, err := s.index.Search(ctx, codeintel.SearchQuery{
@@ -143,7 +143,7 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		Limit: in.Limit,
 	})
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
 	scoped := scopeTo(results, in.Path)
@@ -157,7 +157,7 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		Limit: in.Limit,
 	})
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
 	scoped = scopeTo(retried, in.Path)

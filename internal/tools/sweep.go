@@ -102,15 +102,16 @@ func (s *Sweep) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 
 	var in sweepInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	if in.Pattern == "" {
-		return tool.Errorf("pattern is required"), nil
+		return tool.Fail(tool.CauseBadInput, "pattern is required"), nil
 	}
 
 	if in.DismissFile != "" && in.DismissReason == "" {
-		return tool.Errorf("dismiss_reason is required with dismiss_file: a hit left alone needs a reason"), nil
+		return tool.Fail(tool.CauseBadInput,
+			"dismiss_reason is required with dismiss_file: a hit left alone needs a reason"), nil
 	}
 
 	record := cycle.Sweep{Pattern: in.Pattern, Language: in.Language, Path: in.Path, Artifact: in.Artifact}
@@ -121,12 +122,12 @@ func (s *Sweep) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	}
 
 	if err := s.recorder.RecordSweep(record); err != nil {
-		return tool.Errorf("could not record the sweep: %v", err), nil
+		return tool.Fail(tool.CauseIO, "could not record the sweep: %v", err), nil
 	}
 
 	hits, err := s.sweeper.Sweep(ctx, s.root, record)
 	if err != nil {
-		return tool.Errorf("the sweep could not run: %v", err), nil
+		return tool.Fail(tool.CauseUpstream, "the sweep could not run: %v", err), nil
 	}
 
 	return tool.Result{Content: s.report(in.Pattern, hits)}, nil

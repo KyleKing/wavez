@@ -121,23 +121,23 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	var in readInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	paths := readPaths(input, propPath, in.Path)
 	if len(paths) == 0 {
-		return tool.Errorf("path is required"), nil
+		return tool.Fail(tool.CauseBadInput, "path is required"), nil
 	}
 	if len(paths) > maxReadFiles {
-		return tool.Errorf("%d paths in one call, at most %d", len(paths), maxReadFiles), nil
+		return tool.Fail(tool.CauseBadInput, "%d paths in one call, at most %d", len(paths), maxReadFiles), nil
 	}
 	if len(paths) > 1 && (in.StartLine != 0 || in.EndLine != 0) {
-		return tool.Errorf("a line range reads one file; drop start_line and end_line, " +
+		return tool.Fail(tool.CauseBadInput, "a line range reads one file; drop start_line and end_line, "+
 			"or name one path"), nil
 	}
 
 	if err := in.normalizeRange(); err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseBadInput, "%v", err), nil
 	}
 
 	return r.readAll(paths, in.StartLine, in.EndLine), nil
@@ -148,13 +148,13 @@ func (r *Read) readAll(paths []string, start, end int) tool.Result {
 	for _, p := range paths {
 		abs, err := resolvePath(r.root, p)
 		if err != nil {
-			return tool.Errorf("%v", err)
+			return tool.Fail(tool.CauseRefused, "%v", err)
 		}
 
 		if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
 			names, listErr := dirEntries(abs)
 			if listErr != nil {
-				return tool.Errorf("%v", listErr)
+				return tool.Fail(tool.CauseIO, "%v", listErr)
 			}
 
 			blocks = append(blocks, fmt.Sprintf("%s is a directory holding:\n%s", p, strings.Join(names, "\n")))
@@ -164,7 +164,7 @@ func (r *Read) readAll(paths []string, start, end int) tool.Result {
 
 		data, err := os.ReadFile(abs) // #nosec G304 -- abs is resolved and root-checked above
 		if err != nil {
-			return tool.Errorf("reading %s: %v", p, err)
+			return tool.Fail(tool.CauseIO, "reading %s: %v", p, err)
 		}
 
 		r.scope.Observe(abs)
@@ -214,7 +214,7 @@ func rangeResult(path string, data []byte, start, end int) tool.Result {
 		start, end = 1, total
 	} else {
 		if start > total {
-			return tool.Errorf("%s has %d lines, start_line %d is past the end", path, total, start)
+			return tool.Fail(tool.CauseBadInput, "%s has %d lines, start_line %d is past the end", path, total, start)
 		}
 
 		end = min(end, total)

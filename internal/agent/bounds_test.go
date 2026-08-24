@@ -82,7 +82,7 @@ type erroringTool struct {
 }
 
 func (erroringTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
-	return tool.Errorf("boom"), nil
+	return tool.Fail(tool.CauseIO, "boom"), nil
 }
 
 func TestRun_DeadlineBoundTrips(t *testing.T) {

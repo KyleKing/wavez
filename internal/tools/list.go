@@ -71,12 +71,12 @@ func (l *List) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	var in listInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	if in.Pattern != "" {
 		if _, err := path.Match(in.Pattern, "probe"); err != nil {
-			return tool.Errorf("pattern %q is not a valid glob: %v", in.Pattern, err), nil
+			return tool.Fail(tool.CauseBadInput, "pattern %q is not a valid glob: %v", in.Pattern, err), nil
 		}
 	}
 
@@ -89,12 +89,12 @@ func (l *List) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 	for _, dir := range dirs {
 		abs, err := resolvePath(l.root, dir)
 		if err != nil {
-			return tool.Errorf("%v", err), nil
+			return tool.Fail(tool.CauseRefused, "%v", err), nil
 		}
 
 		found, err := walkMatching(abs, in.Pattern)
 		if err != nil {
-			return tool.Errorf("%v", err), nil
+			return tool.Fail(tool.CauseIO, "%v", err), nil
 		}
 
 		blocks = append(blocks, formatListing(dir, in.Pattern, found))

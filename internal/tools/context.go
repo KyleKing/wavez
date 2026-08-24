@@ -82,12 +82,12 @@ func (c *Context) Run(ctx context.Context, input json.RawMessage) (tool.Result, 
 
 	var in contextInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	touched, err := parseTouched(in.Files)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseBadInput, "%v", err), nil
 	}
 
 	budget := in.TokenBudget
@@ -97,12 +97,12 @@ func (c *Context) Run(ctx context.Context, input json.RawMessage) (tool.Result, 
 
 	stats, err := c.index.Refresh(ctx)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
 	bundle, err := c.index.Context(ctx, codeintel.ContextRequest{Touched: touched, TokenBudget: budget})
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
 	return tool.Result{Content: formatBundle(bundle, stats, touched, budget)}, nil

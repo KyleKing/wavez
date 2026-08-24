@@ -77,11 +77,11 @@ func (h *Hypothesis) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 	var in hypothesisInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return tool.Errorf("invalid input: %v", err), nil
+		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
 	if in.Cause == "" || in.Experiment == "" || in.Observation == "" {
-		return tool.Errorf("cause, experiment, and observation are all required"), nil
+		return tool.Fail(tool.CauseBadInput, "cause, experiment, and observation are all required"), nil
 	}
 
 	row := cycle.Hypothesis{
@@ -91,7 +91,7 @@ func (h *Hypothesis) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 		Verdict:     in.Verdict,
 	}
 	if err := h.recorder.RecordHypothesis(row); err != nil {
-		return tool.Errorf("not recorded: %v. Recording is not progress; run the experiment "+
+		return tool.Fail(tool.CauseIO, "not recorded: %v. Recording is not progress; run the experiment "+
 			"the phase asks for instead", err), nil
 	}
 

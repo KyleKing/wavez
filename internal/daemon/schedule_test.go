@@ -43,7 +43,7 @@ func (w *leasedWrite) Run(ctx context.Context, _ json.RawMessage) (tool.Result, 
 
 	release, err := w.leases.Acquire(ctx, path)
 	if err != nil {
-		return tool.Errorf("%v", err), nil
+		return tool.Fail(tool.CauseIO, "%v", err), nil
 	}
 	defer release()
 
