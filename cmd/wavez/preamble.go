@@ -69,7 +69,7 @@ func preambleReport(ctx context.Context, root string, opt options) error {
 
 	fastOnly := withoutTools(sections, app.FastTierOmits)
 
-	if err := writePreamble(os.Stdout, sections, fastOnly); err != nil {
+	if err := writePreamble(os.Stdout, sections, fastOnly, cfg.ContextWindow); err != nil {
 		return err
 	}
 
@@ -217,7 +217,7 @@ func withoutTools(sections []section, omit []string) []section {
 	return out
 }
 
-func writePreamble(w io.Writer, sections, fastOnly []section) error {
+func writePreamble(w io.Writer, sections, fastOnly []section, fastWindow int) error {
 	total := bytesOf(sections)
 	byKind := map[string]int{}
 
@@ -245,8 +245,10 @@ func writePreamble(w io.Writer, sections, fastOnly []section) error {
 	// The window is the constraint the size actually matters against, and it
 	// is not one number: the same prefix is a third of what a fast turn can
 	// use and noise on a hosted one, so each tier is reported against its
-	// own window and against the surface it is actually shown.
-	usable := router.FastContextBudget - router.ReplyReserve
+	// own window and against the surface it is actually shown. The fast
+	// window is the project's, since a tier served from somewhere else is
+	// not held to the llama-server default.
+	usable := fastWindow - router.ReplyReserve
 	fastTokens := bytesOf(fastOnly) / tokensPerByte
 	p.printf("\nfast   %5d tokens of %6d usable (%.0f%%)\n",
 		fastTokens, usable, share(fastTokens, usable))

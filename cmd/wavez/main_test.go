@@ -69,7 +69,7 @@ func TestWritePreamble(t *testing.T) {
 	// its own window rather than folded into one number.
 	fastOnly := withoutTools(sections, []string{"read"})
 
-	if err := writePreamble(&b, sections, fastOnly); err != nil {
+	if err := writePreamble(&b, sections, fastOnly, 8192); err != nil {
 		t.Fatalf("writePreamble: %v", err)
 	}
 
