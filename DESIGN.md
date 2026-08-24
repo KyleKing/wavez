@@ -417,6 +417,7 @@ Roles beyond linting:
 - Every gate records how many units it examined, and a gate that examined nothing has abstained rather than passed. Abstaining is fine when the change set held no work for it (no Go files to format) and is a failure when it did (`go test -run` exits 0 when its pattern matches no test, so a drifted selection reports green having run nothing). Without the count, the two are the same line in the log
 - Formatter, native linter autofix, and `ast-grep` convention rules run as pre-passes before the model sees the diff (see Structural rules). LSP diagnostics after the edit are a gate too
 - Config discovered from `package.json`, `Makefile`, `pyproject.toml`, `mise.toml`, with a one-time prompt to confirm
+- A gate does not repeat what another gate is already saying. The linter type-checks before it lints, so a package that will not build reports every type error as a lint finding, and 168 of the 264 lint findings logged against a model across 58 threads were exactly that: the same compile error the build gate reported in the same round. The lint gate drops them and abstains when nothing else is left. Of the 96 findings that remain, 54 are a missing doc comment on an exported symbol, 18 are a missing `t.Parallel()`, and 8 are a blank line before a return, so 94% of every lint finding a model has ever seen was either a duplicate or a mechanical fix
 
 ### Routines (M2)
 

@@ -100,3 +100,25 @@ func runLintGate(t *testing.T, root string) gate.Result {
 
 	return result
 }
+
+// A package that will not compile makes the linter report every type error
+// as its own finding, and BuildGate reports the same errors in the same
+// round. 168 of the 264 lint findings logged against a model were that
+// duplicate, so this gate now says nothing and lets the build gate speak.
+func TestLintGateLeavesCompileErrorsToTheBuildGate(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		t.Skip("golangci-lint is not installed")
+	}
+
+	root := lintFixture(t, "package a\n\nfunc F() int {\n\treturn undefinedSymbol\n}\n")
+
+	result := runLintGate(t, root)
+	if len(result.Failures) != 0 {
+		t.Fatalf("Failures = %+v, want none: the build gate reports a compile error", result.Failures)
+	}
+	if result.Reason == "" {
+		t.Errorf("Reason = %q, want it to name the build gate", result.Reason)
+	}
+}

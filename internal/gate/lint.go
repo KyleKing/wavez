@@ -22,6 +22,14 @@ const lintGateName = "lint"
 // a hundred rules is one mistake, and listing all of them buries it.
 const maxLintFindings = 10
 
+// typecheckSuffix marks a finding that is a compile error rather than a
+// rule. The linter type-checks before it lints, so a package that will not
+// build reports every parse and type error under this name. BuildGate is
+// already saying it in the same round, and 168 of the 264 lint findings
+// logged against a model were this, so reporting it here is the same
+// compile error arriving twice.
+const typecheckSuffix = "(typecheck)"
+
 // LintGate reports the linter findings on a run's own changed files.
 //
 // It exists because the findings had nowhere to go. FormatGate runs
@@ -78,9 +86,15 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			fmt.Errorf("%s run: %w: %s", lintTool, err, strings.TrimSpace(string(out)))
 	}
 
+	failures := lintFailures(out, rc.Changes)
+	if len(failures) == 0 {
+		return Abstained(g.Name(), rc.Selection.Level,
+			"the change does not compile, which the build gate reports"), nil
+	}
+
 	return Result{
 		Gate: g.Name(), Level: rc.Selection.Level, Examined: len(files),
-		Failures: lintFailures(out, rc.Changes),
+		Failures: failures,
 	}, nil
 }
 
@@ -93,10 +107,22 @@ func lintFailures(out []byte, changes []tool.Change) []TrimmedFailure {
 
 	var findings []string
 
+	compileErrors := 0
+
 	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
-		if namesAChangedFile(line, changed) {
-			findings = append(findings, strings.TrimSpace(line))
+		if !namesAChangedFile(line, changed) {
+			continue
 		}
+		if strings.HasSuffix(strings.TrimSpace(line), typecheckSuffix) {
+			compileErrors++
+
+			continue
+		}
+		findings = append(findings, strings.TrimSpace(line))
+	}
+
+	if len(findings) == 0 && compileErrors > 0 {
+		return nil
 	}
 
 	if len(findings) == 0 {
