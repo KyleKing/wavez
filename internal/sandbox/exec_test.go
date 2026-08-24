@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/sandbox"
@@ -108,5 +109,30 @@ func TestExec_GoBuildResolvesDependenciesWithoutNetwork(t *testing.T) {
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("go build exit=%d, want 0\nstderr: %s", result.ExitCode, result.Stderr)
+	}
+}
+
+// TestExecDropsSecretNamedEnv pins the leak the sandbox's network deny does
+// not cover: a command's stdout enters the thread's context, and the next
+// hosted turn sends that context to the provider. The API key the daemon
+// falls back to lives in this environment, and `echo` is a command the guard
+// allows by name.
+func TestExecDropsSecretNamedEnv(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "sk-should-not-appear")
+	t.Setenv("WAVEZ_PROBE_PLAIN", "visible")
+
+	dir := t.TempDir()
+
+	result, err := sandbox.Exec(context.Background(), dir, dir,
+		"sh", "-c", `echo "key=[$OPENROUTER_API_KEY] plain=[$WAVEZ_PROBE_PLAIN]"`)
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+
+	if strings.Contains(result.Stdout, "sk-should-not-appear") {
+		t.Errorf("secret reached the command: %q", result.Stdout)
+	}
+	if !strings.Contains(result.Stdout, "plain=[visible]") {
+		t.Errorf("an ordinary variable was dropped too: %q", result.Stdout)
 	}
 }

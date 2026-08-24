@@ -55,8 +55,8 @@ func (p *Profile) Render() string {
 // neither the filesystem nor any external process, which is what makes it
 // golden-testable without running sandbox-exec.
 //
-// Writes are scoped to projectRoot and sessionTmp. Reads of ~/.ssh, ~/.aws,
-// ~/.config/gh, ~/Library/Keychains, and ~/.claude under home are denied.
+// Writes are scoped to projectRoot and sessionTmp. Reads of the credential
+// and history directories under home listed by secretSubpaths are denied.
 // /dev/null and /dev/tty are allowed explicitly (git needs the former even
 // under a deny-by-default write policy). Network is loopback-only.
 func RenderProfile(projectRoot, sessionTmp, home string) string {
@@ -89,13 +89,22 @@ func RenderProfile(projectRoot, sessionTmp, home string) string {
 	return b.String()
 }
 
+// secretSubpaths are the paths under home a sandboxed command may not read.
+// Shell histories are on it because they hold whatever was ever typed with a
+// token in it, and denying network is not what stops a leak: anything a
+// command prints enters the thread's context and the next hosted turn ships
+// that context to the provider.
 func secretSubpaths(home string) []string {
 	return []string{
-		filepath.Join(home, ".ssh"),
 		filepath.Join(home, ".aws"),
-		filepath.Join(home, ".config", "gh"),
-		filepath.Join(home, "Library", "Keychains"),
+		filepath.Join(home, ".bash_history"),
 		filepath.Join(home, ".claude"),
+		filepath.Join(home, ".config", "gh"),
+		filepath.Join(home, ".gnupg"),
+		filepath.Join(home, ".netrc"),
+		filepath.Join(home, ".ssh"),
+		filepath.Join(home, ".zsh_history"),
+		filepath.Join(home, "Library", "Keychains"),
 	}
 }
 

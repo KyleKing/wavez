@@ -14,11 +14,15 @@
 
 ; --- reads: everything except secrets ---
 (deny file-read*
-  (subpath "/HOME/.ssh")
   (subpath "/HOME/.aws")
-  (subpath "/HOME/.config/gh")
-  (subpath "/HOME/Library/Keychains")
+  (subpath "/HOME/.bash_history")
   (subpath "/HOME/.claude")
+  (subpath "/HOME/.config/gh")
+  (subpath "/HOME/.gnupg")
+  (subpath "/HOME/.netrc")
+  (subpath "/HOME/.ssh")
+  (subpath "/HOME/.zsh_history")
+  (subpath "/HOME/Library/Keychains")
 )
 
 ; --- network: loopback only ---

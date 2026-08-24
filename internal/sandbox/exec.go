@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // ErrNoCommand reports Exec called with no command to run.
@@ -78,6 +79,47 @@ type goCaches struct {
 	tmp   string
 }
 
+// secretEnvFragments name the environment variables a sandboxed command
+// never needs and must not see. Denying network is not what stops a leak
+// here: anything a command prints enters the thread's context, and the next
+// hosted turn ships that context to the provider. The API key the daemon
+// falls back to when no key command is configured is read from this
+// environment, so `echo $OPENROUTER_API_KEY` would have printed it through a
+// command the guard allows by name.
+var secretEnvFragments = []string{
+	"AUTH", "CREDENTIAL", "KEY", "PASSWD", "PASSWORD", "SECRET", "SESSION_TOKEN", "TOKEN",
+}
+
+// scrubbedEnv drops every variable whose name carries one of the fragments
+// above. It matches on the name and never on the value, so a variable that
+// merely holds a secret-looking string still reaches the command: naming is
+// the part that is stable enough to decide from.
+func scrubbedEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+
+	for _, entry := range env {
+		name, _, ok := strings.Cut(entry, "=")
+		if ok && namesASecret(name) {
+			continue
+		}
+
+		out = append(out, entry)
+	}
+
+	return out
+}
+
+func namesASecret(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, fragment := range secretEnvFragments {
+		if strings.Contains(upper, fragment) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func prepareGoCaches(sessionTmp string) (goCaches, error) {
 	caches := goCaches{
 		cache: filepath.Join(sessionTmp, "gocache"),
@@ -115,7 +157,7 @@ func runSandboxed(
 	// #nosec G204 -- args is the command this sandbox exists to confine, not passed to an unsandboxed shell.
 	cmd := exec.CommandContext(ctx, "sandbox-exec", sandboxArgs...)
 	cmd.Dir = projectRoot
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(scrubbedEnv(os.Environ()),
 		"GOCACHE="+caches.cache,
 		"GOLANGCI_LINT_CACHE="+caches.cache,
 		"GOTMPDIR="+caches.tmp,
