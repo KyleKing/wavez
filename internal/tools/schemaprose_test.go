@@ -188,3 +188,83 @@ func registrySpecs(t *testing.T) []tool.Spec {
 		tools.NewWrite(root, scope),
 	).Specs()
 }
+
+// A failed anchor has causes the harness can tell apart and the model
+// cannot: the anchor is a whole declaration and declare needs none, the
+// file changed under it, or it was never read. Measured over six `e2` lanes, `str_replace` failed 30 of 30
+// calls while those runs made 2 reads and 36 searches between them.
+func TestStrReplaceNamesWhyAnAnchorCouldNotMatch(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seed(t, root, "a.go", "package a\n\nfunc F() int {\n\treturn 1\n}\n")
+
+	scope := tools.NewScope(false)
+	sr := tools.NewStrReplace(root, scope)
+
+	unread, err := sr.Run(t.Context(), mustJSON(t, map[string]any{
+		"path": "a.go", "old_string": "\treturn 9\n", "new_string": "x",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(unread.Content, "not read a.go this run") {
+		t.Errorf("Content = %q, want it to say the file was never read", unread.Content)
+	}
+
+	// Reading it, then editing it, then anchoring on the old text is the
+	// other case, and it must not be reported as never read.
+	if _, err := tools.NewRead(root, scope).Run(t.Context(),
+		mustJSON(t, map[string]any{"path": "a.go"})); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if _, err := sr.Run(t.Context(), mustJSON(t, map[string]any{
+		"path": "a.go", "old_string": "\treturn 1\n", "new_string": "\treturn 2\n",
+	})); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+
+	stale, err := sr.Run(t.Context(), mustJSON(t, map[string]any{
+		"path": "a.go", "old_string": "\treturn 1\n", "new_string": "\treturn 3\n",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(stale.Content, "since you last read it") {
+		t.Errorf("Content = %q, want it to say the run's own edit moved the file", stale.Content)
+	}
+}
+
+// A whole-declaration anchor is the shape declare exists for, and the
+// message names it by symbol so the retry needs no thought. Measured over
+// six `e2` lanes, 17 of 19 failed anchors were a whole declaration and
+// every one of them failed, while declare failed 2 of 22 calls.
+func TestStrReplaceSendsAWholeDeclarationToDeclare(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seed(t, root, "a.go", "package a\n\nfunc (m Memory) Used() int {\n\treturn 1\n}\n")
+
+	res, err := tools.NewStrReplace(root, tools.NewScope(false)).Run(t.Context(),
+		mustJSON(t, map[string]any{
+			"path":       "a.go",
+			"old_string": "func (m Memory) Used() int {\n\treturn 9\n}",
+			"new_string": "func (m Memory) Used() int {\n\treturn 2\n}",
+		}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("the call succeeded: %s", res.Content)
+	}
+
+	for _, want := range []string{"whole declaration of Used", `symbol "Used"`} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("Content = %q, want %q", res.Content, want)
+		}
+	}
+}

@@ -119,6 +119,13 @@ func TestDeclareAddsWhatIsNotThereYet(t *testing.T) {
 	if len(added.Changes) != 1 || added.Changes[0].Path != "memory.go" {
 		t.Errorf("Changes = %+v, want one naming the file it wrote", added.Changes)
 	}
+
+	// The package the declaration landed in is what a caller needs to know
+	// to qualify the names it uses. Measured on `e2`, every remaining
+	// failure was a test written against the wrong package clause.
+	if !strings.Contains(added.Content, "package sysinfo") {
+		t.Errorf("Content = %q, want it to name the package it added into", added.Content)
+	}
 }
 
 func readSeeded(t *testing.T, root, rel string) string {
@@ -130,4 +137,50 @@ func readSeeded(t *testing.T, root, rel string) string {
 	}
 
 	return string(body)
+}
+
+// A caller writing a new test sends the import it needs alongside the
+// function, because that is what the source looks like in a file.
+// Appending that whole thing puts a second import block after existing
+// declarations, which Go rejects: measured on `e2`, one run produced
+// exactly that and the file would not compile.
+func TestDeclareMergesTheImportsItIsSent(t *testing.T) {
+	t.Parallel()
+
+	root, d := declareProject(t)
+	writeFile(t, root, "memory_test.go",
+		"package sysinfo_test\n\nimport (\n\t\"testing\"\n)\n\nfunc TestOld(t *testing.T) {}\n")
+
+	res, err := d.Run(t.Context(), mustJSON(t, map[string]any{
+		"symbol": "TestUsedFraction",
+		"path":   "memory_test.go",
+		"source": "import (\n\t\"fmt\"\n)\n\nfunc TestUsedFraction(t *testing.T) { fmt.Println(1) }",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError {
+		t.Fatalf("declare failed: %s", res.Content)
+	}
+
+	got := readSeeded(t, root, "memory_test.go")
+
+	if strings.Count(got, "import (") != 1 {
+		t.Errorf("want one import block, got:\n%s", got)
+	}
+
+	if !strings.Contains(got, "\t\"fmt\"") || !strings.Contains(got, "\t\"testing\"") {
+		t.Errorf("both imports should survive the merge:\n%s", got)
+	}
+
+	if strings.Index(got, "import (") > strings.Index(got, "func TestOld") {
+		t.Errorf("the imports must stay above the declarations:\n%s", got)
+	}
+
+	// An external test package is the one thing about the destination a
+	// caller cannot see and keeps getting wrong.
+	if !strings.Contains(res.Content, "external test package") {
+		t.Errorf("Content = %q, want it to say names need their qualifier", res.Content)
+	}
 }

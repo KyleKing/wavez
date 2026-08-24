@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/edit"
@@ -184,18 +185,54 @@ func (d *Declare) add(ctx context.Context, in *declareInput, text string) (tool.
 	}
 	defer release()
 
-	change, err := appendDecls(abs, []string{text})
+	imports, body := splitImports(text)
+
+	change, err := appendDecls(abs, []string{body})
 	if err != nil {
 		return failWith(err), nil
+	}
+
+	if len(imports) > 0 {
+		if err := addImports(abs, imports); err != nil {
+			return failWith(err), nil
+		}
 	}
 
 	change.Path = in.Path
 	d.scope.Wrote(abs)
 
-	return tool.Result{
-		Content: fmt.Sprintf("%s: added %s, +%d lines", in.Path, in.Symbol, change.Added),
-		Changes: []tool.Change{change},
-	}, nil
+	content := fmt.Sprintf("%s: added %s, +%d lines", in.Path, in.Symbol, change.Added)
+	if pkg, perr := packageOf(abs); perr == nil {
+		content += ", in package " + pkg
+
+		if strings.HasSuffix(pkg, "_test") {
+			content += ". That is an external test package, so every name from the package " +
+				"under test needs its qualifier"
+		}
+	}
+
+	return tool.Result{Content: content, Changes: []tool.Change{change}}, nil
+}
+
+// addImports merges the import lines a source carried into the file's own
+// import block, since a second block after a declaration is not valid Go.
+func addImports(abs string, paths []string) error {
+	body, err := os.ReadFile(abs) //nolint:gosec // a path already resolved under the project root
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", filepath.Base(abs), err)
+	}
+
+	merged := mergeImports(string(body), paths)
+	if merged == string(body) {
+		return nil
+	}
+
+	//nolint:gosec // abs is resolved under the project root by the caller
+	if err := os.WriteFile(abs, []byte(merged), newFilePerm); err != nil {
+		return fmt.Errorf("writing %s: %w", filepath.Base(abs), err)
+	}
+
+	return nil
 }
 
 // withDoc renders doc as // lines above source. It is taken as prose rather

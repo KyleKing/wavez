@@ -341,11 +341,27 @@ func (s *StrReplace) prepare(
 // alone cannot say.
 func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err error) tool.Result {
 	if errors.Is(err, edit.ErrNotFound) {
+		if name, ok := declaredBy(in); ok {
+			return tool.Fail(tool.CauseNoMatch,
+				"%v\n\nold_string is the whole declaration of %s. Send it to declare instead, "+
+					"as symbol %q with the new source: declare needs no anchor, so nothing has to "+
+					"match. Measured on this project, an anchor of a whole declaration fails far "+
+					"more often than declare does.", err, name, name)
+		}
+
 		if stale := s.staleFiles(edits); stale != "" {
 			return tool.Fail(tool.CauseNoMatch,
 				"%v\n\nYou have edited %s since you last read it, so an anchor taken from that "+
 					"read no longer matches. Read it again before anchoring, or use declare to "+
 					"write the whole declaration by name.", err, stale)
+		}
+
+		if unread := s.unreadFiles(edits); unread != "" {
+			return tool.Fail(tool.CauseNoMatch,
+				"%v\n\nYou have not read %s this run. A search result is matched lines, "+
+					"trimmed, not the file's text, so an anchor taken from one will not match. "+
+					"Read the file first, or use declare to write the whole declaration by name.",
+				err, unread)
 		}
 	}
 
@@ -380,6 +396,80 @@ func (s *StrReplace) staleFiles(edits []edit.FileEdit) string {
 	}
 
 	return strings.Join(stale, ", ")
+}
+
+// declKeywords open a declaration whose whole text a caller may have used
+// as an anchor.
+var declKeywords = []string{"func ", "type ", "var ", "const "}
+
+// declaredBy names the declaration old_string spans, when it spans one.
+// Measured over six `e2` lanes, 17 of 19 failed anchors were a whole
+// declaration and every one of them failed, while `declare` failed 2 of 22
+// calls: the shape is the signal, and the tool that has no anchor is the
+// one that works.
+func declaredBy(in *strReplaceInput) (string, bool) {
+	old := in.OldString
+	if len(in.Edits) == 1 {
+		old = in.Edits[0].OldString
+	}
+
+	head := strings.TrimSpace(firstLineOf(old))
+
+	for _, kw := range declKeywords {
+		if strings.HasPrefix(head, kw) {
+			if name := declaredName(head[len(kw):]); name != "" {
+				return name, true
+			}
+		}
+	}
+
+	return "", false
+}
+
+func isIdentRune(r rune) bool {
+	return r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+func firstLineOf(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+
+	return s
+}
+
+// declaredName is the identifier a declaration head names, skipping a
+// method receiver.
+func declaredName(rest string) string {
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, "(") {
+		if i := strings.IndexByte(rest, ')'); i >= 0 {
+			rest = strings.TrimSpace(rest[i+1:])
+		}
+	}
+
+	end := strings.IndexFunc(rest, func(r rune) bool { return !isIdentRune(r) })
+	if end < 0 {
+		end = len(rest)
+	}
+
+	return rest[:end]
+}
+
+// unreadFiles names the files this call anchors into that the run has
+// never read. Measured over six `e2` lanes, `str_replace` failed 30 of 30
+// calls while the runs made 2 reads and 36 searches between them: the
+// anchors were being drawn from search results.
+func (s *StrReplace) unreadFiles(edits []edit.FileEdit) string {
+	var unread []string
+
+	for _, e := range edits {
+		if !s.scope.Read(e.Path) {
+			unread = append(unread, relativeTo(s.root, e.Path))
+		}
+	}
+
+	return strings.Join(unread, ", ")
 }
 
 // describeChanges reports what landed: file and line counts rather than the

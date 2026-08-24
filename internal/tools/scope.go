@@ -77,6 +77,21 @@ func (s *Scope) Wrote(abs string) {
 	s.wroteAt[abs] = s.clock
 }
 
+// Read reports whether this run has ever read or created abs. An anchor
+// into a file it has not is text the caller got from somewhere else, and
+// the only other source is a search result, which is trimmed matched lines
+// rather than the file.
+func (s *Scope) Read(abs string) bool {
+	if s == nil {
+		return true
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.readAt[abs] > 0
+}
+
 // Stale reports whether this run wrote abs after it last read it, so an
 // anchor drawn from that read cannot match.
 func (s *Scope) Stale(abs string) bool {
@@ -87,7 +102,9 @@ func (s *Scope) Stale(abs string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.wroteAt[abs] > s.readAt[abs]
+	// A file this run has never read is not stale, it is unread, and the
+	// two want different advice.
+	return s.readAt[abs] > 0 && s.wroteAt[abs] > s.readAt[abs]
 }
 
 // Edit reports whether the run may edit abs, recording the path when it is

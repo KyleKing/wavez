@@ -2387,3 +2387,52 @@ predicts.
 than a factor of two, and only `e2` moved by that much. The `h6` numbers
 swing 0.58 to 1.00 to 0.67 across lanes that should not have hurt it, which
 is the variance and not a regression, but nothing here proves that either.
+
+## 2026-08-23 — e2, end to end, and where the wall actually is
+
+Nine lanes on `e2` with a fast pin, 38 runs, warm server throughout. Mean
+share of checks held, and what the edit tools did:
+
+| lane | runs | 3/3 | mean | turns | str_replace | declare |
+|---|---|---|---|---|---|---|
+| lean preamble | 2 | 0 | 0.33 | 6 | 4/4 failed | - |
+| anchors from read | 3 | 0 | 0.33 | 6 | 8/8 failed | - |
+| multi-file edits | 3 | 0 | 0.33 | 6 | 1/1 failed | - |
+| declare | 3 | 0 | 0.67 | 13 | 7/7 failed | 1/11 |
+| stale anchor | 3 | 1 | 0.78 | 11 | 8/8 failed | 0/7 |
+| named package | 6 | 1 | 0.72 | 18 | 30/30 failed | 0/27 |
+| unread anchor | 6 | 0 | 0.67 | 14 | 19/20 failed | 2/22 |
+| declare redirect | 6 | 1 | 0.72 | 12 | 11/12 failed | 0/20 |
+| merged imports | 6 | 1 | 0.72 | 10 | 15/16 failed | 0/20 |
+
+**`declare` is the whole move.** `e2` sat at 0.33 for eight runs across
+three configurations, and every configuration since `declare` has been
+0.67 or better with three runs reaching 3 of 3. Across all of them
+`declare` failed 3 of 116 calls and `str_replace` failed 103 of 104. On
+this task `str_replace` is simply the wrong tool, and the model still
+reaches for it about three times a run.
+
+**The messages bought turns, not checks.** Naming why an anchor missed
+(stale, unread, or a whole declaration that belongs to `declare`) cut mean
+turns from 18 to 10 and `str_replace` calls per run from 5 to 2.7. Mean
+checks did not move: 0.72 before and after. That is the shape of the
+finding, and it is worth saying plainly rather than counting the turn
+saving as progress on the task.
+
+**Two real tool bugs came out of reading the files runs produced.**
+`declare` appended a caller's `import (…)` block after existing
+declarations, which Go rejects outright; it now merges those imports into
+the file's own block. And a destination in an external test package is
+reported as one, because a run cannot see the package clause of a file it
+appends to.
+
+**The wall is not the harness.** Every remaining failure is the same
+compile error: a test in `package sysinfo_test` referring to `Memory`
+rather than `sysinfo.Memory`. The run is told the package it wrote into and
+told the qualifier is needed, the gate reports the exact compile error, and
+the fast tier still gets it wrong five times in six. That is roadmap item
+4's question, not item 2's: the tier's remit rather than the tool surface.
+
+**Not verified.** Six runs a lane settles nothing below a factor of two,
+and only the `declare` step was that large. `h6` was not re-run after the
+`declare` lanes, so nothing here says these changes left it alone.
