@@ -962,10 +962,14 @@ measured and what it did not settle.
    which a probe reproduces from one cause, an anchor copied without the
    file's blank lines, and `Replace` now matches those instead of refusing
    them. Both are proved at the unit level and neither has an effect
-   measured on a run: `e2` on the fast tier ranges from 8 to 21 turns at 2
-   or 3 checks, so one lane each way separates nothing. What closes this is
-   several lanes of one task on one tier, run on an idle machine, read as a
-   distribution rather than as a pair.
+   measured on a run, and the little evidence there is runs against them:
+   across four `e2` fast lanes after against eleven before, median turns
+   went from 9 to 13.5 and median harness turns from 3 to 6.5, on
+   overlapping ranges, with one lane decoding at 2.1 tokens per second
+   against a median of 25 because the machine was busy. What closes this is
+   several lanes of one task on one tier where decode speed is not the
+   laptop's to lose, which is the argument for serving the fast tier from
+   somewhere else.
 
 5. **`undo` shipped and no run has called it.** Two lanes with the tool
    present (`h7`, `h10`) made zero `undo` calls, which is `vcs`'s pattern

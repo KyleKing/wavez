@@ -2778,9 +2778,15 @@ work might be done. It told a run to move on while its file would not parse.
 A call whose two halves collapsed says nothing about the file's state, so
 neither branch says anything about it now.
 
-**Not settled.** Whether the blank-line match changes any run's outcome: the
-mechanism is proved by unit test and probe, the effect is not. One `e2` fast
-lane came back 3 of 3 in 21 turns, and `e2` fast ranges from 8 to 21 turns
-at 2 or 3 checks, so it separates nothing. Whether the fixed stuck counter
+**Four `e2` fast lanes then measured the wrong way and are reported as
+such.** Against the eleven lanes of the four labels before them, median
+turns went from 9 to 13.5 and median harness turns from 3 to 6.5, while
+checks held 3 of 3 on two of four against four of eleven. The ranges
+overlap (the before set holds 14, 15, and 17), four runs against eleven
+decides nothing, and one of the four ran at 2.1 output tokens per second
+against a median of 25 because the machine was busy, which is the coupling
+[AGENTS.local.md](../../AGENTS.local.md) already warns about. So the
+mechanism is proved by unit test and probe and the effect on a run is not,
+and the direction of the little evidence there is runs against it. Whether the fixed stuck counter
 fires in a live run. Whether `undo` is ever called. The harness's 34% of
 turns, still unmeasured against any of this.
