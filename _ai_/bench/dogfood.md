@@ -2545,3 +2545,45 @@ adding an orphan and watching it exit 1.
 
 **Not verified.** One run of each new task settles nothing about their
 difficulty, and the stuck-gate escalation has never fired outside a test.
+
+## 2026-08-24 — version control stops being a shell string
+
+`find` and `truncate` are refused at the shell, naming the tool that does
+the work instead: `list` and `search` for one, `write` and `str_replace` for
+the other. Around 70% of what the shell was used for across 278 logged calls
+was work a tool already did, and the prompt asking a model not to reach for
+`find` never moved that. `find . -delete` was allowed until now, which is
+what made this a safety change rather than a tidying one.
+
+Both version-control CLIs are off the shell too, and a `vcs` tool answers
+what a run was asking them: `status` from the changes this run recorded as
+it made them, `diff` of the working copy (narrowable to one file), and
+`log`. It has three operations and none of them writes, so there is no verb
+to force a push, rewrite history, or commit with git in a checkout jj owns.
+A force push is refused rather than approved wherever it can still be
+reached, because an approval prompt puts the destructive path one keystroke
+from the ordinary one and overwriting published history is not recoverable
+from this side of the remote.
+
+Nothing the harness does is affected: its own checkpointing calls
+`internal/vcs` directly rather than through the shell tool. A run can no
+longer commit at all, which matches what item 11 found when the per-edit
+checkpoint shipped: jj snapshots the working copy on every command, so
+`Capture` records each edit's tree without committing anything, and the
+commit half was never needed.
+
+The tool costs 129 preamble tokens against the 24 of 278 shell calls that
+asked version control something, and the fast ceiling went 2,400 to 2,500
+to pay for it (2,459 now, 34% of what a fast turn can use).
+
+**Three unwired functions wired.** `gate.NeedsFullRun` now bounds how long
+selection may keep narrowing: ten narrowed batches or fifteen minutes forces
+a sweep of the module, because a selected set that misses a caller is only
+ever found by a run that does not select. `replay.Passed` replaced two
+hand-rolled copies of itself. `runtime.ListModels` is `wavez -models`. The
+allowlist shrank from twelve entries to nine, so it still reads as the
+inventory of what is built and not yet wired.
+
+**Not verified.** No replay lane has run against the `vcs` tool, so whether
+it actually displaces the shell calls it was built for is unmeasured. The
+cadence has unit tests and has never forced a sweep in a real run.
