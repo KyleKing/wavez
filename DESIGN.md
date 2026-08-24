@@ -930,22 +930,26 @@ measured and what it did not settle.
    single number in the report and the one this project exists to move.
    Gate false alarms are not the cause: 190 rounds, 68% failed, none
    retracted
-5. **Then the CI half of item 15**, which is the one piece of it that could
-   not land here: `.github/workflows/` is template-owned, so the preamble
-   ceiling and `-deadcode` need a change against
-   [my_go_template](https://github.com/KyleKing/my_go_template) rather than
-   a local edit. The generic half of that is written and sitting uncommitted
-   in the template checkout: a `project` job that runs `mise run ci:project`
-   when the task exists and says so when it does not, which lets any project
-   add a gate CI runs without editing a file `copier update` overwrites. The
-   wavez half is `ci:project` depending on `deadcode` and `preamble:budget`,
-   which is committed here and passes. What is left is reviewing the template
-   change and cutting it upstream
+5. **What the `undo` lane opened rather than closed.** A run can now put a
+   file back, and nothing has measured whether it takes the exit. The
+   evidence that built it is one lane, and one lane settles nothing: `h7`
+   spent 44 turns and reached its deadline after three refused shell
+   reverts. What decides it is `h7` and `h10` re-run with the tool present,
+   read on turns rather than on checks, because the claim is that a run
+   which edits itself into a corner gets out in one call instead of
+   thrashing. If the tool goes uncalled the way `vcs` did, its 57 preamble
+   tokens buy nothing and the ceiling should come back down
 
-6. **Measure whether the `vcs` tool displaces the shell calls it replaced.**
-   24 of 278 logged shell calls asked version control something and the tool
-   costs 129 preamble tokens, so the trade is one turn saved per call
-   against a fixed cost every turn pays. No lane has run against it
+6. **A tool nothing calls is a tool nothing needed.** `vcs` was offered on 5
+   recorded runs and called once, while those same runs made 6 git and jj
+   shell stages, so it did not displace the calls it was built to replace.
+   Half of what it lost went to reverting, which `undo` now answers and
+   `vcs` deliberately will not. The other half (`git status`, `git diff
+   --name-only`) is exactly what `vcs` does offer and the model reached past
+   it anyway, which is a question about naming and prompt placement rather
+   than about the tool. 5 runs is too thin to remove anything on; the same
+   count taken at 30 runs is what decides whether `vcs` keeps its 102
+   preamble tokens
 
 Ordered by the rule above: measurement, then the efficiency work it makes
 decidable, then the machine probes that need a stable loop underneath them.
@@ -985,7 +989,7 @@ rows. Each names what closes it.
     - **A run timeline a human can read.** The three above are numbers; this is the picture. One page per run: turns as bars, tool calls colored by outcome, gate rounds, escalation points, and the operation id captured at each accepted change. It converges with the per-edit undo picker under item 11, because the thing a person points at to say "put it back to there" and the thing they read to see where the time went are the same list
 15. Harness testing and developer experience. The expensive part of changing this harness is proving the change did something, and today that costs a three-minute replay lane on a machine quiet enough for the result to mean anything.
     - **Transcript fixtures.** Shipped as `internal/transcript`. A fixture is JSON: the files the workspace starts from, the prompt, the model turns verbatim, and the gate feedback and gate state the harness holds. It replays against the real loop and the real file tools, and its golden frame is every event the run logged with the timestamps and sequence numbers left out. It stays valid only for changes that do not alter what the model sees, which covers gate messages, output reduction, tool result formatting, and the preamble. The first fixture is the `h6` run that spent six turns on a build state it could not re-read, so the wording that cost those turns is now pinned
-    - **A preamble budget.** Half shipped. `wavez -preamble -preamble-max <n>` exits non-zero over the ceiling and says what the prefix actually costs, and `mise run preamble:budget` holds the fast tier's prefix at 2,400 tokens against a current 2,356. It was 2,200 until `declare` bought its 243 tokens with a measured result, which is what the ceiling exists to force (30% of what a fast turn can use, down from 42%), and the report gives a line per tier because one number stopped describing the cost. The report now splits each schema into the prose and the structure it hangs on, which is what made the trim decidable: the tool surface was 84% of the preamble and prose was 69% of that, against 448 tokens of actual grammar. `TestSchemasCarryNoDescriptionLongerThanItsWorth` holds the per-description bound so a new tool's prose is a decision rather than a discovery. The CI job is the missing half and belongs upstream, since `.github/workflows/` is template-owned
+    - **A preamble budget.** Half shipped. `wavez -preamble -preamble-max <n>` exits non-zero over the ceiling and says what the prefix actually costs, and `mise run preamble:budget` holds the fast tier's prefix at 2,550 tokens against a current 2,517. It was 2,200 until `declare` bought its 243 tokens with a measured result, which is what the ceiling exists to force (30% of what a fast turn can use, down from 42%), and the report gives a line per tier because one number stopped describing the cost. The report now splits each schema into the prose and the structure it hangs on, which is what made the trim decidable: the tool surface was 84% of the preamble and prose was 69% of that, against 448 tokens of actual grammar. `TestSchemasCarryNoDescriptionLongerThanItsWorth` holds the per-description bound so a new tool's prose is a decision rather than a discovery. The CI half now runs, and it landed generically rather than here: the template gained a `project` job that runs `mise run ci:project` when a project defines that task and says so when it does not, so this project's own gates (`deadcode`, `preamble:budget`) reach CI without editing a file `copier update` overwrites
     - **`-deadcode` in CI.** It gates now. The twelve functions no main reaches are named one at a time in `deadcodeAllow` with why each is deliberate, so the list doubles as the inventory of what is built and not yet wired, and `mise run deadcode` fails on anything new (proved by adding an orphan and watching it exit 1). Freezing rather than deleting is the point: half of them are roadmap-planned (local model management, gate cadence, the import graph) and deleting planned work to satisfy a check is the wrong trade
     - **The replay harness swept up after itself.** A replay keeps the workspace of any run whose checks did not all pass, which is most of them and is the only place a failing run's tree survives, and nothing ever expired one: 78 accumulated here, half their directories cleared out from under records that still pointed at them, and every jj command in the repo rebased their commits. A run now drops all but the five most recent before it starts. Forgetting a workspace is half the job, because jj leaves its working-copy commit in the graph, which is why the sweep abandons the commit first and why `TestJjForgottenWorkspaceLeavesItsCommitUntilAbandoned` pins that order
     - **`mise run scratch`.** One task for a throwaway daemon and TUI on a short socket path, with cleanup. The socket path limit is 104 characters and the scratchpad path is longer, which is a mistake worth making once

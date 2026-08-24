@@ -2626,3 +2626,73 @@ which is also the shape gate-output trimming matches its frames against.
 **Not verified.** Three runs at this variance settles a factor of two and
 nothing smaller, and 0.72 to 0.89 is not that. Which of the three changes in
 flight moved it is unseparated.
+
+## 2026-08-24 — the allowlist, and what four measurements said about the harness
+
+Seven lanes, three of them measurements that changed a decision rather than
+confirming one.
+
+**The guard was a denylist and it let the key command through.** A probe
+against it ran `security find-generic-password -w -s wavez-openrouter`, this
+project's own key command, with no prompt, along with `nc`, `osascript`,
+`launchctl load`, and `ssh-add -L`. Nothing had a rule, so nothing objected.
+The classifier now decides from a list of 51 commands, drawn from what 177
+logged shell calls actually invoked plus the read-only neighbors of each,
+and `shellAllow` in `.wavez.pkl` widens it. Shell interpreters are off the
+list deliberately, which is what closes `sh -c '<anything>'` as a way to
+hand the classifier a string it never reads. `curl` and `kill` moved to
+NeedsApproval, and two tests were changed to record the tightening rather
+than worked around.
+
+**The network was never the exfiltration channel.** The sandbox denies
+everything but loopback, and that is not what stops a key leaving the
+machine: whatever a command prints enters the thread's context, and the next
+hosted turn ships that context to the provider. `echo $OPENROUTER_API_KEY`
+reached the key through a command the guard allows by name. Reads of `~/.ssh`,
+`~/.aws`, `~/.config/gh`, the keychain, and both shell histories are now
+denied by the profile, and any variable named with KEY, TOKEN, SECRET,
+PASSWORD, CREDENTIAL, or AUTH is dropped before the command starts. Both
+proven by probe: empty output and `Operation not permitted`.
+
+**78% of the lint findings a model read were not worth a turn.** 264
+findings reached models across 58 threads, and the first tally was wrong
+twice. 76 of them arrived as a raw dump under "no output line named a
+changed file", repeating identically for four or five rounds, which was the
+gate path bug rather than the model. On undegraded rounds only: 184
+findings, of which 130 were `typecheck`, 32 missing doc comments, 14 missing
+`t.Parallel()`, and 8 everything else. `typecheck` is the linter reporting a
+compile error the build gate names in the same round, so the lint gate now
+drops those and abstains when nothing else is left. The 14 became
+`internal/gofix`, which the format gate runs beside gofmt, so they cost no
+turn and no model. Its check against being written too broadly is that it
+finds nothing to do in any of this repo's 215 test files, which two
+over-broad first cuts failed.
+
+**A parallel repair model is the wrong shape, and the config had one real
+defect.** Two writers on one tree is what the directory leases exist to
+prevent, so a repair turn serializes behind the main run anyway and the cost
+being paid is the turn rather than the tokens in it. The one genuine config
+defect was `gocritic`'s `unnamedResult` demanding the named returns
+`nonamedreturns` forbids, hit on `AddParallelCalls`. Fixed in
+[my_go_template](https://github.com/KyleKing/my_go_template), which made 13
+`//nolint:gocritic` suppressions across this repo dead and deletable.
+Nothing else earned a change: `nlreturn` is 3 of 54 findings, which is not
+evidence about a rule.
+
+**`vcs` did not displace the shell calls it replaced.** Offered on 5
+recorded runs, called once, while those same runs made 6 git and jj shell
+stages. Three of the six were `git checkout -- <file>` or `jj checkout --
+<file>`, each refused by the guard, because reverting is a write and `vcs`
+has no verb that writes. That is `h7`, which spent 44 turns and reached its
+deadline with no way to undo its own edit. `undo` answers it without
+reaching version control at all: it restores from bytes the run snapshotted
+before its own first edit, so the worst it can discard is work the same run
+made. 57 preamble tokens, which raised the ceiling from 2,500 to 2,550.
+
+**Not settled.** The `undo` tool has not been measured, and one lane is what
+built it. `str_replace`'s failure rate reads 56% early against 75% late, and
+that comparison is invalid: the late corpus is weighted with lanes built
+deliberately to make `str_replace` fail (`unread-anchor`, `stale-anchor`,
+`merged-imports`). The escalation signal is still unfired outside its unit
+tests. The harness still costs 35% of turns, unmoved, and none of today's
+changes has a measurement against it.
