@@ -124,6 +124,62 @@ func checkResult(t *testing.T, got edit.Result, wantSource string, wantAdded, wa
 	}
 }
 
+// Half of every near-match report this project logged faced a blank source
+// line, which is an anchor copied without the file's blank lines. The
+// report for it read "source has: " with nothing after it, so the run had
+// no way to see what it had dropped.
+func TestReplace_MatchesAnAnchorMissingTheFilesBlankLines(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		source     string
+		old        string
+		next       string
+		wantSource string
+		wantAdded  int
+		wantRemove int
+		wantStart  int
+		wantEnd    int
+	}{
+		{
+			name:       "an anchor without the file's blank lines",
+			source:     "func f() {\n\ta()\n\n\tb()\n}\n",
+			old:        "func f() {\n\ta()\n\tb()\n}",
+			next:       "func f() {\n\tc()\n}",
+			wantSource: "func f() {\n\tc()\n}\n",
+			wantAdded:  3,
+			wantRemove: 5,
+			wantStart:  1,
+			wantEnd:    3,
+		},
+		{
+			name:       "an anchor without the file's blank lines or its indentation",
+			source:     "func outer() {\n\tif x {\n\t\ta()\n\n\t\tb()\n\t}\n}\n",
+			old:        "if x {\na()\nb()\n}",
+			next:       "if y {\n\tz()\n}",
+			wantSource: "func outer() {\n\tif y {\n\t\tz()\n\t}\n}\n",
+			wantAdded:  3,
+			wantRemove: 5,
+			wantStart:  2,
+			wantEnd:    4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := edit.Replace(tt.source, tt.old, tt.next)
+			if err != nil {
+				t.Fatalf("Replace() error = %v", err)
+			}
+
+			checkResult(t, got, tt.wantSource, tt.wantAdded, tt.wantRemove, tt.wantStart, tt.wantEnd)
+		})
+	}
+}
+
 func TestReplace_EmptyOldString(t *testing.T) {
 	t.Parallel()
 

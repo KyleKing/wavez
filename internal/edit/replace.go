@@ -223,7 +223,7 @@ func spliceFuzzy(source, oldString, newString string) (splice, error) {
 
 	switch len(starts) {
 	case 0:
-		return splice{}, notFoundError(source, oldString, sourceLines, oldLines)
+		return spliceOverBlanks(source, oldString, newString, sourceLines, oldLines)
 	case 1:
 	default:
 		lines := make([]int, len(starts))
@@ -268,6 +268,134 @@ func spliceFuzzy(source, oldString, newString string) (splice, error) {
 		added:     len(newLines),
 		removed:   n,
 	}, nil
+}
+
+// spliceOverBlanks matches an anchor whose blank lines the caller dropped.
+// Half of every near-match report this project logged faced a blank source
+// line, which is what an anchor copied without the file's blank lines looks
+// like from the inside, and the report for it said only "source has: " with
+// nothing after it.
+//
+// It matches the anchor's non-blank lines in order, letting the source hold
+// blank lines the anchor does not, and replaces the whole source span it
+// covered. Leading whitespace is ignored on both sides, as the line-wise
+// match already does.
+func spliceOverBlanks(source, oldString, newString string, sourceLines, oldLines []string) (splice, error) {
+	wanted := nonBlank(oldLines)
+	if len(wanted) == 0 {
+		return splice{}, notFoundError(source, oldString, sourceLines, oldLines)
+	}
+
+	var spans [][2]int
+
+	for i := range sourceLines {
+		if end, ok := spanOverBlanks(sourceLines, wanted, i); ok {
+			spans = append(spans, [2]int{i, end})
+		}
+	}
+
+	switch len(spans) {
+	case 0:
+		return splice{}, notFoundError(source, oldString, sourceLines, oldLines)
+	case 1:
+	default:
+		lines := make([]int, len(spans))
+		for i, s := range spans {
+			lines[i] = s[0] + 1
+		}
+
+		return splice{}, &NotUniqueError{Lines: lines}
+	}
+
+	return spliceSpan(sourceLines, oldLines, newString, spans[0][0], spans[0][1]), nil
+}
+
+// spanOverBlanks reports where the anchor's lines finish when matched from
+// start, skipping blank source lines between them. A blank line inside the
+// anchor matches nothing of its own, since the source's blanks are what the
+// span already absorbs.
+func spanOverBlanks(sourceLines, wanted []string, start int) (int, bool) {
+	// The span begins on the anchor's first line rather than on a blank one
+	// ahead of it, or every blank line before a match would start one too.
+	if trimLeading(sourceLines[start]) != wanted[0] {
+		return 0, false
+	}
+
+	i, end := start, start
+
+	for _, want := range wanted {
+		for i < len(sourceLines) && trimLeading(sourceLines[i]) == "" {
+			i++
+		}
+
+		if i >= len(sourceLines) || trimLeading(sourceLines[i]) != want {
+			return 0, false
+		}
+
+		end, i = i, i+1
+	}
+
+	return end, true
+}
+
+func nonBlank(lines []string) []string {
+	out := make([]string, 0, len(lines))
+
+	for _, l := range lines {
+		if t := trimLeading(l); t != "" {
+			out = append(out, t)
+		}
+	}
+
+	return out
+}
+
+// spliceSpan replaces sourceLines[start:end+1] with newString, shifting it
+// by the difference between the anchor's own indentation and the source's.
+// Reindenting line by line is what the line-wise match does, and it cannot
+// work here: the source span holds blank lines the anchor does not, so
+// position no longer pairs a replacement line with the line it faces.
+func spliceSpan(sourceLines, oldLines []string, newString string, start, end int) splice {
+	var newLines []string
+	if newString != "" {
+		newLines = strings.Split(newString, "\n")
+	}
+
+	from, to := firstIndent(oldLines), leadingWhitespace(sourceLines[start])
+
+	shifted := make([]string, len(newLines))
+	for j, l := range newLines {
+		shifted[j] = to + strings.TrimPrefix(l, from)
+		if trimLeading(l) == "" {
+			shifted[j] = l
+		}
+	}
+
+	span := end - start + 1
+
+	result := make([]string, 0, len(sourceLines)-span+len(shifted))
+	result = append(result, sourceLines[:start]...)
+	result = append(result, shifted...)
+	result = append(result, sourceLines[end+1:]...)
+
+	return splice{
+		source:    strings.Join(result, "\n"),
+		startLine: start + 1,
+		added:     len(newLines),
+		removed:   span,
+	}
+}
+
+// firstIndent is the indentation of the first line that has any content,
+// which is what the anchor was written against.
+func firstIndent(lines []string) string {
+	for _, l := range lines {
+		if trimLeading(l) != "" {
+			return leadingWhitespace(l)
+		}
+	}
+
+	return ""
 }
 
 func fuzzyMatches(sourceLines, oldLines []string) []int {
