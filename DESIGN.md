@@ -909,14 +909,20 @@ measured and what it did not settle.
    old log bound had hidden: `edits` is per file where `e2` needs two, and
    a malformed call is an 8,765-character multi-file batch cut off
    mid-emission rather than a degeneration loop
-2. **The escalation signal, which ships with no live evidence.** A gate that
-   fails identically three times, each after further edits, moves the run up
-   a tier rather than waiting for the deadline. Its unit tests pin the two
-   cases where it must stay silent as well as the one where it fires, and it
-   has never fired outside them: `h7` escalated first through the existing
-   malformed-call path. An `e2` lane on the fast tier is what settles
-   whether the signal reaches the case it was built for, since that is the
-   task where five runs in six spend every turn on one compile error
+2. **The escalation signal has now never fired, and that is the finding.** A
+   gate that fails identically three times, each after further edits, moves
+   the run up a tier rather than waiting for the deadline. Grepping every
+   one of this project's 260 thread logs for the event it writes
+   (`"escalated"` on a `gate` event) returns nothing, against 271 recorded
+   gate rounds of which 160 failed. So the signal is not merely unproven, it
+   is unreached: its condition wants a failure that repeats *identically*,
+   and the failures the corpus actually holds move between rounds, which is
+   the case it deliberately stays silent on. The e2 lane written to settle
+   it settled the opposite, because e2's old plateau of one repeated compile
+   error predates the lint gate and `declare`. Either the condition loosens
+   to a gate that fails three rounds running whatever the message, or the
+   signal comes out: a branch no run in the corpus reaches is not earning
+   its place
 3. **More tasks of the two shapes that just worked.** `h7` and `h8` are the
    first two the fast tier fails at for a reason other than a malformed
    call: `h8` invented three identifiers in one turn with no tool calls, and
@@ -930,15 +936,19 @@ measured and what it did not settle.
    single number in the report and the one this project exists to move.
    Gate false alarms are not the cause: 190 rounds, 68% failed, none
    retracted
-5. **What the `undo` lane opened rather than closed.** A run can now put a
-   file back, and nothing has measured whether it takes the exit. The
-   evidence that built it is one lane, and one lane settles nothing: `h7`
-   spent 44 turns and reached its deadline after three refused shell
-   reverts. What decides it is `h7` and `h10` re-run with the tool present,
-   read on turns rather than on checks, because the claim is that a run
-   which edits itself into a corner gets out in one call instead of
-   thrashing. If the tool goes uncalled the way `vcs` did, its 57 preamble
-   tokens buy nothing and the ceiling should come back down
+5. **`undo` shipped and no run has called it.** Two lanes with the tool
+   present (`h7`, `h10`) made zero `undo` calls, which is `vcs`'s pattern
+   exactly: a tool can be reachable, correct, and unreached. `h7` improved
+   sharply across those lanes (44 turns and 3 of 5 checks, down to 7 turns
+   and 4 of 5, with 12 shell calls falling to none and `str_replace` errors
+   from 7 of 11 to 1 of 2), and `undo` cannot be the cause of an improvement
+   in runs that never called it. The likelier cause is the parse check
+   landing in the same window, since it reports a broken edit in the turn
+   that made it rather than a gate round later, and that is precisely the
+   thrash the numbers show going away. One run each way separates neither.
+   What decides `undo` is whether a run reaches for it once cornered, which
+   needs a task that corners one; if it stays uncalled at 30 runs its 57
+   preamble tokens buy nothing and the ceiling comes back down
 
 6. **A tool nothing calls is a tool nothing needed.** `vcs` was offered on 5
    recorded runs and called once, while those same runs made 6 git and jj

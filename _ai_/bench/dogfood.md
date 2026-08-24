@@ -2696,3 +2696,34 @@ deliberately to make `str_replace` fail (`unread-anchor`, `stale-anchor`,
 `merged-imports`). The escalation signal is still unfired outside its unit
 tests. The harness still costs 35% of turns, unmoved, and none of today's
 changes has a measurement against it.
+
+## 2026-08-24 — undo ships uncalled, and the escalation signal is unreached
+
+**The escalation signal has never fired.** Grepping all 260 thread logs for
+the event it writes returns nothing, against 271 gate rounds of which 160
+failed. Its condition wants a failure repeating *identically* across edits,
+and the corpus's failures move between rounds, which is the case it
+deliberately stays silent on. So it is not unproven, it is unreached, and
+the choice is to loosen the condition or delete the branch.
+
+**`undo` was called zero times in the two lanes that offered it.** Same
+pattern as `vcs`. `h7` did improve across those lanes, from 44 turns and 3
+of 5 checks to 7 turns and 4 of 5, with 12 shell calls falling to none and
+`str_replace` errors from 7 of 11 down to 1 of 2. `undo` cannot be the cause
+of an improvement in a run that never called it. The parse check landed in
+the same window and reports a broken edit in the turn that made it, which is
+the thrash those numbers show going away, so that is the likelier cause and
+neither is separated by one run each.
+
+**`h10` is the first task in the set requiring a test to fail first**, built
+on a real bug rather than an invented one: `clip` in `internal/edit`
+byte-slices a long line at 200 bytes and can split a multi-byte character,
+putting invalid UTF-8 into the near-match report a model reads to fix its
+anchor (proved by probe, and left in the tree so the task stays winnable,
+the way `h6`'s `truncate` bug is). The fast tier scored 1 of 4: it wrote
+`TestClip_MultiByteBoundary`, which fails, and never fixed `clip`. Writing
+the failing test and stopping there is the discrimination the task was for.
+
+**Not settled.** Whether `undo` is reached at all. Whether the parse check
+caused h7's improvement. The harness's 35% of turns, still unmeasured
+against any of this.
