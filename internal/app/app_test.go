@@ -9,6 +9,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
 )
@@ -133,4 +134,58 @@ func TestNew_LeavesTheWebOffByDefault(t *testing.T) {
 			t.Errorf("Tools.Get(%q) succeeded; the default reaches the network", name)
 		}
 	}
+}
+
+// The fast tier is shown a narrower surface because the same prefix is 30%
+// of what a fast turn can use and under 2% of a hosted one. It is a budget
+// and not a permission: what it leaves out stays in the registry, where
+// plan mode's narrowing is what actually makes a tool unreachable.
+func TestPrefix_NarrowsOnlyWhatTheFastTierIsShown(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "AGENTS.md"), agentsMD)
+
+	a, err := app.New(context.Background(), root, config.Defaults(root), permission.AllowAll(),
+		app.WithProviders(tierProviders(fake.New("balanced"))))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if cerr := a.Close(); cerr != nil {
+			t.Errorf("Close: %v", cerr)
+		}
+	})
+
+	prefix := app.Prefix(a.SystemPrefix, a.Tools)
+
+	if len(prefix.FastTools) != len(prefix.Tools)-len(app.FastTierOmits) {
+		t.Fatalf("FastTools has %d of %d tools, want %d fewer",
+			len(prefix.FastTools), len(prefix.Tools), len(app.FastTierOmits))
+	}
+
+	for _, name := range app.FastTierOmits {
+		if named(prefix.FastTools, name) {
+			t.Errorf("the fast tier is shown %q", name)
+		}
+
+		if !named(prefix.Tools, name) {
+			t.Errorf("the hosted tiers are not shown %q", name)
+		}
+
+		if _, err := a.Tools.Get(name); err != nil {
+			t.Errorf("Tools.Get(%q) = %v; omitting a tool must not remove it", name, err)
+		}
+	}
+}
+
+func named(specs []llm.ToolSpec, name string) bool {
+	for _, s := range specs {
+		if s.Name == name {
+			return true
+		}
+	}
+
+	return false
 }

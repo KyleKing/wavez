@@ -2214,3 +2214,51 @@ each mistake now costs a turn where the schema used to prevent it.
 `str_replace`'s failure rate (106 of 173 calls in the corpus) is the number
 to read after the next lanes, and if it rises, the cut clauses are named in
 `TestTheErrorsCarryWhatTheSchemasStoppedSaying` and go back one at a time.
+
+## 2026-08-23 — the preamble is not one number
+
+Asked why the preamble has to be long, and whether merging tools or
+narrowing it would help. Two measurements moved the answer.
+
+**It was long because the harness was not checking.** The single largest
+entry was the Go conventions section at 294 tokens, and most of it named
+rules `golangci-lint` enforces. It was there because nothing else said
+them: `FormatGate` runs `golangci-lint run --fix` and discards the exit
+status, so an autofixable finding was silently corrected and every other
+one reached nobody until CI. A `lint` gate now reports the findings on a
+run's own changed files, and the injected section is 113 tokens. The full
+list stays in AGENTS.md for a human; `.wavez.pkl` points the model at a
+project-owned section holding only what no gate answers.
+
+**The same prefix is not the same cost.** 2,119 tokens is 30% of what a
+fast turn can use and 1.8% of a hosted one, an 18x difference for identical
+content. The tiers are served by different processes and keep separate
+prefix caches, so a per-tier surface costs nothing, where narrowing
+mid-thread would invalidate the 77% of input tokens the cache serves. The
+fast tier is now shown a narrower set, and `-preamble` reports a line per
+tier.
+
+**Where it went, start to now.** 3,029 tokens to 2,119 on the fast tier,
+42% of the window to 30%.
+
+| lane | fast tokens |
+|---|---|
+| start | 3,029 |
+| prose the failure already carries | 2,736 |
+| web tools off by default | 2,516 |
+| lint gate, conventions trimmed | 2,335 |
+| fast tier shown a narrower surface | 2,119 |
+
+**The one judgment call on thin evidence** is which tools the fast tier is
+not shown. `shell` was called twice in the 43 runs that stayed on the fast
+tier and 97 times in the 44 that escalated, and `write` was called by
+nothing at all in 90 runs. The confound is that a run escalates because it
+was hard, so the split may be about the tasks rather than the tier. It is
+one list (`app.FastTierOmits`) and reverting is a one-line change.
+
+**Not verified.** Still no replay lane. Two risks are now outstanding
+together: the prose cut moves a first mistake's cost from the schema to a
+turn, and the narrower fast surface moves an omitted tool's cost to an
+escalation. Both show up in the same numbers, so the next lane has to read
+`str_replace`'s failure rate and the fast-only completion rate side by
+side, and the two changes come apart cleanly if it goes the wrong way.

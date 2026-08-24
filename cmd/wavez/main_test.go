@@ -65,7 +65,11 @@ func TestWritePreamble(t *testing.T) {
 		{Name: "read (text)", Kind: "tool", Bytes: 200},
 	}
 
-	if err := writePreamble(&b, sections); err != nil {
+	// The fast tier is shown fewer tools, so its cost is reported against
+	// its own window rather than folded into one number.
+	fastOnly := withoutTools(sections, []string{"read"})
+
+	if err := writePreamble(&b, sections, fastOnly); err != nil {
 		t.Fatalf("writePreamble: %v", err)
 	}
 
@@ -77,6 +81,14 @@ func TestWritePreamble(t *testing.T) {
 	first := strings.Index(out, "read (schema)")
 	if first == -1 || first > strings.Index(out, "system rules") {
 		t.Errorf("want the largest section first, got:\n%s", out)
+	}
+
+	if !strings.Contains(out, "fast ") || !strings.Contains(out, "hosted ") {
+		t.Errorf("want a line per tier, got:\n%s", out)
+	}
+
+	if len(fastOnly) != 1 {
+		t.Errorf("withoutTools kept %d sections, want only the ones the fast tier is shown", len(fastOnly))
 	}
 
 	if !strings.Contains(out, "57.1%") {

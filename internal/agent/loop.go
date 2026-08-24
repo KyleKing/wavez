@@ -152,6 +152,20 @@ type Prefix struct {
 	System string
 	Ledger string
 	Tools  []llm.ToolSpec
+	// FastTools is the narrower surface the fast tier is shown, empty to
+	// show it Tools like every other tier.
+	//
+	// It exists because the same preamble is not the same cost: it is 33%
+	// of what a fast turn can use against 1.8% of a hosted one, an 18x
+	// difference for identical bytes. The tiers are served by different
+	// processes and so keep separate prefix caches, which is what makes
+	// this free where narrowing the surface mid-thread would not be.
+	//
+	// The registry is not narrowed with it. A tool left out here is one
+	// the fast tier is not told about, not one it is refused; plan mode
+	// narrows the registry instead, because that is a permission and this
+	// is a budget.
+	FastTools []llm.ToolSpec
 }
 
 // Outcome reports how Run ended, carrying the measured numbers a bound
@@ -501,7 +515,8 @@ func (l *Loop) Run(
 	}
 
 	r := &run{
-		loop: l, thread: th, system: system, tools: prefix.Tools, hint: hint, gk: newGateKeeper(l.gate),
+		loop: l, thread: th, system: system, tools: prefix.Tools, fastTools: prefix.FastTools,
+		hint: hint, gk: newGateKeeper(l.gate),
 		task: prompt, startTime: start, deadline: deadline,
 	}
 	r.outcome.Checkpoint = checkpoint
@@ -596,6 +611,8 @@ type run struct {
 	changes   []tool.Change
 	tools     []llm.ToolSpec
 	compacted []thread.TurnMessage
+	// fastTools is the surface a fast turn is shown, empty to show it tools.
+	fastTools []llm.ToolSpec
 	hint      router.Input
 	// route is the tier the turn in flight was routed to, which is what
 	// says whether there is still a tier above to escalate into.
@@ -735,7 +752,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	req := llm.Request{
 		Model:    r.loop.options.Models.For(route),
 		System:   r.system,
-		Tools:    r.tools,
+		Tools:    r.toolsFor(r.route.Choice),
 		Messages: messages,
 		Thinking: r.hint.Thinking,
 	}
@@ -963,6 +980,16 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 	}
 
 	return false, Outcome{}, nil
+}
+
+// toolsFor is the surface one turn advertises, which is narrower on the
+// fast tier when the caller configured one.
+func (r *run) toolsFor(choice router.Choice) []llm.ToolSpec {
+	if choice == router.ChoiceFast && len(r.fastTools) > 0 {
+		return r.fastTools
+	}
+
+	return r.tools
 }
 
 func (r *run) toolNames() []string {
@@ -1423,8 +1450,11 @@ func (r *run) escalate() bool {
 // prompt, the tool specs, and the history. The specs count because they
 // travel with every request and, on a small window, are the difference
 // between a request that fits and one llama-server refuses.
+// The fast tier's surface is what it sizes against, because the estimate
+// exists to decide whether the request fits the fast window and that is the
+// request the fast tier would be sent.
 func (r *run) estimateTokens(history []llm.Message) int {
-	return estimateRequestTokens(r.system, r.tools, history)
+	return estimateRequestTokens(r.system, r.toolsFor(router.ChoiceFast), history)
 }
 
 func estimateRequestTokens(system string, tools []llm.ToolSpec, history []llm.Message) int {

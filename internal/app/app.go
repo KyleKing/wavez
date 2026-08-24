@@ -87,6 +87,49 @@ const (
 // one does.
 var ReadOnlyTools = []string{"list", "read", "search", "context", "question", "web_search", "web_fetch"}
 
+// FastTierOmits names the tools the fast tier is not shown. The registry
+// still holds them, so this is a budget and not a permission: it costs a
+// fast turn nothing to be told about fewer tools it was not going to reach
+// for, and the preamble is 33% of what a fast turn can use against 1.8% of
+// a hosted one.
+//
+// Both are measured rather than guessed, and both are thin. Over 90
+// recorded runs `shell` was called twice in the 43 that stayed on the fast
+// tier and 97 times in the 44 that escalated, and `write` was called by
+// nothing at all. The confound is that a run escalates because it was
+// hard, so the split may be about the tasks rather than the tier. What
+// makes the trade acceptable anyway is that neither is a capability the
+// fast tier loses: a run that needs a shell escalates, which is what
+// escalation is for, and `move` and `str_replace` already reach every file
+// operation the recorded runs performed.
+var FastTierOmits = []string{"shell", "write"}
+
+// Prefix is the fixed prefix a thread's turns pay, with the fast tier's
+// narrower tool surface filled in. Both entry points build it from here so
+// the two cannot drift.
+func Prefix(system string, registry *tool.Registry) agent.Prefix {
+	specs := registry.Specs()
+
+	all := make([]llm.ToolSpec, 0, len(specs))
+	fast := make([]llm.ToolSpec, 0, len(specs))
+
+	omit := make(map[string]bool, len(FastTierOmits))
+	for _, name := range FastTierOmits {
+		omit[name] = true
+	}
+
+	for _, s := range specs {
+		spec := llm.ToolSpec{Name: s.Name, Description: s.Description, Schema: s.Schema}
+		all = append(all, spec)
+
+		if !omit[s.Name] {
+			fast = append(fast, spec)
+		}
+	}
+
+	return agent.Prefix{System: system, Tools: all, FastTools: fast}
+}
+
 // App is one project's assembled object graph. Construct it with New and
 // release it with Close; do not copy it after construction.
 type App struct {

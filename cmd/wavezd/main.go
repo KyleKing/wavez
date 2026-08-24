@@ -22,7 +22,6 @@ import (
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/daemon"
-	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/ollama"
 	"github.com/kyleking/wavez/internal/runtime"
@@ -245,13 +244,7 @@ func (m *machineStats) read() daemon.MachineStats {
 }
 
 func prefix(a *app.App) agent.Prefix {
-	specs := a.Tools.Specs()
-	out := make([]llm.ToolSpec, 0, len(specs))
-	for _, s := range specs {
-		out = append(out, llm.ToolSpec{Name: s.Name, Description: s.Description, Schema: s.Schema})
-	}
-
-	return agent.Prefix{System: a.SystemPrefix, Tools: out}
+	return app.Prefix(a.SystemPrefix, a.Tools)
 }
 
 func loadConfig(ctx context.Context, root string) (config.Config, error) {

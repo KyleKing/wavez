@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/router"
@@ -66,11 +67,16 @@ func preambleReport(ctx context.Context, root string, opt options) error {
 		return err
 	}
 
-	if err := writePreamble(os.Stdout, sections); err != nil {
+	fastOnly := withoutTools(sections, app.FastTierOmits)
+
+	if err := writePreamble(os.Stdout, sections, fastOnly); err != nil {
 		return err
 	}
 
-	return withinBudget(sections, opt.preambleMax)
+	// The ceiling holds the fast tier's prefix, which is the only one where
+	// it decides anything: the same bytes are 33% of what a fast turn can
+	// use and under 2% of a hosted one.
+	return withinBudget(fastOnly, opt.preambleMax)
 }
 
 // errPreambleOverBudget reports a fixed prefix past the ceiling CI holds it
@@ -190,12 +196,32 @@ func stripDescriptions(v any) any {
 	}
 }
 
-func writePreamble(w io.Writer, sections []section) error {
-	total := 0
+// withoutTools is the prefix as one tier sees it, with every section
+// belonging to a tool that tier is not shown removed.
+func withoutTools(sections []section, omit []string) []section {
+	drop := make(map[string]bool, len(omit))
+	for _, name := range omit {
+		drop[name] = true
+	}
+
+	out := make([]section, 0, len(sections))
+
+	for _, s := range sections {
+		if name, _, found := strings.Cut(s.Name, " ("); found && drop[name] {
+			continue
+		}
+
+		out = append(out, s)
+	}
+
+	return out
+}
+
+func writePreamble(w io.Writer, sections, fastOnly []section) error {
+	total := bytesOf(sections)
 	byKind := map[string]int{}
 
 	for _, s := range sections {
-		total += s.Bytes
 		byKind[s.Kind] += s.Bytes
 	}
 
@@ -216,14 +242,28 @@ func writePreamble(w io.Writer, sections []section) error {
 			kind, byKind[kind], byKind[kind]/tokensPerByte, share(byKind[kind], total))
 	}
 
-	// The window is the constraint the size actually matters against: on the
-	// fast tier a turn is admitted against the served context less the room
-	// kept for the reply, and whatever the preamble takes, the task cannot.
+	// The window is the constraint the size actually matters against, and it
+	// is not one number: the same prefix is a third of what a fast turn can
+	// use and noise on a hosted one, so each tier is reported against its
+	// own window and against the surface it is actually shown.
 	usable := router.FastContextBudget - router.ReplyReserve
-	p.printf("\n%d of the fast tier's %d usable tokens (%.0f%%) are spent before the task\n",
-		total/tokensPerByte, usable, share(total/tokensPerByte, usable))
+	fastTokens := bytesOf(fastOnly) / tokensPerByte
+	p.printf("\nfast   %5d tokens of %6d usable (%.0f%%)\n",
+		fastTokens, usable, share(fastTokens, usable))
+	p.printf("hosted %5d tokens of %6d usable (%.1f%%)\n",
+		total/tokensPerByte, router.HostedContextBudget,
+		share(total/tokensPerByte, router.HostedContextBudget))
 
 	return p.err
+}
+
+func bytesOf(sections []section) int {
+	total := 0
+	for _, s := range sections {
+		total += s.Bytes
+	}
+
+	return total
 }
 
 // printer keeps the first write error and stops caring about the rest, so a

@@ -463,13 +463,7 @@ func threadID(resume string) thread.ID {
 }
 
 func prefix(system string, tools *tool.Registry) agent.Prefix {
-	specs := tools.Specs()
-	out := make([]llm.ToolSpec, 0, len(specs))
-	for _, s := range specs {
-		out = append(out, llm.ToolSpec{Name: s.Name, Description: s.Description, Schema: s.Schema})
-	}
-
-	return agent.Prefix{System: system, Tools: out}
+	return app.Prefix(system, tools)
 }
 
 func loadConfig(ctx context.Context, root, with string) (config.Config, error) {
