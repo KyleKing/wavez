@@ -2485,3 +2485,63 @@ for a dialect other than Qwen's, because no other leaking model was
 measured. `e2` passes 3 of 3 hosted against about 1 in 6 on the fast tier,
 which is item 4's question about the tier's remit and not evidence about
 these lanes.
+
+## 2026-08-24 — reading the corpus, and what it aimed
+
+Twelve lanes had shipped measurement and none of it had been read over the
+records. `-stats-corpus` now reports turn attribution, gate rounds, and the
+deterministic finish checks beside the tool rates, and takes `-stats-since`
+because the file spans three harnesses: 111 of the 190 runs predate the
+error taxonomy and report every failure as unclassified, and the
+`str_replace` failures recorded before its schema stated a top-level `oneOf`
+count a hole a later run cannot fall into. Scoped to 2026-08-23 on, the
+unclassified column is empty.
+
+**35% of turns are the harness's.** Over 1,068 attributed turns: 15%
+productive, 44% retrieval, 35% harness, 6% prose. The harness share is an
+estimate and the other three are exact. It is the number this project is
+trying to move, and nothing until now reported it.
+
+**The gates are loud and they are not wrong.** 190 rounds, 68% failed, and
+not one retracted a failure over an unchanged tree. Whatever is costing the
+run, gate false alarms are not it.
+
+Two live holes came out of the same report and both are closed:
+
+**A tool nothing can answer.** `question` failed 8 of 8 calls, every one
+`reading answer: EOF`, because a replay's stdin is not a terminal. It is no
+longer offered where nothing can answer, which saves the 107 preamble tokens
+it costs on every turn and the turn each call spent. `write` failed 5 of 7,
+and all five were the tool refusing by design (three writes over an existing
+file, two paths outside the root) recorded as plain failures. Every error
+site in `internal/tools` and the four in the loop now name a cause, and
+`tool.Errorf` is gone: every hole in the taxonomy came from one existing.
+
+**Two harder tasks, and one of them already earned its place.** `h8` asks
+which two constants bound a read and where they live. The fast tier answered
+in one turn with no tool calls, naming `MaxReadLinesPerFile`,
+`MaxFilesPerRead`, and `reader_config.go`, none of which exist. That is the
+`h1` failure mode on a retrieval task, and it is the shape item 3 asked for:
+a failure that is not a malformed call. The finish check caught it and the
+corpus now records it (`named symbol is not in the index`, 2). `h7` asks for
+a bound `read` already has to be added to `list` with a test, and scored 4 of
+5 on the fast tier, escalating through all three tiers and failing only on
+the test it never wrote. Both checks were proved satisfiable by hand before
+the tasks landed.
+
+**Escalation on a stuck gate ships unmeasured.** A gate that fails
+identically three times, each after further edits, now moves the run up a
+tier rather than waiting for the deadline. The unit tests pin the three
+cases that matter, including the two where it must stay silent (a debounced
+re-run over one change, and a failure that moved). It did not fire on either
+new task: `h7` escalated first through the existing malformed-call path. So
+the signal is built and has no live evidence, which the next `e2` lane is
+what settles.
+
+**`-deadcode` gates now.** Twelve functions no main reaches are named one at
+a time in `deadcodeAllow`, each with why, so the list is the inventory of
+what is built and not wired and the check fails on anything new. Proved by
+adding an orphan and watching it exit 1.
+
+**Not verified.** One run of each new task settles nothing about their
+difficulty, and the stuck-gate escalation has never fired outside a test.

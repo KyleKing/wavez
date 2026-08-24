@@ -901,30 +901,40 @@ measured and what it did not settle.
    old log bound had hidden: `edits` is per file where `e2` needs two, and
    a malformed call is an 8,765-character multi-file batch cut off
    mid-emission rather than a degeneration loop
-2. **Item 4, which now has one task that decides it.** `e2` passes 3 of 3
-   hosted and about 1 in 6 on the fast tier with the tools, prompt, and task
-   held fixed, and every fast-tier failure is one compile error the gate
-   already quotes back. That is a routing question, so the next lane is
-   whether the run's own tool history can be read as the signal to escalate
-   before the deadline rather than after it
-3. **Harder replay tasks**, because item 4 cannot be decided until the set
-   contains work the fast tier plausibly fails at for a reason other than
-   emitting a malformed call. `h2` has been 1 of 2 in six lanes and its
-   failure is comprehension rather than tool surface, which makes it the one
-   existing task worth studying rather than replacing
-4. **Then reading what now records itself.** Twelve lanes shipped the
-   measurement the earlier items asked for and none of it has been read
-   over a corpus yet: `-stats-corpus` for the rates, turn attribution for
-   where a run goes, gate false alarms for whether the gates are getting
-   quieter or wronger, and `Outcome.FinishFindings` for how often a run
-   that completed did something of the wrong shape. Each of those is a
-   number this project has previously derived by hand and slowly
+2. **The escalation signal, which ships with no live evidence.** A gate that
+   fails identically three times, each after further edits, moves the run up
+   a tier rather than waiting for the deadline. Its unit tests pin the two
+   cases where it must stay silent as well as the one where it fires, and it
+   has never fired outside them: `h7` escalated first through the existing
+   malformed-call path. An `e2` lane on the fast tier is what settles
+   whether the signal reaches the case it was built for, since that is the
+   task where five runs in six spend every turn on one compile error
+3. **More tasks of the two shapes that just worked.** `h7` and `h8` are the
+   first two the fast tier fails at for a reason other than a malformed
+   call: `h8` invented three identifiers in one turn with no tool calls, and
+   `h7` scored 4 of 5 and never wrote the test it was asked for. One run
+   each settles nothing about their difficulty, and the set still has no
+   task whose retrieval spans packages or that requires a test to fail
+   first. `h2` stays the existing one worth studying rather than replacing
+4. **The 35% of turns the harness costs.** The corpus now reports where a
+   run's turns go (15% productive, 44% retrieval, 35% harness, 6% prose over
+   1,068 turns) and nothing has been aimed at it yet. It is the largest
+   single number in the report and the one this project exists to move.
+   Gate false alarms are not the cause: 190 rounds, 68% failed, none
+   retracted
 5. **Then the CI half of item 15**, which is the one piece of it that could
    not land here: `.github/workflows/` is template-owned, so the preamble
    ceiling and `-deadcode` need a change against
    [my_go_template](https://github.com/KyleKing/my_go_template) rather than
-   a local edit. `mise run preamble:budget` holds the ceiling locally at
-   3,100 tokens against a current 3,029
+   a local edit. Both gate locally now (`mise run preamble:budget` at 2,400
+   tokens against 2,356, `mise run deadcode` against a named allowlist), so
+   the upstream change is two task invocations
+6. **The destructive-command guard allows `find . -delete`.** Measured
+   directly against `guard.Classify`, which answers `allow, no destructive
+   pattern matched`, where `rm -rf /` refuses and `git push --force` asks.
+   `truncate -s 0 <file>` is allowed too. Neither is a benchmark task on
+   purpose: a known gap in a safety gate is worth closing rather than
+   scoring against
 
 Ordered by the rule above: measurement, then the efficiency work it makes
 decidable, then the machine probes that need a stable loop underneath them.
@@ -956,15 +966,15 @@ rows. Each names what closes it.
     What the build changed against that design: the goal is derived rather than stored twice, because a thread's log already holds it. It is the last `KindGoal` event, or the first prompt when nobody rewrote one, so a resumed thread reads it back with no new persistence and a rewrite is auditable beside what it replaced. The injection rule collapsed to one test rather than three hooks: at run start, restate the goal only when the history about to be sent does not already carry it, which covers a fork, a reopen, and a rewrite together and stays silent on every ordinary turn.
 13. Web search. Shipped, and it cost 221 preamble tokens for the pair rather than the ~1.5k a schema of that shape usually runs. The toggle turned out to matter after all and now defaults off: the pair was called in none of 90 recorded runs, 217 tokens is 8% of the preamble, and a coding agent that can reach the network without being asked to is a wider exposure than one that cannot. A project that asks about the world outside it sets `web = true`. What the survey changed: the plan was to mark fetched text untrusted and stop there, and the literature and the field both say a marker is the weakest layer. OpenCode's own `webfetch` blocks nothing (no private-address check, no redirect rule, no boundary) and its injection defenses live in third-party plugins that pay a judge model per tool result; the research converged on enforcing policy outside the model with deterministic checks and constrained egress rather than on asking it nicely. So the boundary shipped last, behind credential refusal, private-address refusal at dial time, a same-host redirect rule, and permission-gated fetches of any host this thread's searches did not return
 14. Harness observability. Everything here is deterministic, needs no model, and answers a question this project has repeatedly answered by hand and slowly.
-    - **A tool error taxonomy.** Shipped. Every failing tool result carries a cause (no match, ambiguous, bad input, refused by design, conflict, io, upstream, malformed arguments, repeated call), the thread log records it, and `-stats` breaks each tool's errors down by it. The rule it enforces is that a refusal that worked is never counted as a failure, and the payoff was immediate: `delete`'s 60% error rate is a third once its 12 correct refusals come out, and `str_replace`'s single number turns out to be three separate problems in different parts of the system. An error from a call site the taxonomy has not reached counts as `unspecified` rather than being guessed at, so the report says how much of itself is missing. The cause names the class and the arguments say which case, so the thread log bounds a failed call's input at 32 KB and only a successful call's at 2000: classifying the corpus ran aground on 13 malformed emissions that were all longer than the old bound and stored with their tails cut
+    - **A tool error taxonomy.** Shipped. Every failing tool result carries a cause (no match, ambiguous, bad input, refused by design, conflict, io, upstream, malformed arguments, repeated call), the thread log records it, and `-stats` breaks each tool's errors down by it. The rule it enforces is that a refusal that worked is never counted as a failure, and the payoff was immediate: `delete`'s 60% error rate is a third once its 12 correct refusals come out, and `str_replace`'s single number turns out to be three separate problems in different parts of the system. An error from a call site the taxonomy has not reached counts as `unspecified` rather than being guessed at, so the report says how much of itself is missing. The report then named the last two holes and both are closed: `question` and `write` were the only tools still returning an unclassified failure, `write`'s five were all refusals recorded as defects, and `tool.Errorf` is gone because every hole came from an escape hatch existing. The cause names the class and the arguments say which case, so the thread log bounds a failed call's input at 32 KB and only a successful call's at 2000: classifying the corpus ran aground on 13 malformed emissions that were all longer than the old bound and stored with their tails cut
     - **Gate false-alarm detection.** Shipped. `ChangeGate` keeps each gate's last verdict beside the change count it was given, so a gate that passes over the same change set it just failed over is recorded as a retraction: nothing about the code moved between the two answers, which makes the first one the harness's fault. The loop logs it and never tells the model, because a run told a gate was wrong once will discount the next failure, and `-stats` reports it beside gate rounds and failures. It is the signal that says whether the trimming and selection work is making the gates quieter or just wronger
-    - **A corpus-wide stats command.** Shipped as `-stats-corpus`, which reads `records.jsonl` and reports completion by task, checks held, and each tool's calls, failures, refusals, and causes. Two things it gets right on purpose: a refusal is counted apart from a failure, which is what turns `delete`'s 60% into a third, and each tool's row closes with the errors no cause covers, so the report says how much of itself is missing rather than reading as a complete breakdown of an incomplete one
+    - **A corpus-wide stats command.** Shipped as `-stats-corpus`, which reads `records.jsonl` and reports completion by task, checks held, and each tool's calls, failures, refusals, and causes. It reads the three measurements beside them that nothing had read: where a run's turns went, how the gates behaved, and which deterministic finish checks fired. `-stats-since` scopes it, because the file spans three harnesses and a rate over all of it averages tools that no longer behave the way they did. Two things it gets right on purpose: a refusal is counted apart from a failure, which is what turns `delete`'s 60% into a third, and each tool's row closes with the errors no cause covers, so the report says how much of itself is missing rather than reading as a complete breakdown of an incomplete one
     - **Turn attribution.** Shipped. `bench.Attribute` splits a run's turns into productive (it produced an accepted change), retrieval (it called tools and changed nothing), harness (it followed a tool error or something the harness injected), and prose. A turn is attributed to what preceded it, so a failure belongs to the turn that emitted it and the reaction to the turn after. Harness wins wherever two apply, because the question it answers is how much of the run the harness caused, and it is marked an estimate rather than a count
     - **A run timeline a human can read.** The three above are numbers; this is the picture. One page per run: turns as bars, tool calls colored by outcome, gate rounds, escalation points, and the operation id captured at each accepted change. It converges with the per-edit undo picker under item 11, because the thing a person points at to say "put it back to there" and the thing they read to see where the time went are the same list
 15. Harness testing and developer experience. The expensive part of changing this harness is proving the change did something, and today that costs a three-minute replay lane on a machine quiet enough for the result to mean anything.
     - **Transcript fixtures.** Shipped as `internal/transcript`. A fixture is JSON: the files the workspace starts from, the prompt, the model turns verbatim, and the gate feedback and gate state the harness holds. It replays against the real loop and the real file tools, and its golden frame is every event the run logged with the timestamps and sequence numbers left out. It stays valid only for changes that do not alter what the model sees, which covers gate messages, output reduction, tool result formatting, and the preamble. The first fixture is the `h6` run that spent six turns on a build state it could not re-read, so the wording that cost those turns is now pinned
     - **A preamble budget.** Half shipped. `wavez -preamble -preamble-max <n>` exits non-zero over the ceiling and says what the prefix actually costs, and `mise run preamble:budget` holds the fast tier's prefix at 2,400 tokens against a current 2,356. It was 2,200 until `declare` bought its 243 tokens with a measured result, which is what the ceiling exists to force (30% of what a fast turn can use, down from 42%), and the report gives a line per tier because one number stopped describing the cost. The report now splits each schema into the prose and the structure it hangs on, which is what made the trim decidable: the tool surface was 84% of the preamble and prose was 69% of that, against 448 tokens of actual grammar. `TestSchemasCarryNoDescriptionLongerThanItsWorth` holds the per-description bound so a new tool's prose is a decision rather than a discovery. The CI job is the missing half and belongs upstream, since `.github/workflows/` is template-owned
-    - **`-deadcode` in CI.** It exists, it currently fails on this tree with ten unreachable functions, and nothing notices. Either it gates the build or it should stop shipping as a command
+    - **`-deadcode` in CI.** It gates now. The twelve functions no main reaches are named one at a time in `deadcodeAllow` with why each is deliberate, so the list doubles as the inventory of what is built and not yet wired, and `mise run deadcode` fails on anything new (proved by adding an orphan and watching it exit 1). Freezing rather than deleting is the point: half of them are roadmap-planned (local model management, gate cadence, the import graph) and deleting planned work to satisfy a check is the wrong trade
     - **The replay harness swept up after itself.** A replay keeps the workspace of any run whose checks did not all pass, which is most of them and is the only place a failing run's tree survives, and nothing ever expired one: 78 accumulated here, half their directories cleared out from under records that still pointed at them, and every jj command in the repo rebased their commits. A run now drops all but the five most recent before it starts. Forgetting a workspace is half the job, because jj leaves its working-copy commit in the graph, which is why the sweep abandons the commit first and why `TestJjForgottenWorkspaceLeavesItsCommitUntilAbandoned` pins that order
     - **`mise run scratch`.** One task for a throwaway daemon and TUI on a short socket path, with cleanup. The socket path limit is 104 characters and the scratchpad path is longer, which is a mistake worth making once
 16. A finish check, designed from first principles to replace the model reviewer. The reviewer as built asks a model whether a diff does what the task asked, and the recorded evidence is that it objects to correct diffs: 3 objections in 77 runs, both traceable ones on runs whose diff was right, and no run where an objection turned a failure into a success. It is also a model judging a model, which the critique experiment under [Risks](#risks-and-unverified-claims) already found wraps its own words around the same invention. What replaces it is not a better prompt but the deterministic checks that answer the same question, each able to fail a run on its own:
