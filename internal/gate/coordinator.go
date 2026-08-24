@@ -2,6 +2,8 @@ package gate
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/kyleking/wavez/internal/tool"
@@ -19,6 +21,8 @@ func BuildRunFunc(
 	cadence := &fullRunCadence{clock: clock, cfg: DefaultCadence, lastFull: clock.Now()}
 
 	return func(ctx context.Context, changes []tool.Change) RunResult {
+		changes = relativeTo(repoRoot, changes)
+
 		selection, err := Select(ctx, cov, graph, changes)
 		if err != nil {
 			selection = Selection{Level: LevelPackage, Packages: fallbackPackages(graph, changes)}
@@ -95,4 +99,36 @@ func (c *fullRunCadence) apply(selection Selection) Selection {
 	c.lastFull = c.clock.Now()
 
 	return Selection{Level: LevelPackage, Packages: []string{wholeModule}}
+}
+
+// relativeTo makes every change's path relative to repoRoot. Selection
+// builds a `go test` pattern by prefixing "./", and a path that is already
+// absolute becomes one go resolves against the root a second time: a replay
+// workspace under /tmp asked for `./tmp/wavez-replay-x/internal/thread` and
+// go looked for it inside the workspace, reporting a directory that is not
+// there as a build failure the run then spent turns chasing. Gate output
+// trimming matches its frames against these paths too, so one shape for
+// them is what makes a failure name a changed file at all.
+func relativeTo(repoRoot string, changes []tool.Change) []tool.Change {
+	if repoRoot == "" {
+		return changes
+	}
+
+	out := make([]tool.Change, len(changes))
+	copy(out, changes)
+
+	for i := range out {
+		if !filepath.IsAbs(out[i].Path) {
+			continue
+		}
+
+		rel, err := filepath.Rel(repoRoot, out[i].Path)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+
+		out[i].Path = filepath.ToSlash(rel)
+	}
+
+	return out
 }

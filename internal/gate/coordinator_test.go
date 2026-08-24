@@ -138,3 +138,29 @@ func TestBuildRunFuncForcesAFullRunAfterTheInterval(t *testing.T) {
 		t.Errorf("second selection = %q, want the interval to have widened it", rec.seen[1].Level)
 	}
 }
+
+// A path that reaches selection absolute becomes a pattern go resolves
+// against the root a second time. One replay asked for
+// `./tmp/wavez-replay-x/internal/thread`, go looked for it inside the
+// workspace, and the run spent turns chasing a directory that was never
+// missing.
+func TestBuildRunFuncMakesChangePathsRelativeToTheRoot(t *testing.T) {
+	t.Parallel()
+
+	l, err := gate.OpenLog(filepath.Join(t.TempDir(), "gate.log"))
+	if err != nil {
+		t.Fatalf("OpenLog: %v", err)
+	}
+
+	root := t.TempDir()
+	rec := &recordingGate{}
+	runFn := gate.BuildRunFunc(newFakeClock(time.Now()), fakeLineCoverage{}, nil,
+		[]gate.Gate{rec}, l, root, nil)
+
+	runFn(context.Background(), []tool.Change{{Path: filepath.Join(root, "internal", "thread", "a.go")}})
+
+	got := rec.seen[0]
+	if len(got.Packages) != 1 || got.Packages[0] != "./internal/thread" {
+		t.Errorf("selection = %+v, want ./internal/thread", got)
+	}
+}
