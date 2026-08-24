@@ -85,6 +85,11 @@ type Usage struct {
 	InputTokens     int      `json:"input_tokens"`
 	OutputTokens    int      `json:"output_tokens"`
 	CacheReadTokens int      `json:"cache_read_tokens"`
+	// ReasoningBytes is how much of the turn a reasoning model spent on its
+	// own working, which reaches no history and no tool. A turn that
+	// produced only this said nothing the loop can act on, and without the
+	// count that is indistinguishable from a model choosing to stay silent.
+	ReasoningBytes int `json:"reasoning_bytes,omitempty"`
 }
 
 // Timings is how fast a serving runtime ran one call and how much of the

@@ -104,6 +104,10 @@ const (
 	// StopToolCallFlood means a single model turn emitted more tool calls
 	// than the configured per-turn bound.
 	StopToolCallFlood Stop = "tool_call_flood"
+	// StopEmptyTurn reports a provider that returned neither prose nor a
+	// tool call, which is a failure of the call rather than a choice the
+	// model made.
+	StopEmptyTurn Stop = "empty_turn"
 	// StopMalformedTool means a tool call's input was not valid JSON.
 	StopMalformedTool Stop = "malformed_tool_call"
 	// StopLoopDetected means a tool call repeated the immediately preceding
@@ -817,7 +821,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 
 	if stopReason == llm.StopEndTurn {
 		if len(calls) == 0 {
-			return r.endTurnWithoutCalls(ctx, text)
+			return r.endTurnWithNoCalls(ctx, text, usage)
 		}
 
 		return r.finishOrVerify(ctx)
@@ -1033,6 +1037,47 @@ func (r *run) handleToolCallAsText(ctx context.Context) (bool, Outcome, error) {
 // endTurnWithoutCalls handles a turn that ended with no tool call. Most
 // such turns are the model reporting it is done; the three checks here are
 // the ones that are not, each a turn that changed nothing it said it would.
+// A turn that made no tool call is either a provider that returned nothing
+// or a model that said something and stopped, and those want opposite
+// answers.
+func (r *run) endTurnWithNoCalls(ctx context.Context, text string, usage *llm.Usage) (bool, Outcome, error) {
+	if out, done, err := r.emptyTurn(ctx, text, usage); done {
+		return true, out, err
+	}
+
+	return r.endTurnWithoutCalls(ctx, text)
+}
+
+// An empty turn is one that produced nothing the loop can act on: no
+// prose, no tool call. It is a provider failure rather than a model
+// choosing to stay silent, and telling the two apart matters because the
+// silent-model path escalates and then fails the run for talking without
+// acting.
+//
+// Measured against `stealth/ox-alpha`, six hosted runs in a row ended this
+// way in two turns with no tool calls and no spend: the model is a
+// reasoning model whose whole output arrived in a field the wire did not
+// read, so every hosted turn looked like a shrug.
+func (r *run) emptyTurn(ctx context.Context, text string, usage *llm.Usage) (Outcome, bool, error) {
+	if strings.TrimSpace(text) != "" {
+		return Outcome{}, false, nil
+	}
+
+	reason := "the model returned no text and no tool call"
+	if usage != nil && usage.ReasoningBytes > 0 {
+		reason = fmt.Sprintf("%s, spending %d bytes on reasoning it did not act on",
+			reason, usage.ReasoningBytes)
+	}
+
+	if r.escalate() {
+		return Outcome{}, false, nil
+	}
+
+	out, err := r.stopBound(ctx, StopEmptyTurn, reason+", and there is no tier above this one")
+
+	return out, true, err
+}
+
 func (r *run) endTurnWithoutCalls(ctx context.Context, text string) (bool, Outcome, error) {
 	r.answer = text
 

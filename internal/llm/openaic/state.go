@@ -21,10 +21,31 @@ type streamState struct {
 	usage     *llm.Usage
 	stop      llm.StopReason
 	order     []int
+	// reasoningBytes is how much of this turn went into the model's own
+	// working rather than into anything the loop can act on.
+	reasoningBytes int
 }
 
 func newStreamState() *streamState {
 	return &streamState{toolCalls: map[int]*toolCallBuilder{}, stop: llm.StopEndTurn}
+}
+
+// finalUsage is what the turn cost, with the reasoning the provider
+// streamed beside the content folded in. A provider that reported no usage
+// still reports reasoning, because a turn that produced only reasoning is
+// exactly the one worth naming.
+func (s *streamState) finalUsage() *llm.Usage {
+	if s.usage == nil {
+		if s.reasoningBytes == 0 {
+			return nil
+		}
+
+		return &llm.Usage{ReasoningBytes: s.reasoningBytes}
+	}
+
+	s.usage.ReasoningBytes = s.reasoningBytes
+
+	return s.usage
 }
 
 func (s *streamState) applyDelta(delta sseDelta) {

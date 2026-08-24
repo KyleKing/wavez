@@ -164,8 +164,25 @@ type sseChoice struct {
 }
 
 type sseDelta struct {
-	Content   string             `json:"content"`
-	ToolCalls []sseToolCallDelta `json:"tool_calls"`
+	Content string `json:"content"`
+	// Reasoning is a reasoning model's trace, which OpenRouter streams
+	// beside the content and some providers spell reasoning_content. It is
+	// never history: it is the model's own working, not what it said. It is
+	// counted so a turn that spent its whole budget thinking can be told
+	// apart from one that chose to say nothing, which is what a hosted turn
+	// against `stealth/ox-alpha` looked like until this was read at all.
+	Reasoning        string             `json:"reasoning"`
+	ReasoningContent string             `json:"reasoning_content"`
+	ToolCalls        []sseToolCallDelta `json:"tool_calls"`
+}
+
+// reasoningText is whichever spelling this provider used.
+func (d sseDelta) reasoningText() string {
+	if d.Reasoning != "" {
+		return d.Reasoning
+	}
+
+	return d.ReasoningContent
 }
 
 // sseToolCallDelta is one fragment of one tool call; a call's Name and

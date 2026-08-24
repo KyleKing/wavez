@@ -55,7 +55,7 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) iter.Seq2[llm.Chun
 				return
 			}
 		}
-		yield(llm.Chunk{Kind: llm.ChunkDone, Usage: state.usage, StopReason: state.stop}, nil)
+		yield(llm.Chunk{Kind: llm.ChunkDone, Usage: state.finalUsage(), StopReason: state.stop}, nil)
 	}
 }
 
@@ -138,6 +138,7 @@ func processSSEChunk(name string, chunk sseChunk, state *streamState, yield func
 				return true
 			}
 		}
+		state.reasoningBytes += len(choice.Delta.reasoningText())
 		state.applyDelta(choice.Delta)
 		if choice.FinishReason != nil {
 			state.stop = mapFinishReason(*choice.FinishReason)
