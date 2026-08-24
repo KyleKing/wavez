@@ -35,10 +35,11 @@ hostedKeyCommand: String = ""
 /// markup changes. Either way no key is stored and no account is used.
 webSearchURL: String = ""
 
-/// Whether the web search and fetch tools are offered at all. They cost
-/// their schemas out of every turn's context, so a project that never asks
-/// questions about the world outside it can turn them off.
-web: Boolean = true
+/// Whether the web search and fetch tools are offered at all. Off by
+/// default: the pair costs 217 tokens out of every turn's context, and a
+/// project that never asks about the world outside it should not be able
+/// to reach the network at all. Turn it on for one that does.
+web: Boolean = false
 
 /// Served context window, in tokens, of a llama-server Wavez starts for the
 /// fast tier. Wavez starts the server with it, moves a turn up a tier once

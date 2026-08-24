@@ -21,6 +21,10 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 
 	cfg := config.Defaults(root)
 	cfg.Context = []string{"AGENTS.md#Architecture"}
+	// The web pair is off by default and this case asserts the whole tool
+	// surface, so it opts in; TestNew_LeavesTheWebOffByDefault covers the
+	// default.
+	cfg.Web = true
 
 	provider := fake.New("balanced", fake.Turn{Text: []string{"ok"}})
 
@@ -99,5 +103,34 @@ func TestNew_OpensAndClosesTrackedThreads(t *testing.T) {
 
 	if err := a.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+}
+
+// The web pair costs 217 preamble tokens on every turn of every thread and
+// was called in none of 90 recorded runs, and a coding agent that can reach
+// the network without being asked to is a wider exposure than one that
+// cannot. A project that wants it says so.
+func TestNew_LeavesTheWebOffByDefault(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "AGENTS.md"), agentsMD)
+
+	a, err := app.New(context.Background(), root, config.Defaults(root), permission.AllowAll(),
+		app.WithProviders(tierProviders(fake.New("balanced"))))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if cerr := a.Close(); cerr != nil {
+			t.Errorf("Close: %v", cerr)
+		}
+	})
+
+	for _, name := range []string{"web_search", "web_fetch"} {
+		if _, err := a.Tools.Get(name); err == nil {
+			t.Errorf("Tools.Get(%q) succeeded; the default reaches the network", name)
+		}
 	}
 }

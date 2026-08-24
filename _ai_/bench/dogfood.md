@@ -2166,3 +2166,51 @@ alarms are nonzero at all, whether harness turns are the share the item-11
 numbers imply, whether `FinishFindings` fires on runs that completed, and
 whether the guard's repeated failure shortens a run that used to spend
 turns re-checking. All four are now one command rather than a script.
+
+## 2026-08-23 — where the preamble actually goes
+
+The question was whether the preamble could be dynamic, minimal with
+load-on-demand, or folded into the tools. Measuring it first answered all
+three differently than expected.
+
+**It is already folded into the tools, and it is mostly prose.** Of 3,029
+tokens: 200 system rules, 294 project context, and 2,535 (84%) the tool
+surface. Splitting each schema into its descriptions and the structure they
+hang on puts 2,085 of those in prose and 448 in structure. So the preamble
+is not schema, it is teaching, at 69% of the tool surface.
+
+**Dynamic is the wrong shape, and the corpus says why.** Over 87 runs, 77%
+of all input tokens are served from the provider's prefix cache, 79% on the
+43 fast-only runs. The preamble is the head of that prefix. Narrowing it
+mid-thread re-evaluates everything after the change, and saving 1,000
+tokens a turn does not pay for re-evaluating a 20k-token history once.
+Choosing the tool set once at thread creation costs nothing, which is what
+`registry.Only` already does for plan mode.
+
+**Load-on-demand was already ruled out and this does not reopen it.** The
+one controlled benchmark on record says reduction that costs a follow-up
+call moves the spend rather than removing it. The variant that costs no
+turn is different and is what shipped: prose that only says what a failure
+will say moves into the failure, which is paid once when the mistake
+happens rather than on every turn of every thread.
+
+**What that bought.** 3,029 to 2,736 tokens on the prose cut, then 2,516
+after defaulting the web pair off. 42% of a fast turn's usable window down
+to 35%, with the schema structure untouched at 448 tokens both times,
+because structure is the grammar a fast turn decodes under and is not
+teaching.
+
+**The four tools never called in 90 runs** are `question`, `write`,
+`web_search`, and `web_fetch`. Only the web pair was removed. `question` is
+named in the instruction the loop gives a run that asks in prose, and
+`write` is how a file gets created; dropping either would break something
+the harness says. That is the limit of this evidence: the replay set is
+edit-shaped work on one repo with no network need, so 0 calls means those
+tools are dead weight on this task set, not that they are useless.
+
+**Not verified.** No replay lane ran. The prose cut is exact on tokens and
+unmeasured on behavior: the risk it takes is that the first occurrence of
+each mistake now costs a turn where the schema used to prevent it.
+`str_replace`'s failure rate (106 of 173 calls in the corpus) is the number
+to read after the next lanes, and if it rises, the cut clauses are named in
+`TestTheErrorsCarryWhatTheSchemasStoppedSaying` and go back one at a time.
