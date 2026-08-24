@@ -119,3 +119,36 @@ func TestScopeBringsAFileItCreatedIntoScope(t *testing.T) {
 		t.Errorf("Strayed() = %v, want none", strayed)
 	}
 }
+
+// A model writes its next anchor from the file it read, and after its own
+// edit that file no longer exists anywhere. Measured on `e2`: a run that
+// had just edited a file spent its remaining turns guessing anchors against
+// the version it remembered, and the tool could only say "not found".
+func TestScopeTellsAStaleAnchorFromAWrongOne(t *testing.T) {
+	t.Parallel()
+
+	s := tools.NewScope(false)
+	const path = "/repo/a.go"
+
+	if s.Stale(path) {
+		t.Error("a file nobody touched reads as stale")
+	}
+
+	s.Observe(path)
+
+	if s.Stale(path) {
+		t.Error("a file that was only read reads as stale")
+	}
+
+	s.Wrote(path)
+
+	if !s.Stale(path) {
+		t.Error("a file written after its last read does not read as stale")
+	}
+
+	s.Observe(path)
+
+	if s.Stale(path) {
+		t.Error("reading the file again did not clear it")
+	}
+}

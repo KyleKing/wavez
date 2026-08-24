@@ -27,6 +27,13 @@ var ErrOutOfScope = errors.New("file was never read or created by this run")
 type Scope struct {
 	seen    map[string]bool
 	strayed map[string]bool
+	// readAt and wroteAt order a path's last read against its last accepted
+	// write, so a stale anchor can be told apart from a wrong one. A model
+	// writes its next anchor from the file it read, and after its own edit
+	// that file no longer exists anywhere.
+	readAt  map[string]int
+	wroteAt map[string]int
+	clock   int
 	mu      sync.Mutex
 	strict  bool
 }
@@ -34,7 +41,10 @@ type Scope struct {
 // NewScope builds a Scope. A strict Scope refuses an out-of-scope edit; a
 // permissive one records it and allows it.
 func NewScope(strict bool) *Scope {
-	return &Scope{seen: map[string]bool{}, strayed: map[string]bool{}, strict: strict}
+	return &Scope{
+		seen: map[string]bool{}, strayed: map[string]bool{},
+		readAt: map[string]int{}, wroteAt: map[string]int{}, strict: strict,
+	}
 }
 
 // Observe brings abs into scope, because the run has now read or created
@@ -48,6 +58,36 @@ func (s *Scope) Observe(abs string) {
 	defer s.mu.Unlock()
 
 	s.seen[abs] = true
+	s.clock++
+	s.readAt[abs] = s.clock
+}
+
+// Wrote records an edit that landed, which is what makes a later anchor
+// against the caller's own memory of the file stale. It is called after the
+// write rather than before it, because a refused edit changed nothing.
+func (s *Scope) Wrote(abs string) {
+	if s == nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.clock++
+	s.wroteAt[abs] = s.clock
+}
+
+// Stale reports whether this run wrote abs after it last read it, so an
+// anchor drawn from that read cannot match.
+func (s *Scope) Stale(abs string) bool {
+	if s == nil {
+		return false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.wroteAt[abs] > s.readAt[abs]
 }
 
 // Edit reports whether the run may edit abs, recording the path when it is

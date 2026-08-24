@@ -285,11 +285,12 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 	changes, err := edit.ApplyToFiles(edits)
 	if err != nil {
-		return s.failedEdit(&in, err), nil
+		return s.failedEdit(&in, edits, err), nil
 	}
 
 	for i := range changes {
 		changes[i].Path = groups[i].Path
+		s.scope.Wrote(edits[i].Path)
 	}
 
 	return tool.Result{Content: describeChanges(changes, len(in.pairs())), Changes: changes}, nil
@@ -338,7 +339,16 @@ func (s *StrReplace) prepare(
 
 // failedEdit explains a batch that did not apply, adding what the error
 // alone cannot say.
-func (*StrReplace) failedEdit(in *strReplaceInput, err error) tool.Result {
+func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err error) tool.Result {
+	if errors.Is(err, edit.ErrNotFound) {
+		if stale := s.staleFiles(edits); stale != "" {
+			return tool.Fail(tool.CauseNoMatch,
+				"%v\n\nYou have edited %s since you last read it, so an anchor taken from that "+
+					"read no longer matches. Read it again before anchoring, or use declare to "+
+					"write the whole declaration by name.", err, stale)
+		}
+	}
+
 	if errors.Is(err, edit.ErrNotFound) && lineNumbered(in.OldString) {
 		return tool.Fail(tool.CauseBadInput,
 			"%v\n\nold_string still carries the line numbers read prefixed each "+
@@ -353,6 +363,23 @@ func (*StrReplace) failedEdit(in *strReplaceInput, err error) tool.Result {
 	}
 
 	return failWith(err)
+}
+
+// staleFiles names the files this call touches that the run has written
+// since it last read them, empty when none has. It is the one thing the
+// harness knows about a failed anchor that the model cannot: measured on
+// `e2`, a run that had just edited a file spent its remaining turns
+// guessing anchors against the version it remembered.
+func (s *StrReplace) staleFiles(edits []edit.FileEdit) string {
+	var stale []string
+
+	for _, e := range edits {
+		if s.scope.Stale(e.Path) {
+			stale = append(stale, relativeTo(s.root, e.Path))
+		}
+	}
+
+	return strings.Join(stale, ", ")
 }
 
 // describeChanges reports what landed: file and line counts rather than the

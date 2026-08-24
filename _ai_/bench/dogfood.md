@@ -2351,3 +2351,39 @@ working: a new tool's cost was a decision rather than a discovery.
 **Not verified.** Three runs per lane, and the checks that still fail are
 the ones asking for a test. No lane has yet reached 3 of 3 on `e2` with a
 fast pin, so this moved the wall rather than removing it.
+
+## 2026-08-23 — the stale anchor, and the sequence end to end
+
+`declare` moved `e2` from one check to two, and the third failed the same
+way every time: the test compiled against the wrong package qualifier, the
+`go-test` gate said so, and the run then spent its remaining turns guessing
+`str_replace` anchors against the file as it remembered it rather than as
+its own edit had left it.
+
+That is the one thing the harness knows and the model cannot. `Scope` now
+orders each path's last read against its last accepted write, and a
+`no_match` on a file the run has written since reading says so. It fired
+twice and the next call was a `read` both times, which is exactly what it
+asks for. It costs zero preamble tokens, because it is an error and is paid
+only when the mistake happens.
+
+Mean share of checks held, three runs per lane unless noted:
+
+| lane | h6 | e2 |
+|---|---|---|
+| lean preamble | 0.79 (6 runs) | 0.33 (2 runs) |
+| anchors from read | 0.83 | 0.33 |
+| multi-file edits | 0.58 | 0.33 |
+| declare | 1.00 | 0.67 |
+| stale anchor | 0.67 | 0.78 |
+
+`e2` is the signal: 0.33 on nine consecutive fast-pinned runs across three
+configurations, then 0.67, then 0.78, and one run reached 3 of 3 and
+completed, which no fast-pinned `e2` run in this sequence had done. `h6`
+says nothing at three runs a lane, which is what the 40-70% variance note
+predicts.
+
+**Not verified.** Three runs a lane is below what settles anything smaller
+than a factor of two, and only `e2` moved by that much. The `h6` numbers
+swing 0.58 to 1.00 to 0.67 across lanes that should not have hurt it, which
+is the variance and not a regression, but nothing here proves that either.

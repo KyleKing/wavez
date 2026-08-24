@@ -152,6 +152,7 @@ func (d *Declare) replace(ctx context.Context, decl declaration, text string) (t
 	}
 
 	change.Path = decl.path
+	d.scope.Wrote(abs)
 
 	return tool.Result{
 		Content: fmt.Sprintf("%s: replaced, +%d -%d lines", decl.path, change.Added, change.Removed),
@@ -189,6 +190,7 @@ func (d *Declare) add(ctx context.Context, in *declareInput, text string) (tool.
 	}
 
 	change.Path = in.Path
+	d.scope.Wrote(abs)
 
 	return tool.Result{
 		Content: fmt.Sprintf("%s: added %s, +%d lines", in.Path, in.Symbol, change.Added),
