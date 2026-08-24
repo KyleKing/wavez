@@ -71,6 +71,13 @@ leaseTtlMinutes: Int = 30
 /// Extra directories, beyond the project root, the agent may read and write.
 extraDirs: Listing<String> = new Listing {}
 
+/// Shell commands, named without a path, that run without asking. They widen
+/// a built-in list holding the toolchain a Go project uses and the read-only
+/// commands around it; anything on neither list needs one approval, which is
+/// remembered for the thread. Naming a command here does not override a rule
+/// that refuses it.
+shellAllow: Listing<String> = new Listing {}
+
 /// Gate debounce, in milliseconds, before a batch of changes runs.
 debounceMs: Int = 500
 

@@ -55,8 +55,8 @@ var ErrNowhereToMove = errors.New("that is not somewhere this can move a declara
 type Move struct {
 	index SymbolSearch
 	scope *Scope
-	deps  deps
 	root  string
+	deps  deps
 }
 
 // NewMove builds a Move tool rooted at root.

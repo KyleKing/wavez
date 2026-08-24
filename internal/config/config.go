@@ -80,6 +80,9 @@ type Config struct {
 	WebSearchURL string
 	Context      []string
 	ExtraDirs    []string
+	// ShellAllow widens the guard's built-in list of shell commands that run
+	// without asking. A command off both lists needs one approval.
+	ShellAllow []string
 	// Cycles are the phased ways of working this project defines, beside the
 	// ones wavez ships. A definition here replaces a built-in of the same
 	// name outright.

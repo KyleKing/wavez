@@ -69,8 +69,8 @@ var strReplaceSchema = buildOneOf(
 // alone.
 type StrReplace struct {
 	scope *Scope
-	deps  deps
 	root  string
+	deps  deps
 }
 
 // NewStrReplace builds a StrReplace tool scoped to root, checking each edit

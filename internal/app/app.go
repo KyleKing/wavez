@@ -316,7 +316,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	registry := buildRegistry(registryDeps{
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
-		checks: changeGate, changes: changeGate,
+		checks: changeGate, changes: changeGate, shellAllow: cfg.ShellAllow,
 		web: cfg.Web, webSearchURL: cfg.WebSearchURL,
 	})
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
@@ -655,7 +655,10 @@ type registryDeps struct {
 	// webSearchURL names the search instance the web tools query, empty for
 	// the keyless default, and web offers them at all.
 	webSearchURL string
-	web          bool
+	// shellAllow widens the guard's list of shell commands that run without
+	// asking, from what the project named.
+	shellAllow []string
+	web        bool
 }
 
 func buildRegistry(d registryDeps) *tool.Registry {
@@ -667,7 +670,8 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewStrReplace(d.root, d.scope, withLeases),
 		tools.NewWrite(d.root, d.scope, withLeases),
 		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases,
-			tools.WithChecks(d.checks), tools.WithChanges(d.changes)),
+			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
+			tools.WithAllowedCommands(d.shellAllow)),
 		tools.NewSearch(d.indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),

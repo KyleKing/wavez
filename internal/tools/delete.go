@@ -43,8 +43,8 @@ type Delete struct {
 	index   SymbolSearch
 	servers Servers
 	scope   *Scope
-	deps    deps
 	root    string
+	deps    deps
 }
 
 // NewDelete builds a Delete tool rooted at root. Servers is what it asks

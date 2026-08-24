@@ -19,6 +19,10 @@ type Env struct {
 	// variable unexpanded and therefore unresolved.
 	Home    string
 	TempDir string
+	// AllowedCommands widen the built-in list of commands that run without
+	// a prompt. A project names what its own toolchain needs; everything
+	// else stays one approval away.
+	AllowedCommands []string
 	// ColocatedJJ says the project is a jj checkout that keeps a git
 	// repository beside it. There, git owns the storage and jj owns the
 	// working copy, so a git command that writes moves the tree behind jj's

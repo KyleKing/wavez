@@ -39,8 +39,8 @@ const (
 // outside the project root.
 type Write struct {
 	scope *Scope
-	deps  deps
 	root  string
+	deps  deps
 }
 
 // NewWrite builds a Write tool scoped to root, reporting each file it

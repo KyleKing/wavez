@@ -13,7 +13,7 @@ const wholeTree = "./..."
 // one spends a turn to learn what it is about to be told.
 var harnessTools = map[string]string{
 	"golangci-lint": "lint",
-	"gofmt":         checkFormat,
+	cmdGofmt:        checkFormat,
 	"goimports":     checkFormat,
 	"hk":            "the hook pipeline",
 }
@@ -39,7 +39,7 @@ func checkOf(tokens []string) (string, bool) {
 	}
 
 	head := baseName(tokens[0])
-	if head == "mise" && len(tokens) > 1 && tokens[1] == "exec" {
+	if head == cmdMise && len(tokens) > 1 && tokens[1] == "exec" {
 		return checkOf(afterExec(tokens))
 	}
 
@@ -47,7 +47,7 @@ func checkOf(tokens []string) (string, bool) {
 		return name, true
 	}
 
-	if head == "mise" && len(tokens) > 1 && tokens[1] == "run" {
+	if head == cmdMise && len(tokens) > 1 && tokens[1] == "run" {
 		return "the mise task", true
 	}
 
@@ -96,7 +96,7 @@ func goCheck(tokens []string) (string, bool) {
 // them to find out what it has changed, which the harness has already
 // recorded: 24 of 278 logged shell calls were this question.
 var vcsReads = map[string]bool{
-	"diff": true, "log": true, subShow: true, "st": true, "status": true,
+	cmdDiff: true, "log": true, subShow: true, "st": true, "status": true,
 }
 
 // VCSInspect reports whether command only asks version control what the

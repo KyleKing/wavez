@@ -35,7 +35,7 @@ var formatters = map[string][]string{
 	"black":     nil,
 	"cargo":     {subFmt},
 	"go":        {subFmt, "generate"},
-	"gofmt":     {flagWrite},
+	cmdGofmt:    {flagWrite},
 	"gofumpt":   {flagWrite},
 	"goimports": {flagWrite},
 	"isort":     nil,

@@ -29,6 +29,14 @@ const (
 	subShow = "show"
 )
 
+// cmdDiff, cmdGofmt, and cmdMise name literals the allowlist, the
+// already-answered checks, and the write-target rules each repeat.
+const (
+	cmdDiff  = "diff"
+	cmdGofmt = "gofmt"
+	cmdMise  = "mise"
+)
+
 // propRestore is the subcommand name git and jj share.
 const propRestore = "restore"
 
@@ -74,9 +82,14 @@ func isForkBomb(cmd string) bool {
 // is both a scoped delete and a git-internals write), and picking only the
 // first match risks under-reporting the real severity.
 func classifyCommand(cmd string, env Env) finding {
-	tokens := tokenize(cmd)
-	if len(tokens) == 0 {
+	raw := tokenize(cmd)
+	if len(raw) == 0 {
 		return finding{Verdict: NeedsApproval, Reason: "empty command could not be classified", Fragment: cmd}
+	}
+
+	tokens := withoutAssignments(raw)
+	if len(tokens) == 0 {
+		return finding{Verdict: Allow, Reason: "sets a variable and runs nothing", Fragment: cmd}
 	}
 
 	var candidates []finding
@@ -110,7 +123,7 @@ func classifyCommand(cmd string, env Env) finding {
 	case "xargs":
 		candidates = append(candidates, classifyXargs(cmd, tokens, env))
 	}
-	candidates = append(candidates, byName(cmd, name)...)
+	candidates = append(candidates, byName(cmd, tokens[0], name, env)...)
 	if killallProcessWide(name, tokens) {
 		candidates = append(candidates, finding{
 			Verdict: NeedsApproval, Reason: "kills processes by name across the whole user", Fragment: cmd,
@@ -125,8 +138,12 @@ func classifyCommand(cmd string, env Env) finding {
 
 // byName gathers the rules that key off the command's own name rather than
 // its arguments.
-func byName(cmd, name string) []finding {
+func byName(cmd, prog, name string, env Env) []finding {
 	var out []finding
+
+	if !env.allowed(prog, name) {
+		out = append(out, finding{Verdict: NeedsApproval, Reason: name + reasonUnlisted, Fragment: cmd})
+	}
 
 	if instead, superseded := supersededTools[name]; superseded {
 		out = append(out, finding{
@@ -255,7 +272,7 @@ func hasRecursiveForce(tokens []string) bool {
 // project's rule is that jj owns writes and a git write there leaves jj
 // holding a working copy that no longer matches what git did.
 var gitReadOnly = map[string]bool{
-	"blame": true, "cat-file": true, "config": true, "describe": true, "diff": true,
+	"blame": true, "cat-file": true, "config": true, "describe": true, cmdDiff: true,
 	"grep": true, "log": true, "ls-files": true, "ls-remote": true, "rev-parse": true,
 	"shortlog": true, subShow: true, "status": true,
 }

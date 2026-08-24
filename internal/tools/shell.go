@@ -61,10 +61,13 @@ func NewShell(root, sessionTmp, threadID string, gate permission.Gate, opts ...O
 		home = ""
 	}
 
+	d := newDeps(opts)
+
 	return &Shell{
-		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate, deps: newDeps(opts),
+		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate, deps: d,
 		env: guard.Env{
 			ProjectRoot: root, Home: home, TempDir: os.TempDir(), ColocatedJJ: colocatedJJ(root),
+			AllowedCommands: d.allowedCommands,
 		},
 	}
 }

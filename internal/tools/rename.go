@@ -72,8 +72,8 @@ type Rename struct {
 	index   SymbolSearch
 	servers Servers
 	scope   *Scope
-	deps    deps
 	root    string
+	deps    deps
 }
 
 // NewRename builds a Rename tool rooted at root.

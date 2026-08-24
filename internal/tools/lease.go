@@ -35,6 +35,9 @@ type deps struct {
 	leases  Leases
 	checks  Checks
 	changes Changes
+	// allowedCommands widen the guard's built-in list of shell commands that
+	// run without a prompt, from what the project named.
+	allowedCommands []string
 }
 
 // Option configures a tool's optional dependencies.
@@ -60,6 +63,13 @@ func WithChecks(c Checks) Option {
 // what this run has written, from what the harness recorded as it wrote it.
 func WithChanges(c Changes) Option {
 	return func(d *deps) { d.changes = c }
+}
+
+// WithAllowedCommands widens the guard's list of shell commands that run
+// without asking. Everything not on it needs one approval, so a project's
+// own toolchain is named here rather than left to a prompt per turn.
+func WithAllowedCommands(names []string) Option {
+	return func(d *deps) { d.allowedCommands = names }
 }
 
 func newDeps(opts []Option) deps {

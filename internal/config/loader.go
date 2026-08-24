@@ -42,6 +42,7 @@ type pklConfig struct {
 	WebSearchURL     string                `pkl:"webSearchURL"`
 	Context          []string              `pkl:"context"`
 	ExtraDirs        []string              `pkl:"extraDirs"`
+	ShellAllow       []string              `pkl:"shellAllow"`
 	AstGrepRules     []string              `pkl:"astGrepRules"`
 	DeadcodeAllow    []string              `pkl:"deadcodeAllow"`
 	Cycles           []pklCycle            `pkl:"cycles"`
@@ -286,6 +287,7 @@ func fromPkl(root string, p pklConfig) Config {
 
 	cfg.Context = p.Context
 	cfg.ExtraDirs = p.ExtraDirs
+	cfg.ShellAllow = p.ShellAllow
 	cfg.AstGrepRules = p.AstGrepRules
 	cfg.DeadcodeAllow = p.DeadcodeAllow
 	cfg.Cycles = toSpecs(p.Cycles)

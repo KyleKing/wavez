@@ -54,8 +54,8 @@ var declareSchema = buildSchema(map[string]schemaProperty{
 type Declare struct {
 	scope *Scope
 	index SymbolSearch
-	deps  deps
 	root  string
+	deps  deps
 }
 
 // NewDeclare builds a Declare tool scoped to root, resolving names through
