@@ -1,5 +1,5 @@
 [tasks.deadcode]
-description = "Report functions no main reaches (wavez -deadcode)"
+description = "Fail when a function no main reaches is not in the allowlist"
 run = "go run ./cmd/wavez -deadcode"
 
 [tasks."preamble:budget"]
