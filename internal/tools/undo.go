@@ -71,7 +71,7 @@ func (u *Undo) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	abs, err := resolvePath(u.root, in.Path)
 	if err != nil {
-		return tool.Fail(tool.CauseBadInput, "%v", err), nil
+		return tool.Fail(tool.CauseRefused, "%v", err), nil
 	}
 
 	src, existed, edited := u.scope.Origin(abs)
@@ -81,13 +81,13 @@ func (u *Undo) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	release, err := u.deps.hold(ctx, abs)
 	if err != nil {
-		return tool.Fail(tool.CauseUnspecified, "%v", err), nil
+		return tool.Fail(tool.CauseConflict, "%v", err), nil
 	}
 	defer release()
 
 	change, err := restoreOrigin(abs, in.Path, src, existed)
 	if err != nil {
-		return tool.Fail(tool.CauseUnspecified, "%v", err), nil
+		return tool.Fail(tool.CauseIO, "%v", err), nil
 	}
 
 	u.scope.Wrote(abs)
