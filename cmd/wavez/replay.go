@@ -301,10 +301,19 @@ func replayReport(root, task string) error {
 // corpusReport prints the rates across every recorded run. One run's
 // counters read as noise, which is why every rate in the roadmap came from
 // an ad-hoc script over this same file.
-func corpusReport(root string) error {
+func corpusReport(root, since string) error {
 	recs, err := replay.Load(filepath.Join(root, replay.DefaultRecordsPath))
 	if err != nil {
 		return err //nolint:wrapcheck // Load already names the file and the failure
+	}
+
+	if since != "" {
+		from, perr := time.Parse(time.DateOnly, since)
+		if perr != nil {
+			return fmt.Errorf("-stats-since wants a date like 2006-01-02: %w", perr)
+		}
+
+		recs = replay.Since(recs, from)
 	}
 
 	return replay.Corpus(recs, os.Stdout) //nolint:wrapcheck // Corpus's error already names the writer

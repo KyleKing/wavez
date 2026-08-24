@@ -62,6 +62,7 @@ type options struct {
 	undo                string
 	stats               string
 	statsVs             string
+	statsSince          string
 	replay              string
 	replayLabel         string
 	replayReport        string
@@ -137,6 +138,8 @@ func run(args []string) error {
 		"with -replay, name the lane the record measures (defaults to the current commit)")
 	fs.StringVar(&opt.replayReport, "replay-report", "",
 		"print every recorded run of one task and diff the last two")
+	fs.StringVar(&opt.statsSince, "stats-since", "",
+		"with -stats-corpus, read only runs recorded on or after this date (2006-01-02)")
 	fs.BoolVar(&opt.statsCorpus, "stats-corpus", false,
 		"report the rates across every recorded replay run, which one run cannot show")
 	fs.BoolVar(&opt.preamble, "preamble", false,
@@ -257,7 +260,7 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 	case opt.replayReport != "":
 		return true, replayReport(root, opt.replayReport)
 	case opt.statsCorpus:
-		return true, corpusReport(root)
+		return true, corpusReport(root, opt.statsSince)
 	case opt.preamble:
 		return true, preambleReport(ctx, root, opt)
 	case opt.deadcode:
@@ -650,6 +653,7 @@ Flags:
   -replay-label <name>   with -replay, name the lane (defaults to the current commit)
   -replay-report <task>  print every recorded run of one task and diff the last two
   -stats-corpus          report the rates across every recorded run
+  -stats-since <date>    with -stats-corpus, read only runs from this date on
   -preamble-max <n>      with -preamble, fail when the fixed prefix exceeds n tokens
   -deadcode       report functions no main reaches, then exit nonzero if any are unexpected
   -preamble       account for the fixed prefix every turn pays, by section

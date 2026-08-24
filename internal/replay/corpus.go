@@ -5,6 +5,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kyleking/wavez/internal/bench"
 )
@@ -31,6 +32,9 @@ func Corpus(recs []Record, w io.Writer) error {
 	writeRuns(&b, recs)
 	writeTasks(&b, recs)
 	writeTools(&b, recs)
+	writeTurns(&b, recs)
+	writeGates(&b, recs)
+	writeFinish(&b, recs)
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return fmt.Errorf("writing corpus report: %w", err)
@@ -218,6 +222,118 @@ func sortedKeys[V any](m map[string]V) []string {
 func sortedToolKeys(m map[string]*bench.ToolStat) []string {
 	out := sortedKeys(m)
 	sort.SliceStable(out, func(i, j int) bool { return m[out[i]].Calls > m[out[j]].Calls })
+
+	return out
+}
+
+// writeTurns is where the corpus's turns went. Harness is the number this
+// project is trying to move: a turn spent reacting to a tool error or to
+// gate feedback is one the harness cost the run rather than one the task
+// needed.
+func writeTurns(b *strings.Builder, recs []Record) {
+	var a bench.Attribution
+
+	for i := range recs {
+		t := recs[i].Stats.TurnsBy
+		a.Productive += t.Productive
+		a.Retrieval += t.Retrieval
+		a.Harness += t.Harness
+		a.Prose += t.Prose
+	}
+
+	total := a.Total()
+	if total == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "\n%d turns attributed: productive %s, retrieval %s, harness %s, prose %s\n",
+		total, share(a.Productive, total), share(a.Retrieval, total),
+		share(a.Harness, total), share(a.Prose, total))
+	b.WriteString("harness is an estimate; the other three are exact from the log\n")
+}
+
+// writeGates reports whether the gates are getting quieter or wronger. A
+// false alarm is a gate passing over the same change set it just failed
+// over, so nothing about the code moved between the two answers.
+func writeGates(b *strings.Builder, recs []Record) {
+	var rounds, failures, falseAlarms int
+
+	for i := range recs {
+		rounds += recs[i].Stats.GateRounds
+		failures += recs[i].Stats.GateFailures
+		falseAlarms += recs[i].Stats.GateFalseAlarms
+	}
+
+	if rounds == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "\n%d gate rounds, %s failed, %d retracted a failure over an unchanged tree\n",
+		rounds, share(failures, rounds), falseAlarms)
+}
+
+// writeFinish counts the runs that completed having done something of the
+// wrong shape. Every gate passed on each of these, which is what the
+// deterministic finish checks exist to catch and what no other number here
+// can show.
+func writeFinish(b *strings.Builder, recs []Record) {
+	counts := map[string]int{}
+	runs := 0
+
+	for i := range recs {
+		if len(recs[i].Stats.FinishFindings) == 0 {
+			continue
+		}
+
+		runs++
+
+		for check, n := range recs[i].Stats.FinishFindings {
+			counts[check] += n
+		}
+	}
+
+	if runs == 0 {
+		return
+	}
+
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+
+	sort.Slice(names, func(i, j int) bool {
+		if counts[names[i]] != counts[names[j]] {
+			return counts[names[i]] > counts[names[j]]
+		}
+
+		return names[i] < names[j]
+	})
+
+	fmt.Fprintf(b, "\n%s of runs finished with a finding, every gate having passed\n",
+		share(runs, len(recs)))
+
+	for _, n := range names {
+		fmt.Fprintf(b, "  %-32s %4d\n", n, counts[n])
+	}
+}
+
+// Since keeps the runs recorded on or after from. The corpus spans every
+// harness this project has had, so a rate over all of it averages tools
+// that no longer behave the way they did: the `str_replace` failures
+// recorded before its schema stated a top-level oneOf are counting a hole
+// that a later run cannot fall into.
+func Since(recs []Record, from time.Time) []Record {
+	out := make([]Record, 0, len(recs))
+
+	for i := range recs {
+		// A record whose timestamp does not parse is kept: dropping it
+		// would silently narrow the corpus for a reason that has nothing
+		// to do with what the caller asked for.
+		at, err := time.Parse(time.RFC3339, recs[i].Started)
+		if err != nil || !at.Before(from) {
+			out = append(out, recs[i])
+		}
+	}
 
 	return out
 }

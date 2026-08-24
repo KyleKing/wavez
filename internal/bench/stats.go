@@ -79,7 +79,12 @@ type ShellCmd struct {
 // reports none rather than zero. The json tags are the field names a diff
 // script reads on the wire.
 type Stats struct {
-	TierTurns        map[string]int `json:"tier_turns"`
+	TierTurns map[string]int `json:"tier_turns"`
+	// FinishFindings counts each deterministic finish check that fired, by
+	// check name. A run that completed with a finding did something of the
+	// wrong shape while every gate passed, which is the only place that
+	// distinction is recorded.
+	FinishFindings   map[string]int `json:"finish_findings,omitempty"`
 	ThreadID         string         `json:"thread_id"`
 	Tools            []ToolStat     `json:"tools"`
 	ShellCmds        []ShellCmd     `json:"shell_cmds"`
@@ -154,6 +159,8 @@ func Summarize(evs []event.Event) Stats {
 			s.countGate(ev)
 		case event.KindReview:
 			s.countReview(ev)
+		case event.KindFinish:
+			s.countFinish(ev)
 		case event.KindUsage:
 			s.CompactionSaved += intField(ev.Detail, "tokens_saved")
 		default:
@@ -259,6 +266,34 @@ func (s *Stats) countGate(ev *event.Event) {
 
 	if pass, ok := ev.Detail["pass"].(bool); ok && !pass {
 		s.GateFailures++
+	}
+}
+
+// countFinish tallies the checks a completed run failed. A finding reads
+// as "<check>: <detail>", and only the check name is counted: the detail
+// names one run's files and would make every finding its own bucket.
+func (s *Stats) countFinish(ev *event.Event) {
+	raw, ok := ev.Detail["findings"].([]any)
+	if !ok {
+		return
+	}
+
+	for _, f := range raw {
+		text, ok := f.(string)
+		if !ok {
+			continue
+		}
+
+		check, _, found := strings.Cut(text, ": ")
+		if !found {
+			continue
+		}
+
+		if s.FinishFindings == nil {
+			s.FinishFindings = map[string]int{}
+		}
+
+		s.FinishFindings[check]++
 	}
 }
 
