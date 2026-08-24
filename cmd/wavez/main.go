@@ -209,7 +209,11 @@ func launchTUI(ctx context.Context, opt options) error {
 // appOptions maps the flags a headless run was given to app.Option values.
 // A zero bound means "leave the default", never "no bound".
 func appOptions(opt options) []app.Option {
-	out := []app.Option{app.WithAsker(stdinAsker{}), app.WithManagedLocalServer()}
+	out := []app.Option{app.WithManagedLocalServer()}
+
+	if stdinCanAnswer() {
+		out = append(out, app.WithAsker(stdinAsker{}))
+	}
 
 	if opt.maxTurns > 0 {
 		out = append(out, app.WithMaxTurns(opt.maxTurns))
@@ -538,6 +542,17 @@ func permissionGate(allowAll bool) permission.Gate {
 			return permission.Deny, nil
 		}
 	})
+}
+
+// stdinCanAnswer reports whether stdin is a terminal a person is at. Where
+// it is not, no asker is wired and the question tool leaves the registry: a
+// replay, a pipe, and a cron run all reach here with stdin closed or
+// redirected, and every question they asked failed with EOF after spending
+// the turn.
+func stdinCanAnswer() bool {
+	info, err := os.Stdin.Stat()
+
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 type stdinAsker struct{}

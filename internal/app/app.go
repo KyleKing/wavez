@@ -241,7 +241,9 @@ func WithStrictScope() Option {
 }
 
 // WithAsker sets the Asker backing the question tool. A headless run and
-// the TUI each supply a different one; the default refuses every question.
+// the TUI each supply a different one. Without it the tool is not offered
+// at all, because a caller with nobody to answer is better served by a
+// missing tool than by one that fails every call.
 func WithAsker(asker tools.Asker) Option {
 	return func(o *Options) { o.Asker = asker }
 }
@@ -668,11 +670,19 @@ func buildRegistry(d registryDeps) *tool.Registry {
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes)),
 		tools.NewSearch(d.indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
-		tools.NewQuestion(d.asker),
 		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
 		tools.NewMove(d.root, d.indexer, d.scope, withLeases),
 		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),
+	}
+
+	// A tool nothing can answer is worse than an absent one: it costs
+	// preamble tokens on every turn and a turn each time the model reaches
+	// for it. Every one of the 8 `question` calls in the recorded corpus
+	// failed with `reading answer: EOF`, because a replay's stdin is not a
+	// terminal and there was nobody on the other end.
+	if d.asker != nil {
+		set = append(set, tools.NewQuestion(d.asker))
 	}
 
 	if d.web {
