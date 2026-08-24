@@ -396,13 +396,15 @@ func (s *StrReplace) prepare(
 
 // noChangeAdvice separates the two ways a call sends one text twice. It is
 // the largest single failure str_replace records, and the error alone says
-// only that the two fields matched.
+// only that the two fields matched. Neither branch tells the run its work
+// may be done: one h11 run reached this while its file would not parse, and
+// a call whose two halves collapsed is no evidence about the file's state.
 func noChangeAdvice(edits []edit.FileEdit, anchor string) string {
 	for _, src := range sourceBefore(edits) {
 		if src != nil && strings.Contains(string(src), anchor) {
-			return "The file already reads exactly that way, so there is nothing here to " +
-				"change. Read it back: if what you wanted is already there, move on, and if " +
-				"it is not, send the file's current text as old_string."
+			return "The file already holds exactly that text, so this call would change " +
+				"nothing. Read the file back and send its current text as old_string with " +
+				"your change in new_string."
 		}
 	}
 

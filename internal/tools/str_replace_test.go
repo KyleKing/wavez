@@ -576,7 +576,7 @@ func TestStrReplace_TellsAnAlreadyWrittenFileFromALostAnchor(t *testing.T) {
 		text string
 		want string
 	}{
-		{name: "the file already reads that way", text: "a := 1", want: "already reads exactly that way"},
+		{name: "the file already reads that way", text: "a := 1", want: "already holds exactly that text"},
 		{name: "the text is the replacement", text: "z := 9", want: "send the text it should replace"},
 	}
 
