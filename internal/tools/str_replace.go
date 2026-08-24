@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/edit"
+	"github.com/kyleking/wavez/internal/gofix"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -283,6 +285,8 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	}
 	defer release()
 
+	before := sourceBefore(edits)
+
 	changes, err := edit.ApplyToFiles(edits)
 	if err != nil {
 		return s.failedEdit(&in, edits, err), nil
@@ -293,7 +297,60 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 		s.scope.Wrote(edits[i].Path)
 	}
 
-	return tool.Result{Content: describeChanges(changes, len(in.pairs())), Changes: changes}, nil
+	content := describeChanges(changes, len(in.pairs()))
+	if broke := brokenSyntax(groups, edits, before); broke != "" {
+		content += "\n" + broke
+	}
+
+	return tool.Result{Content: content, Changes: changes}, nil
+}
+
+// sourceBefore reads each file a batch is about to edit. A file it cannot
+// read yields nil, which reports nothing rather than a break it cannot
+// attribute.
+func sourceBefore(edits []edit.FileEdit) [][]byte {
+	out := make([][]byte, len(edits))
+
+	for i, e := range edits {
+		src, err := os.ReadFile(e.Path)
+		if err != nil {
+			continue
+		}
+
+		out[i] = src
+	}
+
+	return out
+}
+
+// brokenSyntax names the files this batch left unparsable that parsed
+// before it. The edit has already applied, so this warns on a successful
+// result rather than failing.
+func brokenSyntax(groups []pathGroup, edits []edit.FileEdit, before [][]byte) string {
+	var lines []string
+
+	for i, e := range edits {
+		if before[i] == nil {
+			continue
+		}
+
+		after, err := os.ReadFile(e.Path)
+		if err != nil {
+			continue
+		}
+
+		if msg, broke := gofix.BrokeSyntax(groups[i].Path, before[i], after); broke {
+			lines = append(lines, msg)
+		}
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+
+	return "The edit applied and left the file unparsable, which it was not before:\n  " +
+		strings.Join(lines, "\n  ") +
+		"\nRead the file and repair the structure rather than editing again from what you remember."
 }
 
 // prepare resolves and locks every file the call names, returning one
