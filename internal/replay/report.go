@@ -3,6 +3,7 @@ package replay
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -86,8 +87,9 @@ func Report(recs []Record, task string, w io.Writer) error {
 
 	if !prev.SameSetup(last.Run) {
 		_, err := fmt.Fprintf(w,
-			"setup differs (model %s vs %s, max-turns %d vs %d), so this diff mixes the lane with the setup\n",
-			modelOf(prev.Run), modelOf(last.Run), prev.MaxTurns, last.MaxTurns)
+			"setup differs (model %s vs %s, max-turns %d vs %d%s), so this diff mixes the lane with the setup\n",
+			modelOf(prev.Run), modelOf(last.Run), prev.MaxTurns, last.MaxTurns,
+			servedDiff(prev.Served, last.Served))
 		if err != nil {
 			return fmt.Errorf("writing replay report: %w", err)
 		}
@@ -164,4 +166,24 @@ func truncate(s string, width int) string {
 	}
 
 	return s[:width-1] + "…"
+}
+
+// servedDiff names each tier that a different model or endpoint answered,
+// which is the difference a tier name cannot show.
+func servedDiff(prev, last map[string]string) string {
+	var moved []string
+
+	for tier, was := range prev {
+		if now, ok := last[tier]; ok && now != was {
+			moved = append(moved, fmt.Sprintf("%s served by %s vs %s", tier, was, now))
+		}
+	}
+
+	if len(moved) == 0 {
+		return ""
+	}
+
+	sort.Strings(moved)
+
+	return ", " + strings.Join(moved, ", ")
 }

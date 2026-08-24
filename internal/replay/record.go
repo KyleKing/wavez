@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,9 +25,16 @@ const (
 // comparison that pairs two runs given different caps or different tiers
 // measures the caps, and nothing in the counters says so.
 type Run struct {
-	Task  string `json:"task"`
-	Label string `json:"label"`
-	Model string `json:"model"`
+	// Served names the model behind each tier and where it answered, because
+	// Model is a tier name and says nothing about what served it. A fast
+	// tier moved from a local llama-server to a hosted endpoint keeps the
+	// same tier name and is a different machine, a different window, and
+	// possibly no grammar at all, so a comparison across that move measures
+	// the move.
+	Served map[string]string `json:"served,omitempty"`
+	Task   string            `json:"task"`
+	Label  string            `json:"label"`
+	Model  string            `json:"model"`
 	// TaskHash identifies the prompt text, so a report can say that the task
 	// itself changed between two records of the same id.
 	TaskHash string `json:"task_hash"`
@@ -34,9 +42,11 @@ type Run struct {
 }
 
 // SameSetup reports whether two runs were asked for the same thing, which is
-// what makes their counters comparable.
+// what makes their counters comparable. A record written before Served
+// existed carries none and is compared on the rest.
 func (r Run) SameSetup(other Run) bool {
-	return r.Model == other.Model && r.MaxTurns == other.MaxTurns
+	return r.Model == other.Model && r.MaxTurns == other.MaxTurns &&
+		(len(r.Served) == 0 || len(other.Served) == 0 || maps.Equal(r.Served, other.Served))
 }
 
 // Record is one run of one task: what it was asked to do, how it ended, and

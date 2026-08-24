@@ -74,6 +74,7 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		TaskHash: task.Hash(),
 		MaxTurns: opt.maxTurns,
 	}
+
 	fmt.Fprintf(os.Stderr, "replay %s as %s in %s\n", run.Task, run.Label, dir)
 
 	started := time.Now()
@@ -87,6 +88,8 @@ func replayRun(ctx context.Context, root string, opt options) error {
 	if info.ID == "" {
 		return runErr
 	}
+
+	run.Served = info.Served
 
 	checks := replay.Verify(ctx, task, dir, info.Text)
 	keep = !replay.Passed(checks)

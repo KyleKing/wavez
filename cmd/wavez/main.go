@@ -301,7 +301,11 @@ func headless(ctx context.Context, opt options) error {
 // Outcome is zero for a cycle, which reports its phases rather than one
 // loop's counters.
 type runInfo struct {
-	ID      thread.ID
+	ID thread.ID
+	// Served names the model behind each tier and where it answered, which
+	// a replay record keeps so a comparison across a tier's move measures
+	// the change rather than the move.
+	Served  map[string]string
 	Text    string
 	Outcome agent.Outcome
 }
@@ -331,6 +335,8 @@ func headlessRun(ctx context.Context, opt options) (runInfo, error) {
 		}
 	}()
 
+	served := servedTiers(cfg)
+
 	th, err := a.OpenThread(threadID(opt.resume), append([]string{root}, cfg.ExtraDirs...))
 	if err != nil {
 		return runInfo{}, fmt.Errorf("opening thread: %w", err)
@@ -340,16 +346,16 @@ func headlessRun(ctx context.Context, opt options) (runInfo, error) {
 
 	hint, err := routerHint(opt.model)
 	if err != nil {
-		return runInfo{ID: th.ID()}, err
+		return runInfo{ID: th.ID(), Served: served}, err
 	}
 
 	prompt, err := expandMentions(ctx, a, opt.prompt)
 	if err != nil {
-		return runInfo{ID: th.ID()}, err
+		return runInfo{ID: th.ID(), Served: served}, err
 	}
 
 	if opt.cycle != "" {
-		return runInfo{ID: th.ID()}, runCycle(ctx, a, th, prompt, opt, hint)
+		return runInfo{ID: th.ID(), Served: served}, runCycle(ctx, a, th, prompt, opt, hint)
 	}
 
 	loop, tools, system := a.Loop, a.Tools, a.SystemPrefix
@@ -359,10 +365,10 @@ func headlessRun(ctx context.Context, opt options) (runInfo, error) {
 
 	outcome, err := loop.Run(ctx, th, prefix(system, tools), prompt, hint)
 	if err != nil {
-		return runInfo{ID: th.ID()}, fmt.Errorf("running thread: %w", err)
+		return runInfo{ID: th.ID(), Served: served}, fmt.Errorf("running thread: %w", err)
 	}
 
-	info := runInfo{ID: th.ID(), Text: finalText(th), Outcome: outcome}
+	info := runInfo{ID: th.ID(), Served: served, Text: finalText(th), Outcome: outcome}
 
 	if err := reportRun(th, a, outcome, opt, root); err != nil {
 		return info, err
@@ -766,5 +772,24 @@ func reportStrayedEdits(strayed []string, root string, strict bool) {
 		}
 
 		fmt.Fprintf(os.Stderr, "  %s\n", path)
+	}
+}
+
+// servedTiers names the model behind each tier and where it answered. An
+// empty base URL is the tier's default endpoint, which is the loopback
+// llama-server for fast and the hosted provider for the others.
+func servedTiers(cfg config.Config) map[string]string {
+	where := func(t config.Tier) string {
+		if t.BaseURL == "" {
+			return t.Model
+		}
+
+		return t.Model + " @ " + t.BaseURL
+	}
+
+	return map[string]string{
+		"fast":     where(cfg.Tiers.Fast),
+		"balanced": where(cfg.Tiers.Balanced),
+		"deep":     where(cfg.Tiers.Deep),
 	}
 }
