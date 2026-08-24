@@ -2727,3 +2727,60 @@ the failing test and stopping there is the discrimination the task was for.
 **Not settled.** Whether `undo` is reached at all. Whether the parse check
 caused h7's improvement. The harness's 35% of turns, still unmeasured
 against any of this.
+
+## 2026-08-24 — the stuck counter was clearing itself, and half the near-match reports were blank
+
+**The escalation signal is unreached for a reason the previous entry got
+wrong.** Two defects, both proved from the logs rather than argued.
+`escalateIfStuck` returned in silence whenever the run was already on the
+top tier, so an absent log line was never evidence the condition had not
+held. And `noteFalseAlarms` reset `repeats` to zero whenever a gate failure
+arrived without the change count having grown, which is exactly what a
+debounced re-run looks like: one turn's edits reach the runner as two
+batches. Thread `p-dkwtttv5vpag` holds the sequence line by line, three
+identical lint failures with an edit between the first two and a re-run
+before the third, counter cleared. Replaying all 262 thread logs against the
+fixed rule, three threads reach the condition where none did, all of them
+fast-tier runs with a tier above to move into. The condition did not need
+loosening; it needed to stop discarding its own evidence.
+
+**The largest single `str_replace` failure has a name and it is not the fast
+tier.** 81 of 322 logged errors are `old_string` and `new_string` carrying
+the same text. 40 come from runs that only ever used the balanced tier and
+11 more from runs that used balanced and deep, against 30 from runs that
+touched the fast tier at all, which rules out the fast tier's grammar. The tool now
+separates the two mistakes behind it: the file already holds that text, or
+the text sent is the replacement and the anchor was never sent.
+
+**Half of every near-match report was blank.** Of the 93 reports logged, 48
+rendered as `source has: ` with nothing after it. A probe reproduces that
+shape exactly from one cause: an anchor copied without the file's blank
+lines. `Replace` now matches such an anchor, skipping blank source lines and
+replacing the whole span it covered, shifting the replacement by the
+difference between the anchor's indentation and the source's rather than
+pairing lines by position, which mangled a closing brace in the first cut. A
+blank line that still reaches a report now says so.
+
+**The parse check has its first live evidence.** In `h11`'s run, seq 273
+carried it and the model's next words were "I made a typo in the variable
+name". That is the turn it was built to buy back.
+
+**`h11` also found an upstream mangling.** The balanced tier emitted `¬` for
+`&not`, so a run trying to write `&notUniqueErr` could not: every attempt
+collapsed to the same text and the file stayed unparsable. Nothing in this
+repo unescapes HTML entities, so the substitution happens before the bytes
+reach us. One occurrence in the whole corpus, all six log lines from that
+one thread, so it is recorded and not repaired: a table of entity names to
+undo would be built on a single observation.
+
+**What that run did settle** is that the no-op advice must never suggest the
+work might be done. It told a run to move on while its file would not parse.
+A call whose two halves collapsed says nothing about the file's state, so
+neither branch says anything about it now.
+
+**Not settled.** Whether the blank-line match changes any run's outcome: the
+mechanism is proved by unit test and probe, the effect is not. One `e2` fast
+lane came back 3 of 3 in 21 turns, and `e2` fast ranges from 8 to 21 turns
+at 2 or 3 checks, so it separates nothing. Whether the fixed stuck counter
+fires in a live run. Whether `undo` is ever called. The harness's 34% of
+turns, still unmeasured against any of this.

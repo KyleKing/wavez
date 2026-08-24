@@ -327,6 +327,8 @@ Decode speed is the local bottleneck (qwen3:8b at ~18 tok/s), so the edit path t
 - M1 ships `str_replace` (old and new string, exact match with a fuzzy fallback on whitespace and indentation, uniqueness enforced) as the general edit tool for local and hosted models alike. Measured in a real tool loop on qwen3:8b (5 tasks, 20 runs): `str_replace` succeeded 2/10 by strict spec reading, hashline 1/10, at a third of the tokens (190 vs 605) and wall time (12.5 s vs 37.7 s). Every hashline failure was the model failing the `N#hh` anchor syntax, so its hash rejection never had a stale edit to catch. It stays a candidate for a stronger local model, not the default
 - Two `str_replace` failure modes shape the tool: hallucinated indentation in `old_string` after a read (the fuzzy fallback normalizes leading whitespace), and non-unique matches when the task is itself about a repeated expression (the error returns line numbers of each match so the model can widen the anchor). A miss past the fuzzy fallback is a content mismatch, so the error names the one line the anchor got wrong, sent against source, rather than echoing the closest match. Echoing it showed the lines that already agreed and elided the line that did not, and a run on the fixed set guessed twice from that and died stagnant. An anchor no line of which matches gets the same report from the longest prefix of it that occurs in the file: a model that closed a JSON string with a typographic quote sent an anchor whose only fault was three trailing characters, and "not found" alone left it re-sending the same anchor until the run died
 - A run that edits itself into a corner has no way out, and that costs whole runs rather than turns. One recorded `h7` lane spent 44 turns and reached its deadline after three shell attempts at `git checkout -- <file>` and `jj checkout -- <file>`, each refused by the guard, because reverting through version control is a write and `vcs` has no verb that writes. `undo` takes one path and restores it from bytes the run snapshotted before its own first edit, so it reaches version control not at all: the worst it can discard is work the same run made, and a file the run never touched is not something it can name. A file the run created is removed rather than emptied, which is why the snapshot records existence separately from content. It costs 57 preamble tokens, which is what raised the ceiling from 2,500 to 2,550
+- A fourth is an anchor copied without the file's blank lines, which models drop when they retype a block. It is the single most common near-match shape recorded here: 48 of the 93 reports rendered as `source has: ` with nothing after them, because the anchor's first differing line faced a blank source line. `Replace` matches such an anchor by skipping blank source lines between the anchor's own lines and replacing the whole span it covered, shifting the replacement by the difference between the anchor's indentation and the source's, since position no longer pairs a replacement line with the line it faces. A blank line that still reaches a report names itself
+- A pair whose two halves carry the same text is the largest single failure the tool records, 81 of 322, and 40 of those come from runs that only ever used the balanced tier, which rules out the fast tier's grammar. The error alone says only that the fields matched, so the tool separates the two mistakes behind it: the file already holds that text, or the text sent is the replacement and the anchor was never sent. Neither branch suggests the work may be done, because one `h11` run was told to move on while its file would not parse
 - A third failure mode is an edit that applies and leaves the file unparsable. One recorded `e2` lane replaced a function's header line with a whole new function and orphaned the old body: the call reported success and the failure arrived as `expected declaration, found t` from the test gate several turns on. `str_replace` now parses each Go file it touched before and after, and appends the parse error to an otherwise successful result when the edit is what introduced it. A file that already failed to parse reports nothing, because the break is not this edit's to name
 - Both formats are weak on an 8B model (2/10 and 1/10), so M1 keeps local edits small, always re-verifies with a gate rather than trusting `done`, escalates to hosted after one failed edit, and pushes as much as possible to Modifiers and intent edits where the model emits a name or an intent instead of text
 - Hosted models use their native format through the same tool surface: `apply_patch` (V4A) for GPT-family, `str_replace` for Claude-family
@@ -908,34 +910,63 @@ measured and what it did not settle.
    failure moved to a wrong anchor, and the tool log named two causes the
    old log bound had hidden: `edits` is per file where `e2` needs two, and
    a malformed call is an 8,765-character multi-file batch cut off
-   mid-emission rather than a degeneration loop
-2. **The escalation signal has now never fired, and that is the finding.** A
-   gate that fails identically three times, each after further edits, moves
-   the run up a tier rather than waiting for the deadline. Grepping every
-   one of this project's 260 thread logs for the event it writes
-   (`"escalated"` on a `gate` event) returns nothing, against 271 recorded
-   gate rounds of which 160 failed. So the signal is not merely unproven, it
-   is unreached: its condition wants a failure that repeats *identically*,
-   and the failures the corpus actually holds move between rounds, which is
-   the case it deliberately stays silent on. The e2 lane written to settle
-   it settled the opposite, because e2's old plateau of one repeated compile
-   error predates the lint gate and `declare`. Either the condition loosens
-   to a gate that fails three rounds running whatever the message, or the
-   signal comes out: a branch no run in the corpus reaches is not earning
-   its place
-3. **More tasks of the two shapes that just worked.** `h7` and `h8` are the
-   first two the fast tier fails at for a reason other than a malformed
-   call: `h8` invented three identifiers in one turn with no tool calls, and
-   `h7` scored 4 of 5 and never wrote the test it was asked for. One run
-   each settles nothing about their difficulty, and the set still has no
-   task whose retrieval spans packages or that requires a test to fail
-   first. `h2` stays the existing one worth studying rather than replacing
-4. **The 35% of turns the harness costs.** The corpus now reports where a
-   run's turns go (15% productive, 44% retrieval, 35% harness, 6% prose over
-   1,068 turns) and nothing has been aimed at it yet. It is the largest
-   single number in the report and the one this project exists to move.
-   Gate false alarms are not the cause: 190 rounds, 68% failed, none
-   retracted
+   mid-emission rather than a degeneration loop.
+
+   The taxonomy itself is now closed. Every failure `str_replace`,
+   `delete`, `rename`, `write`, and `undo` can return names a cause, and the
+   corpus since 2026-08-23 reports none unclassified. The counts that
+   remain unclassified are records written before the taxonomy existed and
+   cannot be recovered. What the closed taxonomy says is that the live
+   profile is `bad_input` 99, `no_match` 98, `repeat` 31, and `malformed`
+   15, and item 4 is where the first two of those are read by message
+   rather than by cause
+2. **The escalation signal was clearing its own evidence.** It reads as
+   never having fired, and the reason is two defects rather than a
+   condition set too strictly. `escalateIfStuck` returned in silence
+   whenever the run was already on the top tier, so an absent log line was
+   never proof the condition had not held. And the repeat counter reset to
+   zero whenever a gate failure arrived without the change count growing,
+   which is what a debounced re-run looks like from the inside: one turn's
+   edits reach the runner as two batches. Thread `p-dkwtttv5vpag` holds the
+   sequence, three identical lint failures with an edit between the first
+   two and a re-run before the third. Both are fixed, and replaying all 262
+   thread logs against the fixed rule reaches the condition on three of
+   them where none reached it before, all fast-tier runs with a tier above.
+   What is still open is whether it fires in a live run, which one lane
+   settles: a fast `e2` or `h6` that plateaus.
+3. **More tasks, and one of them found a bug in the model's own output.**
+   `h10` covers the shape that needs a test to fail first, and `h11` is the
+   first whose retrieval spans two packages: it asks for a `NotUniqueError`
+   branch in `internal/tools`, whose fields only `internal/edit` states.
+   Its first run scored 1 of 4 and turned up something the set was not
+   looking for. The balanced tier emitted `¬` where it meant `&not`, so a
+   run trying to write `&notUniqueErr` could not: every attempt collapsed
+   to the same text and the file stayed unparsable. Nothing in this repo
+   unescapes HTML entities, so the substitution happens before the bytes
+   arrive. One occurrence in the corpus, so it is recorded rather than
+   repaired, and a second one is what would justify a table of entity names
+   to undo. The set still has no task whose retrieval crosses a language
+   boundary. `h2` stays the existing one worth studying rather than
+   replacing.
+
+4. **The 34% of turns the harness costs, aimed at twice and unmeasured.**
+   The corpus reports where a run's turns go (15% productive, 44%
+   retrieval, 34% harness, 6% prose over 1,195 turns) and a harness turn is
+   one that followed a tool error or something the harness injected, so the
+   way to move it is to stop the tool erroring. Two of its causes are now
+   named and fixed. 81 of `str_replace`'s 322 logged errors are the two
+   halves of one pair carrying the same text, mostly from the hosted tiers
+   rather than the fast one, and the tool now separates the file already
+   holding that text from an anchor that was never sent. 48 of the 93
+   near-match reports rendered as `source has: ` with nothing after it,
+   which a probe reproduces from one cause, an anchor copied without the
+   file's blank lines, and `Replace` now matches those instead of refusing
+   them. Both are proved at the unit level and neither has an effect
+   measured on a run: `e2` on the fast tier ranges from 8 to 21 turns at 2
+   or 3 checks, so one lane each way separates nothing. What closes this is
+   several lanes of one task on one tier, run on an idle machine, read as a
+   distribution rather than as a pair.
+
 5. **`undo` shipped and no run has called it.** Two lanes with the tool
    present (`h7`, `h10`) made zero `undo` calls, which is `vcs`'s pattern
    exactly: a tool can be reachable, correct, and unreached. `h7` improved
