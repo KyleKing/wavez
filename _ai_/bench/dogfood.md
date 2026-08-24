@@ -2587,3 +2587,42 @@ inventory of what is built and not yet wired.
 **Not verified.** No replay lane has run against the `vcs` tool, so whether
 it actually displaces the shell calls it was built for is unmeasured. The
 cadence has unit tests and has never forced a sweep in a real run.
+
+## 2026-08-24 — e2 moves, and the escalation signal is right to stay quiet
+
+Three `e2` lanes on the fast tier with the `vcs` tool and the stuck-gate
+escalation in place: 2 of 3 runs held all three checks, one of them
+finishing entirely on the fast tier in 9 turns. Mean checks 0.89 against the
+0.72 that six configurations had plateaued at, and against 3 of 3 arriving
+about once in six before.
+
+**The escalation never fired, and reading why settled it.** The `lint` gate
+failed three times in the escalating run and with different content each
+time: a missing doc comment, then `undefined: Memory`, then a missing
+`t.Parallel()`. That is the "a failure that moved is progress" case the
+signal deliberately stays silent on, and it is the same case a unit test
+pins. What has changed is the tree: e2's old plateau was five runs in six
+spending every turn on one repeated compile error, and that was measured
+before the lint gate and `declare` landed. The failure no longer repeats, so
+the signal has nothing to fire on here. It is still unfired in a real run,
+and the honest reading is that e2 is no longer the task that would settle
+it.
+
+**The `vcs` tool was called once, in the run that completed, and worked.**
+One call across three runs is evidence it is reachable and not evidence it
+displaces anything. The same three runs made one shell call between them,
+where earlier e2 lanes made several.
+
+**A gate bug the logs had been carrying for days.** Reading those lanes
+turned up `go-test build ./tmp/wavez-replay-x/internal/thread` failing with
+`stat /tmp/wavez-replay-x/tmp/wavez-replay-x/internal/thread: directory not
+found`. Selection builds a `go test` pattern by prefixing `./`, and a change
+path that arrives absolute becomes one go resolves against the root a second
+time. Every replay workspace lives under /tmp, so every replay was exposed,
+and the run reads it as a build failure and spends turns chasing a directory
+that was never missing. Paths are now made relative at the coordinator,
+which is also the shape gate-output trimming matches its frames against.
+
+**Not verified.** Three runs at this variance settles a factor of two and
+nothing smaller, and 0.72 to 0.89 is not that. Which of the three changes in
+flight moved it is unseparated.
