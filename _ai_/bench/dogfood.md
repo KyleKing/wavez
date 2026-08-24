@@ -2262,3 +2262,50 @@ turn, and the narrower fast surface moves an omitted tool's cost to an
 escalation. Both show up in the same numbers, so the next lane has to read
 `str_replace`'s failure rate and the fast-only completion rate side by
 side, and the two changes come apart cleanly if it goes the wrong way.
+
+## 2026-08-23 — the lanes, and what they said about seventeen unverified changes
+
+Seventeen lanes had shipped with no replay behind them. The first thing the
+lanes changed was the method: every replay was paying a cold model load,
+because the harness starts llama-server and stops it with the run. Holding
+one warm (same flags as `runtime.buildArgs`) cut a lane from ~3 minutes to
+47-115 seconds and removed the confound. The first cold lane recorded 2.7
+tok/s, the slowest of all twelve `h6` runs on record, and is relabelled
+`lean-preamble-cold` as evidence about the method rather than the tree.
+
+**The preamble work did not break anything, and did not fix anything.** Six
+`h6` lanes on the lean preamble: 2 of 6 did every check, against 3 of 11
+before. That is noise at this sample, which is the answer that mattered:
+seventeen changes including a 30% preamble cut left the task's success rate
+where it was.
+
+**The risk I flagged from the prose cut is retired.** Of 25 failed
+`str_replace` calls across the lean lanes, not one was a line-numbered
+anchor, which is the class the cut prose warned about.
+
+**A run completed with every gate green having done nothing.** It added the
+line `// Ensure we truncate on a character boundary` above the code it was
+asked to rewrite and changed nothing else. All four finish checks passed it:
+the change set touched the file the task named, the answer named only things
+that exist, and the changed line was covered because it sat inside a tested
+function. `ChangeHasSubstance` is the fifth check and reads the run's own
+diff.
+
+**A batch of two fails 2.5x more often than a batch of one.** Over every
+thread log: `edits` with one pair fails 24%, with two 58%, and a single
+pair 68%. An earlier lane measured batch size and dropped the hypothesis;
+that conclusion was reached before failed calls were logged whole, when the
+long batches that fail were stored truncated and did not parse. Two causes
+were visible once they did:
+
+- Anchors resolved against the text the previous pair produced, not the
+  file the model read. Fixed: every anchor now resolves against the file as
+  read, and two edits over the same text are refused by index rather than
+  appearing as the second one "not found". Measured across three `h6` and
+  three `e2` lanes, this moved nothing: 1 of 3 `h6` complete, and no
+  overlap ever fired, so the sequencing was a real design flaw and not the
+  binding failure
+- The binding failure is one path per call. Every `e2` failure is the model
+  putting a `memory_test.go` anchor in a call whose path is `memory.go`,
+  because the task needs two files and the schema allows one. `e2` has now
+  gone 0 for 9 on the fast tier across every configuration
