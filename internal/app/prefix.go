@@ -92,8 +92,6 @@ func extractSection(content, heading string) (string, error) {
 
 // findHeading returns the level (number of '#') and the index of the line
 // after the first heading matching heading, or start -1 if none matches.
-//
-//nolint:gocritic // nonamedreturns forbids naming these; the doc comment above carries their meaning
 func findHeading(lines []string, heading string) (int, int) {
 	for i, line := range lines {
 		m := headingPattern.FindStringSubmatch(line)

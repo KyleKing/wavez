@@ -207,7 +207,7 @@ func (t *transcript) toggle(i int) bool {
 
 // changeStats aggregates every row's file changes by path, in first-seen
 // order, for the diff pane's change summary.
-func (t *transcript) changeStats() ([]string, map[string][2]int) { //nolint:gocritic // named returns are forbidden
+func (t *transcript) changeStats() ([]string, map[string][2]int) {
 	stats := map[string][2]int{}
 
 	var paths []string
@@ -307,8 +307,6 @@ func (t *transcript) rowAtLine(width int, filter filterCategory, line int) int {
 // line and expanded rows wrapped over as many lines as their text needs. It
 // returns the flattened line list alongside a parallel slice naming each
 // line's source row index.
-//
-//nolint:gocritic // named returns are forbidden
 func (t *transcript) renderLines(
 	width int, th theme, query string, cursor int, filter filterCategory, links link.Table,
 ) ([]string, []int) {

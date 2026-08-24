@@ -359,8 +359,6 @@ func deleted(changes []tool.Change, names []string) string {
 //
 // Both ends are zero-based, and the end is exclusive: it names the first line
 // that survives.
-//
-//nolint:gocritic // nonamedreturns forbids naming these; the sentence above carries their meaning
 func declSpan(lines []string, decl declaration) (int, int) {
 	from, to := decl.start-1, decl.end
 

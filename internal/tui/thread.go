@@ -352,8 +352,6 @@ func (m Model) clampCursorVisible(tr *transcript) Model {
 // under filter. It binary-searches rather than scanning every line, since
 // rowAtLine reports rows in non-decreasing order as line grows and a
 // transcript can run to hundreds of rows.
-//
-//nolint:gocritic // named returns are forbidden
 func rowLineSpan(tr *transcript, width int, filter filterCategory, row, lineCount int) (int, int) {
 	lo := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, filter, i) >= row })
 	hi := sort.Search(lineCount, func(i int) bool { return tr.rowAtLine(width, filter, i) > row })

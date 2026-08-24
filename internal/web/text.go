@@ -25,8 +25,6 @@ var blocks = map[string]bool{
 // ToText reduces a document to its title and readable text. Anything that
 // is not HTML is returned as it arrived, since a plain-text or JSON
 // response is already the thing the caller wanted.
-//
-//nolint:gocritic // named returns are forbidden
 func ToText(body, contentType string) (string, string) {
 	if !strings.Contains(strings.ToLower(contentType), "html") {
 		return "", strings.TrimSpace(body)

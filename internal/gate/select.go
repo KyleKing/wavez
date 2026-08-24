@@ -61,8 +61,6 @@ func Select(ctx context.Context, cov LineCoverage, graph *ImportGraph, changes [
 // means the batch falls through to the importer tier rather than mixing
 // selection granularity within one run. A map that reports itself unready
 // is not queried at all, since its silence carries no information.
-//
-//nolint:gocritic // named returns here would trip nonamedreturns instead; the doc comment above carries the meaning
 func selectByLine(ctx context.Context, cov LineCoverage, changes []tool.Change) ([]string, bool, error) {
 	if !coverageUsable(cov) || len(changes) == 0 {
 		return nil, false, nil

@@ -421,7 +421,7 @@ func (m Model) modelRows(budget int) []string {
 // listWindow is the slice of a list to draw: everything when it fits, and
 // otherwise a run of budget rows around the cursor, one row shorter to leave
 // the line that says how much is hidden.
-func listWindow(cursor, n, budget int) (int, int) { //nolint:gocritic // named returns are forbidden
+func listWindow(cursor, n, budget int) (int, int) {
 	if budget >= n {
 		return 0, n
 	}

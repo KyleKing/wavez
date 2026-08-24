@@ -61,8 +61,6 @@ func ApplySpansToFile(path string, spans []Span) (tool.Change, error) {
 
 // ApplySpans returns src with every span applied, and how many lines the
 // spans touched.
-//
-//nolint:gocritic // nonamedreturns forbids naming these; the sentence above carries their meaning
 func ApplySpans(src string, spans []Span) (string, int, error) {
 	lines := strings.Split(src, "\n")
 

@@ -554,8 +554,6 @@ func (v *vimInput) splitLine() {
 
 // wordBeforeCursor returns the word-class run before the cursor and the
 // column it starts at.
-//
-//nolint:gocritic // named returns would trip nonamedreturns; the doc comment names them
 func (v vimInput) wordBeforeCursor() (int, string) {
 	line := v.line()
 	start := v.cur.col

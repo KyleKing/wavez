@@ -473,7 +473,6 @@ type coverageResult struct {
 	rows []codeintel.CoverageRow
 }
 
-//nolint:gocritic // named returns here would trip nonamedreturns instead; callers read (results, failedCount)
 func runCoverageJobs(
 	ctx context.Context, repoRoot, modulePath string, jobs []goTestJob, workers int, res *ResourceSet,
 ) ([]coverageResult, int) {
@@ -636,8 +635,6 @@ func parseCoverprofile(path, modulePath string) ([]codeintel.CoverageRow, error)
 
 // parseCoverProfilePos parses a coverprofile position of the form
 // "file:startLine.startCol,endLine.endCol" into (file, start, end, ok).
-//
-//nolint:gocritic // named returns here would trip nonamedreturns instead; the doc comment above names them
 func parseCoverProfilePos(pos string) (string, int, int, bool) {
 	colon := strings.LastIndex(pos, ":")
 	if colon < 0 {

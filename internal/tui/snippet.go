@@ -82,8 +82,6 @@ func longestCommonPrefix(names []string) string {
 
 // parseSnippetSave parses "snippet save [--user] <name>", returning the
 // name, whether --user was given, and whether the input matched.
-//
-//nolint:gocritic // named returns would trip nonamedreturns; the doc comment names them
 func parseSnippetSave(input string) (string, bool, bool) {
 	trimmed := strings.TrimSpace(input)
 

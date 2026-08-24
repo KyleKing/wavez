@@ -37,7 +37,6 @@ func Verify(ctx context.Context, task Task, dir, answer string) []CheckResult {
 	return out
 }
 
-//nolint:gocritic // named returns are forbidden
 func evaluate(ctx context.Context, c Check, dir, answer string) (bool, string) {
 	switch c.Path {
 	case AnswerPath:
@@ -58,8 +57,6 @@ func evaluate(ctx context.Context, c Check, dir, answer string) (bool, string) {
 // workspace. A substring check cannot tell an edit that compiles from one
 // that does not, and a run whose rename missed a caller in another file
 // passed every substring check the task had.
-//
-//nolint:gocritic // named returns are forbidden
 func goCommand(ctx context.Context, name, dir, pattern string) (bool, string) {
 	cmd := exec.CommandContext(ctx, "go", name, pattern) //nolint:gosec // both arguments come from the task set
 	cmd.Dir = dir
