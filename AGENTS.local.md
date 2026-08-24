@@ -84,6 +84,12 @@ are specific to this codebase and not visible from the code.
   `oneOf` of whole objects (`buildOneOf`), because an `anyOf` written beside
   `properties` is silently ignored, and never let an absent field mean
   something destructive
+- A replay record's `model` is a tier name, and `served` is what actually
+  answered it. Moving the fast tier from the loopback llama-server to a
+  hosted endpoint keeps the tier name and changes the machine, the window,
+  and whether tool arguments decode under a grammar at all, so a comparison
+  across that move measures the move. `SameSetup` reads `served` and the
+  report names the tier that moved
 - `wavez -preamble` is the deterministic metric for anything the replay
   harness cannot resolve. Every new tool's cost is one run of it, and the
   pair of web tools came to 221 tokens against an estimate of 1,500, so
