@@ -13,10 +13,8 @@ import (
 
 var writeSchema = buildSchema(map[string]schemaProperty{
 	propPath: {
-		Type: schemaTypeString,
-		Description: "File path, relative to the project root, that must not already exist. " +
-			"A path outside the root, or one that already exists, is refused; edit an " +
-			"existing file with str_replace instead.",
+		Type:        schemaTypeString,
+		Description: "File path, relative to the project root, that must not already exist.",
 	},
 	"content": {
 		Type:        schemaTypeString,
@@ -67,7 +65,7 @@ func (*Write) Name() string { return "write" }
 // Description implements tool.Tool.
 func (*Write) Description() string {
 	return "Create a new file with the given content. Fails if the file already exists " +
-		"(use str_replace to edit it) or if the path is outside the project root."
+		"(use str_replace to edit it)."
 }
 
 // Schema implements tool.Tool.

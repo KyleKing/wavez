@@ -29,8 +29,7 @@ var readSchema = buildSchema(map[string]schemaProperty{
 	propPath: {
 		Type: schemaTypeString,
 		Description: "File path, relative to the project root, or several separated by commas " +
-			"to read them in one call. A path outside the root is refused. A line range may " +
-			"only accompany a single path.",
+			"to read them in one call.",
 	},
 	"start_line": {
 		Type: schemaTypeInteger,
@@ -40,7 +39,7 @@ var readSchema = buildSchema(map[string]schemaProperty{
 	"end_line": {
 		Type: schemaTypeInteger,
 		Description: "1-indexed last line to read, inclusive. Omit it to read from " +
-			"start_line to the end of the file. Must be >= start_line when set.",
+			"start_line to the end of the file.",
 	},
 }, propPath)
 
@@ -82,8 +81,7 @@ func (*Read) Description() string {
 		"Each line comes back as its line number, a tab, then the text; strip that prefix " +
 		"before reusing a line as an edit anchor or as file content. " +
 		"Prefer search to locate code and read only the range it names; reading whole files " +
-		"to find something spends the context window on lines you will not use. " +
-		"Refuses paths outside the project root."
+		"to find something spends the context window on lines you will not use."
 }
 
 // Schema implements tool.Tool.

@@ -27,7 +27,7 @@ var listSchema = buildSchema(map[string]schemaProperty{
 	"dir": {
 		Type: schemaTypeString,
 		Description: "Directory to list, relative to the project root, or several separated " +
-			"by commas. Omit it to list from the root. A path outside the root is refused.",
+			"by commas. Omit it to list from the root.",
 	},
 	"pattern": {
 		Type: schemaTypeString,
@@ -52,8 +52,7 @@ func (*List) Name() string { return "list" }
 // Description implements tool.Tool.
 func (*List) Description() string {
 	return "List the files under a project directory, recursively, optionally filtered by a " +
-		"glob. Use it to find out what exists; use search to find code by name or text. " +
-		"Refuses paths outside the project root."
+		"glob. Use it to find out what exists; use search to find code by name or text."
 }
 
 // Schema implements tool.Tool.

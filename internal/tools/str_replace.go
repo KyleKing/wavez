@@ -17,9 +17,8 @@ const (
 )
 
 var strReplacePathProp = schemaProperty{
-	Type: schemaTypeString,
-	Description: "File path, relative to the project root, of an existing file. " +
-		"A path outside the root is refused.",
+	Type:        schemaTypeString,
+	Description: "File path, relative to the project root, of an existing file.",
 }
 
 // strReplaceSchema offers the single-replacement and the several-at-once
@@ -32,17 +31,14 @@ var strReplaceSchema = buildOneOf(
 		propPath: strReplacePathProp,
 		propOldString: {
 			Type: schemaTypeString,
-			Description: "Exact text to replace. Must match exactly one location, or the call " +
-				"fails with the matching line numbers. Copy it from a prior read rather than " +
-				"retyping it, without the line number and tab read puts in front of each line, " +
-				"and anchor on the shortest snippet that appears exactly once: a long anchor " +
-				"fails more often than a short one.",
+			Description: "Exact text to replace, copied from a prior read. Anchor on the " +
+				"shortest snippet that appears exactly once.",
 		},
 		propNewString: {
 			Type: schemaTypeString,
 			Description: "Text that replaces old_string entirely. To insert lines before or " +
 				"after existing code, repeat that code inside new_string, or it is deleted. " +
-				"Must differ from old_string, and must be \"\" to delete old_string outright.",
+				"Send \"\" to delete old_string outright.",
 		},
 	}, propPath, propOldString, propNewString),
 	branch(map[string]schemaProperty{
@@ -90,8 +86,7 @@ func (*StrReplace) Name() string { return "str_replace" }
 func (*StrReplace) Description() string {
 	return "Replace one exact occurrence of old_string with new_string in an existing file, or " +
 		"several at once with edits. new_string replaces old_string entirely, so an insertion " +
-		"must repeat the surrounding lines. Fails if old_string matches zero or more than one " +
-		"location; the error names the line numbers so you can widen old_string to make it unique."
+		"must repeat the surrounding lines."
 }
 
 // Schema implements tool.Tool.

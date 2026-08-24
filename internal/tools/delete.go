@@ -22,7 +22,7 @@ var deleteSchema = buildSchema(map[string]schemaProperty{
 	propPath: {
 		Type: schemaTypeString,
 		Description: "The file or directory declaring it, needed only when several places " +
-			"declare one by that name; the error lists them when it does.",
+			"declare one by that name.",
 	},
 }, "symbol")
 

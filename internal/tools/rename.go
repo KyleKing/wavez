@@ -22,12 +22,12 @@ var renameSchema = buildSchema(map[string]schemaProperty{
 	},
 	"to": {
 		Type:        schemaTypeString,
-		Description: "The new name. Must be a valid identifier and must differ from symbol.",
+		Description: "The new name.",
 	},
 	propPath: {
 		Type: schemaTypeString,
 		Description: "The file or directory declaring the symbol, needed only when several " +
-			"places declare one by that name; the error lists them when it does.",
+			"places declare one by that name.",
 	},
 }, "symbol", "to")
 
@@ -89,7 +89,7 @@ func (*Rename) Description() string {
 	return "Rename a symbol and every reference to it across the whole project, in one call. " +
 		"Prefer this over editing each occurrence: it follows the language's own definition of " +
 		"the symbol, so it never misses a use in another file or touches an unrelated name that " +
-		"happens to match. Reports the files it changed."
+		"happens to match."
 }
 
 // Schema implements tool.Tool.

@@ -18,9 +18,8 @@ import (
 var shellSchema = buildSchema(map[string]schemaProperty{
 	"command": {
 		Type: schemaTypeString,
-		Description: "A shell command line to run in the project root. Destructive patterns " +
-			"(rm -rf outside the root, force pushes, disk formatting) are refused before " +
-			"anything runs; do not attempt to work around a refusal.",
+		Description: "A shell command line to run in the project root. Do not attempt to " +
+			"work around a refusal.",
 	},
 }, "command")
 
