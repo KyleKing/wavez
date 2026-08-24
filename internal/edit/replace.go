@@ -55,7 +55,17 @@ func (e *NotFoundError) Error() string {
 
 	return fmt.Sprintf("%s; the closest match starts at line %d and first differs at line %d:\n"+
 		"  you sent:   %s\n  source has: %s",
-		ErrNotFound, e.CandidateLine, e.MismatchLine, clip(e.Sent), clip(e.Found))
+		ErrNotFound, e.CandidateLine, e.MismatchLine, shown(e.Sent), shown(e.Found))
+}
+
+// shown renders a line for the report, naming a blank one rather than
+// printing nothing after the label.
+func shown(line string) string {
+	if strings.TrimSpace(line) == "" {
+		return "a blank line"
+	}
+
+	return clip(line)
 }
 
 func clip(line string) string {

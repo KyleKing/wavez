@@ -257,6 +257,18 @@ func TestReplace_NotFoundReportsWhereAOneLineAnchorParts(t *testing.T) {
 }
 
 // Below a real prefix match the report would point at a coincidence.
+// A report whose source line is blank printed "source has: " and stopped,
+// which is what half of every near-match report this project logged looked
+// like.
+func TestNotFoundError_NamesABlankSourceLine(t *testing.T) {
+	t.Parallel()
+
+	err := (&edit.NotFoundError{CandidateLine: 1, MismatchLine: 3, Sent: "\treturn x", Found: ""}).Error()
+	if !strings.Contains(err, "source has: a blank line") {
+		t.Errorf("Error() = %q, want it to name the blank source line", err)
+	}
+}
+
 func TestReplace_NotFoundStaysSilentWithNothingToSay(t *testing.T) {
 	t.Parallel()
 
