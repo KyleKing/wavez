@@ -394,6 +394,23 @@ func (s *StrReplace) prepare(
 	return edits, release, nil
 }
 
+// noChangeAdvice separates the two ways a call sends one text twice. It is
+// the largest single failure str_replace records, and the error alone says
+// only that the two fields matched.
+func noChangeAdvice(edits []edit.FileEdit, anchor string) string {
+	for _, src := range sourceBefore(edits) {
+		if src != nil && strings.Contains(string(src), anchor) {
+			return "The file already reads exactly that way, so there is nothing here to " +
+				"change. Read it back: if what you wanted is already there, move on, and if " +
+				"it is not, send the file's current text as old_string."
+		}
+	}
+
+	return "old_string is the text to find and new_string is what to put in its place. What " +
+		"you sent is not in the file, so it is the replacement: send the text it should " +
+		"replace as old_string."
+}
+
 // failedEdit explains a batch that did not apply, adding what the error
 // alone cannot say.
 func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err error) tool.Result {
@@ -420,6 +437,10 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 					"Read the file first, or use declare to write the whole declaration by name.",
 				err, unread)
 		}
+	}
+
+	if errors.Is(err, edit.ErrNoChange) {
+		return tool.Fail(tool.CauseBadInput, "%v\n\n%s", err, noChangeAdvice(edits, in.OldString))
 	}
 
 	if errors.Is(err, edit.ErrNotFound) && lineNumbered(in.OldString) {

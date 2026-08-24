@@ -555,3 +555,49 @@ func TestStrReplace_RefusesABatchThatRepeatsAnAnchor(t *testing.T) {
 		t.Errorf("file = %q, want it untouched at %q", after, source)
 	}
 }
+
+// A pair whose two halves match is the single largest failure str_replace
+// records, 81 of 322 across this project's thread logs, and mostly from the
+// hosted tiers rather than the fast one. The error alone says only that the
+// fields matched, which leaves the run to guess which of the two mistakes
+// it made.
+func TestStrReplace_TellsAnAlreadyWrittenFileFromALostAnchor(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.go"), []byte("a := 1\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "the file already reads that way", text: "a := 1", want: "already reads exactly that way"},
+		{name: "the text is the replacement", text: "z := 9", want: "send the text it should replace"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+				"path": "file.go", "old_string": tt.text, "new_string": tt.text,
+			}))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if !result.IsError || result.Cause != tool.CauseBadInput {
+				t.Fatalf("Cause = %q, IsError = %v, want bad_input error", result.Cause, result.IsError)
+			}
+
+			if !strings.Contains(result.Content, tt.want) {
+				t.Errorf("content = %q, want it to contain %q", result.Content, tt.want)
+			}
+		})
+	}
+}
