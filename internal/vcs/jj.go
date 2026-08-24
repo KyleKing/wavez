@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -83,6 +84,22 @@ func (*Jj) DiffStat(ctx context.Context, repoRoot, marker string) (string, error
 	out, err := runJJ(ctx, repoRoot, "diff", diffFromArg(marker), "--to", "@", "--stat")
 	if err != nil {
 		return "", fmt.Errorf("summarizing changes since %q: %w", marker, err)
+	}
+
+	return out, nil
+}
+
+// Log returns the most recent limit commits as one line each: the change
+// id, the author's timestamp, and the description's first line. It reads
+// history and offers no way to alter it, which is the whole reason version
+// control reaches a run through a tool rather than through the shell.
+func (*Jj) Log(ctx context.Context, repoRoot string, limit int) (string, error) {
+	const template = `change_id.short() ++ " " ++ author.timestamp().format("%Y-%m-%d")` +
+		` ++ " " ++ description.first_line() ++ "\n"`
+
+	out, err := runJJ(ctx, repoRoot, "log", "--no-graph", "--limit", strconv.Itoa(limit), "-T", template)
+	if err != nil {
+		return "", fmt.Errorf("reading the log of %s: %w", repoRoot, err)
 	}
 
 	return out, nil

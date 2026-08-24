@@ -674,6 +674,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
 		tools.NewMove(d.root, d.indexer, d.scope, withLeases),
 		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),
+		tools.NewVCS(d.root, vcs.NewJj(), d.changes),
 	}
 
 	// A tool nothing can answer is worse than an absent one: it costs

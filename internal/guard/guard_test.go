@@ -87,48 +87,13 @@ func TestClassify_RM(t *testing.T) {
 	})
 }
 
-func TestClassify_Git(t *testing.T) {
-	t.Parallel()
-
-	runClassifyCases(t, []classifyCase{
-		{
-			name: "git push force", command: "git push --force origin main",
-			wantVerdict: guard.Refuse, wantReason: "cannot be undone",
-		},
-		{name: "git push force with lease", command: "git push --force-with-lease", wantVerdict: guard.Refuse},
-		{name: "git push ordinary", command: "git push origin main", wantVerdict: guard.Allow},
-		{
-			name: "git reset hard", command: "git reset --hard HEAD~1",
-			wantVerdict: guard.NeedsApproval, wantReason: "reset --hard",
-		},
-		{
-			name: "git rebase rewrites history", command: "git rebase -i HEAD~3",
-			wantVerdict: guard.NeedsApproval, wantReason: "rewrites commit history",
-		},
-		{
-			name: "git stash takes the working copy away", command: "git stash",
-			wantVerdict: guard.NeedsApproval, wantReason: "uncommitted work",
-		},
-		{
-			name: "git stash drop cannot be undone", command: "git stash drop",
-			wantVerdict: guard.Refuse, wantReason: "irrecoverably",
-		},
-		{name: "git stash list only reads", command: "git stash list", wantVerdict: guard.Allow},
-		{
-			name: "git checkout replaces files", command: "git checkout -- .",
-			wantVerdict: guard.NeedsApproval, wantReason: "working copy",
-		},
-		{
-			name: "git worktree add leaves a second copy", command: "git worktree add .tmp HEAD",
-			wantVerdict: guard.NeedsApproval, wantReason: "second working copy",
-		},
-	})
-}
-
-// In a colocated checkout jj owns the working copy, so a git write moves the
-// tree behind its back. The jj commands that discard work stay
-// approval-worthy rather than refused, since the operation log holds them.
-func TestClassify_ColocatedJJ(t *testing.T) {
+// Version control reaches a run through the vcs tool, which reads status,
+// diff, and log and has no verb that writes. Both CLIs are therefore off
+// the shell entirely: it is what keeps a force push, a history rewrite, and
+// a git commit in a checkout jj owns from being one shell string away.
+// Nothing the harness does is affected, because its own checkpointing calls
+// internal/vcs directly rather than through this tool.
+func TestClassify_VersionControlIsNotAShellCommand(t *testing.T) {
 	t.Parallel()
 
 	env := guard.Env{ProjectRoot: "/repo", ColocatedJJ: true}
@@ -138,14 +103,17 @@ func TestClassify_ColocatedJJ(t *testing.T) {
 		command     string
 		wantVerdict guard.Verdict
 	}{
-		{name: "git commit is refused", command: "git commit -m x", wantVerdict: guard.Refuse},
-		{name: "git checkout is refused", command: "git checkout main", wantVerdict: guard.Refuse},
-		{name: "git status still reads", command: "git status --porcelain", wantVerdict: guard.Allow},
-		{name: "git log still reads", command: "git log -1", wantVerdict: guard.Allow},
-		{name: "jj commit is the way to write", command: "jj commit -m x", wantVerdict: guard.Allow},
-		{name: "jj abandon discards a change", command: "jj abandon xyz", wantVerdict: guard.NeedsApproval},
-		{name: "jj op restore rewinds everything", command: "jj op restore abc", wantVerdict: guard.NeedsApproval},
-		{name: "jj restore discards the working copy", command: "jj restore src", wantVerdict: guard.NeedsApproval},
+		{name: "git commit", command: "git commit -m x", wantVerdict: guard.Refuse},
+		{name: "git checkout", command: "git checkout main", wantVerdict: guard.Refuse},
+		{
+			name: "a git read is a question for the vcs tool", command: "git status --porcelain",
+			wantVerdict: guard.Refuse,
+		},
+		{name: "so is a git log", command: "git log -1", wantVerdict: guard.Refuse},
+		{name: "jj commit", command: "jj commit -m x", wantVerdict: guard.Refuse},
+		{name: "jj abandon", command: "jj abandon xyz", wantVerdict: guard.Refuse},
+		{name: "jj op restore", command: "jj op restore abc", wantVerdict: guard.Refuse},
+		{name: "a path that merely starts with one", command: "ls gitignore", wantVerdict: guard.Allow},
 	}
 
 	for _, tt := range tests {
@@ -277,17 +245,16 @@ func TestClassify_SupersededByATool(t *testing.T) {
 	})
 }
 
-// A force push is refused rather than approved: overwriting published
-// history is not recoverable from this side of the remote, and an approval
-// prompt puts the destructive path one keystroke from the ordinary one.
+// A force push is refused rather than approved wherever it can still be
+// reached: overwriting published history is not recoverable from this side
+// of the remote, and an approval prompt puts the destructive path one
+// keystroke from the ordinary one. The ban on both CLIs refuses it first,
+// so this pins the reason the analysis behind that ban gives.
 func TestClassify_ForcePushIsPreventedNotOffered(t *testing.T) {
 	t.Parallel()
 
 	runClassifyCases(t, []classifyCase{
-		{
-			name: "jj git push force", command: "jj git push --force -b main",
-			wantVerdict: guard.Refuse, wantReason: "cannot be undone",
-		},
-		{name: "jj git push ordinary", command: "jj git push -b main", wantVerdict: guard.Allow},
+		{name: "jj git push force", command: "jj git push --force -b main", wantVerdict: guard.Refuse},
+		{name: "git push force", command: "git push --force origin main", wantVerdict: guard.Refuse},
 	})
 }

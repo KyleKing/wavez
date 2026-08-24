@@ -155,6 +155,12 @@ var supersededTools = map[string]string{
 	"find": "list names what is under a directory (with a glob), and search reads " +
 		"contents through the code index",
 	"truncate": "write replaces a whole file and str_replace replaces part of one",
+	// The vcs tool reads status, diff, and log and has no verb that writes,
+	// so version control reaching a run as a typed surface is what keeps a
+	// force push, a history rewrite, and a git commit in a jj checkout from
+	// being one shell string away.
+	cmdGit: "the vcs tool reads status, diff, and log",
+	"jj":   "the vcs tool reads status, diff, and log",
 }
 
 // classifyXargs classifies the command xargs would invoke per input line,
@@ -254,6 +260,11 @@ var gitReadOnly = map[string]bool{
 	"shortlog": true, subShow: true, "status": true,
 }
 
+// classifyGit grades a git command by subcommand. It sits behind the ban in
+// supersededTools, which refuses every git command outright, so its grades
+// no longer decide a verdict on their own. It stays because the ban is a
+// policy and this is the safety analysis: narrowing the ban must not
+// silently allow a history rewrite.
 func classifyGit(cmd string, tokens []string, env Env) finding {
 	if len(tokens) < minGitTokens {
 		return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
@@ -333,6 +344,8 @@ func classifyGitStash(cmd string, tokens []string) finding {
 // classifyJJ holds the jj commands that discard work or rewind the
 // repository. Every one is in the operation log and so recoverable, and
 // each still throws away a state nobody asked it to.
+// ClassifyJJ's counterpart for jj sits behind the same ban as classifyGit
+// and stays for the same reason.
 func classifyJJ(cmd string, tokens []string) finding {
 	if len(tokens) < minGitTokens {
 		return finding{Verdict: Allow, Reason: reasonNoMatch, Fragment: cmd}
