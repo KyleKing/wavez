@@ -2436,3 +2436,52 @@ the fast tier still gets it wrong five times in six. That is roadmap item
 **Not verified.** Six runs a lane settles nothing below a factor of two,
 and only the `declare` step was that large. `h6` was not re-run after the
 `declare` lanes, so nothing here says these changes left it alone.
+
+## 2026-08-24 — the hosted tiers were never calling anything
+
+Both network tiers pointed at `stealth/ox-alpha`, and it returns a
+completely empty completion for every request that carries `tools`. The
+same request without the `tools` field answers normally. It reproduces with
+a two-property schema, one message, and no harness in the path, so every
+escalation this project has made since the tier was configured reached a
+model that could not call a tool. The empty turn read as a model choosing
+to say nothing, which is why it went unnoticed for as long as it did:
+`llm.Usage` counted no reasoning bytes, so a turn that spent its budget
+thinking and one that returned nothing were the same row.
+
+Six lanes, three runs each, `e2` and `h6`, balanced pin:
+
+| lane | task | 3/3 | mean | stops |
+|---|---|---|---|---|
+| coder | e2 | 3/3 | 1.00 | complete, deadline, deadline |
+| coder | h6 | 0/3 | 0.75 | malformed_tool_call ×2, deadline |
+| instruct | e2 | 0/3 | 0.67 | verify_failed, loop_detected, deadline |
+| instruct | h6 | 0/3 | 0.58 | stagnant, loop_detected ×2 |
+| coder + recovery | e2 | 3/3 | 1.00 | complete ×3 |
+| coder + recovery | h6 | 2/3 | 0.92 | verify_failed ×2, deadline |
+
+**The better model is the one that leaks.**
+`qwen/qwen3-coder-30b-a3b-instruct` does these tasks well and renders about
+one call in eight as `<function=name><parameter=key>…` prose once the
+system prompt is present, which was ending two of three `h6` runs as
+`malformed_tool_call`. `qwen3-30b-a3b-instruct-2507` never leaks and is
+worse at both tasks. Measured with 15 samples a condition: no system
+prompt, the coder model emitted a native call 15 of 15; with this harness's
+system prompt, 0-4 of 15. Upstream reads it as a chat-template weakness
+([QwenLM/Qwen3-Coder#475](https://github.com/QwenLM/Qwen3-Coder/issues/475)),
+where the opening `<tool_call>` tag goes missing most often when a call
+follows prose. Wording moves the rate and does not remove it.
+
+**So read the dialect rather than refusing it.** The loop already detected
+the markup and only used it to name the failure. `parseToolCallText` reads
+the same markup into calls, accepting only a name the registry holds, which
+is recovery rather than repair: the model made a well-formed call in a
+dialect the provider failed to claim. `h6` went from 0 of 3 to 2 of 3, and
+`e2` completed on all three runs.
+
+**Not verified.** Three runs a lane, and only the `e2` and `h6` split moved
+by more than the variance. Nothing here says the recovery path is correct
+for a dialect other than Qwen's, because no other leaking model was
+measured. `e2` passes 3 of 3 hosted against about 1 in 6 on the fast tier,
+which is item 4's question about the tier's remit and not evidence about
+these lanes.
