@@ -446,8 +446,9 @@ func TestClient_Stream_SendsResponseFormat(t *testing.T) {
 
 // llama.cpp reads chat_template_kwargs per request and it overrides the
 // server's own --chat-template-kwargs in both directions, so an unset
-// Thinking must send no key at all rather than a false one.
-func TestClient_Stream_SendsThinkingAsChatTemplateKwargs(t *testing.T) {
+// Thinking must send no key at all rather than a false one. OpenRouter reads
+// none of that and takes `reasoning`, so both spellings go out together.
+func TestClient_Stream_SendsThinkingInBothProviderSpellings(t *testing.T) {
 	t.Parallel()
 
 	on, off := true, false
@@ -490,8 +491,34 @@ func TestClient_Stream_SendsThinkingAsChatTemplateKwargs(t *testing.T) {
 				t.Fatalf("Stream: %v", err)
 			}
 
-			assertEnableThinking(t, <-bodies, tc.want)
+			body := <-bodies
+			assertEnableThinking(t, body, tc.want)
+			assertReasoningEnabled(t, body, tc.want)
 		})
+	}
+}
+
+func assertReasoningEnabled(t *testing.T, body []byte, want *bool) {
+	t.Helper()
+
+	var got struct {
+		Reasoning *struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"reasoning"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+
+	if want == nil {
+		if got.Reasoning != nil {
+			t.Fatalf("reasoning = %+v, want it absent", got.Reasoning)
+		}
+
+		return
+	}
+	if got.Reasoning == nil || got.Reasoning.Enabled == nil || *got.Reasoning.Enabled != *want {
+		t.Fatalf("reasoning = %+v, want enabled %v", got.Reasoning, *want)
 	}
 }
 

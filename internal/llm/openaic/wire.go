@@ -15,14 +15,23 @@ type wireRequest struct {
 	// directions, which is what makes a reasoning toggle cost a request
 	// rather than a model reload.
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
-	Model              string         `json:"model"`
-	Messages           []wireMessage  `json:"messages"`
-	Tools              []wireTool     `json:"tools,omitempty"`
-	MaxTokens          int            `json:"max_tokens,omitempty"`
-	Temperature        float64        `json:"temperature,omitempty"`
-	PresencePenalty    float64        `json:"presence_penalty,omitempty"`
-	RepeatPenalty      float64        `json:"repeat_penalty,omitempty"`
-	Stream             bool           `json:"stream"`
+	// Reasoning is OpenRouter's spelling of the same toggle. Both go out on
+	// every request because each provider ignores the other's key, and a
+	// tier that turns reasoning off through chat_template_kwargs alone
+	// leaves a hosted hybrid model reasoning at full length.
+	Reasoning       *wireReasoning `json:"reasoning,omitempty"`
+	Model           string         `json:"model"`
+	Messages        []wireMessage  `json:"messages"`
+	Tools           []wireTool     `json:"tools,omitempty"`
+	MaxTokens       int            `json:"max_tokens,omitempty"`
+	Temperature     float64        `json:"temperature,omitempty"`
+	PresencePenalty float64        `json:"presence_penalty,omitempty"`
+	RepeatPenalty   float64        `json:"repeat_penalty,omitempty"`
+	Stream          bool           `json:"stream"`
+}
+
+type wireReasoning struct {
+	Enabled *bool `json:"enabled"`
 }
 
 type wireStreamOptions struct {
@@ -106,7 +115,16 @@ func toWireRequest(model string, req llm.Request) wireRequest {
 		ResponseFormat:  toWireResponseFormat(req.ResponseFormat),
 
 		ChatTemplateKwargs: toChatTemplateKwargs(req.Thinking),
+		Reasoning:          toWireReasoning(req.Thinking),
 	}
+}
+
+func toWireReasoning(thinking *bool) *wireReasoning {
+	if thinking == nil {
+		return nil
+	}
+
+	return &wireReasoning{Enabled: thinking}
 }
 
 func toChatTemplateKwargs(thinking *bool) map[string]any {
