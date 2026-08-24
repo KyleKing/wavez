@@ -1376,15 +1376,21 @@ func (r *run) escalateIfStuck() error {
 
 	r.stuckEscalated = true
 
-	if !r.escalate() {
-		return nil
+	moved := r.escalate()
+
+	text := name + " has failed the same way across edits; moving up a tier"
+	if !moved {
+		text = name + " has failed the same way across edits, with no tier above to move into"
 	}
 
+	// The signal is logged whether or not it could act, because a run on the
+	// top tier reaching it is the same finding and a silent return made the
+	// corpus read as though the condition had never held.
 	if _, err := r.thread.Log().Append(event.Event{
 		Kind: event.KindGate,
-		Text: name + " has failed the same way across edits; moving up a tier",
+		Text: text,
 		Detail: map[string]any{
-			"gate": name, detailPass: false, "escalated": true,
+			"gate": name, detailPass: false, "escalated": moved,
 		},
 	}); err != nil {
 		return fmt.Errorf("logging the escalation: %w", err)
