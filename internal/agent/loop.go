@@ -407,6 +407,11 @@ type ChangeGate interface {
 	// harness reporting a defect that was never in the code, so it is
 	// recorded rather than quietly dropped.
 	FalseAlarms() []string
+	// Stuck names a gate this run has failed identically several times over,
+	// each after further edits, or reports false. It is the run's own
+	// history read as a routing signal: the tier has been told what is
+	// wrong and cannot move it.
+	Stuck() (string, bool)
 }
 
 // WithChangeGate configures Run to feed every change into a debounced gate
@@ -639,9 +644,13 @@ type run struct {
 	consecutiveErrors int
 	// escalations is how many times this run has moved up a tier, which the
 	// router reads back as PriorFailures.
-	escalations   int
-	nudges        int
-	editAttempted bool
+	escalations int
+	nudges      int
+	// stuckEscalated keeps a stuck gate from escalating twice. The signal
+	// stays true once it fires, since the gate goes on failing until the
+	// run fixes it.
+	stuckEscalated bool
+	editAttempted  bool
 }
 
 // nudgeIfNothingChanged tells a run that has read for many turns and
@@ -1331,6 +1340,10 @@ func (r *run) collectGateFeedback(ctx context.Context) error {
 		return err
 	}
 
+	if err := r.escalateIfStuck(); err != nil {
+		return err
+	}
+
 	feedback := r.loop.options.ChangeGate.TakeFeedback()
 	if feedback == "" {
 		return nil
@@ -1338,6 +1351,43 @@ func (r *run) collectGateFeedback(ctx context.Context) error {
 
 	if err := r.thread.AppendUser(ctx, feedback); err != nil {
 		return fmt.Errorf("appending gate feedback: %w", err)
+	}
+
+	return nil
+}
+
+// escalateIfStuck moves the run up a tier when a gate has failed the same
+// way several times over, each after further edits. Every other escalation
+// this loop makes reads one turn (a malformed call, an empty completion, a
+// repeat), which catches a tier that cannot emit and never a tier that
+// emits fine and cannot solve the problem. On `e2` the fast tier passes 3
+// of 3 checks about once in six runs and the other five spend every turn on
+// one compile error the gate quotes back, escalating only when the deadline
+// does it for them.
+//
+// The escalation is logged and never told to the model: what it needs is
+// the gate failure it already has, and a run told it has been moved up
+// treats the move as the progress.
+func (r *run) escalateIfStuck() error {
+	name, stuck := r.loop.options.ChangeGate.Stuck()
+	if !stuck || r.stuckEscalated {
+		return nil
+	}
+
+	r.stuckEscalated = true
+
+	if !r.escalate() {
+		return nil
+	}
+
+	if _, err := r.thread.Log().Append(event.Event{
+		Kind: event.KindGate,
+		Text: name + " has failed the same way across edits; moving up a tier",
+		Detail: map[string]any{
+			"gate": name, detailPass: false, "escalated": true,
+		},
+	}); err != nil {
+		return fmt.Errorf("logging the escalation: %w", err)
 	}
 
 	return nil

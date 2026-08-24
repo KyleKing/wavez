@@ -558,3 +558,57 @@ func TestRun_OnlyLocalTurnsTakeASlot(t *testing.T) {
 		t.Errorf("%d slot(s) still held after the run, want 0", slots.held)
 	}
 }
+
+// stuckGate reports its gate as stuck once the run has taken a turn, which
+// is the state a real one reaches after failing the same way across edits.
+type stuckGate struct{ asked int }
+
+func (*stuckGate) Begin()                {}
+func (*stuckGate) Enqueue(tool.Change)   {}
+func (*stuckGate) TakeFeedback() string  { return "" }
+func (*stuckGate) FalseAlarms() []string { return nil }
+
+func (g *stuckGate) Stuck() (string, bool) {
+	g.asked++
+
+	return "go-test", g.asked > 1
+}
+
+// A tier that cannot emit a call is caught by every other escalation this
+// loop makes, each of which reads one turn. A tier that emits fine and
+// cannot solve the problem is not: on `e2` the fast tier spends five runs
+// in six on one compile error the gate quotes back, and escalates only when
+// the deadline does it for it.
+func TestRun_AGateNothingCanMoveEscalatesBeforeTheDeadline(t *testing.T) {
+	t.Parallel()
+
+	call := llm.ToolCall{ID: "1", Name: "echo", Input: rawJSON(t, map[string]any{"a": 1})}
+	local := fake.New("local",
+		fake.Turn{ToolCalls: []llm.ToolCall{call}, StopReason: llm.StopToolUse},
+		fake.Turn{Text: []string{"local again"}, StopReason: llm.StopEndTurn},
+	)
+	hosted := fake.New("hosted", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
+
+	th := newThread(t)
+	reg := tool.NewRegistry(echoTool{name: "echo"})
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
+		agent.WithChangeGate(&stuckGate{}))
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if out.Stop != agent.StopComplete {
+		t.Fatalf("Stop = %q, want complete", out.Stop)
+	}
+
+	if len(local.Requests()) != 1 {
+		t.Errorf("local Requests len = %d, want 1: the second turn belongs to the tier above",
+			len(local.Requests()))
+	}
+
+	if len(hosted.Requests()) != 1 {
+		t.Errorf("hosted Requests len = %d, want the run to have moved up", len(hosted.Requests()))
+	}
+}

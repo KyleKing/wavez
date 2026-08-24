@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -166,4 +167,70 @@ func TestChangeGateKeepsQuietWhenAnEditExplainsThePass(t *testing.T) {
 	if alarms := g.FalseAlarms(); len(alarms) != 0 {
 		t.Errorf("FalseAlarms() = %v, want none: an edit landed between the two verdicts", alarms)
 	}
+}
+
+// Every other escalation this loop makes reads one turn, which catches a
+// tier that cannot emit a call and never one that emits fine and cannot
+// solve the problem. On `e2` the fast tier spends five runs in six on the
+// same compile error, quoted back every round, and escalates only when the
+// deadline does it for it.
+func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
+	t.Parallel()
+
+	failing := []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{
+		{Package: "internal/sysinfo", Frames: []string{"memory_test.go:12: undefined: Memory"}},
+	}}}
+
+	t.Run("the same failure across edits", func(t *testing.T) {
+		t.Parallel()
+
+		g := app.NewChangeGate(nil)
+
+		for i := range 3 {
+			g.Enqueue(tool.Change{Path: "internal/sysinfo/memory_test.go", Added: 1})
+			g.Collect(gate.RunResult{Gates: failing})
+
+			if name, stuck := g.Stuck(); stuck != (i == 2) {
+				t.Fatalf("after %d rounds Stuck() = %q, %v, want stuck=%v", i+1, name, stuck, i == 2)
+			}
+		}
+
+		if name, _ := g.Stuck(); name != "go-test" {
+			t.Errorf("Stuck() named %q, want the gate that failed", name)
+		}
+	})
+
+	t.Run("a re-run over the same tree is not the tier's fault", func(t *testing.T) {
+		t.Parallel()
+
+		g := app.NewChangeGate(nil)
+		for range 4 {
+			g.Collect(gate.RunResult{Gates: failing})
+		}
+
+		if name, stuck := g.Stuck(); stuck {
+			t.Errorf("Stuck() = %q, %v after four debounced re-runs of one change, want false", name, stuck)
+		}
+	})
+
+	t.Run("a failure that moved is progress", func(t *testing.T) {
+		t.Parallel()
+
+		g := app.NewChangeGate(nil)
+
+		for i := range 4 {
+			g.Enqueue(tool.Change{Path: "internal/sysinfo/memory_test.go", Added: 1})
+			g.Collect(gate.RunResult{Gates: []gate.Result{{
+				Gate: "go-test",
+				Failures: []gate.TrimmedFailure{{
+					Package: "internal/sysinfo",
+					Frames:  []string{fmt.Sprintf("memory_test.go:%d: undefined: Memory", i)},
+				}},
+			}}})
+		}
+
+		if name, stuck := g.Stuck(); stuck {
+			t.Errorf("Stuck() = %q, %v, want false: the failure moved every round", name, stuck)
+		}
+	})
 }

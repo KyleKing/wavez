@@ -52,9 +52,21 @@ type ChangeGate struct {
 }
 
 type gateVerdict struct {
+	// failure is the gate's frames the last time it failed, which is what
+	// makes "the same failure again" answerable. An identical one after the
+	// run has edited says the run is not converging on it.
+	failure string
 	changes int
+	repeats int
 	pass    bool
 }
+
+// stuckAfter is how many identical gate failures, each after further edits,
+// name a tier that is not going to fix this one. Three is what `e2` does on
+// the fast tier: the same `undefined: Memory` compile error every round,
+// quoted back each time, until the deadline. A run that fixes a failure in
+// one or two attempts never reaches it.
+const stuckAfter = 3
 
 // NewChangeGate builds a ChangeGate over runner. Nothing flows until Start
 // runs.
@@ -153,8 +165,51 @@ func (g *ChangeGate) noteFalseAlarms(results []gate.Result) {
 			g.falseAlarms = append(g.falseAlarms, name)
 		}
 
-		g.verdict[name] = gateVerdict{pass: results[i].Pass, changes: len(g.changed)}
+		next := gateVerdict{pass: results[i].Pass, changes: len(g.changed)}
+		if !results[i].Pass {
+			next.failure = failureSignature(results[i])
+		}
+
+		// Only a failure the run has edited against counts: the same tree
+		// gets the same answer, and blaming the tier for that would fire on
+		// every debounced re-run of one change.
+		if seen && next.failure != "" && next.failure == prior.failure && next.changes > prior.changes {
+			next.repeats = prior.repeats + 1
+		}
+
+		g.verdict[name] = next
 	}
+}
+
+// Stuck names a gate that has failed identically stuckAfter times, each
+// after the run made further changes, or reports false. It is a routing
+// signal rather than feedback: the run has been told what is wrong and has
+// edited against it repeatedly without moving it, which is what a tier
+// reaching the end of its remit looks like from the outside.
+func (g *ChangeGate) Stuck() (string, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for name, v := range g.verdict {
+		if v.repeats >= stuckAfter-1 {
+			return name, true
+		}
+	}
+
+	return "", false
+}
+
+// failureSignature is what a gate reported, flattened. Two rounds match
+// only when every frame of every failure does, so a compile error that
+// moved to another line is progress rather than a repeat.
+func failureSignature(r gate.Result) string {
+	parts := make([]string, 0, len(r.Failures))
+	for _, f := range r.Failures {
+		parts = append(parts, f.Package+" "+f.Test+"\n"+
+			strings.Join(f.Frames, "\n")+"\n"+strings.Join(f.Context, "\n"))
+	}
+
+	return strings.Join(parts, "\n--\n")
 }
 
 // FalseAlarms returns the gates that have retracted a failure since the last
