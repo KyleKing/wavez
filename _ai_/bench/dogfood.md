@@ -2309,3 +2309,45 @@ were visible once they did:
   putting a `memory_test.go` anchor in a call whose path is `memory.go`,
   because the task needs two files and the schema allows one. `e2` has now
   gone 0 for 9 on the fast tier across every configuration
+
+## 2026-08-23 — what e2 was actually failing at
+
+`e2` had gone 1 of 3 checks on nine consecutive fast-pinned runs across
+every configuration. Two fixes aimed at it moved nothing, and both were
+aimed at the wrong thing.
+
+**Multi-file batching was not it.** Every `e2` failure looked like a test
+file's anchor in a call whose path was the source file, so `str_replace`
+now takes a path per edit and applies across files, validating all of them
+before writing any. Three lanes: still 1 of 3, and the model never once
+used a per-edit path. The capability was missing and was worth adding; it
+was not what was blocking the task.
+
+**The block was emission.** Three `e2` runs made one `str_replace` call
+between them, and it was malformed: 11,917 and 12,018 characters,
+compression ratio 0.045, cut off mid-string inside a JSON-escaped test
+table. Normal entropy, so not degeneration; the fast tier ran out of its 8k
+window inside one call. The cause is the anchor: replacing a declaration
+through `str_replace` sends its text twice, once as `old_string` and once
+as `new_string`, against a file the model is recalling rather than reading.
+
+**`declare` sends it once.** A Modifier that writes a whole declaration by
+name, replacing the existing one or adding a new one to a path, with the
+doc comment taken as prose. Measured over three `e2` lanes:
+
+| tool | calls | failed |
+|---|---|---|
+| `declare` | 11 | 1 |
+| `str_replace` | 7 | 7 |
+
+Every one of the three reached 2 of 3 checks, against 1 of 3 on all nine
+prior fast-pinned runs. Three `h6` lanes in the same batch all passed 4 of
+4 checks, one complete and two stopping on a verification round.
+
+It costs 243 preamble tokens and pushed the fast tier from 2,113 to 2,356,
+so the ceiling went from 2,200 to 2,400 deliberately. That is the ceiling
+working: a new tool's cost was a decision rather than a discovery.
+
+**Not verified.** Three runs per lane, and the checks that still fail are
+the ones asking for a test. No lane has yet reached 3 of 3 on `e2` with a
+fast pin, so this moved the wall rather than removing it.

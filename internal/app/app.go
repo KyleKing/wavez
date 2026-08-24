@@ -669,6 +669,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewSearch(d.indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewQuestion(d.asker),
+		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
 		tools.NewMove(d.root, d.indexer, d.scope, withLeases),
 		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),
