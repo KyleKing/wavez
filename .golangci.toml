@@ -59,6 +59,7 @@ min-occurrences = 3
 enabled-tags = ["diagnostic", "style", "performance", "experimental", "opinionated"]
 disabled-checks = [
   "hugeParam",  # BubbleTea root Models are large by design; value receivers keep Update/View copy semantics
+  "unnamedResult",  # contradicts nonamedreturns, which is enabled and wins
   "whyNoLint"
 ]
 
