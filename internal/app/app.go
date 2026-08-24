@@ -668,6 +668,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewList(d.root),
 		tools.NewRead(d.root, d.scope),
 		tools.NewStrReplace(d.root, d.scope, withLeases),
+		tools.NewUndo(d.root, d.scope, withLeases),
 		tools.NewWrite(d.root, d.scope, withLeases),
 		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases,
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),

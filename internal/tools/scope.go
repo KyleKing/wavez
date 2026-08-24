@@ -3,6 +3,7 @@ package tools
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 )
@@ -33,9 +34,13 @@ type Scope struct {
 	// that file no longer exists anywhere.
 	readAt  map[string]int
 	wroteAt map[string]int
-	clock   int
-	mu      sync.Mutex
-	strict  bool
+	// origin holds each file's bytes as they were before this run first
+	// wrote it, which is the only thing a run may undo. Reverting further
+	// than that would discard work this run never made.
+	origin map[string]origin
+	clock  int
+	mu     sync.Mutex
+	strict bool
 }
 
 // NewScope builds a Scope. A strict Scope refuses an out-of-scope edit; a
@@ -43,7 +48,8 @@ type Scope struct {
 func NewScope(strict bool) *Scope {
 	return &Scope{
 		seen: map[string]bool{}, strayed: map[string]bool{},
-		readAt: map[string]int{}, wroteAt: map[string]int{}, strict: strict,
+		readAt: map[string]int{}, wroteAt: map[string]int{},
+		origin: map[string]origin{}, strict: strict,
 	}
 }
 
@@ -75,6 +81,52 @@ func (s *Scope) Wrote(abs string) {
 
 	s.clock++
 	s.wroteAt[abs] = s.clock
+}
+
+// An origin is a file as it stood before this run first wrote it, where
+// existed separates a file the run created, which an undo removes, from
+// one it found empty.
+type origin struct {
+	src     []byte
+	existed bool
+}
+
+// snapshotOnce reads abs and keeps it if this run has not written it yet.
+// A file it cannot read is one that does not exist, which an undo restores
+// by removing what the run created.
+func (s *Scope) snapshotOnce(abs string) {
+	if _, _, ok := s.Origin(abs); ok {
+		return
+	}
+
+	src, err := os.ReadFile(abs) //nolint:gosec // the caller's own resolved edit target
+	s.snapshot(abs, origin{src: src, existed: err == nil})
+}
+
+// snapshot keeps the first state seen for abs, so an undo returns to what
+// the run inherited rather than to its own previous edit.
+func (s *Scope) snapshot(abs string, o origin) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.origin[abs]; !ok {
+		s.origin[abs] = o
+	}
+}
+
+// Origin returns abs as this run first found it, and whether it existed
+// then. The second result is false for a file the run has never edited.
+func (s *Scope) Origin(abs string) ([]byte, bool, bool) {
+	if s == nil {
+		return nil, false, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	o, ok := s.origin[abs]
+
+	return o.src, o.existed, ok
 }
 
 // Read reports whether this run has ever read or created abs. An anchor
@@ -109,10 +161,15 @@ func (s *Scope) Stale(abs string) bool {
 
 // Edit reports whether the run may edit abs, recording the path when it is
 // out of scope. A permissive Scope always returns nil and still records.
+//
+// It snapshots abs on the way through, because every tool that writes calls
+// this first and none of them can hand back the bytes afterwards.
 func (s *Scope) Edit(abs string) error {
 	if s == nil {
 		return nil
 	}
+
+	s.snapshotOnce(abs)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
