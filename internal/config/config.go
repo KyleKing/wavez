@@ -23,8 +23,8 @@ const DefaultFastModel = "qwen3:8b"
 // DefaultBalancedModel and DefaultDeepModel are the two network tiers'
 // models when no config overrides them.
 const (
-	DefaultBalancedModel = "stealth/ox-alpha"
-	DefaultDeepModel     = "stealth/ox-alpha"
+	DefaultBalancedModel = "qwen/qwen3-coder-30b-a3b-instruct"
+	DefaultDeepModel     = "qwen/qwen3-coder-30b-a3b-instruct"
 )
 
 // DefaultContextWindow is the served context window, in tokens, of a

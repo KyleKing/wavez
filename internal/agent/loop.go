@@ -65,12 +65,15 @@ const (
 	million = 1_000_000.0
 )
 
+// toolStrReplace is the edit tool named in more than one rule here.
+const toolStrReplace = "str_replace"
+
 // editToolNames are the tools that leave a tool.Change on success.
 var editToolNames = map[string]struct{}{
-	"delete":      {},
-	"rename":      {},
-	"str_replace": {},
-	"write":       {},
+	"delete":       {},
+	"rename":       {},
+	toolStrReplace: {},
+	"write":        {},
 }
 
 // ModelPricing prices one model's hosted usage in dollars per million tokens.
@@ -104,10 +107,6 @@ const (
 	// StopToolCallFlood means a single model turn emitted more tool calls
 	// than the configured per-turn bound.
 	StopToolCallFlood Stop = "tool_call_flood"
-	// StopEmptyTurn reports a provider that returned neither prose nor a
-	// tool call, which is a failure of the call rather than a choice the
-	// model made.
-	StopEmptyTurn Stop = "empty_turn"
 	// StopMalformedTool means a tool call's input was not valid JSON.
 	StopMalformedTool Stop = "malformed_tool_call"
 	// StopLoopDetected means a tool call repeated the immediately preceding
@@ -139,6 +138,12 @@ const (
 	// step and taking none, twice, having been told once to act instead.
 	StopAnnouncedNotDone Stop = "announced_not_done"
 )
+
+// ErrEmptyCompletion reports a provider that returned neither prose nor a
+// tool call. It is raised rather than absorbed as an outcome: an empty
+// completion is the provider rejecting the request shape, and reporting it
+// as a bound hides a broken tier behind a plausible story about the model.
+var ErrEmptyCompletion = errors.New("the model returned no text and no tool call")
 
 // ErrScriptedFailure is a sentinel a test provider may wrap to model a
 // non-cancellation stream failure distinct from ctx.Err().
@@ -206,6 +211,11 @@ type Outcome struct {
 	Elapsed         time.Duration
 	HostedSpendUSD  float64
 	StagnantCount   int
+	// RecoveredCalls counts the tool calls read back out of prose because
+	// the provider did not parse the model's own serialization. It is
+	// recorded because a tier that needs it is a tier with a templating
+	// problem, and that should be visible rather than silently absorbed.
+	RecoveredCalls int
 	// GateFalseAlarms counts the gates that retracted a failure over an
 	// unchanged change set during this run, which is a harness defect
 	// presenting as a code defect.
@@ -1063,17 +1073,23 @@ func (r *run) emptyTurn(ctx context.Context, text string, usage *llm.Usage) (Out
 		return Outcome{}, false, nil
 	}
 
-	reason := "the model returned no text and no tool call"
+	cause := ErrEmptyCompletion
 	if usage != nil && usage.ReasoningBytes > 0 {
-		reason = fmt.Sprintf("%s, spending %d bytes on reasoning it did not act on",
-			reason, usage.ReasoningBytes)
+		cause = fmt.Errorf("%w, spending %d bytes on reasoning it did not act on",
+			cause, usage.ReasoningBytes)
 	}
 
 	if r.escalate() {
 		return Outcome{}, false, nil
 	}
 
-	out, err := r.stopBound(ctx, StopEmptyTurn, reason+", and there is no tier above this one")
+	// Raised rather than absorbed as a Stop. An empty completion is the
+	// provider rejecting the request shape, not an outcome the run reached:
+	// `stealth/ox-alpha` returns one for every call carrying tools, which is
+	// reproducible with a two-property schema and no harness at all. A run
+	// that reports it as a bound hides a broken tier behind a plausible
+	// story about the model.
+	out, err := r.stopFailed(ctx, cause)
 
 	return out, true, err
 }
@@ -1083,6 +1099,15 @@ func (r *run) endTurnWithoutCalls(ctx context.Context, text string) (bool, Outco
 
 	switch {
 	case looksLikeToolCallText(text, r.toolNames()):
+		// The model made a well-formed call in a dialect the provider did
+		// not claim. Reading it invents nothing, and the alternative is the
+		// refusal this run was already heading for.
+		if calls := parseToolCallText(text, r.toolNames()); len(calls) > 0 {
+			r.outcome.RecoveredCalls += len(calls)
+
+			return r.runTools(ctx, calls)
+		}
+
 		return r.handleToolCallAsText(ctx)
 	case looksLikeQuestionToUser(text):
 		return r.handleTalkedNotActed(ctx, StopAskedInProse,

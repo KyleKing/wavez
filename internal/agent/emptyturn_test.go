@@ -33,17 +33,21 @@ func TestRun_NamesAnEmptyTurnRatherThanBlamingTheModel(t *testing.T) {
 
 	outcome, err := loop.Run(context.Background(), newThread(t), basicPrefix(),
 		"Edit a.go", router.Input{Override: router.ChoiceBalanced})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+
+	// Raised rather than absorbed: an empty completion is the provider
+	// rejecting the request shape, and reporting it as an outcome hides a
+	// broken tier behind a plausible story about the model.
+	if err == nil {
+		t.Fatalf("Run returned no error, outcome %+v", outcome)
 	}
 
-	if outcome.Stop != agent.StopEmptyTurn {
-		t.Fatalf("Stop = %q, want %q: %s", outcome.Stop, agent.StopEmptyTurn, outcome.Reason)
+	if outcome.Stop != agent.StopFailed {
+		t.Errorf("Stop = %q, want %q", outcome.Stop, agent.StopFailed)
 	}
 
 	for _, want := range []string{"no text and no tool call", "3400 bytes on reasoning"} {
-		if !strings.Contains(outcome.Reason, want) {
-			t.Errorf("Reason = %q, want it to carry %q", outcome.Reason, want)
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %q, want it to carry %q", err, want)
 		}
 	}
 }

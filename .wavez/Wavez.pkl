@@ -17,9 +17,9 @@ context: Listing<String> = new Listing {}
 /// empty for the tier's default endpoint.
 fast: Tier = new { model = "qwen3:8b" }
 
-balanced: Tier = new { model = "stealth/ox-alpha" }
+balanced: Tier = new { model = "qwen/qwen3-coder-30b-a3b-instruct" }
 
-deep: Tier = new { model = "stealth/ox-alpha" }
+deep: Tier = new { model = "qwen/qwen3-coder-30b-a3b-instruct" }
 
 /// Command whose stdout is the API key for any tier dialing a network
 /// endpoint without a `keyCommand` of its own, after the shape of a git

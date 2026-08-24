@@ -14,8 +14,11 @@ astGrepRules = new Listing {
 //   security add-generic-password -s wavez-openrouter -a "$USER" -w '<key>' -U
 hostedKeyCommand = "security find-generic-password -w -s wavez-openrouter"
 
-// Both network tiers are on the free alpha while it lasts. When it ends, the
-// requests fail with an unknown-model error and these two need real models.
-balanced = new { model = "stealth/ox-alpha" }
+// Both network tiers run the coder-tuned Qwen, the same family the local
+// fast tier serves. It renders about one call in eight as `<function=…>`
+// prose once a system prompt is present, which parseToolCallText reads back.
+// The plain instruct sibling never leaks and scores worse on the replay
+// tasks, so the dialect is the cheaper problem.
+balanced = new { model = "qwen/qwen3-coder-30b-a3b-instruct" }
 
-deep = new { model = "stealth/ox-alpha" }
+deep = new { model = "qwen/qwen3-coder-30b-a3b-instruct" }
