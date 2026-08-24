@@ -88,3 +88,20 @@ are specific to this codebase and not visible from the code.
   harness cannot resolve. Every new tool's cost is one run of it, and the
   pair of web tools came to 221 tokens against an estimate of 1,500, so
   estimate nothing here that can be measured in a second
+- `.wavez.pkl` injects the `Go conventions` section below into every turn, so it
+  holds only what no gate answers. The `lint` gate runs `golangci-lint` on a run's
+  changed files and reports what it finds, which covers naming, early returns,
+  naked returns, function length, error wrapping, `errors.Is`/`As`, ignored errors,
+  and doc comments on exported symbols. [AGENTS.md](AGENTS.md#go-conventions) keeps
+  the full list for a human reader, and a rule that moves into the linter comes out
+  of the section below
+
+## Go conventions
+
+- Define interfaces where they are consumed, keep them to 1-3 methods, and add one
+  only once a consumer needs it
+- Functional options for constructors with optional configuration (`WithTimeout(d)`)
+- Define types for domain-specific errors rather than matching on strings
+- Validate at boundaries and trust internal code (parse, don't validate)
+- A doc comment states non-obvious behavior and invariants, never the types
+- Pass dependencies explicitly

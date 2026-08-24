@@ -725,7 +725,7 @@ func buildGates(
 	// multi-file change, which is why it is here and not in the verification
 	// round with the slower checks.
 	gates := append(conventionGates(gate.NewFormatGate(root), convention),
-		gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root))
+		gate.NewLintGate(root), gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root))
 
 	routines, err := buildRoutines(root, stateDir, cfg, resources,
 		append(append([]gate.Gate(nil), gates...), gate.NewBuildGate(root)))
