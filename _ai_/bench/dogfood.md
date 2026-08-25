@@ -2949,11 +2949,39 @@ of 27 turns, and `h2` at 2 of 2 in 11 turns against 0 of 10. `h11` went 1 of
 4 to 4 of 4. Fourteen providers serve it, so there is no repeat of the
 single-provider rate limit the fast tier hit.
 
-**The cost ceiling was about to become the binding constraint.** It was $0.10
-a run, and the first `h13` lane spent $0.80 and a later one reached $1.00 and
-stopped as `cost_ceiling` having already passed 5 of 5. At the old ceiling
-every hard task would have died around turn four and read as the model
-failing.
+**Nothing was as expensive as it was charged.** Cached prompt tokens were
+billed at the full input rate. Kimi reads a cached token at $0.19 per
+million against $0.67 fresh, and 92% of every deep turn's prompt is a cache
+hit, so a run was charged about 2.7x what it spent. The `h13` lane that
+stopped as `cost_ceiling` at $1.00 had really spent $0.35. A later `h13`
+lane, priced correctly, finished all 5 checks for $0.58 and would have been
+killed at turn 26 of 44 under the old arithmetic. OpenRouter's own total
+for this project's whole history is $2.13.
+
+**Pinning `deep` is what costs, not `deep` itself.** Two lanes on the same
+task, one pinned and one on the default tier with escalation:
+
+| task | tier | turns | checks | spend |
+| --- | --- | --- | --- | --- |
+| h13 | pinned deep | 44 | 5/5 | $0.578 |
+| h13 | default, no escalation used | 28 | 5/5 | $0.045 |
+| h7 | pinned deep | 11 | 5/5 | $0.029 |
+| h7 | default, escalated 4 turns | 45 | 5/5 | $0.087 |
+
+Both reach the same answer either way. `h13` spends 33 of 44 turns on
+retrieval, and paying the strongest tier to read files is where the 13x
+went; `h7` is the opposite, where the strong model's 11 turns beat 45 cheap
+ones. So a pin is worth it where the task is reasoning-bound and not where
+it is retrieval-bound, and the benchmark's habit of pinning `deep` was
+measuring the pin.
+
+**The wall clock was the bound that was actually binding.** 180s was set
+against a local-model era. Runs that pass every check take 45s to 501s, so
+the deadline was cutting off the slowest fifth of the work that would have
+succeeded and recording it as a failure. Both `h13` comparisons above hit
+that deadline at 16 and 11 turns on the first attempt. It is 600s, and
+spend is the bound that binds now, which is the one that measures
+something.
 
 **The anchor fix holds where it was aimed.** Across four `e2` lanes, `no_match`
 fell from 9 failures in 61 tool calls to 2 in 91. What replaced it at the top
@@ -2967,7 +2995,14 @@ handed the decoder's own message back, naming Go types
 array, got that message, and did not change the shape. One shared decoder
 now says which field it was, what shape it takes, and what arrived.
 
+**Retrieval is where the turns go.** Across the live corpus, 60% of turns
+are retrieval, 22% harness, and 15% productive. `str_replace` still fails
+23% of its calls (`no_match` 9, `bad_input` 5 of 62), and 76% of gate rounds
+fail. Cost per completed task is now a column in `wavez -stats-corpus`:
+$0.156 for `h13`, $0.058 for `h7`.
+
 **What is not settled.** Whether the two `str_replace` fixes move turns
-rather than error counts, because every four-lane comparison before the jj
-fix is unreliable and has to be re-run. `h10` still fails on the fast tier.
-The harness's share of turns, unchanged.
+rather than error counts. `h10` still fails on the fast tier. Whether a
+turn can be routed down once it is known to be retrieval, which is the
+lever the 60% points at and which the router cannot pull today, because it
+decides from task shape before the turn runs.
