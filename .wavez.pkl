@@ -25,7 +25,12 @@ hostedKeyCommand = "security find-generic-password -w -s wavez-openrouter"
 // tool's JSON schema, and the `oneOf` fix was measured through it. A lane
 // asking about a grammar-constrained small model runs against the loopback
 // server, and a replay record's `served` says which one answered.
-fast = new { model = "qwen/qwen3-8b"; baseURL = "https://openrouter.ai/api/v1" }
+//
+// Reasoning is off here because the fast tier only calls tools. Four hosted
+// lanes against four local ones measured 930 output tokens a turn with it
+// against 190 without, and one turn spent 8,064 bytes of trace on 2,287
+// output tokens, none of which reaches a tool or the thread's history.
+fast = new { model = "qwen/qwen3-8b"; baseURL = "https://openrouter.ai/api/v1"; thinking = false }
 
 // Served window assumed for the fast tier. 32k is under what every
 // OpenRouter provider of this model offers, so a turn routed on size is
