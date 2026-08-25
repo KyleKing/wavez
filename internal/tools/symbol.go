@@ -29,7 +29,7 @@ type declaration struct {
 // rather than a guess: acting on the wrong one is a change the caller then
 // has to find and undo.
 func locate(ctx context.Context, index Index, root, name, path string) (declaration, error) {
-	results, err := searchWidening(ctx, index, name)
+	results, query, err := searchWidening(ctx, index, name)
 	if err != nil {
 		return declaration{}, err
 	}
@@ -43,7 +43,7 @@ func locate(ctx context.Context, index Index, root, name, path string) (declarat
 		}
 
 		if sym.Name != name {
-			if under(sym.FilePath, path) {
+			if under(sym.FilePath, path) && wordAligned(sym.Name, query) {
 				near = append(near, *sym)
 			}
 
@@ -96,6 +96,11 @@ func inFile(path string) string {
 // only that nothing by that name is indexed, and spent the rest of itself
 // searching for a name that never existed. The candidates were already in
 // the search result the refusal was built from.
+//
+// What reaches it is filtered by wordAligned, because three wrong names cost
+// more than an empty suggestion: an unfiltered list answered `Read` with
+// `OpenThread` and `TestThreads_ListFailsWhenLogUnreadable`, which are the
+// letters of the query and nothing else.
 func orNearby(all, near []codeintel.Symbol) string {
 	if len(all) > 0 {
 		return "; it is declared in " + strings.Join(declaringFiles(all), ", ")
@@ -122,13 +127,15 @@ func orNearby(all, near []codeintel.Symbol) string {
 // results, not the name originally asked for: `TestApplyToFile` is nothing
 // like `ApplyToFileTest`, so judging against the original never trips and the
 // widening runs off the end into junk.
-func searchWidening(ctx context.Context, index Index, name string) ([]codeintel.SearchResult, error) {
+func searchWidening(
+	ctx context.Context, index Index, name string,
+) ([]codeintel.SearchResult, string, error) {
 	var widest []codeintel.SearchResult
 
 	for query := name; query != ""; query = dropLastWord(query) {
 		results, _, err := index.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: query})
 		if err != nil {
-			return nil, fmt.Errorf("searching for %s: %w", query, err)
+			return nil, "", fmt.Errorf("searching for %s: %w", query, err)
 		}
 
 		if len(widest) == 0 {
@@ -136,11 +143,11 @@ func searchWidening(ctx context.Context, index Index, name string) ([]codeintel.
 		}
 
 		if named(results, query) {
-			return results, nil
+			return results, query, nil
 		}
 	}
 
-	return widest, nil
+	return widest, name, nil
 }
 
 // named reports whether any result is a symbol whose name is the query or
@@ -176,6 +183,59 @@ func similar(indexed, asked string) bool {
 
 	return strings.Contains(a, b) || strings.Contains(b, a)
 }
+
+// wordAligned reports whether query occurs in name as a whole word, where a
+// word opens at the name's start, at an underscore, or at an upper-case
+// letter following a lower-case one, and closes the same way.
+//
+// It is what separates a near miss from a trigram collision, and it is
+// judged against the query the results came back for rather than the name
+// originally asked for, for the reason searchWidening states: the widened
+// query is what the candidates are near. `Read` is a word of `NewRead` and
+// three letters in the middle of `OpenThread`, and only the first is worth
+// a line in a refusal.
+func wordAligned(name, query string) bool {
+	if name == query {
+		return true
+	}
+
+	if len(query) > len(name) {
+		name, query = query, name
+	}
+
+	for at := 0; at+len(query) <= len(name); {
+		i := strings.Index(name[at:], query)
+		if i < 0 {
+			return false
+		}
+
+		i += at
+		if wordOpens(name, i) && wordOpens(name, i+len(query)) {
+			return true
+		}
+
+		at = i + 1
+	}
+
+	return false
+}
+
+// wordOpens reports whether a CamelCase or underscore word starts at i, with
+// the end of the name counting as one so a query that is the name's tail
+// aligns.
+func wordOpens(name string, i int) bool {
+	if i == 0 || i == len(name) {
+		return true
+	}
+
+	if name[i] == '_' || name[i-1] == '_' {
+		return true
+	}
+
+	return isUpperByte(name[i]) && !isUpperByte(name[i-1])
+}
+
+func isUpperByte(b byte) bool { return b >= 'A' && b <= 'Z' }
 
 // names lists a few candidates with where they live, newest match first and
 // capped so a refusal stays a sentence.

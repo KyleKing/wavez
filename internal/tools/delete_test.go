@@ -262,6 +262,38 @@ func TestDeleteWideningStaysInTheNamedPath(t *testing.T) {
 	}
 }
 
+// An unfiltered candidate list answered `Read` with `OpenThread` and
+// `TestThreads_ListFailsWhenLogUnreadable`, which share the query's letters
+// and nothing else. Three wrong names cost more than an empty suggestion, so
+// a candidate has to hold the query as a whole word to be printed at all.
+func TestDeleteSuggestsOnlyWordAlignedNames(t *testing.T) {
+	t.Parallel()
+
+	root, del := deleteProject(t)
+	writeFile(t, root, "b.go", "package a\n\n"+
+		"// OpenThread shares the query's letters and nothing else.\n"+
+		"func OpenThread() {}\n\n"+
+		"// NewRead is the near miss worth printing.\n"+
+		"func NewRead() {}\n")
+
+	res, err := del.Run(t.Context(), []byte(`{"symbol":"Read"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.IsError {
+		t.Fatalf("want a refusal, got: %s", res.Content)
+	}
+
+	if strings.Contains(res.Content, "OpenThread") {
+		t.Errorf("the refusal suggests a trigram collision: %s", res.Content)
+	}
+
+	if !strings.Contains(res.Content, "NewRead") {
+		t.Errorf("the refusal drops the near miss it exists for: %s", res.Content)
+	}
+}
+
 // The exact-name case is the opposite: a caller who narrowed to the wrong
 // file is told where the symbol really is, which is the whole point of
 // saying anything at all.
