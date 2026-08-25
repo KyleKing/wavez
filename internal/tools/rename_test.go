@@ -114,15 +114,25 @@ func TestRenameRefusalsNameWhatToDoNext(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		want  string
+		want  []string
 	}{
-		{name: "same name", input: `{"symbol":"Alpha","to":"Alpha"}`, want: "same name"},
-		{name: "not an identifier", input: `{"symbol":"Alpha","to":"Beta Gamma"}`, want: "not a valid identifier"},
-		{name: "missing target", input: `{"symbol":"Alpha"}`, want: "to is required"},
-		{name: "unknown symbol", input: `{"symbol":"Nowhere","to":"Beta"}`, want: "Nowhere"},
+		{name: "same name", input: `{"symbol":"Alpha","to":"Alpha"}`, want: []string{"same name"}},
+		{
+			name:  "not an identifier",
+			input: `{"symbol":"Alpha","to":"Beta Gamma"}`,
+			want:  []string{"not a valid identifier"},
+		},
+		{name: "missing target", input: `{"symbol":"Alpha"}`, want: []string{"to is required"}},
+		{name: "unknown symbol", input: `{"symbol":"Nowhere","to":"Beta"}`, want: []string{"Nowhere"}},
 		// Two packages declare Alpha, and picking one would be a change the
-		// caller then has to find and undo.
-		{name: "ambiguous", input: `{"symbol":"Alpha","to":"Beta"}`, want: "declares Alpha"},
+		// caller then has to find and undo, so the refusal carries the call
+		// that resolves it. One lane read "name one with path", said so in its
+		// own prose, re-sent the identical call, and died to the loop detector.
+		{
+			name:  "ambiguous",
+			input: `{"symbol":"Alpha","to":"Beta"}`,
+			want:  []string{"declares Alpha", `path: "`},
+		},
 	}
 
 	for _, tc := range tests {
@@ -141,8 +151,10 @@ func TestRenameRefusalsNameWhatToDoNext(t *testing.T) {
 				t.Fatalf("want a refusal, got: %s", res.Content)
 			}
 
-			if !strings.Contains(res.Content, tc.want) {
-				t.Errorf("refusal %q does not say %q", res.Content, tc.want)
+			for _, want := range tc.want {
+				if !strings.Contains(res.Content, want) {
+					t.Errorf("refusal %q does not say %q", res.Content, want)
+				}
 			}
 		})
 	}
