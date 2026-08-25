@@ -243,35 +243,67 @@ func (s *Store) CountMatches(ctx context.Context, q SearchQuery) (int, error) {
 
 func (s *Store) searchFuzzy(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
 	terms := queryTerms(q.Text)
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ? ORDER BY rank, kind, ref_id LIMIT ?`,
-		ftsQuery(q.Text), q.Limit)
-	if err != nil {
-		return nil, fmt.Errorf("fuzzy search %q: %w", q.Text, err)
-	}
-	defer func() { _ = rows.Close() }() //nolint:errcheck // read-only cursor, nothing actionable on close failure
 
-	var results []SearchResult
-	for rows.Next() {
-		var kind string
-		var refID int64
-		var text string
-		if err := rows.Scan(&kind, &refID, &text); err != nil {
-			return nil, fmt.Errorf("scanning fts row: %w", err)
-		}
-		result, err := s.hydrateFTSResult(ctx, kind, refID, text, func(c string) []LineMatch {
+	rows, err := s.fuzzyRows(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+
+	rankFuzzy(rows, terms)
+
+	if len(rows) > q.Limit {
+		rows = rows[:q.Limit]
+	}
+
+	results := make([]SearchResult, 0, len(rows))
+
+	for _, row := range rows {
+		result, err := s.hydrateFTSResult(ctx, row.kind, row.refID, row.text, func(c string) []LineMatch {
 			return matchingLines(c, terms)
 		})
 		if err != nil {
 			return nil, err
 		}
+
 		results = append(results, result)
 	}
+
+	return results, nil
+}
+
+// fuzzyRows reads the window rankFuzzy orders, which is wider than the
+// caller asked for so a name match bm25 buried can still be answered with.
+// Only the rows that survive ranking are hydrated.
+func (s *Store) fuzzyRows(ctx context.Context, q SearchQuery) ([]fuzzyRow, error) {
+	scan := q.Limit
+	if scan < fuzzyScan {
+		scan = fuzzyScan
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ? ORDER BY rank, kind, ref_id LIMIT ?`,
+		ftsQuery(q.Text), scan)
+	if err != nil {
+		return nil, fmt.Errorf("fuzzy search %q: %w", q.Text, err)
+	}
+	defer func() { _ = rows.Close() }() //nolint:errcheck // read-only cursor, nothing actionable on close failure
+
+	var out []fuzzyRow
+
+	for rows.Next() {
+		var row fuzzyRow
+		if err := rows.Scan(&row.kind, &row.refID, &row.text); err != nil {
+			return nil, fmt.Errorf("scanning fts row: %w", err)
+		}
+
+		out = append(out, row)
+	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("reading fts rows: %w", err)
 	}
 
-	return results, nil
+	return out, nil
 }
 
 func (s *Store) hydrateFTSResult(

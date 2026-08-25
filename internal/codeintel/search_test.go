@@ -167,3 +167,51 @@ func checkLineMatches(t *testing.T, r codeintel.SearchResult, lines []string) {
 		}
 	}
 }
+
+// bm25 over a trigram index scores by document length, so before ranking a
+// short query answered with the shortest names that merely held its
+// letters, and a documented function lost to them: on this repository
+// `Read` put twelve names built from `Thread` above the two symbols
+// actually called Read.
+func TestSearch_FuzzyPutsNameMatchesAboveLetterMatches(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	source := `package p
+
+func OpenThread() {}
+func threadClient() {}
+func readTracker() {}
+func newThread() {}
+func parkThread() {}
+
+// Read parses one recorded log and returns every entry it holds, which is
+// the documentation that makes this the longest indexed document here.
+func Read(path string, limit int) ([]string, error) { return nil, nil }
+`
+	if err := os.WriteFile(filepath.Join(dir, "p.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	store, ctx := openStore(t)
+	if _, err := store.Index(ctx, dir, defaultRegistry()); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	results, err := store.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: "Read", Limit: 4})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	var names []string
+
+	for _, r := range results {
+		if r.Symbol != nil {
+			names = append(names, r.Symbol.Name)
+		}
+	}
+
+	if len(names) == 0 || names[0] != "Read" {
+		t.Errorf("fuzzy Read ranked %v, want the symbol named Read above the names that only share letters", names)
+	}
+}
