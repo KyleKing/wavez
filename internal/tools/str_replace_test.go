@@ -756,22 +756,36 @@ func TestStrReplace_ReplaceAllReachesIdenticalSites(t *testing.T) {
 	}
 }
 
-// A call carrying declare's fields is a declare call sent here. One lane
-// made it three times and died stagnant reading about new_string.
-func TestStrReplace_NamesTheToolThatOwnsSource(t *testing.T) {
+// A call carrying another tool's fields is that tool's call sent here. One
+// lane sent source three times and another sent content three times, and
+// both died stagnant reading about new_string.
+func TestStrReplace_NamesTheToolThatOwnsFieldsItDoesNotHave(t *testing.T) {
 	t.Parallel()
 
-	s := tools.NewStrReplace(t.TempDir(), nil)
+	for _, tc := range []struct {
+		name  string
+		field string
+		want  string
+	}{
+		{name: "source belongs to declare", field: "source", want: "declare"},
+		{name: "content belongs to write", field: "content", want: "write"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
-		"path": "a.go", "source": "func A() {}",
-	}))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
+			s := tools.NewStrReplace(t.TempDir(), nil)
 
-	if !result.IsError || !strings.Contains(result.Content, "declare") {
-		t.Errorf("content = %q, want it to name declare", result.Content)
+			result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+				"path": "a.go", tc.field: "func A() {}",
+			}))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if !result.IsError || !strings.Contains(result.Content, tc.want) {
+				t.Errorf("content = %q, want it to name %s", result.Content, tc.want)
+			}
+		})
 	}
 }
 

@@ -317,3 +317,30 @@ func TestSearchNamesTheClosestNamesOnALiteralMiss(t *testing.T) {
 		t.Errorf("Content = %q, want the name the index actually holds", result.Content)
 	}
 }
+
+// The exact object one replay lane sent twice before dying stagnant: a
+// balanced-tier model emitted its native XML tool-call tags, and the
+// mangling folded a tag and its value into a JSON key. Unknown keys decode
+// silently, so the call read as an empty one and the answer said only that
+// query was required.
+func TestSearchNamesXMLTagsRatherThanTheMissingField(t *testing.T) {
+	t.Parallel()
+
+	search := tools.NewSearch(openTestIndex(t, map[string]string{
+		"a/keep.go": "package a\n\nfunc Target() string { return \"a\" }\n",
+	}))
+
+	result, err := search.Run(t.Context(), []byte(
+		"{\"mode=fuzzy\\n</parameter\": \"<parameter=query>\\ntruncate\"}"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError {
+		t.Fatalf("IsError = false, want the malformed call refused: %q", result.Content)
+	}
+
+	if !strings.Contains(result.Content, "XML") {
+		t.Errorf("content = %q, want it to name the syntax that arrived", result.Content)
+	}
+}

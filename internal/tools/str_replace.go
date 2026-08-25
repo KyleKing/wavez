@@ -125,7 +125,12 @@ type strReplaceInput struct {
 	// Source is not this tool's field. It is declare's, and a call carrying
 	// it is a declare call sent here, which one lane made three times and
 	// died stagnant on a message about new_string.
-	Source     string     `json:"source"`
+	Source string `json:"source"`
+	// Content is write's field, naming a whole file's text. A call carrying
+	// it wants to overwrite the file rather than edit part of it, which one
+	// lane asked for three times and died stagnant on a message about
+	// new_string.
+	Content    string     `json:"content"`
 	Edits      []editPair `json:"edits"`
 	ReplaceAll bool       `json:"replace_all"`
 }
@@ -152,6 +157,13 @@ func (in *strReplaceInput) shapeError() (string, bool) {
 	// one. resolvePath names it.
 	if in.Path == "" {
 		return "", true
+	}
+
+	if in.Content != "" && in.OldString == "" && in.NewString == nil && len(in.Edits) == 0 {
+		return "content is write's field, not this tool's, and names a whole file rather than " +
+			"the part that changes, so nothing was edited. Send old_string and new_string for " +
+			"the lines that differ. write takes path and content, and only for a file that " +
+			"does not exist yet.", false
 	}
 
 	if in.Source != "" && in.OldString == "" && in.NewString == nil && len(in.Edits) == 0 {

@@ -14,6 +14,10 @@ import (
 // two logged runs sent `edits` as a string holding the array and got that
 // message back, and neither changed the shape on the next attempt.
 func decodeInput(raw json.RawMessage, into any) error {
+	if err := xmlCallError(raw); err != nil {
+		return err
+	}
+
 	err := json.Unmarshal(raw, into)
 	if err == nil {
 		return nil
@@ -52,4 +56,36 @@ func jsonShape(t reflect.Type) string {
 	default:
 		return strings.ToLower(t.Kind().String())
 	}
+}
+
+// xmlCallError reports a call whose arguments arrived in the XML tool-call
+// syntax some models emit natively, mangled into a JSON object on the way.
+// The pairs cannot be recovered, because the mangling folds a tag and its
+// value into one key, so the call is refused with the shape to resend
+// rather than repaired into a plausible wrong one.
+//
+// Only a key is inspected. A value may hold this text legitimately, since
+// an edit to a file that documents the syntax carries it verbatim, while no
+// argument is ever named for a tag.
+func xmlCallError(raw json.RawMessage) error {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		// Not an object at all, which the decoder below reports in its own
+		// words.
+		return nil //nolint:nilerr // see comment: a non-object is not this check's finding
+	}
+
+	for key := range object {
+		if !strings.Contains(key, "<parameter") && !strings.Contains(key, "</parameter") &&
+			!strings.Contains(key, "parameter=") {
+			continue
+		}
+
+		//nolint:err113 // the sentence is the whole value; nothing matches on it
+		return errors.New("the arguments arrived as XML parameter tags rather than as JSON, " +
+			"so no field could be read and nothing ran. Send one JSON object whose keys are " +
+			"the field names this tool declares, with no tags around them")
+	}
+
+	return nil
 }
