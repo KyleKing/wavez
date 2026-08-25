@@ -91,7 +91,7 @@ func (d *Declare) Run(ctx context.Context, input json.RawMessage) (tool.Result, 
 	}
 
 	var in declareInput
-	if err := json.Unmarshal(input, &in); err != nil {
+	if err := decodeInput(input, &in); err != nil {
 		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 

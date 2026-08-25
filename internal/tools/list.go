@@ -70,7 +70,7 @@ func (l *List) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 	}
 
 	var in listInput
-	if err := json.Unmarshal(input, &in); err != nil {
+	if err := decodeInput(input, &in); err != nil {
 		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 

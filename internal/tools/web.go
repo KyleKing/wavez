@@ -111,7 +111,7 @@ func (w *WebSearch) Run(ctx context.Context, input json.RawMessage) (tool.Result
 		Query string `json:"query"`
 	}
 
-	if err := json.Unmarshal(input, &in); err != nil {
+	if err := decodeInput(input, &in); err != nil {
 		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
@@ -157,7 +157,7 @@ func (w *WebFetch) Run(ctx context.Context, input json.RawMessage) (tool.Result,
 		URL string `json:"url"`
 	}
 
-	if err := json.Unmarshal(input, &in); err != nil {
+	if err := decodeInput(input, &in); err != nil {
 		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 

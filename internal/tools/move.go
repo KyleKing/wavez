@@ -90,7 +90,7 @@ func (m *Move) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 	}
 
 	var in moveInput
-	if err := json.Unmarshal(input, &in); err != nil {
+	if err := decodeInput(input, &in); err != nil {
 		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 

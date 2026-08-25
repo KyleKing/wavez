@@ -108,7 +108,7 @@ func (r *Rename) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 	}
 
 	var in renameInput
-	if err := json.Unmarshal(input, &in); err != nil {
+	if err := decodeInput(input, &in); err != nil {
 		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 

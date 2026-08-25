@@ -654,3 +654,36 @@ func TestStrReplace_TellsAnAlreadyWrittenFileFromALostAnchor(t *testing.T) {
 		})
 	}
 }
+
+// json names Go types when a field arrives in the wrong shape
+// ("[]tools.editPair"), which says nothing about the JSON a model has to
+// change. Two logged runs sent edits as a string holding the array and got
+// that message back, and neither changed the shape on the next attempt.
+func TestStrReplace_AWrongShapeIsNamedInJSONTerms(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package p\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	result, err := tools.NewStrReplace(dir, nil).Run(context.Background(),
+		json.RawMessage(`{"path":"a.go","edits":"[{\"old_string\":\"p\",\"new_string\":\"q\"}]"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError {
+		t.Fatalf("IsError = false, want the call refused: %q", result.Content)
+	}
+
+	for _, want := range []string{"edits", "an array", "string"} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("Content = %q, want it to mention %q", result.Content, want)
+		}
+	}
+
+	if strings.Contains(result.Content, "tools.editPair") {
+		t.Errorf("Content = %q, want no Go type name in a message a model reads", result.Content)
+	}
+}
