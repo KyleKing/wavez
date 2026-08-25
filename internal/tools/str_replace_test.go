@@ -774,3 +774,73 @@ func TestStrReplace_NamesTheToolThatOwnsSource(t *testing.T) {
 		t.Errorf("content = %q, want it to name declare", result.Content)
 	}
 }
+
+// The largest single cause of a wasted turn recorded here is an anchor
+// taken from a read the run has since written over: 15 of 18 misses, and 6
+// of them spent a further turn re-reading the file. The harness has the
+// bytes, so both cases are answered with the text rather than with an
+// instruction to go and fetch it, and the formatter runs inside the call so
+// what is shown is what the next anchor will be matched against.
+func TestStrReplace_ShowsTheTextRatherThanAskingForAReread(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.go")
+	const src = "package p\n\nfunc truncate(s string, limit int) string {\n\treturn s[:limit]\n}\n"
+
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	scope := tools.NewScope(false)
+	scope.Observe(path)
+
+	s := tools.NewStrReplace(dir, scope)
+
+	// The edit needs unicode/utf8 and does not import it. goimports adds
+	// the import inside the call, so `undefined: utf8` never reaches a gate
+	// and the caller is shown the file it actually produced.
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path":       "file.go",
+		"old_string": "\treturn s[:limit]",
+		"new_string": "\tfor !utf8.RuneStart(s[limit]) {\n\t\tlimit--\n\t}\n\n\treturn s[:limit]",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("IsError = true, want false: %q", result.Content)
+	}
+
+	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(after), `"unicode/utf8"`) {
+		t.Errorf("file = %q, want the import goimports should have added", after)
+	}
+	if !strings.Contains(result.Content, `unicode/utf8`) {
+		t.Errorf("content = %q, want the rewritten region shown", result.Content)
+	}
+
+	// Anchoring on the file as it was first read is now stale. The answer
+	// carries what those lines hold, so the next call needs no read.
+	stale, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path":       "file.go",
+		"old_string": "package p\n\nfunc truncate(s string, limit int) string {",
+		"new_string": "package p\n\n// truncate cuts on a boundary.\nfunc truncate(s string, limit int) string {",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !stale.IsError || stale.Cause != tool.CauseNoMatch {
+		t.Fatalf("IsError=%v Cause=%q, want a no_match failure: %q", stale.IsError, stale.Cause, stale.Content)
+	}
+	if !strings.Contains(stale.Content, "now reads") {
+		t.Errorf("content = %q, want the current text of the region", stale.Content)
+	}
+	if strings.Contains(stale.Content, "Read it again") {
+		t.Errorf("content = %q, want the text rather than an instruction to re-read", stale.Content)
+	}
+}

@@ -17,7 +17,17 @@ user: Gates ran on your changes and found this:
       internal/thread/thread.go:8:7: undefined: utf8
     
     Fix the cause before continuing.
-tool str_replace [internal/thread/thread.go +5/-1]: internal/thread/thread.go: +5 -1 lines (now lines 8-11)
+tool str_replace [internal/thread/thread.go +9/-3]: internal/thread/thread.go: +9 -3 lines (now lines 3-11)
+    gofmt and goimports also rewrote internal/thread/thread.go, so the file no longer holds the text you sent. It now reads:
+    3	import "unicode/utf8"
+    4	
+    5	func truncate(s string, limit int) string {
+    6		if len(s) <= limit {
+    7			return s
+    8		}
+    9	
+    10		for !utf8.RuneStart(s[limit]) {
+    11			limit--
 tool shell: Not run: this runs tests, which the harness runs for you, and they ran on your changes and failed:
     
     go-test build internal/thread

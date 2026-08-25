@@ -129,6 +129,12 @@ func (r Result) ForModel() ModelView {
 	return ModelView{Pass: false, Timestamp: r.Timestamp, Failures: r.Failures}
 }
 
+// WorktreeResource is the key a gate declares when it rewrites the files
+// the other gates read. RunGates runs its holders to completion before any
+// other gate starts, because a reader that sees a half-rewritten tree
+// reports a defect that was never in the code.
+const WorktreeResource = "worktree"
+
 // Gate is one deterministic check a Runner triggers on a change event.
 // Resources lists the keys this Gate reads or mutates exclusively; two
 // Gates that share a key never run concurrently in RunGates.

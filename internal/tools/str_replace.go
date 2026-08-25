@@ -14,6 +14,11 @@ import (
 )
 
 const (
+	editedFilePerm = 0o644
+
+	// A rewrite bigger than this is cheaper to read than to echo.
+	maxEchoedLines = 40
+
 	propEdits      = "edits"
 	propNewString  = "new_string"
 	propOldString  = "old_string"
@@ -331,7 +336,12 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 		s.scope.Wrote(edits[i].Path)
 	}
 
+	reformatted := formatEdited(groups, edits, before, changes)
+
 	parts := append([]string{describeChanges(changes, len(in.pairs()))}, dedupeNotes(batch.Notes)...)
+	if reformatted != "" {
+		parts = append(parts, reformatted)
+	}
 	if broke := brokenSyntax(groups, edits, before); broke != "" {
 		parts = append(parts, broke)
 	}
@@ -513,10 +523,7 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 		}
 
 		if stale := s.staleFiles(edits); stale != "" {
-			return tool.Fail(tool.CauseNoMatch,
-				"%v\n\nYou have edited %s since you last read it, so an anchor taken from that "+
-					"read no longer matches. Read it again before anchoring, or use declare to "+
-					"write the whole declaration by name.", err, stale)
+			return staleAnchor(edits, in.anchor(), err, stale)
 		}
 
 		if unread := s.unreadFiles(edits); unread != "" {
@@ -668,4 +675,125 @@ func describeChanges(changes []tool.Change, applied int) string {
 	}
 
 	return out
+}
+
+// formatEdited runs the formatter over each Go file this call changed and
+// names the files it rewrote, restating their change stats from the text
+// that is now on disk.
+//
+// The format gate would do this a moment later, out of the caller's sight,
+// and 15 of 18 anchor misses recorded here were against a file the same run
+// had already changed. Formatting inside the call closes that window: what
+// the result describes is what the next anchor will be matched against.
+func formatEdited(groups []pathGroup, edits []edit.FileEdit, before [][]byte, changes []tool.Change) string {
+	var touched []string
+
+	for i := range edits {
+		src, err := os.ReadFile(edits[i].Path)
+		if err != nil {
+			continue
+		}
+
+		out, changed := gofix.Format(edits[i].Path, src)
+		if !changed {
+			continue
+		}
+
+		//nolint:gosec // the path is one this call just edited through Scope
+		if err := os.WriteFile(edits[i].Path, out, editedFilePerm); err != nil {
+			continue
+		}
+
+		touched = append(touched, groups[i].Path)
+
+		if before[i] != nil {
+			added, removed, ranges := edit.Summarize(string(before[i]), string(out))
+			changes[i].Added, changes[i].Removed, changes[i].Ranges = added, removed, ranges
+		}
+	}
+
+	if len(touched) == 0 {
+		return ""
+	}
+
+	out := "gofmt and goimports also rewrote " + strings.Join(touched, ", ") +
+		", so the file no longer holds the text you sent."
+
+	if len(touched) == 1 && len(changes) == 1 && len(changes[0].Ranges) > 0 {
+		if body := regionAfter(edits[0].Path, changes[0].Ranges[0]); body != "" {
+			out += " It now reads:\n" + body
+		}
+	}
+
+	return out
+}
+
+// regionAfter is the changed span as it stands on disk, numbered the way
+// read numbers a file so the same anchor rules apply to it. Showing it
+// costs a few lines once; telling the caller to read the file again costs a
+// whole turn, which is what 6 of 18 recorded anchor misses went on.
+func regionAfter(path string, r tool.LineRange) string {
+	//nolint:gosec // the path is one this call just edited through Scope
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(src), "\n")
+
+	start := max(r.Start, 1)
+	end := min(r.End, len(lines))
+
+	if start > end || end-start >= maxEchoedLines {
+		return ""
+	}
+
+	return numbered(lines[start-1:end], start)
+}
+
+// staleAnchor answers an anchor drawn from a read this run has since
+// written over, with the text where the harness already has it.
+func staleAnchor(edits []edit.FileEdit, anchor string, err error, stale string) tool.Result {
+	if body := currentRegion(edits, anchor, err); body != "" {
+		return tool.Fail(tool.CauseNoMatch,
+			"%v\n\nYou have edited %s since you last read it, so an anchor taken from that "+
+				"read no longer matches. That part of the file now reads:\n%s", err, stale, body)
+	}
+
+	return tool.Fail(tool.CauseNoMatch,
+		"%v\n\nYou have edited %s since you last read it, so an anchor taken from that "+
+			"read no longer matches. Read it again before anchoring, or use declare to "+
+			"write the whole declaration by name.", err, stale)
+}
+
+// currentRegion is what the file now holds where the anchor came closest,
+// numbered the way read numbers a file. It answers a stale anchor with the
+// text rather than with an instruction to go and read it: the harness
+// already has the bytes, and the read it would ask for costs a whole turn.
+// Six of eighteen recorded anchor misses spent one, and the twelve that did
+// not guessed again instead.
+func currentRegion(edits []edit.FileEdit, anchor string, err error) string {
+	var notFound *edit.NotFoundError
+	if !errors.As(err, &notFound) || notFound.CandidateLine == 0 || len(edits) != 1 {
+		return ""
+	}
+
+	src, readErr := os.ReadFile(edits[0].Path)
+	if readErr != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(src), "\n")
+
+	start := notFound.CandidateLine
+	if start < 1 || start > len(lines) {
+		return ""
+	}
+
+	end := min(start+len(strings.Split(anchor, "\n"))-1, len(lines))
+	if end-start >= maxEchoedLines {
+		return ""
+	}
+
+	return numbered(lines[start-1:end], start)
 }

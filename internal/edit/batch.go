@@ -300,3 +300,31 @@ func (e *OverlapError) Error() string {
 	return fmt.Sprintf("edits %d and %d change overlapping text, so which one applies is "+
 		"undecidable; send them as one edit or as separate calls", e.First, e.Second)
 }
+
+// Summarize describes the whole difference between two versions of one
+// file, for a caller that reached the second by some route other than a
+// pair of strings. Formatting a file after an edit is that route: it can
+// move every line below an added import, so the span the pairs reported no
+// longer names where the file changed.
+func Summarize(before, after string) (int, int, []tool.LineRange) {
+	ranges := changedSpan(before, after)
+	if len(ranges) == 0 {
+		return 0, 0, nil
+	}
+
+	old := strings.Split(before, "\n")
+	fresh := strings.Split(after, "\n")
+
+	head := 0
+	for head < len(old) && head < len(fresh) && old[head] == fresh[head] {
+		head++
+	}
+
+	tail := 0
+	for tail < len(old)-head && tail < len(fresh)-head &&
+		old[len(old)-1-tail] == fresh[len(fresh)-1-tail] {
+		tail++
+	}
+
+	return len(fresh) - head - tail, len(old) - head - tail, ranges
+}

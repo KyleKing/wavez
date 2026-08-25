@@ -1,7 +1,6 @@
 package gate
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,18 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/tools/imports"
-
+	"github.com/kyleking/wavez/internal/gofix"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
 // ErrOutsideRepo reports a changed-file path that resolves outside the repo.
 var ErrOutsideRepo = errors.New("path escapes the repository root")
 
-const (
-	formattedFilePerm = 0o644
-	gofmtTabWidth     = 8
-)
+const formattedFilePerm = 0o644
 
 // FormatGate inserts the t.Parallel() call a changed test is missing, then
 // runs gofmt, goimports, and golangci-lint --fix when the binary is on
@@ -44,7 +39,7 @@ func (*FormatGate) Name() string { return "format" }
 // Resources reports the exclusive resource this gate holds while running:
 // it rewrites files in place, so it must not overlap another gate doing the
 // same.
-func (*FormatGate) Resources() []string { return []string{"worktree"} }
+func (*FormatGate) Resources() []string { return []string{WorktreeResource} }
 
 // Run formats and fixes every changed Go file.
 func (g *FormatGate) Run(ctx context.Context, rc RunContext) (Result, error) {
@@ -126,8 +121,6 @@ func containedPath(root, f string) (string, error) {
 // the pre-pass has no PATH dependency and a released binary formats the same
 // way a developer's checkout does.
 func (g *FormatGate) formatFiles(files []string) error {
-	opts := &imports.Options{Comments: true, TabIndent: true, TabWidth: gofmtTabWidth, FormatOnly: false}
-
 	root, err := filepath.Abs(g.repoRoot)
 	if err != nil {
 		return fmt.Errorf("resolving repo root: %w", err)
@@ -145,13 +138,8 @@ func (g *FormatGate) formatFiles(files []string) error {
 			return fmt.Errorf("reading %s: %w", f, err)
 		}
 
-		out, err := imports.Process(path, src, opts)
-		if err != nil {
-			// A file that does not parse is the build gate's report to make,
-			// not a reason to fail formatting.
-			continue
-		}
-		if bytes.Equal(out, src) {
+		out, changed := gofix.Format(path, src)
+		if !changed {
 			continue
 		}
 		//nolint:gosec // containedPath already refused anything outside repoRoot
