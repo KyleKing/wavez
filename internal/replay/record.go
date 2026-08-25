@@ -49,6 +49,10 @@ func (r Run) SameSetup(other Run) bool {
 		(len(r.Served) == 0 || len(other.Served) == 0 || maps.Equal(r.Served, other.Served))
 }
 
+// StopComplete is the stop reason of a run the loop ended on its own terms,
+// as opposed to a deadline, a stall, or an error.
+const StopComplete = "complete"
+
 // Record is one run of one task: what it was asked to do, how it ended, and
 // what it spent. Stats is the same summary -stats prints, so a record and a
 // live thread are read the same way.
@@ -86,7 +90,7 @@ func NewRecord(run Run, started time.Time, stop string, stats bench.Stats, check
 		Run:      run,
 		Started:  started.UTC().Format(time.RFC3339),
 		Stop:     stop,
-		Complete: stop == "complete",
+		Complete: stop == StopComplete,
 		Stats:    stats,
 		Checks:   checks,
 	}

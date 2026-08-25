@@ -47,12 +47,13 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return err
 	}
 
-	// A run whose checks did not all pass is the one worth looking at, and
-	// the workspace is the only place its tree survives: the thread log says
-	// what the model asked for, never what the file ended up holding. One h6
-	// run reported every check passing while its own last gate feedback said
-	// the build was broken, and the tree that would have settled it was
-	// already deleted.
+	// A run that did not end clean is the one worth looking at, and the
+	// workspace is the only place its tree survives: the thread log says what
+	// the model asked for, never what the file ended up holding. One h6 run
+	// reported every check passing while its own last gate feedback said the
+	// build was broken, and the tree that would have settled it was already
+	// deleted. Passing every check is not enough on its own, since a run that
+	// hit the deadline mid-edit passes the checks its edits already satisfy.
 	keep := false
 
 	defer func() {
@@ -91,8 +92,9 @@ func replayRun(ctx context.Context, root string, opt options) error {
 
 	run.Served = info.Served
 
+	stop := stopReason(string(info.Outcome.Stop), runErr)
 	checks := replay.Verify(ctx, task, dir, info.Text)
-	keep = !replay.Passed(checks)
+	keep = !replay.Passed(checks) || stop != replay.StopComplete
 
 	if err := keepLog(root, dir, string(info.ID)); err != nil {
 		return err
@@ -103,7 +105,7 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return fmt.Errorf("replay: %w", err)
 	}
 
-	rec := replay.NewRecord(run, started, stopReason(string(info.Outcome.Stop), runErr), stats, checks)
+	rec := replay.NewRecord(run, started, stop, stats, checks)
 	if err := replay.Append(filepath.Join(root, replay.DefaultRecordsPath), rec); err != nil {
 		return err //nolint:wrapcheck // Append already names the file and the failure
 	}
