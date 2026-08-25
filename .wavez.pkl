@@ -14,28 +14,39 @@ astGrepRules = new Listing {
 //   security add-generic-password -s wavez-openrouter -a "$USER" -w '<key>' -U
 hostedKeyCommand = "security find-generic-password -w -s wavez-openrouter"
 
-// The fast tier is the same model the loopback llama-server ran, served
-// over the network instead. Decode was the whole wall clock of a replay
-// lane (2,384 output tokens at 25.4 tok/s over 94 seconds) and its rate
-// moved 16x with what else the laptop was doing, which made a lane measure
-// the machine. Keeping the model identical means only the rate changes, so
-// the fast-tier findings recorded against llama-server stay comparable.
+// The fast tier runs on this laptop while the laptop can keep up and moves
+// to OpenRouter while it cannot. Decode was the whole wall clock of a replay
+// lane (2,384 output tokens at 25.4 tok/s over 94 seconds) and its rate moved
+// 16x with what else the machine was doing, which made a lane measure the
+// machine rather than the tree. Serving it hosted instead did not fix that:
+// OpenRouter's shared pool answers this model with a 429 partway through a
+// run, and only Alibaba serves it, so there is no provider to route to.
 //
-// What moving costs is the grammar: llama-server compiled one from each
+// What moving costs is the grammar: llama-server compiles one from each
 // tool's JSON schema, and the `oneOf` fix was measured through it. A lane
-// asking about a grammar-constrained small model runs against the loopback
-// server, and a replay record's `served` says which one answered.
+// asking about a grammar-constrained small model runs with the machine idle,
+// and a replay record's `served` names both endpoints because it cannot say
+// which answered.
 //
-// Reasoning is off here because the fast tier only calls tools. Four hosted
-// lanes against four local ones measured 930 output tokens a turn with it
-// against 190 without, and one turn spent 8,064 bytes of trace on 2,287
-// output tokens, none of which reaches a tool or the thread's history.
-fast = new { model = "qwen/qwen3-8b"; baseURL = "https://openrouter.ai/api/v1"; thinking = false }
+// Reasoning is off on both because the fast tier only calls tools. Four
+// hosted lanes against four local ones measured 930 output tokens a turn with
+// it against 190 without, and a probe puts the same reply at 11 completion
+// tokens against 79.
+fast = new {
+  model = "qwen3:8b"
+  thinking = false
+  overflow = new {
+    model = "qwen/qwen3-8b"
+    baseURL = "https://openrouter.ai/api/v1"
+    thinking = false
+  }
+}
 
-// Served window assumed for the fast tier. 32k is under what every
-// OpenRouter provider of this model offers, so a turn routed on size is
-// routed against a window that is really there.
-contextWindow = 32768
+// Served window for the fast tier, which is also what a turn is routed
+// against. It has to be the smaller of the two endpoints: a turn sized for
+// OpenRouter's 128k would not fit the llama-server this laptop starts, and
+// the pick between them happens after the routing decision.
+contextWindow = 8192
 
 // Both network tiers run the coder-tuned Qwen, the same family the local
 // fast tier serves. It renders about one call in eight as `<function=…>`
