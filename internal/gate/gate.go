@@ -68,6 +68,12 @@ type Result struct {
 	// carrying only Advisories still passes.
 	Advisories []TrimmedFailure
 	Duration   time.Duration
+	// Waited is how long the gate sat for its resource keys before it began.
+	// It is separate from Duration because a round is slow for two
+	// different reasons and only one of them is the gate's own work: the
+	// coverage map holds `go-test` shared for minutes at a time, and a log
+	// that records work alone cannot say whether anything queued behind it.
+	Waited time.Duration
 	// Examined is how many units this Gate actually checked: files
 	// formatted, files scanned, tests run, modules built. A gate that
 	// examined nothing has abstained rather than passed, and Pass alone

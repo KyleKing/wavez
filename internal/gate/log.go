@@ -19,8 +19,11 @@ type LogEntry struct {
 	// or a surviving mutant is auditable after the fact.
 	Advisories []TrimmedFailure `json:"advisories,omitempty"`
 	Duration   time.Duration    `json:"duration"`
-	Examined   int              `json:"examined"`
-	Pass       bool             `json:"pass"`
+	// Waited is the time the gate spent holding for its resource keys,
+	// which Duration excludes.
+	Waited   time.Duration `json:"waited"`
+	Examined int           `json:"examined"`
+	Pass     bool          `json:"pass"`
 }
 
 const logFilePerm = 0o600

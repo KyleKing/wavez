@@ -127,8 +127,8 @@ func assertVerifyOutcome(t *testing.T, log *gate.Log, feedback string, ok bool, 
 	}
 
 	ranGates := make([]string, len(entries))
-	for i, e := range entries {
-		ranGates[i] = e.Gate
+	for i := range entries {
+		ranGates[i] = entries[i].Gate
 	}
 
 	if !reflect.DeepEqual(ranGates, tt.wantRanGates) {

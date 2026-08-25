@@ -42,6 +42,7 @@ func BuildRunFunc(
 				Gate:       r.Gate,
 				Level:      r.Level,
 				Duration:   r.Duration,
+				Waited:     r.Waited,
 				Reason:     r.Reason,
 				Advisories: r.Advisories,
 				Examined:   r.Examined,

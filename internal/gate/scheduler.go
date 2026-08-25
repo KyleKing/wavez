@@ -144,10 +144,13 @@ func runWave(
 		go func(i int) {
 			defer wg.Done()
 
+			queued := clock.Now()
 			release := res.Lock(gates[i].Resources())
 			defer release()
 
-			results[i] = runOne(ctx, clock, gates[i], rc)
+			result := runOne(ctx, clock, gates[i], rc)
+			result.Waited = result.Timestamp.Sub(queued)
+			results[i] = result
 		}(i)
 	}
 

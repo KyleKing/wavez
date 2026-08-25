@@ -128,6 +128,12 @@ func TestRunGatesResourceScheduling(t *testing.T) {
 			if got := maxSeen.high(); got != tt.wantMaxSeen {
 				t.Errorf("max concurrent gates = %d, want %d", got, tt.wantMaxSeen)
 			}
+
+			// A serialized round is slow because something queued, and the
+			// log recorded only the work each gate did once it started.
+			if tt.wantMaxSeen == 1 && results[0].Waited == 0 && results[1].Waited == 0 {
+				t.Error("both gates recorded no wait, so a round that serialized reads as one that did not")
+			}
 		})
 	}
 }
