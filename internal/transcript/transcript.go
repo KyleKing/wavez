@@ -98,15 +98,15 @@ func (*scriptedGate) FalseAlarms() []string { return nil }
 // asserts what the model saw rather than where it ran.
 func (*scriptedGate) Stuck() (string, bool) { return "", false }
 
-func (g *scriptedGate) TakeFeedback() string {
+func (g *scriptedGate) TakeFeedback() (string, bool) {
 	if g.next >= len(g.feedback) {
-		return ""
+		return "", false
 	}
 
 	out := g.feedback[g.next]
 	g.next++
 
-	return out
+	return out, strings.Contains(out, "found this")
 }
 
 // Replay runs f against the real loop and tool surface under root, and

@@ -30,7 +30,11 @@ func TestSummarizeCountsWhatARunSpent(t *testing.T) {
 		edit("a.go"),
 		read("a.go", strings.Repeat("x", 500)),
 		turn("deep", 2000, 60, 0),
+		// A round is a delivery to the run. A gate event with no `delivered`
+		// detail is an escalation or a verify round, which is a fact about
+		// the harness rather than something the run was handed.
 		{Kind: event.KindGate, Detail: map[string]any{"round": 1, "pass": false}},
+		{Kind: event.KindGate, Detail: map[string]any{"delivered": true, "pass": false}},
 		{Kind: event.KindReview, Detail: map[string]any{"round": 1, "result": "objection"}},
 		{Kind: event.KindUsage, Detail: map[string]any{"tokens_saved": 128}},
 	})

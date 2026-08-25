@@ -284,17 +284,18 @@ func failureReport(results []gate.Result) string {
 }
 
 // TakeFeedback returns what the gates found since the last call and clears
-// it, empty when no gate ran at all. A pass is one line naming the gates
-// that examined the change, which is what keeps a run from re-running them
-// through the shell; a failure carries the trimmed frames as well.
-func (g *ChangeGate) TakeFeedback() string {
+// it, empty when no gate ran at all, along with whether what it returns
+// reports a failure. A pass is one line naming the gates that examined the
+// change, which is what keeps a run from re-running them through the shell;
+// a failure carries the trimmed frames as well.
+func (g *ChangeGate) TakeFeedback() (string, bool) {
 	g.mu.Lock()
 	results := g.pending
 	g.pending = nil
 	g.mu.Unlock()
 
 	if len(results) == 0 {
-		return ""
+		return "", false
 	}
 
 	var passed []string
@@ -313,11 +314,11 @@ func (g *ChangeGate) TakeFeedback() string {
 
 	if len(failed) == 0 {
 		if len(passed) == 0 {
-			return ""
+			return "", false
 		}
 
 		return "Gates ran on your changes and passed: " + strings.Join(dedupe(passed), ", ") +
-			". Do not re-run these yourself."
+			". Do not re-run these yourself.", false
 	}
 
 	b.WriteString("Gates ran on your changes and found this:\n")
@@ -326,9 +327,31 @@ func (g *ChangeGate) TakeFeedback() string {
 		b.WriteString("\n" + describeFailure(failed[i]))
 	}
 
-	b.WriteString("\nFix the cause before continuing.")
+	if attributed(failed) {
+		b.WriteString("\nFix the cause before continuing.")
+	} else {
+		b.WriteString("\nNone of this names a file this run changed. Decide whether the change " +
+			"caused it before treating it as yours, and carry on with the task if it did not.")
+	}
 
-	return b.String()
+	return b.String(), true
+}
+
+// attributed reports whether any failure named a line in a file the run
+// changed. A batch where none did is usually a failure the run inherited,
+// and telling the model to fix the cause of one sends it hunting: one lane
+// was handed a cleanup race in a package it had never opened, spent every
+// remaining turn on it, and died stagnant with its own edit already correct.
+func attributed(failed []gate.Result) bool {
+	for i := range failed {
+		for _, f := range failed[i].Failures {
+			if len(f.Frames) > 0 {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // dedupe keeps the first occurrence of each name, since one turn's edits can

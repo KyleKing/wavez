@@ -87,6 +87,14 @@ func (erroringTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
 	return tool.Fail(tool.CauseIO, "boom"), nil
 }
 
+type refusingTool struct {
+	echoTool
+}
+
+func (refusingTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
+	return tool.Fail(tool.CauseRefused, "not available here; use echo"), nil
+}
+
 func TestRun_DeadlineBoundTrips(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +237,23 @@ func TestRun_StagnationBoundTrips(t *testing.T) {
 			wantStagnant: 3,
 		},
 		{
+			// A refusal names the tool to use instead, so counting it
+			// stops a run for having been told something. Two lanes
+			// reached for a refused shell command and had one attempt
+			// left before the bound.
+			name: "a refusal between two errors does not trip",
+			script: []fake.Turn{
+				{ToolCalls: []llm.ToolCall{failCall("1")}, StopReason: llm.StopToolUse},
+				{
+					ToolCalls:  []llm.ToolCall{{ID: "2", Name: "refuse", Input: json.RawMessage(`{"a":1}`)}},
+					StopReason: llm.StopToolUse,
+				},
+				{ToolCalls: []llm.ToolCall{failCall("3")}, StopReason: llm.StopToolUse},
+				{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+			},
+			wantStop: agent.StopComplete,
+		},
+		{
 			name: "two errors then a success does not trip",
 			script: []fake.Turn{
 				{ToolCalls: []llm.ToolCall{failCall("1")}, StopReason: llm.StopToolUse},
@@ -251,7 +276,11 @@ func TestRun_StagnationBoundTrips(t *testing.T) {
 			hosted := fake.New("hosted")
 
 			th := newThread(t)
-			reg := tool.NewRegistry(erroringTool{echoTool: echoTool{name: "fail"}}, echoTool{name: "echo"})
+			reg := tool.NewRegistry(
+				erroringTool{echoTool: echoTool{name: "fail"}},
+				refusingTool{echoTool: echoTool{name: "refuse"}},
+				echoTool{name: "echo"},
+			)
 			loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(), agent.WithMaxStagnantErrors(3))
 
 			out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})

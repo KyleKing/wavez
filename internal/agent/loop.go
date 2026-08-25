@@ -421,7 +421,7 @@ type ChangeGate interface {
 	// this one describes this one.
 	Begin()
 	Enqueue(c tool.Change)
-	TakeFeedback() string
+	TakeFeedback() (string, bool)
 	// FalseAlarms returns the gates that have passed over the same change
 	// set they just failed over, and clears them. A retraction is the
 	// harness reporting a defect that was never in the code, so it is
@@ -1126,7 +1126,7 @@ func (r *run) runTools(ctx context.Context, calls []llm.ToolCall) (bool, Outcome
 		r.outcome.ToolCalls++
 		r.turnToolCalls++
 
-		if done, out, err := r.checkStagnation(ctx, call.Name, result.IsError); done {
+		if done, out, err := r.checkStagnation(ctx, call.Name, result.IsError, result.Cause); done {
 			return true, out, err
 		}
 	}
@@ -1313,7 +1313,7 @@ func (r *run) handleMalformedCall(ctx context.Context, call llm.ToolCall) (bool,
 	r.outcome.ToolCalls++
 	r.turnToolCalls++
 
-	if done, out, err := r.checkStagnation(ctx, call.Name, true); done {
+	if done, out, err := r.checkStagnation(ctx, call.Name, true, tool.CauseMalformed); done {
 		return true, out, err
 	}
 
@@ -1344,7 +1344,7 @@ func (r *run) handleRepeatedCall(ctx context.Context, call llm.ToolCall) (bool, 
 	r.outcome.ToolCalls++
 	r.turnToolCalls++
 
-	if done, out, err := r.checkStagnation(ctx, call.Name, true); done {
+	if done, out, err := r.checkStagnation(ctx, call.Name, true, tool.CauseBadInput); done {
 		return true, out, err
 	}
 
@@ -1356,10 +1356,23 @@ func (r *run) handleRepeatedCall(ctx context.Context, call llm.ToolCall) (bool, 
 // erred regardless of whether their inputs matched, stops the run. Any
 // non-error result resets the count. This is independent of the exact-repeat
 // detection in runTools, which keeps its own escalate-then-stop behavior.
-func (r *run) checkStagnation(ctx context.Context, toolName string, isError bool) (bool, Outcome, error) {
+//
+// A refusal neither counts nor resets. It is the safeguard declining by
+// design and naming what to do instead, so spending a third of the bound on
+// it stops a run for having been told something: two lanes reached for
+// `find`, were pointed at `search` and `list`, and had one attempt left
+// before the bound. An exact repeat of a refused call is still caught, by
+// the repeat detection in runTools.
+func (r *run) checkStagnation(
+	ctx context.Context, toolName string, isError bool, cause tool.Cause,
+) (bool, Outcome, error) {
 	if !isError {
 		r.consecutiveErrors = 0
 
+		return false, Outcome{}, nil
+	}
+
+	if cause == tool.CauseRefused {
 		return false, Outcome{}, nil
 	}
 
@@ -1473,9 +1486,21 @@ func (r *run) collectGateFeedback(ctx context.Context) error {
 		return err
 	}
 
-	feedback := r.loop.options.ChangeGate.TakeFeedback()
+	feedback, failed := r.loop.options.ChangeGate.TakeFeedback()
 	if feedback == "" {
 		return nil
+	}
+
+	// The delivery is logged rather than the run: what a gate found and
+	// never told the model is not a gate failure the run had to answer, and
+	// counting only escalations under that name made the corpus read as
+	// though no run was ever handed one.
+	if _, err := r.thread.Log().Append(event.Event{
+		Kind:   event.KindGate,
+		Text:   deliveredText(failed),
+		Detail: map[string]any{detailPass: !failed, "delivered": true},
+	}); err != nil {
+		return fmt.Errorf("logging the gate feedback: %w", err)
 	}
 
 	if err := r.thread.AppendUser(ctx, feedback); err != nil {
@@ -1661,6 +1686,16 @@ func (r *run) verifyAbandoned(ctx context.Context) {
 	}); err != nil {
 		return
 	}
+}
+
+// deliveredText names what the run was handed, which is the event the
+// corpus counts as a gate round.
+func deliveredText(failed bool) string {
+	if failed {
+		return "gates reported a failure to the run"
+	}
+
+	return "gates reported a pass to the run"
 }
 
 func gateText(ok bool) string {

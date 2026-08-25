@@ -255,10 +255,21 @@ func shellCommand(detail map[string]any) string {
 	return in.Command
 }
 
+// countGate tallies what the gates handed the run. A round is one delivery
+// and a failure is a delivery the run had to answer, so the two are the
+// same population and their ratio means what it reads as. Every other gate
+// event (an escalation, a verify round, an abandoned change set) is a fact
+// about the harness rather than something the run was told, and counting
+// those as rounds made a corpus where no run was ever handed a failure
+// report a failure rate.
 func (s *Stats) countGate(ev *event.Event) {
 	if boolField(ev.Detail, "false_alarm") {
 		s.GateFalseAlarms++
 
+		return
+	}
+
+	if !boolField(ev.Detail, "delivered") {
 		return
 	}
 

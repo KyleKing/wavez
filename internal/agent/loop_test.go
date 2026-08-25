@@ -563,10 +563,10 @@ func TestRun_OnlyLocalTurnsTakeASlot(t *testing.T) {
 // is the state a real one reaches after failing the same way across edits.
 type stuckGate struct{ asked int }
 
-func (*stuckGate) Begin()                {}
-func (*stuckGate) Enqueue(tool.Change)   {}
-func (*stuckGate) TakeFeedback() string  { return "" }
-func (*stuckGate) FalseAlarms() []string { return nil }
+func (*stuckGate) Begin()                       {}
+func (*stuckGate) Enqueue(tool.Change)          {}
+func (*stuckGate) TakeFeedback() (string, bool) { return "", false }
+func (*stuckGate) FalseAlarms() []string        { return nil }
 
 func (g *stuckGate) Stuck() (string, bool) {
 	g.asked++

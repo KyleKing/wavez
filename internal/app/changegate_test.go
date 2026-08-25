@@ -38,7 +38,7 @@ func TestChangeGateFeedback(t *testing.T) {
 			results: []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{{
 				Test: "TestTTL", Package: "lease", Frames: []string{"lease.go:12: want 30s"},
 			}}}},
-			want: []string{"go-test TestTTL", "lease.go:12: want 30s"},
+			want: []string{"go-test TestTTL", "lease.go:12: want 30s", "Fix the cause"},
 		},
 		{
 			name: "a build failure has no test name and is named by package",
@@ -53,7 +53,10 @@ func TestChangeGateFeedback(t *testing.T) {
 				Package: "internal/guard",
 				Context: []string{"package internal/guard is not in std (/usr/local/go/src/internal/guard)"},
 			}}}},
-			want: []string{"go-test build internal/guard", "is not in std"},
+			want: []string{
+				"go-test build internal/guard", "is not in std",
+				"Decide whether the change caused it",
+			},
 		},
 		{
 			name:    "a failure the gate could not describe still names the gate",
@@ -74,7 +77,7 @@ func TestChangeGateFeedback(t *testing.T) {
 			g := app.NewChangeGate(nil)
 			g.Collect(gate.RunResult{Gates: tt.results})
 
-			got := g.TakeFeedback()
+			got, _ := g.TakeFeedback()
 
 			if tt.wantNone {
 				if got != "" {
@@ -90,7 +93,7 @@ func TestChangeGateFeedback(t *testing.T) {
 				}
 			}
 
-			if g.TakeFeedback() != "" {
+			if again, _ := g.TakeFeedback(); again != "" {
 				t.Error("TakeFeedback() did not clear; the same failure would repeat every turn")
 			}
 		})
