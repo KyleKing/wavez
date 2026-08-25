@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 )
@@ -97,24 +98,60 @@ func RunGates(ctx context.Context, clock Clock, res *ResourceSet, gates []Gate, 
 
 	results := make([]Result, len(gates))
 
-	var wg sync.WaitGroup
+	// A gate that rewrites the worktree runs before the gates that read
+	// it, never beside them. Resource keys alone cannot express this: the
+	// writer excludes only its own key, so the formatter was rewriting
+	// files while lint, go-test, and the language server were reading
+	// them, and every retraction recorded over an unchanged tree came from
+	// one of those three.
+	writers, readers := partitionByWorktree(gates)
+
+	runWave(ctx, clock, res, gates, writers, rc, results)
+	runWave(ctx, clock, res, gates, readers, rc, results)
+
+	return results
+}
+
+// partitionByWorktree splits gate indices into those that mutate the
+// worktree and those that only read it.
+func partitionByWorktree(gates []Gate) ([]int, []int) {
+	var writers, readers []int
 
 	for i, g := range gates {
+		if slices.Contains(g.Resources(), WorktreeResource) {
+			writers = append(writers, i)
+
+			continue
+		}
+
+		readers = append(readers, i)
+	}
+
+	return writers, readers
+}
+
+// runWave runs one set of gates concurrently, each still holding its own
+// resource keys against the others in the same wave.
+func runWave(
+	ctx context.Context, clock Clock, res *ResourceSet,
+	gates []Gate, idx []int, rc RunContext, results []Result,
+) {
+	var wg sync.WaitGroup
+
+	for _, i := range idx {
 		wg.Add(1)
 
-		go func(i int, g Gate) {
+		go func(i int) {
 			defer wg.Done()
 
-			release := res.Lock(g.Resources())
+			release := res.Lock(gates[i].Resources())
 			defer release()
 
-			results[i] = runOne(ctx, clock, g, rc)
-		}(i, g)
+			results[i] = runOne(ctx, clock, gates[i], rc)
+		}(i)
 	}
 
 	wg.Wait()
-
-	return results
 }
 
 func runOne(ctx context.Context, clock Clock, g Gate, rc RunContext) Result {

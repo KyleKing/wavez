@@ -85,8 +85,18 @@ func TestRunGatesResourceScheduling(t *testing.T) {
 		},
 		{
 			name:       "independent resources run in parallel",
-			resourcesA: []string{"go-test"}, resourcesB: []string{"worktree"},
+			resourcesA: []string{"go-test"}, resourcesB: []string{"lsp"},
 			wantMaxSeen: 2,
+		},
+		{
+			// The formatter rewrites the files lint, go-test, and the
+			// language server read. Letting it run beside them is what
+			// produced every gate retraction recorded over an unchanged
+			// tree, so holding the worktree key excludes every reader
+			// rather than only another writer.
+			name:       "a worktree writer never runs beside a reader",
+			resourcesA: []string{"worktree"}, resourcesB: []string{"go-test"},
+			wantMaxSeen: 1,
 		},
 	}
 
