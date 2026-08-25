@@ -2836,3 +2836,77 @@ routing, or the loopback llama-server, and it is a decision rather than a
 measurement. Two lanes on the fixed set finished 3 of 3 in 9 and 10 turns
 with three fast turns each, which is the best `e2` has recorded and is not
 attributable while the tier is dropping requests.
+
+## 2026-08-25 — the fast tier comes home, and two tools get decided
+
+**The fast tier is served from this laptop and moves to OpenRouter per
+turn.** Both endpoints were wrong on their own: local decode swung 12x with
+what else the machine was doing (2.1 output tokens per second against a
+median of 25), and OpenRouter's shared pool answers `qwen/qwen3-8b` with a
+429 partway through a run, with only Alibaba serving that model so there is
+nothing to route to. A `Tier` now names an `overflow` endpoint and a load per
+core at which turns go there, read from `vm.loadavg` divided by
+`hw.logicalcpu`. The pick is per turn, because what makes a local turn slow
+is a gate run that starts mid-thread. Proved live in both directions with the
+loopback port pointed at nothing: at a threshold of 0 three fast turns
+completed, and at 99 the same turn dialed the dead port and escalated.
+
+**Every hosted request denies data collection.** `provider:
+{data_collection: "deny"}` restricts OpenRouter routing to providers that do
+not store prompts, which matters because a coding agent sends a private
+repository's contents on every turn. It is unconditional rather than
+configurable. A probe settles that it is enforced rather than advisory: a
+free endpoint that answers without it comes back `No endpoints found matching
+your data policy (Free model training)` with it.
+
+**Each backend now gets its own spelling instead of the union.** One client
+still speaks the shared 95% (SSE framing, tool-call assembly, error mapping)
+and a `Dialect` decides the four keys that differ: `chat_template_kwargs` and
+`repeat_penalty` for llama.cpp, `reasoning` and `provider` for OpenRouter.
+Sending every key to both worked, because each drops what it does not know,
+and it hid which knob a tier actually had for four lanes.
+
+**The tier move was invisible and now is not.** A provider failure escalated
+a run and logged nothing, so three lanes that ran their whole task a tier up
+read afterwards as routing. One line now names the tier, the model, and the
+provider's own error, and the 429 above was read straight off it. Same shape
+as the stuck counter: a signal that clears its own evidence reads as a
+condition that never held.
+
+**The stuck signal fires.** Two of four sequential `e2` lanes reached it, both
+on the `lint` gate, both escalating, and both were the lanes that plateaued
+(27 turns to a deadline and 20 to a failed verification, against 9 and 10 for
+the two that did not reach it). That closes what the previous entry left open.
+
+**Two more `str_replace` causes, both found by reading a lane rather than the
+counts.** The batch shape's description said an edit may name its own path
+and the schema did not declare one, so the capability existed in Go, was
+promised in prose, and could not be emitted under the grammar a local turn
+decodes with. And the near-match report pointed at whichever alignment scored
+highest, so a source that had gained a line the anchor lacked scored higher
+shifted by one and the report blamed the anchor's first line, the one line
+that was right. A lane read that and re-sent the same anchor five times. The
+report now prefers the alignment whose first line matches.
+
+**`vcs` is out.** At 226 runs it was called 4 times while the corpus made 21
+git and jj shell calls, 10 of them the `status`/`diff`/`log` it existed to
+displace. The reason it lost is that reaching past it worked: `Shell` answers
+a read-only version-control command from what the run recorded as it wrote,
+before the guard classifies anything, so the tool was never what answered
+those questions. 102 preamble tokens back and the ceiling drops to 2,450.
+The refusal of a version-control write now names `undo`.
+
+**`undo` cannot be decided by a task, and that is the finding.** `h12` asks
+for a method and then for `memory.go` to end at the bytes it started with.
+Three lanes, zero `undo` calls, because the shortest path through the task is
+to never edit `memory.go` at all and one lane took it and passed 4 of 4 in 8
+turns. A replay checks the end state, so no prompt can require an
+intermediate one. Only a run that has already broken something gets
+cornered, which is not something a benchmark can ask for, so the count stays
+at zero whatever tasks are added and the question is whether 57 tokens of
+insurance is worth it.
+
+**What is not settled.** Whether reasoning off improves a run rather than a
+request, which needs lanes that hold the fast tier for a whole task and now
+can have them. Whether the two `str_replace` fixes move turns, which is the
+next set of lanes. The harness's 34% of turns, unchanged at 1,450 turns.
