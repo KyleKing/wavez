@@ -864,22 +864,32 @@ func TestStrReplace_ReplaceAllReachesIdenticalSites(t *testing.T) {
 		t.Errorf("content = %q, want the refusal to name the way through", refused.Content)
 	}
 
-	args["replace_all"] = true
+	// A lane that read that sentence sent the flag as the string "true",
+	// was refused for the type, and never sent the call again.
+	for _, flag := range []any{true, "true"} {
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
 
-	result, err := s.Run(context.Background(), mustJSON(t, args))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if result.IsError {
-		t.Fatalf("IsError = true: %q", result.Content)
-	}
+		args["replace_all"] = flag
 
-	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if n := strings.Count(string(after), "bench.ReadLog(path)"); n != 2 {
-		t.Errorf("file = %q, want both call sites renamed", string(after))
+		result, err := s.Run(context.Background(), mustJSON(t, args))
+		if err != nil {
+			t.Fatalf("Run with replace_all %#v: %v", flag, err)
+		}
+
+		if result.IsError {
+			t.Fatalf("replace_all %#v refused: %q", flag, result.Content)
+		}
+
+		after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+
+		if n := strings.Count(string(after), "bench.ReadLog(path)"); n != 2 {
+			t.Errorf("replace_all %#v left %q, want both call sites renamed", flag, string(after))
+		}
 	}
 }
 

@@ -27,6 +27,16 @@ func decodeInput(raw json.RawMessage, into any) error {
 	}
 
 	err = json.Unmarshal(raw, into)
+	for tries := 0; err != nil && tries < maxBoolCoercions; tries++ {
+		coerced, ok := coerceQuotedBool(raw, err)
+		if !ok {
+			break
+		}
+
+		raw = coerced
+		err = json.Unmarshal(raw, into)
+	}
+
 	if err == nil {
 		return nil
 	}
@@ -39,6 +49,50 @@ func decodeInput(raw json.RawMessage, into any) error {
 	}
 
 	return err //nolint:wrapcheck // a syntax error already reads as one
+}
+
+// maxBoolCoercions bounds the retry loop at more flags than any tool's input
+// carries, so a decoder that keeps failing stops rather than spinning.
+const maxBoolCoercions = 8
+
+// coerceQuotedBool rewrites one field a caller quoted a boolean into, where
+// the decoder has just said that field wants a bool and got a string.
+// Measured on `h3`: a lane told to send replace_all: true sent "true", was
+// refused, and never sent the call again. The type error names the field, so
+// nothing else in the object is touched and a string field holding the word
+// "true" is left alone.
+func coerceQuotedBool(raw json.RawMessage, err error) (json.RawMessage, bool) {
+	var typeErr *json.UnmarshalTypeError
+	if !errors.As(err, &typeErr) || typeErr.Field == "" ||
+		typeErr.Type.Kind() != reflect.Bool || typeErr.Value != "string" {
+		return nil, false
+	}
+
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil, false
+	}
+
+	var quoted string
+	if json.Unmarshal(fields[typeErr.Field], &quoted) != nil {
+		return nil, false
+	}
+
+	switch strings.ToLower(quoted) {
+	case "true":
+		fields[typeErr.Field] = json.RawMessage("true")
+	case "false":
+		fields[typeErr.Field] = json.RawMessage("false")
+	default:
+		return nil, false
+	}
+
+	out, marshalErr := json.Marshal(fields)
+	if marshalErr != nil {
+		return nil, false
+	}
+
+	return out, true
 }
 
 // jsonShape names a Go type the way the JSON sent for it looks, since that
