@@ -41,8 +41,15 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 	if !strings.Contains(a.SystemPrefix, "The store owns SQLite. Gates trigger on change events.") {
 		t.Errorf("SystemPrefix is missing the listed Architecture section: %q", a.SystemPrefix)
 	}
-	if got, want := len(a.Tools.Names()), 15; got != want {
+	if got, want := len(a.Tools.Names()), 14; got != want {
 		t.Errorf("len(Tools.Names()) = %d, want %d: %v", got, want, a.Tools.Names())
+	}
+
+	// This case supplies no Asker, so question must be absent rather than
+	// present and failing every call. buildRegistry drops a nil Asker, so a
+	// non-nil default here would have offered the tool past that check.
+	if _, err := a.Tools.Get("question"); err == nil {
+		t.Error("Tools.Get(\"question\") succeeded with no Asker wired")
 	}
 
 	// A plan thread must be unable to reach an editing tool, not merely be
@@ -54,7 +61,13 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 		}
 	}
 
+	// ReadOnlyTools names what plan mode keeps of the surface, which is not
+	// the same as what the run offers: question is absent here for want of
+	// an Asker.
 	for _, name := range app.ReadOnlyTools {
+		if _, err := a.Tools.Get(name); err != nil {
+			continue
+		}
 		if _, err := a.PlanTools.Get(name); err != nil {
 			t.Errorf("PlanTools.Get(%q) = %v, want the tool", name, err)
 		}

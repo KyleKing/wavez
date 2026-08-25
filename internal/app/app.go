@@ -275,7 +275,7 @@ func WithScheduler(s *sched.Scheduler) Option {
 // owns a codeintel store, a gate log, and a sandbox session dir, all
 // released together by Close.
 func New(ctx context.Context, root string, cfg config.Config, permGate permission.Gate, opts ...Option) (*App, error) {
-	options := Options{Asker: refuseAsker{}}
+	var options Options
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -997,15 +997,4 @@ func (a *App) Close() error {
 	}
 
 	return errors.Join(errs...)
-}
-
-// refuseAsker is the Asker a caller gets when it supplies none: a headless
-// run with no explicit answer policy should fail closed rather than block
-// forever on stdin.
-type refuseAsker struct{}
-
-var errNoAsker = errors.New("app: no Asker configured for the question tool")
-
-func (refuseAsker) Ask(context.Context, string) (string, error) {
-	return "", errNoAsker
 }
