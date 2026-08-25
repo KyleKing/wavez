@@ -37,15 +37,17 @@ const (
 	// DefaultMaxVerifyRounds is the default bound on verification rounds
 	// once the model reports it is done.
 	DefaultMaxVerifyRounds = 2
-	// DefaultMaxWallClock bounds one Run's total wall-clock time. 180s is
-	// dogfood.md's worst passing run (84s) plus roughly 2x headroom; it is a
-	// starting number to replace once the benchmark harness has a real
-	// distribution, not a tuned figure.
-	DefaultMaxWallClock = 180 * time.Second
+	// DefaultMaxWallClock bounds one Run's total wall-clock time. Across the
+	// replay corpus, runs that passed every check took 45s to 501s, so 180s
+	// cut off the slowest fifth of the work that would have succeeded and
+	// recorded it as a deadline. The spend ceiling is the bound that should
+	// bind, since it is the one that measures what a run actually costs.
+	DefaultMaxWallClock = 600 * time.Second
 	// DefaultMaxHostedSpendUSD bounds accumulated hosted-tier spend for one
-	// Run. It is a runaway bound rather than a budget: a hard task on the
-	// deep tier costs cents, and the ceiling exists so a loop that cannot
-	// stop itself costs a dollar instead of whatever the deadline allows.
+	// Run. It is a runaway bound rather than a budget: the most expensive
+	// run on record finished every check for $0.58, and the ceiling exists
+	// so a loop that cannot stop itself costs a dollar rather than whatever
+	// the deadline allows.
 	DefaultMaxHostedSpendUSD = 1.00
 	// DefaultMaxStagnantErrors bounds consecutive tool-call results that
 	// return an error, regardless of whether their inputs matched: the
@@ -77,10 +79,13 @@ var editToolNames = map[string]struct{}{
 	"write":        {},
 }
 
-// ModelPricing prices one model's hosted usage in dollars per million tokens.
+// ModelPricing prices one model's hosted usage in dollars per million
+// tokens. A cached prompt token is billed at CacheReadPerMillion, and a
+// zero there means the provider bills it at the full input rate.
 type ModelPricing struct {
-	InputPerMillion  float64
-	OutputPerMillion float64
+	InputPerMillion     float64
+	OutputPerMillion    float64
+	CacheReadPerMillion float64
 }
 
 // DefaultPricing prices the models DESIGN.md's model-routing decision
@@ -90,10 +95,10 @@ type ModelPricing struct {
 //
 //nolint:mnd // published per-million-token prices, not magic numbers
 var DefaultPricing = map[string]ModelPricing{
-	"moonshotai/kimi-k2.7-code":         {InputPerMillion: 0.67, OutputPerMillion: 3.40},
-	"openai/gpt-5-mini":                 {InputPerMillion: 0.25, OutputPerMillion: 2.00},
-	"qwen/qwen3-8b":                     {InputPerMillion: 0.12, OutputPerMillion: 0.46},
-	"qwen/qwen3-coder":                  {InputPerMillion: 0.30, OutputPerMillion: 1.00},
+	"moonshotai/kimi-k2.7-code":         {InputPerMillion: 0.67, OutputPerMillion: 3.40, CacheReadPerMillion: 0.19},
+	"openai/gpt-5-mini":                 {InputPerMillion: 0.25, OutputPerMillion: 2.00, CacheReadPerMillion: 0.025},
+	"qwen/qwen3-8b":                     {InputPerMillion: 0.117, OutputPerMillion: 0.455},
+	"qwen/qwen3-coder":                  {InputPerMillion: 0.30, OutputPerMillion: 1.00, CacheReadPerMillion: 0.10},
 	"qwen/qwen3-coder-30b-a3b-instruct": {InputPerMillion: 0.07, OutputPerMillion: 0.28},
 }
 
@@ -594,15 +599,28 @@ func (l *Loop) captureCheckpoint(ctx context.Context) (string, error) {
 
 // priceTurn prices one turn's usage against the configured per-model table.
 // A model with no pricing entry contributes zero cost, so the cost ceiling
-// never trips on a model wavez has no real price for. CacheReadTokens is not
-// priced separately yet, pending real cache-rate data.
+// never trips on a model wavez has no real price for.
+//
+// InputTokens counts the whole prompt including the part the provider served
+// from its cache, so billing all of it at the input rate charges 3.5x what a
+// cached token costs on the deep tier, where 90% of every turn's prompt is a
+// cache hit.
 func (l *Loop) priceTurn(model string, usage *llm.Usage) float64 {
 	p, ok := l.options.Pricing[model]
 	if !ok {
 		return 0
 	}
 
-	return float64(usage.InputTokens)/million*p.InputPerMillion + float64(usage.OutputTokens)/million*p.OutputPerMillion
+	cached := min(usage.CacheReadTokens, usage.InputTokens)
+	if p.CacheReadPerMillion == 0 {
+		cached = 0
+	}
+
+	fresh := usage.InputTokens - cached
+
+	return float64(fresh)/million*p.InputPerMillion +
+		float64(cached)/million*p.CacheReadPerMillion +
+		float64(usage.OutputTokens)/million*p.OutputPerMillion
 }
 
 // RestoreCheckpoint reverts RepoRoot to checkpoint, the operation id

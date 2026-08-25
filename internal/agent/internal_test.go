@@ -1,6 +1,11 @@
 package agent
 
-import "testing"
+import (
+	"math"
+	"testing"
+
+	"github.com/kyleking/wavez/internal/llm"
+)
 
 // TestLooksLikeToolCallText is an internal test because the detector is not
 // part of this package's API; it is the guard that keeps a turn which
@@ -43,6 +48,60 @@ func TestLooksLikeToolCallText(t *testing.T) {
 
 			if got := looksLikeToolCallText(tt.text, names); got != tt.want {
 				t.Errorf("looksLikeToolCallText(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPriceTurnCacheReads is an internal test because the cost ceiling is
+// what it feeds, and a run stopped as cost_ceiling at 34 turns had really
+// spent a third of what it was charged.
+func TestPriceTurnCacheReads(t *testing.T) {
+	t.Parallel()
+
+	const kimi = "moonshotai/kimi-k2.7-code"
+
+	cases := []struct {
+		name  string
+		model string
+		usage llm.Usage
+		want  float64
+	}{
+		{
+			name:  "cached prompt bills at the cache rate",
+			model: kimi,
+			usage: llm.Usage{InputTokens: 1_000_000, CacheReadTokens: 900_000, OutputTokens: 0},
+			want:  0.067 + 0.171,
+		},
+		{
+			name:  "a model with no cache rate bills every prompt token as fresh",
+			model: "qwen/qwen3-coder-30b-a3b-instruct",
+			usage: llm.Usage{InputTokens: 1_000_000, CacheReadTokens: 900_000},
+			want:  0.07,
+		},
+		{
+			name:  "cache reads over the prompt cannot make a turn free",
+			model: kimi,
+			usage: llm.Usage{InputTokens: 100_000, CacheReadTokens: 400_000},
+			want:  0.019,
+		},
+		{
+			name:  "an unpriced model contributes nothing",
+			model: "someone/unlisted",
+			usage: llm.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000},
+			want:  0,
+		},
+	}
+
+	loop := &Loop{options: Options{Pricing: DefaultPricing}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := loop.priceTurn(tc.model, &tc.usage)
+			if math.Abs(got-tc.want) > 1e-9 {
+				t.Fatalf("priceTurn = %v, want %v", got, tc.want)
 			}
 		})
 	}
