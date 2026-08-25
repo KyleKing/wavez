@@ -169,3 +169,33 @@ func TestFormatGateRefusesAPathOutsideTheRepo(t *testing.T) {
 		t.Fatalf("err = %v, want ErrOutsideRepo", err)
 	}
 }
+
+// A deletion is a change and is not a file to read. One run deleted the
+// test file its task asked it to delete and then spent three verification
+// rounds on the format gate reporting the file as missing, which is
+// feedback no edit can answer.
+func TestFormatGateSkipsADeletedFile(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "kept.go"), []byte("package a\n"), 0o600); err != nil {
+		t.Fatalf("writing fixture file: %v", err)
+	}
+
+	g := gate.NewFormatGate(repoRoot)
+	rc := gate.RunContext{RepoRoot: repoRoot, Changes: []tool.Change{
+		{Path: "gone.go"},
+		{Path: "kept.go"},
+	}}
+
+	result, err := g.Run(context.Background(), rc)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.Pass {
+		t.Errorf("Pass = false, want a pass over the file that is still there")
+	}
+	if result.Examined != 1 {
+		t.Errorf("Examined = %d, want only the file that still exists", result.Examined)
+	}
+}

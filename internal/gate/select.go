@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"path/filepath"
 	"sort"
 
 	"github.com/kyleking/wavez/internal/codeintel"
@@ -155,6 +156,16 @@ func fallbackPackages(graph *ImportGraph, changes []tool.Change) []string {
 	seen := make(map[string]struct{})
 
 	for _, ch := range changes {
+		// Only a Go file names a Go package. A change set spanning both
+		// languages always lands here, because the importer tier refuses a
+		// file it does not know, and guessing from the directory turned
+		// `internal/config/pkl/Wavez.pkl` into a package `go build` reports
+		// as holding no Go files. One `h13` run passed every check and was
+		// recorded as failing verification over exactly that.
+		if filepath.Ext(ch.Path) != goSourceExt {
+			continue
+		}
+
 		pkg := relativePattern(path.Dir(ch.Path))
 		if graph != nil {
 			if p, ok := graph.FilePackage[ch.Path]; ok {
@@ -175,6 +186,13 @@ func relativePattern(dir string) string {
 	// `./.`, which fails outright on a root holding no Go files of its own.
 	if dir == "" || dir == "." {
 		return "./..."
+	}
+
+	// An absolute directory is already a pattern go reads as a directory.
+	// Prefixing it resolves it against the root a second time, and go
+	// reports the doubled path as a build failure the run then chases.
+	if filepath.IsAbs(dir) {
+		return dir
 	}
 
 	return "./" + dir

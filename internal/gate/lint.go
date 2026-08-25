@@ -60,7 +60,10 @@ func (*LintGate) Resources() []string { return []string{goTestResource} }
 // A project with no linter installed abstains rather than failing: the
 // linter is the project's choice and its absence is not the run's defect.
 func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
-	files := goFiles(rc.Changes)
+	files, err := presentGoFiles(g.repoRoot, rc.Changes)
+	if err != nil {
+		return Result{Gate: g.Name(), Level: rc.Selection.Level}, err
+	}
 	if len(files) == 0 {
 		return Abstained(g.Name(), rc.Selection.Level, "the change set holds no Go files"), nil
 	}

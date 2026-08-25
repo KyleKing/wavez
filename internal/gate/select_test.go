@@ -91,6 +91,19 @@ func TestSelect(t *testing.T) {
 			wantLevel: gate.LevelPackage,
 			wantPkgs:  []string{"./pkg"},
 		},
+		{
+			// A change set spanning both languages always reaches the
+			// fallback, because the importer tier refuses a file it does
+			// not know. One h13 run passed every check and was recorded as
+			// failing verification because the guess turned a pkl
+			// directory into a package go reports as holding no Go files.
+			name:      "a non-Go file names no Go package",
+			cov:       fakeLineCoverage{},
+			graph:     nil,
+			changes:   []tool.Change{change("internal/config/pkl/Wavez.pkl", 1, 5), change("pkg/a.go", 1, 5)},
+			wantLevel: gate.LevelPackage,
+			wantPkgs:  []string{"./pkg"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -50,7 +50,10 @@ func (*FormatGate) Resources() []string { return []string{"worktree"} }
 func (g *FormatGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	// No Go files is a real abstention, not a pass with work done: the
 	// Examined count in the log is what keeps the two distinguishable.
-	files := goFiles(rc.Changes)
+	files, err := presentGoFiles(g.repoRoot, rc.Changes)
+	if err != nil {
+		return Result{Gate: g.Name(), Level: rc.Selection.Level}, err
+	}
 	if len(files) == 0 {
 		return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil
 	}
@@ -178,11 +181,39 @@ func (g *FormatGate) golangciFix(ctx context.Context, lintPath string, files []s
 	return nil
 }
 
+// presentGoFiles is the changed Go files still on disk. A deletion is a
+// change and is not a file to read: one run deleted the test file its task
+// asked it to delete, and the format gate then failed three rounds on the
+// file being gone, which is feedback no edit can answer.
+func presentGoFiles(repoRoot string, changes []tool.Change) ([]string, error) {
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolving repo root: %w", err)
+	}
+
+	var out []string
+
+	for _, f := range goFiles(changes) {
+		path, err := containedPath(root, f)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+
+		out = append(out, f)
+	}
+
+	return out, nil
+}
+
 func goFiles(changes []tool.Change) []string {
 	var out []string
 
 	for _, c := range changes {
-		if filepath.Ext(c.Path) == ".go" {
+		if filepath.Ext(c.Path) == goSourceExt {
 			out = append(out, c.Path)
 		}
 	}
