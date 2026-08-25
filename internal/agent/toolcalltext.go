@@ -1,11 +1,11 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/llm"
+	"github.com/kyleking/wavez/internal/xmlcall"
 )
 
 // toolCallMarkers are the wrappers models use when they render a tool call
@@ -106,65 +106,9 @@ func parseToolCallText(text string, toolNames []string) []llm.ToolCall {
 		calls = append(calls, llm.ToolCall{
 			ID:    fmt.Sprintf("recovered-%d", len(calls)),
 			Name:  name,
-			Input: parseParameters(block),
+			Input: xmlcall.Parameters(block),
 		})
 	}
 
 	return calls
-}
-
-// parseParameters reads the `<parameter=key>value</parameter>` pairs of one
-// rendered call into JSON arguments. Values arrive as text, so a value that
-// reads as a number or a boolean is sent as one: a schema asking for an
-// integer rejects the string form, and the model meant the number.
-func parseParameters(block string) json.RawMessage {
-	args := map[string]any{}
-	rest := block
-
-	for {
-		i := strings.Index(rest, "<parameter=")
-		if i < 0 {
-			break
-		}
-
-		rest = rest[i+len("<parameter="):]
-
-		key, body, ok := strings.Cut(rest, ">")
-		if !ok {
-			break
-		}
-
-		value, tail, closed := strings.Cut(body, "</parameter>")
-		if !closed {
-			value, tail = body, ""
-		}
-
-		rest = tail
-		args[strings.TrimSpace(key)] = literalOf(strings.Trim(value, "\n"))
-	}
-
-	out, err := json.Marshal(args)
-	if err != nil {
-		return json.RawMessage(`{}`)
-	}
-
-	return out
-}
-
-func literalOf(value string) any {
-	trimmed := strings.TrimSpace(value)
-
-	switch trimmed {
-	case "true":
-		return true
-	case "false":
-		return false
-	}
-
-	var number float64
-	if err := json.Unmarshal([]byte(trimmed), &number); err == nil && trimmed != "" {
-		return number
-	}
-
-	return value
 }

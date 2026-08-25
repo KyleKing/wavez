@@ -136,6 +136,14 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Fail(tool.CauseBadInput, "query is required"), nil
 	}
 
+	// An absent mode reads as fuzzy rather than as an error. The index
+	// rejects the empty string by name ("unknown search mode"), which reads
+	// as a bad value rather than a missing field, and fuzzy is both the mode
+	// the description leads with and the one that cannot do harm.
+	if in.Mode == "" {
+		in.Mode = string(codeintel.SearchFuzzy)
+	}
+
 	results, stats, err := s.index.Search(ctx, codeintel.SearchQuery{
 		Mode:  codeintel.SearchMode(in.Mode),
 		Text:  in.Query,

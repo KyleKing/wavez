@@ -322,25 +322,45 @@ func TestSearchNamesTheClosestNamesOnALiteralMiss(t *testing.T) {
 // balanced-tier model emitted its native XML tool-call tags, and the
 // mangling folded a tag and its value into a JSON key. Unknown keys decode
 // silently, so the call read as an empty one and the answer said only that
-// query was required.
-func TestSearchNamesXMLTagsRatherThanTheMissingField(t *testing.T) {
+// query was required. The mangling drops the delimiters around the first
+// tag and leaves every later one intact, so the query survives and the mode
+// does not.
+func TestSearchRecoversWhatXMLManglingLeftIntact(t *testing.T) {
 	t.Parallel()
 
-	search := tools.NewSearch(openTestIndex(t, map[string]string{
-		"a/keep.go": "package a\n\nfunc Target() string { return \"a\" }\n",
-	}))
-
-	result, err := search.Run(t.Context(), []byte(
-		"{\"mode=fuzzy\\n</parameter\": \"<parameter=query>\\ntruncate\"}"))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "the recorded shape searches for the query that survived",
+			input: "{\"mode=fuzzy\\n</parameter\": \"<parameter=query>\\nTarget\"}",
+			want:  "keep.go",
+		},
+		{
+			name:  "nothing intact is refused by naming the syntax",
+			input: "{\"<parameter=query\": \"never closed\"}",
+			want:  "XML",
+		},
 	}
 
-	if !result.IsError {
-		t.Fatalf("IsError = false, want the malformed call refused: %q", result.Content)
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	if !strings.Contains(result.Content, "XML") {
-		t.Errorf("content = %q, want it to name the syntax that arrived", result.Content)
+			search := tools.NewSearch(openTestIndex(t, map[string]string{
+				"a/keep.go": "package a\n\nfunc Target() string { return \"a\" }\n",
+			}))
+
+			result, err := search.Run(t.Context(), []byte(tc.input))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if !strings.Contains(result.Content, tc.want) {
+				t.Errorf("content = %q, want it to contain %q", result.Content, tc.want)
+			}
+		})
 	}
 }
