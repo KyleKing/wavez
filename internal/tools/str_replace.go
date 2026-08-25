@@ -534,6 +534,13 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 					"more often than declare does.", err, name, name)
 		}
 
+		if applied := s.appliedFiles(edits); applied != "" {
+			return tool.Fail(tool.CauseNoMatch,
+				"%v\n\nThe text in new_string is already in %s and old_string is not, so this "+
+					"edit has been made. Check the rest of the change rather than re-sending "+
+					"this one.", err, applied)
+		}
+
 		if stale := s.staleFiles(edits); stale != "" {
 			return staleAnchor(edits, in.anchor(), err, stale)
 		}
@@ -573,6 +580,38 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 	}
 
 	return failWith(err)
+}
+
+// appliedFiles names the files whose text already holds an edit's
+// replacement while holding no anchor for it. That is what a part-finished
+// rename leaves behind, and the near-match report answers it with the suffix
+// the anchor and the replacement share ("you sent: (path) / source has:
+// Log(path)"), which reads as a typo rather than as work already done. One
+// h3 run re-sent the same anchor against it.
+func (s *StrReplace) appliedFiles(edits []edit.FileEdit) string {
+	var done []string
+
+	sources := sourceBefore(edits)
+
+	for i := range edits {
+		if sources[i] == nil {
+			continue
+		}
+
+		for _, p := range edits[i].Pairs {
+			if p.NewString == "" || edit.Holds(string(sources[i]), p.OldString) {
+				continue
+			}
+
+			if edit.Holds(string(sources[i]), p.NewString) {
+				done = append(done, relativeTo(s.root, edits[i].Path))
+
+				break
+			}
+		}
+	}
+
+	return strings.Join(done, ", ")
 }
 
 // staleFiles names the files this call touches that the run has written

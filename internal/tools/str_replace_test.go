@@ -673,6 +673,40 @@ func TestStrReplace_TellsAnAlreadyWrittenFileFromALostAnchor(t *testing.T) {
 	}
 }
 
+// A part-finished rename leaves sites the anchor no longer matches and the
+// replacement already does. The near-match report then faces the model with
+// the suffix the two strings share, which reads as a typo: one h3 run took
+// it that way and re-sent the same anchor.
+func TestStrReplace_SaysAnEditIsAlreadyMade(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.go"),
+		[]byte("events, err := bench.ReadLog(path)\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path":       "file.go",
+		"old_string": "events, err := bench.Read(path)",
+		"new_string": "events, err := bench.ReadLog(path)",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError || result.Cause != tool.CauseNoMatch {
+		t.Fatalf("IsError = %v, Cause = %q, want a no_match failure", result.IsError, result.Cause)
+	}
+
+	if !strings.Contains(result.Content, "already been made") &&
+		!strings.Contains(result.Content, "has been made") {
+		t.Errorf("content = %q, want it to say the edit is already made", result.Content)
+	}
+}
+
 // json names Go types when a field arrives in the wrong shape
 // ("[]tools.editPair"), which says nothing about the JSON a model has to
 // change. Two logged runs sent edits as a string holding the array and got
