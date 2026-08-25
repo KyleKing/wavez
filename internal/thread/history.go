@@ -17,6 +17,12 @@ const (
 	historyFilePerm    = 0o600
 )
 
+// HistorySuffix names the sidecar a thread keeps beside its event log.
+// Anything scanning the log directory has to skip it: it ends in .jsonl
+// like a log, and opening one as a thread gives that thread a sidecar of
+// its own, so every scan finds one more file than the last.
+const HistorySuffix = ".history.jsonl"
+
 // historyRecord is one model-visible message as it is stored on disk. A
 // tool call's arguments are held as a string rather than as raw JSON,
 // because the arguments a model emitted are not always JSON and the turn
@@ -84,7 +90,7 @@ type history struct {
 // openHistory opens the sidecar for id under dir and returns the entries it
 // already holds.
 func openHistory(dir, id string) (*history, []TurnMessage, error) {
-	path := filepath.Join(dir, id+".history.jsonl")
+	path := filepath.Join(dir, id+HistorySuffix)
 
 	entries, err := historyEntries(path)
 	if err != nil {
@@ -105,7 +111,7 @@ func openHistory(dir, id string) (*history, []TurnMessage, error) {
 // truncated there and assistant text is stored as the chunks it streamed in.
 // A thread that never wrote one reads as empty rather than as an error.
 func ReadHistory(dir, id string) ([]TurnMessage, error) {
-	return historyEntries(filepath.Join(dir, id+".history.jsonl"))
+	return historyEntries(filepath.Join(dir, id+HistorySuffix))
 }
 
 func historyEntries(path string) ([]TurnMessage, error) {

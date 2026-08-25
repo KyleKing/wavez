@@ -20,6 +20,7 @@ import (
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
+	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -782,6 +783,15 @@ func TestProjects_ReopensThreadLogsOnLoad(t *testing.T) {
 		event.Event{Kind: event.KindUser, Text: "say hi"},
 		event.Event{Kind: event.KindState, State: event.StateWorking},
 	)
+
+	// The model-visible transcript sits beside the log and ends in .jsonl
+	// too. Reopening one as a thread gives it a sidecar of its own, so the
+	// list grew by one file per thread on every daemon start until a real
+	// directory held 1,246 threads for 393 logs.
+	if err := os.WriteFile(filepath.Join(dir, "thread-a"+thread.HistorySuffix),
+		[]byte("{\"role\":\"user\",\"content\":\"fix the flaky lease test\",\"turn\":1}\n"), 0o600); err != nil {
+		t.Fatalf("writing the sidecar: %v", err)
+	}
 
 	local := fake.New("local", fake.Turn{Text: []string{"hi"}, StopReason: llm.StopEndTurn})
 	h := newHarness(t, local, withServerOptions(daemon.WithLogDir(dir)))

@@ -36,6 +36,10 @@ func (m *manager) reopen() error {
 			continue
 		}
 
+		if strings.HasSuffix(entry.Name(), thread.HistorySuffix) {
+			continue
+		}
+
 		id := strings.TrimSuffix(entry.Name(), ".jsonl")
 		if _, ok := m.get(id); ok {
 			continue
