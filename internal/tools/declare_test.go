@@ -78,6 +78,17 @@ func TestDeclareReplacesWithoutAnAnchor(t *testing.T) {
 	if strings.Contains(got, "// Free is what is left.\n// Free is") {
 		t.Errorf("the old doc comment survived beside the new one:\n%s", got)
 	}
+
+	// The index answers with absolute paths. A gate builds a `go test`
+	// pattern by prefixing "./", so an absolute change path is resolved
+	// against the root a second time and the run chases a directory that
+	// was never missing.
+	if len(res.Changes) != 1 || filepath.IsAbs(res.Changes[0].Path) {
+		t.Errorf("Changes = %+v, want one repo-relative path", res.Changes)
+	}
+	if strings.Contains(res.Content, root) {
+		t.Errorf("Content = %q, want it to name the file the way the project does", res.Content)
+	}
 }
 
 // A name the index does not hold is an addition, and an addition has to be

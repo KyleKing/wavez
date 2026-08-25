@@ -152,11 +152,16 @@ func (d *Declare) replace(ctx context.Context, decl declaration, text string) (t
 		return failWith(err), nil
 	}
 
-	change.Path = decl.path
+	// The index answers with absolute paths, and every other change this
+	// package emits is repo-relative. A gate turns a change path into a
+	// `go test` pattern by prefixing "./", so an absolute one is resolved
+	// against the root a second time and reported as a missing directory.
+	rel := relativeTo(d.root, decl.path)
+	change.Path = rel
 	d.scope.Wrote(abs)
 
 	return tool.Result{
-		Content: fmt.Sprintf("%s: replaced, +%d -%d lines", decl.path, change.Added, change.Removed),
+		Content: fmt.Sprintf("%s: replaced, +%d -%d lines", rel, change.Added, change.Removed),
 		Changes: []tool.Change{change},
 	}, nil
 }
