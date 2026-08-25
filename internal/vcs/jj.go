@@ -214,13 +214,19 @@ func notJJRepoErr(path string, cause error) error {
 // fix is the one jj prints, so a caller never has to see it.
 const staleWorkingCopy = "The working copy is stale"
 
-// runJJ shells out to jj, recovering once from a stale working copy. A
-// workspace goes stale whenever another workspace of the same repository
-// commits while this one is open, which is exactly what a replay running
-// beside ordinary work does. Left unhandled the error reaches whoever asked
-// for the diff, and a gate that passes it on hands a model a VCS hint it
-// cannot act on.
+// runJJ shells out to jj under the repo lock. Every invocation is
+// serialized because jj snapshots the working copy on nearly every command,
+// so even a read writes the operation log.
 func runJJ(ctx context.Context, dir string, args ...string) (string, error) {
+	return withRepoLock(dir, func() (string, error) { return runJJUnlocked(ctx, dir, args...) })
+}
+
+// runJJUnlocked recovers once from a stale working copy. A workspace goes
+// stale whenever another workspace of the same repository commits while this
+// one is open, which is exactly what a replay running beside ordinary work
+// does. Left unhandled the error reaches whoever asked for the diff, and a
+// gate that passes it on hands a model a VCS hint it cannot act on.
+func runJJUnlocked(ctx context.Context, dir string, args ...string) (string, error) {
 	out, err := runJJOnce(ctx, dir, args...)
 	if err == nil || !strings.Contains(err.Error(), staleWorkingCopy) {
 		return out, err
