@@ -543,16 +543,25 @@ func TestReplaceAllAcrossFormatterSpacing(t *testing.T) {
 // HTML reference for the ampersand and "not". It could not write the
 // identifier at all: one replay lane sent the same anchor five times and
 // died stagnant.
+//
+// The anchor carries a string literal opening with a word, which is what
+// the first repair got wrong: `&quot` collapses to a quote, so putting it
+// back rewrote every such literal into `&quotSend`, the repaired anchor
+// missed, and the original error stood as though no repair had run.
 func TestReplaceRepairsACollapsedEntity(t *testing.T) {
 	t.Parallel()
 
-	source := "package a\n\nfunc f() {\n\tif errors.As(err, &notUnique) {\n\t\treturn\n\t}\n}\n"
+	source := "package a\n\nfunc f() {\n\tif errors.As(err, &notUnique) {\n\t\treturn fail(\"Send it again\")\n\t}\n}\n"
 
 	got, err := edit.Replace(source,
-		"\tif errors.As(err, ¬Unique) {",
-		"\tif errors.As(err, ¬Unique) && ok {")
+		"\tif errors.As(err, ¬Unique) {\n\t\treturn fail(\"Send it again\")",
+		"\tif errors.As(err, ¬Unique) && ok {\n\t\treturn fail(\"Send it again\")")
 	if err != nil {
 		t.Fatalf("Replace: %v", err)
+	}
+
+	if !strings.Contains(got.Source, `fail("Send it again")`) {
+		t.Errorf("Source = %q, want the string literal left alone", got.Source)
 	}
 
 	if !strings.Contains(got.Source, "errors.As(err, &notUnique) && ok {") {

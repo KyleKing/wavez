@@ -4,6 +4,7 @@ import (
 	"html"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // legacyEntities are the HTML character references that need no semicolon,
@@ -26,7 +27,12 @@ var legacyEntities = []string{
 }
 
 // entityRunes maps each collapsed rune back to the ampersand and name that
-// produced it.
+// produced it. A name whose rune is ASCII is left out: `&quot`, `&amp`,
+// `&lt`, and `&gt` collapse to characters source code is full of, so
+// restoring them rewrites every string literal that opens with a word into
+// `&quotWord`. That corruption made the repaired anchor fail and the
+// original error stand, which is how the repair looked like it had never
+// run.
 var entityRunes = buildEntityRunes()
 
 func buildEntityRunes() map[rune]string {
@@ -39,7 +45,7 @@ func buildEntityRunes() map[rune]string {
 		}
 
 		runes := []rune(expanded)
-		if len(runes) != 1 {
+		if len(runes) != 1 || runes[0] < utf8.RuneSelf {
 			continue
 		}
 
