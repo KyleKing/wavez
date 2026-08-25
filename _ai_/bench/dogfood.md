@@ -2790,3 +2790,49 @@ mechanism is proved by unit test and probe and the effect on a run is not,
 and the direction of the little evidence there is runs against it. Whether the fixed stuck counter
 fires in a live run. Whether `undo` is ever called. The harness's 34% of
 turns, still unmeasured against any of this.
+
+## 2026-08-24 — the fast tier moves off the laptop and hits a rate limit instead
+
+**Serving `fast` from OpenRouter made the lanes worse, and the reason is
+measurable.** Four hosted `e2` lanes against the four local ones: decode
+roughly doubled (median 37.8 output tokens per second against 25.4, with one
+local lane at 2.1 under load) and three of four still hit the three-minute
+deadline, at 4, 4, and 9 turns against a local median of 13.5. Per-turn
+output went from ~190 tokens to ~930. The thread events say where: one turn
+recorded 2,287 output tokens against 8,064 bytes of reasoning, none of which
+reaches a tool or the thread's history. Prefix cache reuse went the same way,
+from 89-96% of input tokens locally to 0%, 0%, 0%, and 41.5%. Faster decode
+bought fewer turns.
+
+**`Thinking` was a no-op on every hosted tier.** It only ever emitted
+llama.cpp's `chat_template_kwargs.enable_thinking`, which OpenRouter does not
+read; OpenRouter takes `reasoning`. Both spellings now go out on every
+request, each provider ignoring the other's. A direct probe settles the
+effect: `qwen/qwen3-8b` answering "say ok" costs 11 completion tokens with
+`reasoning.enabled` false, against the 79 the same prompt costs with
+reasoning on. A tier can now carry the toggle in config (`thinking` on the
+pkl `Tier`), which a thread's own pin still overrides.
+
+**Then three lanes measured a rate limit rather than the change.** All three
+escalated off the fast tier and ran their tasks on `balanced`, and the
+records read as though the router had decided that about the task. It had
+not: OpenRouter's shared pool answers `qwen/qwen3-8b` with a 429 saying it is
+temporarily rate-limited upstream, reproducible with one curl. Every
+fast-tier lane since the move is contaminated the same way, so the four
+hosted lanes above measure a tier that was partly unavailable.
+
+**The move left no trace, which is the defect worth keeping.** A provider
+failure escalated the run and logged nothing at all, so three lanes running
+their whole task a tier up looked like routing. Each move is now one line
+naming the tier, the model, and the provider's own error, and the 429 above
+was read straight off it. This is the second instance of the same shape as
+the stuck counter: a signal that clears its own evidence reads afterwards as
+a condition that never held.
+
+**What is not settled.** Whether reasoning off improves a run rather than a
+request, because no lane has yet held the fast tier for a whole task. That
+needs the fast tier to answer reliably, which means a provider key, provider
+routing, or the loopback llama-server, and it is a decision rather than a
+measurement. Two lanes on the fixed set finished 3 of 3 in 9 and 10 turns
+with three fast turns each, which is the best `e2` has recorded and is not
+attributable while the tier is dropping requests.

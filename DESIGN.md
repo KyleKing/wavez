@@ -966,10 +966,21 @@ measured and what it did not settle.
    across four `e2` fast lanes after against eleven before, median turns
    went from 9 to 13.5 and median harness turns from 3 to 6.5, on
    overlapping ranges, with one lane decoding at 2.1 tokens per second
-   against a median of 25 because the machine was busy. What closes this is
-   several lanes of one task on one tier where decode speed is not the
-   laptop's to lose, which is the argument for serving the fast tier from
-   somewhere else.
+   against a median of 25 because the machine was busy. Serving the fast
+   tier from somewhere else was meant to close that and did not. Decode
+   roughly doubled and three of four hosted lanes still hit the deadline, at
+   4, 4, and 9 turns, because per-turn output went from ~190 tokens to ~930:
+   one turn spent 8,064 bytes of reasoning on 2,287 output tokens, and
+   prefix cache reuse fell from 89-96% to 0%. Faster decode bought fewer
+   turns. Two causes are now fixed and one is not. `Thinking` reached no
+   hosted tier at all, since it was spelled only as llama.cpp's
+   `chat_template_kwargs`, and a tier can now carry the toggle in config; a
+   probe puts the same reply at 11 completion tokens against 79. What is not
+   fixed is that OpenRouter's shared pool rate-limits `qwen/qwen3-8b`
+   upstream, so three lanes ran their whole task a tier up. Every fast-tier
+   lane since the move is contaminated by it, and what closes this now is a
+   fast tier that answers every request: a provider key, provider routing,
+   or the loopback server back.
 
 5. **`undo` shipped and no run has called it.** Two lanes with the tool
    present (`h7`, `h10`) made zero `undo` calls, which is `vcs`'s pattern
