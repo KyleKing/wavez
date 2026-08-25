@@ -367,6 +367,13 @@ func headlessRun(ctx context.Context, opt options) (runInfo, error) {
 
 	outcome, err := loop.Run(ctx, th, prefix(system, tools), prompt, hint)
 	if err != nil {
+		// A run that dies mid-flight still edited the files it edited and
+		// still kept its transcript. Two replay lanes ended this way with
+		// every check already passing, and the error alone reads as though
+		// the work went with it.
+		fmt.Fprintf(os.Stderr, "thread %s keeps its files and transcript; "+
+			"inspect with: wavez -stats %s\n", th.ID(), th.ID())
+
 		return runInfo{ID: th.ID(), Served: served}, fmt.Errorf("running thread: %w", err)
 	}
 
