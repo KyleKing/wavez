@@ -48,6 +48,12 @@ web: Boolean = false
 /// model.
 contextWindow: Int = 8192
 
+/// One-minute load average per core at or above which a tier with an
+/// `overflow` endpoint sends its turns there instead. An idle laptop reads
+/// about 0.2 and one running the full check suite reads above 1, so the
+/// default sits between them with room on both sides.
+overflowLoadPerCore: Float = 0.7
+
 /// Loopback port llama-server serves the fast tier's model on. Wavez reuses
 /// a server already answering there instead of starting a second one, since
 /// only one model fits in 16 GB.
@@ -153,6 +159,14 @@ class Tier {
   /// without, nearly all of it a trace no tool reads. Set it false on a tier
   /// that only calls tools.
   thinking: Boolean?
+
+  /// Where this tier's turns go while the machine is too busy to serve them
+  /// here, checked once per turn. Decode rate on a local server is the
+  /// laptop's to lose: one replay lane recorded 2.1 output tokens per second
+  /// against a median of 25 because a gate run and a test suite were running
+  /// beside it. Null keeps every turn on `baseURL` however loaded the
+  /// machine is, which is right for a tier already served over the network.
+  overflow: Tier?
 }
 
 class Step {

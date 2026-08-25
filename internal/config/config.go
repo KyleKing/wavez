@@ -32,6 +32,12 @@ const (
 // internal/router.FastContextBudget and llama-server's own default.
 const DefaultContextWindow = 8192
 
+// DefaultOverflowLoadPerCore is the one-minute load average per core at or
+// above which a tier with an Overflow endpoint sends its turns there. An
+// idle laptop reads about 0.2 and one running the full check suite reads
+// above 1.
+const DefaultOverflowLoadPerCore = 0.7
+
 // DefaultLocalPort is the loopback port llama-server serves the fast tier's
 // model on, matching internal/runtime.DefaultPort.
 const DefaultLocalPort = 8080
@@ -100,7 +106,10 @@ type Config struct {
 	PreToolUseHook  []string
 	PostToolUseHook []string
 	ContextWindow   int
-	GateDebounce    time.Duration
+	// OverflowLoadPerCore is the load per core at or above which a tier
+	// with an Overflow endpoint stops being served here.
+	OverflowLoadPerCore float64
+	GateDebounce        time.Duration
 	// AdmissionHeadroom is the free-memory fraction at or above which a turn
 	// on the local model and a gate run may overlap.
 	AdmissionHeadroom float64
@@ -127,6 +136,10 @@ type Config struct {
 // served from. An empty BaseURL means the tier's default endpoint: the
 // llama-server on LocalPort for the fast tier, OpenRouter for the others.
 type Tier struct {
+	// Overflow is where this tier's turns go while the machine is too busy
+	// to serve them here, checked once per turn. Nil keeps every turn on
+	// BaseURL however loaded the machine is.
+	Overflow *Tier
 	// Thinking turns a hybrid model's reasoning on or off for this tier's
 	// turns. Nil leaves the served model's own default, since the flag is
 	// meaningful in both states and a request that omits it must not
@@ -161,14 +174,15 @@ func Defaults(root string) Config {
 			Balanced: Tier{Model: DefaultBalancedModel},
 			Deep:     Tier{Model: DefaultDeepModel},
 		},
-		ContextWindow:     DefaultContextWindow,
-		GateDebounce:      DefaultGateDebounce,
-		FullRunCadence:    DefaultFullRunCadence,
-		HookTimeout:       DefaultHookTimeout,
-		AdmissionHeadroom: DefaultAdmissionHeadroom,
-		LeaseTTL:          DefaultLeaseTTL,
-		LocalPort:         DefaultLocalPort,
-		LocalStartTimeout: DefaultLocalStartTimeout,
-		Web:               false,
+		ContextWindow:       DefaultContextWindow,
+		OverflowLoadPerCore: DefaultOverflowLoadPerCore,
+		GateDebounce:        DefaultGateDebounce,
+		FullRunCadence:      DefaultFullRunCadence,
+		HookTimeout:         DefaultHookTimeout,
+		AdmissionHeadroom:   DefaultAdmissionHeadroom,
+		LeaseTTL:            DefaultLeaseTTL,
+		LocalPort:           DefaultLocalPort,
+		LocalStartTimeout:   DefaultLocalStartTimeout,
+		Web:                 false,
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/openaic"
+	"github.com/kyleking/wavez/internal/llm/overflow"
 	"github.com/kyleking/wavez/internal/lsp"
 	"github.com/kyleking/wavez/internal/mention"
 	"github.com/kyleking/wavez/internal/permission"
@@ -33,6 +34,7 @@ import (
 	"github.com/kyleking/wavez/internal/routine"
 	"github.com/kyleking/wavez/internal/runtime"
 	"github.com/kyleking/wavez/internal/sched"
+	"github.com/kyleking/wavez/internal/sysinfo"
 	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
@@ -512,7 +514,7 @@ func buildProviders(ctx context.Context, cfg config.Config, options Options) pro
 		}
 
 		supervisor = server.supervisor
-		tiers.Fast = openaic.New("fast", fastProviderOptions(ctx, cfg, fast, server.baseURL)...)
+		tiers.Fast = fastProvider(ctx, cfg, fast, server.baseURL)
 	}
 
 	if tiers.Balanced == nil {
@@ -603,6 +605,37 @@ func localRuntime(cfg config.Config, options Options) runtime.Config {
 	}
 
 	return rc
+}
+
+// fastProvider dials the fast tier, wrapping it in a picker when the tier
+// names somewhere to overflow to. The pick is per turn, so a gate run that
+// starts mid-thread moves the next turn off this machine.
+//
+//nolint:ireturn // one of two concrete providers, chosen by whether a tier overflows
+func fastProvider(ctx context.Context, cfg config.Config, fast config.Tier, baseURL string) llm.Provider {
+	local := openaic.New("fast", fastProviderOptions(ctx, cfg, fast, baseURL)...)
+	if fast.Overflow == nil {
+		return local
+	}
+
+	return overflow.New("fast", local,
+		networkTier(ctx, cfg, "fast-overflow", *fast.Overflow),
+		loadedAbove(cfg.OverflowLoadPerCore))
+}
+
+// loadedAbove reports the machine as busy at or above a load per core. A
+// machine whose load cannot be read is reported busy: an unreadable number
+// that defaulted to idle would pin every turn to a local server that may
+// already be saturated, which is the failure this exists to avoid.
+func loadedAbove(perCore float64) overflow.Busy {
+	return func(ctx context.Context) bool {
+		load, err := sysinfo.ReadLoad(ctx)
+		if err != nil {
+			return true
+		}
+
+		return load.PerCore >= perCore
+	}
 }
 
 // fastProviderOptions dials baseURL, adding a bearer token only for a

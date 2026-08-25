@@ -69,14 +69,23 @@ func parsePages(value string) uint64 {
 	return n
 }
 
-func sysctlUint(ctx context.Context, key string) (uint64, error) {
+func sysctlString(ctx context.Context, key string) (string, error) {
 	//nolint:gosec // key is a package-internal constant, never caller input
 	out, err := exec.CommandContext(ctx, "sysctl", "-n", key).Output()
 	if err != nil {
-		return 0, fmt.Errorf("reading %s: %w", key, err)
+		return "", fmt.Errorf("reading %s: %w", key, err)
 	}
 
-	n, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	return string(out), nil
+}
+
+func sysctlUint(ctx context.Context, key string) (uint64, error) {
+	out, err := sysctlString(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+
+	n, err := strconv.ParseUint(strings.TrimSpace(out), 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parsing %s: %w", key, err)
 	}

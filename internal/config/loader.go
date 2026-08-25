@@ -34,38 +34,42 @@ const (
 // pklConfig is the wire shape EvaluateModule decodes ".wavez.pkl" into.
 // Field names and defaults mirror pkl/Wavez.pkl exactly.
 type pklConfig struct {
-	Routines         map[string]pklRoutine `pkl:"routines"`
-	Fast             pklTier               `pkl:"fast"`
-	Balanced         pklTier               `pkl:"balanced"`
-	Deep             pklTier               `pkl:"deep"`
-	HostedKeyCommand string                `pkl:"hostedKeyCommand"`
-	WebSearchURL     string                `pkl:"webSearchURL"`
-	Context          []string              `pkl:"context"`
-	ExtraDirs        []string              `pkl:"extraDirs"`
-	ShellAllow       []string              `pkl:"shellAllow"`
-	AstGrepRules     []string              `pkl:"astGrepRules"`
-	DeadcodeAllow    []string              `pkl:"deadcodeAllow"`
-	Cycles           []pklCycle            `pkl:"cycles"`
-	Links            []pklLink             `pkl:"links"`
-	PreToolUseHook   []string              `pkl:"preToolUseHook"`
-	PostToolUseHook  []string              `pkl:"postToolUseHook"`
-	AdmissionRoom    float64               `pkl:"admissionHeadroom"`
-	ContextWindow    int                   `pkl:"contextWindow"`
-	DebounceMs       int                   `pkl:"debounceMs"`
-	FullRunCadence   int                   `pkl:"fullRunCadence"`
-	HookTimeoutMs    int                   `pkl:"hookTimeoutMs"`
-	LocalPort        int                   `pkl:"localPort"`
-	LocalStartSecs   int                   `pkl:"localStartTimeoutSeconds"`
-	LeaseTTLMinutes  int                   `pkl:"leaseTtlMinutes"`
-	Web              bool                  `pkl:"web"`
+	Routines map[string]pklRoutine `pkl:"routines"`
+	// A pointer because zero is a meaningful threshold, meaning every turn
+	// overflows, and a plain float cannot tell it from an unset field.
+	OverflowLoad     *float64   `pkl:"overflowLoadPerCore"`
+	Fast             pklTier    `pkl:"fast"`
+	Balanced         pklTier    `pkl:"balanced"`
+	Deep             pklTier    `pkl:"deep"`
+	HostedKeyCommand string     `pkl:"hostedKeyCommand"`
+	WebSearchURL     string     `pkl:"webSearchURL"`
+	Context          []string   `pkl:"context"`
+	ExtraDirs        []string   `pkl:"extraDirs"`
+	ShellAllow       []string   `pkl:"shellAllow"`
+	AstGrepRules     []string   `pkl:"astGrepRules"`
+	DeadcodeAllow    []string   `pkl:"deadcodeAllow"`
+	Cycles           []pklCycle `pkl:"cycles"`
+	Links            []pklLink  `pkl:"links"`
+	PreToolUseHook   []string   `pkl:"preToolUseHook"`
+	PostToolUseHook  []string   `pkl:"postToolUseHook"`
+	AdmissionRoom    float64    `pkl:"admissionHeadroom"`
+	ContextWindow    int        `pkl:"contextWindow"`
+	DebounceMs       int        `pkl:"debounceMs"`
+	FullRunCadence   int        `pkl:"fullRunCadence"`
+	HookTimeoutMs    int        `pkl:"hookTimeoutMs"`
+	LocalPort        int        `pkl:"localPort"`
+	LocalStartSecs   int        `pkl:"localStartTimeoutSeconds"`
+	LeaseTTLMinutes  int        `pkl:"leaseTtlMinutes"`
+	Web              bool       `pkl:"web"`
 }
 
 // pklTier mirrors the Tier class in pkl/Wavez.pkl.
 type pklTier struct {
-	Thinking   *bool  `pkl:"thinking"`
-	Model      string `pkl:"model"`
-	BaseURL    string `pkl:"baseURL"`
-	KeyCommand string `pkl:"keyCommand"`
+	Overflow   *pklTier `pkl:"overflow"`
+	Thinking   *bool    `pkl:"thinking"`
+	Model      string   `pkl:"model"`
+	BaseURL    string   `pkl:"baseURL"`
+	KeyCommand string   `pkl:"keyCommand"`
 }
 
 // pklCycle and pklPhase mirror the Cycle and Phase classes in
@@ -236,8 +240,21 @@ func tierFromPkl(def Tier, p pklTier) Tier {
 	def.BaseURL = p.BaseURL
 	def.KeyCommand = p.KeyCommand
 	def.Thinking = p.Thinking
+	def.Overflow = overflowFromPkl(p.Overflow)
 
 	return def
+}
+
+// overflowFromPkl reads a tier's overflow endpoint, which has no default to
+// overlay: a project that names one names all of it.
+func overflowFromPkl(p *pklTier) *Tier {
+	if p == nil {
+		return nil
+	}
+
+	t := tierFromPkl(Tier{}, *p)
+
+	return &t
 }
 
 func fromPkl(root string, p pklConfig) Config {
@@ -257,6 +274,10 @@ func fromPkl(root string, p pklConfig) Config {
 
 	if p.ContextWindow != 0 {
 		cfg.ContextWindow = p.ContextWindow
+	}
+
+	if p.OverflowLoad != nil {
+		cfg.OverflowLoadPerCore = *p.OverflowLoad
 	}
 
 	if p.AdmissionRoom > 0 {

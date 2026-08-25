@@ -779,12 +779,22 @@ func reportStrayedEdits(strayed []string, root string, strict bool) {
 // empty base URL is the tier's default endpoint, which is the loopback
 // llama-server for fast and the hosted provider for the others.
 func servedTiers(cfg config.Config) map[string]string {
-	where := func(t config.Tier) string {
-		if t.BaseURL == "" {
-			return t.Model
+	var where func(t config.Tier) string
+
+	where = func(t config.Tier) string {
+		at := t.Model
+		if t.BaseURL != "" {
+			at = t.Model + " @ " + t.BaseURL
 		}
 
-		return t.Model + " @ " + t.BaseURL
+		// A tier that overflows was served by either endpoint and the record
+		// cannot say which, so it names both rather than the one the config
+		// happens to list first.
+		if t.Overflow != nil {
+			at += " or " + where(*t.Overflow)
+		}
+
+		return at
 	}
 
 	return map[string]string{
