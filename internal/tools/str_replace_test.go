@@ -707,6 +707,71 @@ func TestStrReplace_SaysAnEditIsAlreadyMade(t *testing.T) {
 	}
 }
 
+// `ambiguous` went from 1 across the first corpus to 20, and every case is a
+// rename asked as a text edit. The h3 shape: four sites written identically,
+// a pair that changes one identifier, and no tool result anywhere naming the
+// tool built for it.
+func TestStrReplace_AmbiguousRenamePointsAtRename(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	body := "package p\n\nfunc a() { events, err := bench.Read(path) }\n" +
+		"func b() { events, err := bench.Read(path) }\n"
+
+	if err := os.WriteFile(filepath.Join(dir, "file.go"), []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path":       "file.go",
+		"old_string": "events, err := bench.Read(path)",
+		"new_string": "events, err := bench.ReadLog(path)",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError || result.Cause != tool.CauseAmbiguous {
+		t.Fatalf("IsError = %v, Cause = %q, want an ambiguous failure", result.IsError, result.Cause)
+	}
+
+	for _, want := range []string{"rename", `symbol: "Read"`, `to: "ReadLog"`} {
+		if !strings.Contains(result.Content, want) {
+			t.Errorf("content = %q, want it to carry %s", result.Content, want)
+		}
+	}
+}
+
+// A pair that rewrites the text rather than substituting one name is an
+// edit, and pointing it at rename would send it somewhere it cannot go.
+func TestStrReplace_AmbiguousRewriteSaysNothingAboutRename(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	body := "package p\n\nfunc a() { x := 1 }\nfunc b() { x := 1 }\n"
+
+	if err := os.WriteFile(filepath.Join(dir, "file.go"), []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path":       "file.go",
+		"old_string": "x := 1",
+		"new_string": "x, y := 1, 2",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if strings.Contains(result.Content, "rename") {
+		t.Errorf("content = %q, want no rename advice for a rewrite", result.Content)
+	}
+}
+
 // json names Go types when a field arrives in the wrong shape
 // ("[]tools.editPair"), which says nothing about the JSON a model has to
 // change. Two logged runs sent edits as a string holding the array and got

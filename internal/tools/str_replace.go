@@ -480,6 +480,20 @@ func (in *strReplaceInput) anchor() string {
 	return in.OldString
 }
 
+// replacement is the text the anchor becomes, empty for a call that named
+// no replacement at all.
+func (in *strReplaceInput) replacement() string {
+	if len(in.Edits) > 0 {
+		return in.Edits[0].NewString
+	}
+
+	if in.NewString == nil {
+		return ""
+	}
+
+	return *in.NewString
+}
+
 // nothingToApply answers a call whose every edit replaces text with itself.
 //
 // Where the file already holds that text, the state the call asked for is
@@ -559,7 +573,8 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 		return tool.Fail(tool.CauseAmbiguous,
 			"%v\n\nWhere the %d sites are written identically no widening tells them apart. "+
 				"Send the same call with replace_all: true to change all %d, or anchor on "+
-				"surrounding text that differs.", err, len(notUnique.Lines), len(notUnique.Lines))
+				"surrounding text that differs.%s",
+			err, len(notUnique.Lines), len(notUnique.Lines), orRename(in.anchor(), in.replacement()))
 	}
 
 	if errors.Is(err, edit.ErrNoChange) {
@@ -580,6 +595,79 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 	}
 
 	return failWith(err)
+}
+
+// orRename points a pair that substitutes one identifier at the tool built
+// for it. `ambiguous` went from 1 across the first corpus to 20, and every
+// recorded case is a rename asked as a text edit: `h3` sent
+// `bench.Read(path)` against four sites written identically, took the
+// per-site path, and spent 57 turns on `sed`. Nothing else steers a rename
+// task at `rename`.
+func orRename(oldString, newString string) string {
+	from, to, ok := substitutedIdentifier(oldString, newString)
+	if !ok {
+		return ""
+	}
+
+	return fmt.Sprintf(" Every site here changes %s to %s and nothing else, so if %s is a "+
+		"declared symbol rather than a local name, rename with symbol: %q, to: %q changes "+
+		"every site in the project in one call, including the ones this file does not hold.",
+		from, to, from, from, to)
+}
+
+// substitutedIdentifier reports the one identifier a pair replaces, where
+// the two sides hold the same identifiers in the same order but for one.
+// Anything else is an edit rather than a rename, including a pair that
+// changes two names or reorders them.
+func substitutedIdentifier(oldString, newString string) (string, string, bool) {
+	before, after := identifiers(oldString), identifiers(newString)
+	if len(before) != len(after) {
+		return "", "", false
+	}
+
+	from, to := "", ""
+
+	for i := range before {
+		if before[i] == after[i] {
+			continue
+		}
+
+		if from != "" {
+			return "", "", false
+		}
+
+		from, to = before[i], after[i]
+	}
+
+	return from, to, from != "" && to != ""
+}
+
+// identifiers splits text on everything that cannot appear in a name,
+// dropping the runs that open with a digit so a number is not read as one.
+func identifiers(text string) []string {
+	var out []string
+
+	start := -1
+
+	for i := 0; i <= len(text); i++ {
+		if i < len(text) && isNameByte(text[i]) {
+			if start < 0 {
+				start = i
+			}
+
+			continue
+		}
+
+		if start >= 0 {
+			if word := text[start:i]; word[0] < '0' || word[0] > '9' {
+				out = append(out, word)
+			}
+
+			start = -1
+		}
+	}
+
+	return out
 }
 
 // appliedFiles names the files whose text already holds an edit's
