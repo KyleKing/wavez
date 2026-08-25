@@ -918,368 +918,199 @@ measured and what it did not settle.
 
 ### Next
 
-**Take next**, when nothing else is asked for, in this order:
+**Take next**, when nothing else is asked for, in this order. Sources are the
+audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
+(`_ai_/research/2026-08-efficiency-frontier.md`), and the dated rows in
+`_ai_/bench/dogfood.md`, which is where every closed item's evidence lives.
 
-1. **Repeat one recorded call before repeating a whole run.** Every loop
-   diagnosed this month was found by hand: read
-   `.wavez/threads/<id>.history.jsonl`, find the call, reconstruct what the
-   harness answered, and reason about why the next attempt changed nothing.
-   The `h3` anchor loop and both malformed-call loops each cost most of a
-   session that way. The tool is small, because one call needs no
-   conversation and no resumed state: take a thread id and a turn, re-run
-   that tool call against a fresh workspace seeded from the task, and print
-   the result the model would have been sent. It answers the question that
-   matters whenever a message is being rewritten, which is whether the new
-   wording says anything the old one did not, and it turns every fixed loop
-   into a regression case costing one line. Do this before anything that
-   resumes a run, since the corpus says the failures worth chasing are one
-   call wide.
-
-   **Closed: it ships as `wavez -recall <thread> [-recall-turn n]`.** It
-   opens a throwaway workspace the way a replay does, replays the calls
-   before the target so the tree is the one the call met, then prints the
-   arguments, the answer the run was given, and the answer the harness gives
-   now. Every call rather than the editing ones, because the `h3` runs did
-   most of their renaming through `sed` under the shell and a prefix that
-   skipped shell rebuilt a tree the target never saw; 44 calls of that run
-   replay in 26 seconds. Two things it found on its first use. The `h3`
-   turn-32 anchor miss now answers that the edit is already made rather than
-   with a suffix diff, which is the fix from the lane above proved against
-   the run that motivated it. And the transcript was missing exactly the
-   calls worth repeating: a call the provider rendered into the message body
-   was recovered after the assistant turn was written down, so twelve of
-   `h3`'s turns held prose and an empty `tool_calls` with a tool result
-   underneath. Recovery now runs before the turn is recorded, which also
-   means the corpus stopped undercounting the fast tier's calls where the
-   dialect leaks.
-
-2. **Fuzzy matching suggests names that are not close, and the refusals
-   that carry them read as noise.** `rename` answered a missing `Read` with
-   `OpenThread`, `TestThreads_ListFailsWhenLogUnreadable`, and `NewRead`,
-   of which one is close and two are trigram collisions (`Threads`,
-   `...LogUnreadable`). `orNearby` in `internal/tools/symbol.go` passes the
-   search result through unranked and unfiltered, so a short query matches
-   the substring everywhere it occurs and the three names it prints are the
-   three rows that came back first. Every refusal built on that helper
-   inherits it. The measured case it exists for is real, since a run that
-   guessed `ApplyToFileTest` was rescued by exactly this list, so the fix is
-   a floor rather than a removal: rank candidates by a similarity the query
-   length is accounted for in, drop everything under it, and print nothing
-   where nothing qualifies, because three wrong names cost more than an
-   empty suggestion. Worth measuring at the same time whether `search`'s own
-   fuzzy mode has the same shape, since both sit on the trigram index and
-   the retry path already splits queries on case and underscores to work
-   around short-token behaviour. `h3` is the lane to measure it on.
-
-   **Half closed.** The floor is a rule rather than a threshold: a candidate
-   is printed only where the query occurs in it as a whole CamelCase or
-   underscore word, judged against the widened query the results came back
-   for rather than the name asked for, for the reason `searchWidening`
-   already states. `Read` is a word of `NewRead` and three letters in the
-   middle of `OpenThread`, and that one test separates the measured rescue
-   (`TestApplyToFile` for `ApplyToFile`) from both recorded collisions with
-   no constant to tune. Nothing qualifying prints nothing.
-
-   `search`'s own fuzzy mode has a different shape and a worse number. Its
-   miss path is a fallback result list rather than a suggestion list, so the
-   floor does not belong there, and the `h3` transcript says why it still
-   costs: fuzzy `Read in internal/bench` returned 20 of 1,997 matches and
-   fuzzy `func Read` narrowed to that package returned 2 of 4,819, so a
-   short query matches most of the repository and the run is told only that
-   its query was broad. Adding a word made it worse, since fuzzy splits on
-   non-word characters and every word widens the match. That run reached for
-   `grep` under the shell at turn 16 and called `search` once more in 57
-   turns, after the work was finished. Ranking fuzzy hits by how much of the
-   matched name the query covers is the same argument one level down, and
-   `h3` is still the lane to measure it on.
-
-3. **Item 2, aimed by the taxonomy that now exists.** Across the 77 recorded
-   replay runs, `str_replace` errored on 56% of its calls (78 of 140),
-   `delete` on 60% (24 of 40), and `rename` on 45% (5 of 11), while `read`,
-   `search`, `list`, `context`, and `move` sat at or near zero. Classifying
-   every logged error by cause changes what those numbers mean, and the
-   detail is where the work is. Of `str_replace`'s 77 logged errors: 36 are
-   `old_string` not found, 19 are the loop refusing a call identical to one
-   that already failed, 13 are arguments that never parsed as JSON, 7 are a
-   missing or invalid field, and exactly 1 is an ambiguous match. Of
-   `delete`'s 25, 12 are the safeguard refusing a declaration something
-   still uses, which leaves a real failure rate of a third rather than
-   three-fifths. So there are three distinct problems behind one rate: text
-   matching that misses, a model that repeats a failed call instead of
-   changing it, and a tier that cannot emit the JSON. The first is a tool
-   fix, the second is a loop fix, and the third is the argument for
-   Modifiers. Fix the built-in tools until reaching for `grep` and free-text
-   editing is the worse option, rather than asking a model not to.
-
-   The first cut of that lands, and classifying by call shape rather than by
-   message moved the diagnosis off the model and onto the schema. 52 of the
-   139 logged single-pair `str_replace` calls carried no `new_string` at
-   all, all 52 from the fast tier, against zero of the hosted tiers' 102.
-   The schema required only `path`, since a flat required list cannot say
-   "either the pair or `edits`", and a local turn decodes under a grammar
-   compiled from that schema, so the optional field was a legal exit right
-   after `old_string`. Stated as a top-level `oneOf` of two whole branches
-   the grammar forces the pair (0 of 5 pairless against 6 of 6 before, and
-   an `anyOf` written beside `properties` is ignored), and an absent
-   `new_string` is refused rather than read as a deletion, which one logged
-   run had turned into a deleted README line reported as a change. The cost
-   is 62 preamble tokens. Re-counting the 85 logged failures by call shape
-   then showed the hole owned 60% of them: 32 of the 40 `old_string` not
-   found errors were pairless calls rather than anchors that missed, and 19
-   of the 22 refused repeats were repeats of a pairless call. The three
-   problems above were one problem wearing three masks, and what is left is
-   6 genuine anchor misses, 13 malformed emissions, and a tail of single
-   cases. Two `e2` lanes then ran against it and settled less than hoped: no
-   call in either was pairless, and both still failed at 8 and 9 turns
-   inside the band this task already varies over, so the turn effect is
-   noise at this sample and the structural change is what holds. The
-   failure moved to a wrong anchor, and the tool log named two causes the
-   old log bound had hidden: `edits` is per file where `e2` needs two, and
-   a malformed call is an 8,765-character multi-file batch cut off
-   mid-emission rather than a degeneration loop.
-
-   The taxonomy itself is now closed. Every failure `str_replace`,
-   `delete`, `rename`, `write`, and `undo` can return names a cause, and the
-   corpus since 2026-08-23 reports none unclassified. The counts that
-   remain unclassified are records written before the taxonomy existed and
-   cannot be recovered. What the closed taxonomy says is that the live
-   profile is `bad_input` 99, `no_match` 98, `repeat` 31, and `malformed`
-   15, and item 6 is where the first two of those are read by message
-   rather than by cause.
-
-   Two more causes are named and fixed, both found by reading a lane rather
-   than the counts. The batch shape's description said an edit may name its
-   own path and the schema did not declare one, so the capability existed in
-   Go, was promised in prose, and was unemittable under the grammar a local
-   turn decodes with, which is the shape every recorded `e2` fast-tier
-   failure had. It costs 25 preamble tokens. And the near-match report
-   pointed at the wrong place: it reported whichever alignment scored
-   highest, so a source that had gained one line the anchor lacked scored
-   higher shifted by one and the report blamed the anchor's first line,
-   the one line that was right. One lane read that and re-sent the same
-   anchor five times. The report now prefers the alignment whose first line
-   actually matches, which names the line the source has and the anchor
-   omits. `no_match` is 121 of `str_replace`'s 359 classified failures over
-   532 calls, so this is the largest single thing left in the tool
-
-   The corpus since 2026-08-23 now puts `str_replace` at 29% of calls
-   failing (134 of 464), against the 56% (78 of 140) the first 77 runs
-   showed, and `delete` at 32% (7 of 22) against 60%. What is left is
-   `no_match` 67, `bad_input` 32, `ambiguous` 20, `malformed` 11, and
-   `repeat` 4. `ambiguous` is the one that grew, from 1 across the first
-   corpus to 20, and `h3` says what it is: four call sites written
-   identically, which no widening tells apart and which is a rename asked as
-   a text edit. Nothing steered a rename task at `rename`, and now the
-   ambiguous refusal does: where the pair substitutes one identifier and
-   changes nothing else, it names the call that changes every site in the
-   project rather than only the ones this file holds. It costs no preamble,
-   because it is a sentence in a failure the run was already being given,
-   and it says nothing for a pair that rewrites text rather than
-   substituting a name. Two of the 67 are
-   now answered rather than repeated, since a part-finished rename says the
-   edit is already made, which `wavez -recall p-dkykn7hmlye0 -recall-turn 32`
-   reproduces against the run that motivated it.
-4. **The escalation signal was clearing its own evidence.** It reads as
-   never having fired, and the reason is two defects rather than a
-   condition set too strictly. `escalateIfStuck` returned in silence
-   whenever the run was already on the top tier, so an absent log line was
-   never proof the condition had not held. And the repeat counter reset to
-   zero whenever a gate failure arrived without the change count growing,
-   which is what a debounced re-run looks like from the inside: one turn's
-   edits reach the runner as two batches. Thread `p-dkwtttv5vpag` holds the
-   sequence, three identical lint failures with an edit between the first
-   two and a re-run before the third. Both are fixed, and replaying all 262
-   thread logs against the fixed rule reaches the condition on three of
-   them where none reached it before, all fast-tier runs with a tier above.
-   **Closed: it fires.** Four sequential `e2` lanes on the local fast tier
-   reached it in two, both on the `lint` gate at turn 29 of the log, both
-   escalating a tier, and both were the lanes that plateaued (27 turns to a
-   deadline and 20 to a failed verification, against 9 and 10 for the two
-   that never reached it). The signal now separates the lanes that stall
-   from the lanes that finish, which is what it was built to do.
-5. **More tasks, and one of them found a bug in the model's own output.**
-   `h10` covers the shape that needs a test to fail first, and `h11` is the
-   first whose retrieval spans two packages: it asks for a `NotUniqueError`
-   branch in `internal/tools`, whose fields only `internal/edit` states.
-   Its first run scored 1 of 4 and turned up something the set was not
-   looking for. The balanced tier emitted `¬` where it meant `&not`, so a
-   run trying to write `&notUniqueErr` could not: every attempt collapsed
-   to the same text and the file stayed unparsable. Nothing in this repo
-   unescapes HTML entities, so the substitution happens before the bytes
-   arrive. One occurrence in the corpus, so it is recorded rather than
-   repaired, and a second one is what would justify a table of entity names
-   to undo. `h12` joins the set as the first task that asks for a file to
-   end at the bytes it started with, and what it turned up is about
-   benchmarks rather than about the task: a replay checks the end state, so
-   a prompt cannot require an intermediate one, and the shortest path
-   through `h12` skips the step it was written to force (item 7). `h2` stays
-   the existing one worth studying rather than replacing.
-
-   The cross-language gap this named is closed by `h13`, which was written
-   after it: its retrieval spans the Pkl schema, the Go loader that mirrors
-   it with pkl struct tags, and the Go defaults the overlay lands on. It has
-   run 12 times at 92% and a mean of 29.7 turns, 33 of one run's 44 turns
-   being retrieval, so it measures the boundary rather than merely crossing
-   it. There is no third language in this project to reach for.
-
-6. **The 34% of turns the harness costs, aimed at twice and unmeasured.**
-   The corpus reports where a run's turns go (15% productive, 44%
-   retrieval, 34% harness, 6% prose over 1,195 turns) and a harness turn is
-   one that followed a tool error or something the harness injected, so the
-   way to move it is to stop the tool erroring. Two of its causes are now
-   named and fixed. 81 of `str_replace`'s 322 logged errors are the two
-   halves of one pair carrying the same text, mostly from the hosted tiers
-   rather than the fast one, and the tool now separates the file already
-   holding that text from an anchor that was never sent. 48 of the 93
-   near-match reports rendered as `source has: ` with nothing after it,
-   which a probe reproduces from one cause, an anchor copied without the
-   file's blank lines, and `Replace` now matches those instead of refusing
-   them. Both are proved at the unit level and neither has an effect
-   measured on a run, and the little evidence there is runs against them:
-   across four `e2` fast lanes after against eleven before, median turns
-   went from 9 to 13.5 and median harness turns from 3 to 6.5, on
-   overlapping ranges, with one lane decoding at 2.1 tokens per second
-   against a median of 25 because the machine was busy. Serving the fast
-   tier from somewhere else was meant to close that and did not. Decode
-   roughly doubled and three of four hosted lanes still hit the deadline, at
-   4, 4, and 9 turns, because per-turn output went from ~190 tokens to ~930:
-   one turn spent 8,064 bytes of reasoning on 2,287 output tokens, and
-   prefix cache reuse fell from 89-96% to 0%. Faster decode bought fewer
-   turns. Two causes are now fixed and one is not. `Thinking` reached no
-   hosted tier at all, since it was spelled only as llama.cpp's
-   `chat_template_kwargs`, and a tier can now carry the toggle in config; a
-   probe puts the same reply at 11 completion tokens against 79. What is not
-   fixed is that OpenRouter's shared pool rate-limits `qwen/qwen3-8b`
-   upstream, so three lanes ran their whole task a tier up. Every fast-tier
-   lane since the move is contaminated by it, and what closes this now is a
-   fast tier that answers every request, which now exists: the fast tier is
-   served from this laptop and moves to OpenRouter per turn while the
-   machine is too loaded to keep up, so a lane is neither the laptop's
-   decode rate to lose nor a shared pool's to rate-limit. The first four
-   sequential lanes under it split cleanly. Two ran `e2` end to end on the
-   fast tier at 9 and 10 turns, 1,389 and 958 output tokens, one complete
-   with 3 of 3 checks; the other two reached the stuck signal on `lint`,
-   escalated, and took 27 and 20 turns. Output per turn on the fast-only
-   lanes is 154 and 96 against 274 and 199 for the local lanes before this
-   work. What the split says is that the remaining cost is not the tier and
-   not decode: it is `str_replace` missing its anchor, five times in a row
-   in one lane, which item 3 now aims at directly.
-
-   The number this item is named for has moved. Over 2,085 turns since
+1. **Retrieval is 58% of every turn a run spends.** Over 2,085 turns since
    2026-08-23 the split is 14% productive, 58% retrieval, 25% harness, and
-   3% prose, against 15/44/34/6 over the 1,195 turns it was written from.
-   Harness turns fell by nine points and retrieval took every one of them,
-   which is the tool surface erroring less and the runs reading more rather
-   than a run getting cheaper: mean turns per task are unchanged inside the
-   bands each task already varies over. So the thing to aim at next is
-   retrieval, not the harness, and the instrument for it is the same one
-   that found the last two harness causes.
+   3% prose, against 15/44/34/6 over the 1,195 turns this was written from.
+   Harness turns fell nine points and retrieval took every one of them at
+   unchanged mean turns per task, so the tool surface errors less and the
+   runs read more rather than a run getting cheaper.
 
-7. **`undo` shipped and no run has called it.** Two lanes with the tool
-   present (`h7`, `h10`) made zero `undo` calls, which is `vcs`'s pattern
-   exactly: a tool can be reachable, correct, and unreached. `h7` improved
-   sharply across those lanes (44 turns and 3 of 5 checks, down to 7 turns
-   and 4 of 5, with 12 shell calls falling to none and `str_replace` errors
-   from 7 of 11 to 1 of 2), and `undo` cannot be the cause of an improvement
-   in runs that never called it. The likelier cause is the parse check
-   landing in the same window, since it reports a broken edit in the turn
-   that made it rather than a gate round later, and that is precisely the
-   thrash the numbers show going away. One run each way separates neither.
-   What decides `undo` is whether a run reaches for it once cornered, which
-   needs a task that corners one. At 136 runs since it shipped it has still
-   been called zero times, and `h12` was written to find out whether that is
-   the tool or the tasks. It asks for a method, then for `memory.go` to end
-   at exactly the bytes it started with and the method to live in `load.go`
-   instead. Three lanes ran it and none called `undo`, for a reason worth
-   more than the count: the shortest path through the task is to never edit
-   `memory.go` at all, and one lane took it and passed 4 of 4 checks in 8
-   turns. A replay checks the end state, so no prompt can require an
-   intermediate one, which means **no task can corner a run into `undo` by
-   construction**. Only a run that has already broken something gets
-   cornered, and that is not something a benchmark can ask for. So the count
-   will stay at zero whatever tasks are added, and the decision is whether
-   `undo` is worth 57 tokens as insurance against the corner rather than as
-   a measured win. What did change is the dead end: the shell's refusal of a
-   version-control write now names `undo`, so a run reaching for `git
-   checkout -- <file>` is pointed at the tool instead of at nothing, which
-   is the 44-turn `h7` failure this was built for. `h12` stays in the set on
-   its own merits as the first task that asks for a file to end where it
-   started
+   One cause is fixed. The trigram index scored by bm25 alone, which reads
+   document length, so a short query answered with the shortest documents
+   holding its letters: `Read` returned twelve names built from `Thread`
+   above either symbol actually called `Read`, and the second of those sat
+   at row 90 of 1,239. Fuzzy search now ranks a wider window by the name it
+   matched, exact names first and then the names the query is a whole word
+   of, shortest first, leaving everything a name match does not speak for in
+   bm25 order.
 
-   **Closed: it is called.** The corpus since 2026-08-25 holds 34 `undo`
-   calls across 17 runs and 10 different tasks, none of which errored or
-   was refused, so the prediction that the count would stay at zero
-   whatever tasks were added was wrong. What is not settled is why. Only 4
-   of the 27 calls whose sidecars survive follow a message that named the
-   tool, so the shell's refusal pointing at `undo` explains a minority and
-   the rest is a run reaching for it off the tool description alone. The 57
-   tokens are paid for either way
+   Twelve `h3` lanes measured it and the result is not the one that was
+   wanted. Mean turns fell from 43.2 to 29.0, `str_replace` calls per lane
+   from 10.2 to 5.0, spend from $0.099 to $0.048, and eight of the twelve
+   never left the balanced tier where every lane before had escalated. Runs
+   that passed all six checks fell from 5 of 6 to 4 of 12. The cause is in
+   the trails rather than inferred: `rename` used to be unreachable on this
+   task and is now reached by half the lanes, where seven of nine calls
+   refuse, so the runs that finish are the ones that grind or escalate
+   instead. That is item 4, and it is now the thing holding this task rather
+   than retrieval.
 
-8. **A tool nothing calls is a tool nothing needed. Closed: `vcs` is gone.**
-   Taken at 226 runs rather than 5, it was called 4 times while the same
-   corpus made 21 git and jj shell calls. Ten of those (`git status`, `git
-   diff`, `jj st`) are exactly what `vcs` offered and the model reached past
-   it, and the reason is that reaching past it worked: `Shell` answers a
-   read-only version-control command from what the run recorded as it wrote,
-   before the guard classifies anything, so the tool was never what answered
-   those questions. Five more were reverting, which `vcs` deliberately would
-   not do and `undo` does. Removing it returns 102 preamble tokens and drops
-   the ceiling from 2,550 to 2,450, and the shell's refusal of a
-   version-control write now names `undo` instead of a tool that could not
-   revert
+2. **`no_match` is what is left in the edit tools.** `str_replace` fails 29%
+   of its calls (134 of 464) against the 56% (78 of 140) the first 77 runs
+   showed, and `delete` 32% (7 of 22) against 60%. What remains is
+   `no_match` 67, `bad_input` 32, `ambiguous` 20, `malformed` 11, and
+   `repeat` 4. Two of the 67 are answered rather than repeated now that a
+   part-finished rename says the edit is already made, which
+   `wavez -recall p-dkykn7hmlye0 -recall-turn 32` reproduces against the run
+   that motivated it. The rest are anchors that genuinely miss, and the
+   instrument for them is `-recall` over the lanes that hold them rather
+   than another sweep.
 
-Ordered by the rule above: measurement, then the efficiency work it makes
-decidable, then the machine probes that need a stable loop underneath them.
-Sources are the audit (`_ai_/bench/audit-2026-08-18.md`), the frontier
-comparison (`_ai_/research/2026-08-efficiency-frontier.md`), and the dogfood
-rows. Each names what closes it.
+3. **What a run reads after it has found the right file.** `read` is 67% of
+   all tool result bytes, and the lanes that pass still read whole files:
+   both `h3` lanes under the new ranking read `internal/bench/stats.go` and
+   `internal/bench/stats_test.go` end to end, 341 and 354 lines, and between
+   them the task changes six. Outline mode is the shape already argued for in
+   `_ai_/research/2026-08-payload-reduction.md` and it was held for a
+   retrieval-hard task to measure on. `h13` is that task: 33 of one run's 44
+   turns were retrieval across a Pkl schema, a Go loader, and Go defaults.
 
-1. The measurement substrate ships: `-stats` over a thread log, `-stats-vs` between two runs, and `-replay <task>` running one task of the fixed set in a throwaway jj workspace and appending one record to `_ai_/bench/replay/records.jsonl`. What is left is using it: every lane from here compares two runs of the *same* task, and the tasks that exist (`q1`, `e1`, `e2`, `e3`) are small enough that a harder set has to grow alongside the lanes that need it
-2. Tool-call efficiency, from whatever the stats say is largest. Two are already known and fixed (fuzzy terms ANDing, ranged reads bypassing the cache) and their effect is unmeasured. The next candidates from the same run: `context` was called once in 71 calls and never again, and 13 of 19 shell calls were `grep` doing what `search` exists to do
-3. Payload reduction, surveyed and measured in `_ai_/research/2026-08-payload-reduction.md`. The first cut ships: `internal/reduce` dispatches shell output by shape before any size cap, so a `go test` run keeps what names a failure and drops what only says the run happened. On this repo's own untrimmed output that is 19x smaller than head-and-tail over four passing runs, and on a failing verbose run 4.6x smaller while keeping the assertion, the failing subtest, and the parent `--- FAIL` that head-and-tail dropped. What to build next: the fixed preamble first, then outline-mode `read` once a retrieval-hard task exists. Read dedup looked like the leader and is not. `read` is 67% of all tool result bytes and 36.5% of those bytes re-read a path the thread had already read with no edit in between, but a duplicate is charged once per remaining turn and re-reads happen late, so charging every duplicate across the thread logs at the turn it appeared comes to 0.7% of input tokens byte-exact and 0.9% line-exact. It ships anyway because assembling the request through `DedupeToolReads` is free, and it is not a lever. `wavez -preamble` now accounts for the preamble by section, and the audit moved the argument: 2,633 tokens, 41% tool schema and 33% project context, which is 37% of what a fast turn can use under an 8k window less the reply reserve. The largest context entry is a CI runbook written for a human, and 40 of 261 logged shell calls run what the gates already run, so that entry buys turns as well as costing them. Judge each on turns as well as bytes, because the one controlled benchmark found says reduction that costs a follow-up call has moved the spend rather than removed it
-4. Right-sizing the fast tier. The four tasks all pass their checks under a `fast` pin, and `tier_turns` says only `q1` ran on the fast tier: the three edit tasks escalated within six turns and the hosted model finished them. The escalating failure is one emission, repeated identically until stagnation trips, where `qwen3:8b` escapes the closing quote of `old_string` and swallows the rest of the JSON object into the string. That emission had a cause the harness owned: `str_replace`'s schema left `new_string` optional, and a fast turn decodes under a grammar compiled from the schema, so a quoting slip could close the call instead of being blocked. Requiring the pair per branch makes the emission unreachable, and the tier's remit is bounded by what it can emit rather than by what it can work out only where the schema lets it be. Two things follow: item 5 is the fix for whatever survives that rather than a bigger fast model, and the set still needs harder tasks (several files, a test that has to fail first, a task whose retrieval is the hard part) before it bounds anything. The candidate routing signals stay plan mode, a Cycle phase declaring its shape, and the run's own tool history. The first evidence that separates the tier from the tool surface is in: on `e2`, holding the tools, the prompt, and the task fixed and varying only the tier, the hosted model passed 3 of 3 checks on all three runs while the fast tier reached 3 of 3 about once in six. Every remaining fast-tier failure is the same compile error, a test in `package sysinfo_test` naming `Memory` rather than `sysinfo.Memory`, with the run told the package it wrote into and the gate quoting the compile error back. That is the tier's remit rather than the tool surface, and it is the first task in the set that says so
-5. Modifiers for Go (M3). The first one ships: `rename` sends two identifiers to `gopls`, which resolves the symbol through type information and answers with every occurrence, so there is no source to escape and nothing to half-apply. Measured on `h3` (rename an exported function across packages, `fast` pin, only the tool surface changed): 19 turns escalating to the deep tier and a deadline, against 3 turns entirely on the local model and a clean finish, 154,064 input tokens against 7,934, with the whole edit in the first tool call. `delete` follows it, removing whole declarations by name (several per call) and refusing one the language server says is still used, because a Modifier makes a destructive act one short call and the blast radius per misread task rises as the token cost falls. Measured on `h4` (delete an unreachable function and the six tests covering it): 19 turns escalating to the deep tier and failing, against 4 turns entirely local with all five checks passing. `move` follows them, relocating whole declarations between files of one package with the doc comment above each, which needs the index and a text cut rather than a code action: splitting a file is otherwise a block rewrite at both ends, and block rewrites are 35% of this project's logged edits and half of their bytes. Measured on `h5` (move two functions into a new file, `fast` pin), 2 turns and one tool call and 6,049 input tokens, finishing in 32 seconds with all six checks passing. The two runs before it took 15 and 11 turns for the same six checks, and the difference was not the Modifier: the gates were failing the package because a newly created file made the gate guess its package name and spell it in a way `go test` reads as standard library. Extract, inline, and change signature are parked below, because `powernap` v0.1.6 sends no `textDocument/codeAction` and offers no generic request path, so none of them is reachable without an upstream addition. `declare` follows them and is the one aimed at `str_replace` itself: it writes a whole declaration by name, replacing the existing one or adding a new one, so the source is sent once and no anchor has to match. It exists because `e2` showed what the anchor costs on a small window: replacing a declaration through `str_replace` sends its text twice, once as the anchor and once as the replacement, and the fast tier emitted ~12,000-character arguments cut off mid-string at normal entropy, which is running out of window inside one call rather than degenerating. Measured over three `e2` lanes on the fast tier, `declare` was called 11 times and failed once while `str_replace` was called 7 times and failed 7 times, and every run reached 2 of 3 checks where the previous nine fast-pinned runs had all stopped at 1. It costs 243 preamble tokens, which is what the budget ceiling exists to make a decision. The `str_replace` schema stays the largest in the preamble until enough of the work routes through Modifiers to trim its `edits` array
-6. Gate coverage for what a run currently spends turns discovering. Each candidate is a question a model asks the shell repeatedly, answered once and deterministically. The first candidate is closed and it did not need the re-run it was written as: a gate that fails with no line naming a changed file now hands over the head of what the command printed, because `go test -json` had carried the toolchain's own diagnosis all along and trimming was dropping it. On `h5` the "run it yourself to see" sentence cost fourteen turns chasing a failure that had already stopped happening, and what the run needed to read was one line the harness already had
-7. The progress line. Shipped, and the estimate it was going to carry is not, because the corpus settled against it. The spike scored five estimators leave-one-run-out over this project's 138 thread logs, splitting a log into one run per user prompt so the minutes a thread waits for its human are not counted as work a progress line could predict. No estimator of the remaining run landed within a factor of two more than a third of the time, and the two that read no history at all did as well as the three that read the project's, so nothing here earns a store and a countdown built on any of them would be wrong twice for every time it was right. The turn is a different question and an easier one: predicting the next turn's duration from the run's own mean gap so far is 54% within a factor of two against 23% for the best remaining-run estimator, at a median error of 4.9 s against 53.9 s. So the thread view shows the turn in flight and what this run's turns have been costing (`turn 4 · 12s of ~9s`), the daemon carries `Turn`, `TurnStart`, and `TurnMean` on `ThreadInfo`, and neither side estimates what the run has left. The first pass on the M4 Pro decided nothing on six runs, and it also counted human think time as run time, which is worth remembering as a measurement trap rather than only as a small corpus: on the same 138 logs, scoring whole threads reports three times the error for the same estimator
-8. Fleet-scale local serving: size `--cache-ram` against the admission headroom (the `kv-slots` numbers), the trimmed-output recall handle, allow-always persisted per project. Serialization past what fits is built: `sched.WithLocalSlots` bounds concurrent local turns by `runtime.ServedSlots`, the `-np` llama-server is started with. It exists because the scheduler only ever held a turn against a gate run, so three threads on one slot were all admitted, all read as `working`, and each got exactly one turn in three minutes before its deadline while the other two queued inside llama-server where nothing could see them. The two bounds are separate because they cover different spans: `AdmitTurn` is held for a whole run and competes with gate runs for memory, `AdmitSlot` only around one request and competes with other requests for the server, so a run that escalates gives its slot back and keeps its admission. The loop takes the slot because it is the only place that knows a turn's tier, and it pushes the run's deadline out by what the turn waited, since a bound that counts queueing measures the queue rather than the work. The queue is FIFO: a freed slot is handed to whoever has waited longest, because waking every waiter to race for it left one of three threads with no turn at all
-9. Routine triggers on schedule and thread lifecycle, the Semgrep opt-in routine, and the routines panel marking an abstention distinctly from a pass
-10. The timed comparison, held for the same reason: hosted and `claude -p` rows for the four tasks in `_ai_/bench/timing/`, three samples each, plus a `-p` run that starts no coverage-map build, since that build was competing with the model in the first rows
-11. Deterministic where the harness already knows the answer. Measured over every shell call in the thread logs (278): 106 (38%) search through `grep` when a `search` tool exists, 46 run `go build`/`go test`, 37 (13%) re-run gates the harness has already run and reported, 24 (9%) inspect `jj` or `git` state, 17 read a file through `sed`/`cat`, 11 list a directory through `ls`/`find`. Around 70% of what the shell is used for is either work a tool already did or work a tool could do without a model turn. Four pieces, in the order the numbers support:
-    - **`search` could not express what the model wants.** The `grep` calls are diagnostic rather than arbitrary: six of a random fourteen use alternation (`"ChoiceFast\|ChoiceBalanced\|ChoiceDeep"`), most scope to named files or directories, and several want a literal identifier with line numbers. Half of that is now fixed and the halves differ in an instructive way. Alternation already worked, because the query is FTS5 and `A OR B` returns the union, and the schema simply never said so, so the model wrote `grep`; that was a sentence, not a feature. A path scope was genuinely missing and is now a `path` property. The literal mode that was left now ships as `mode=literal`, matching an exact substring case-sensitively against the same trigram index: on this repo's own 473-file index, `edit.ApplyToFile` returns 335 fuzzy matches and exactly 1 literal one, because the fuzzy path splits on the dot and ORs the halves
-    - **Checkpoint as the run goes, and tell the model what changed rather than letting it ask.** Shipped, and the commit half turned out to be unnecessary. jj snapshots the working copy on every command, so `Capture` after each accepted change records that edit's tree without committing anything, and restoring to one of those operation ids brings the file content back exactly as that edit left it (proved in `TestJjCaptureAfterEachEditRestoresThatEdit`, at 40-70 ms per capture on this repo). Committing per change would have added a description to write and a change-log entry per edit without adding any recoverability the operation log does not already hold, so `Outcome.Edits` carries one operation id per change and each one rides on that change's tool event. The other half is deterministic too: a read-only `jj` or `git` command is answered from what the harness recorded as it wrote it, rather than run, which is the question all 24 of those calls were asking. The picker ships too: the daemon rebuilds the run's edit points from the thread log (so a reopened thread keeps them), `api.Restore` carries them, and `u` in the thread view lists "before the run" and each accepted change with `j`/`k` picking how far back to go. An operation id the thread never recorded is refused rather than passed to jj, because restoring destroys uncommitted work and an arbitrary id from a client is not a request to carry out
-    - **Refuse to re-run a gate rather than asking the model not to.** Shipped. `guard.ProjectCheck` names which of the project's checks a command re-runs, reading only the command text like everything else in that package, and holds the line the prompt already drew: a sweep of the module is a report the harness has, and one package's tests are work. `ChangeGate.Status` supplies the state half, so the answer is what the gates actually found rather than a refusal, and a failure now repeats the failing frames rather than saying the run was already told: feedback is delivered once, and one `h6` run spent six turns trying to establish a build state it could not re-read. The prompt's own bullet then lost its CI half, since a rule the harness enforces does not need to be a rule the model is asked to remember
-    - **Version control is a tool, not a shell string.** Shipped, and the tool half came back out. `find` and `truncate` are refused at the shell naming the tool that replaces them, and both version-control CLIs are refused outright, so there is nothing to force a push with, nothing to rewrite history with, and no way to commit with git in a checkout jj owns. A run can no longer commit at all, which is what the per-edit checkpoint above already found it never needed. The `vcs` tool that read `status`, `diff`, and `log` is gone: `Shell` answers a read-only version-control command from what the run recorded as it wrote, before classifying anything, so the tool was never the thing answering those questions and the corpus says so (4 calls against 10 shell reads it was built to displace, over 226 runs). The refusal now names `undo`, which is what a run reverting its own edit actually needs. The harness is unaffected, because its own checkpointing calls `internal/vcs` directly
-    - **The shell is used because it composes.** `grep X | head`, `grep A; sed -n B`, `cmd && echo done` are one call where the tools would be three turns. That is the reason `read` and `list` get done through a shell at all, and it is the argument for tools that take several targets (as `read` and `delete` already do) rather than for more tools
-12. The standing goal, carried to where it is lost. Shipped. A thread's objective is its first user message and nothing keeps it in view. Coming back to a thread after an hour, the Home row says `editing internal/lease.go` and the header says `fix-lock-timeout`, and neither of those is what was asked for. The model has the same problem from the other side: `cycle.Prompt` restates a standing goal at the head of every phase and an ordinary thread has no equivalent, while the Decisions entry on what crosses a phase boundary already commits to carrying the goal, the change set, and the ledger, so a thread boundary is that same boundary with nothing carried across it. Three points lose the goal outright rather than gradually, and they are what this item fixes: a fork inherits the parent's change set and none of its transcript by design, compaction trims from the front, and a daemon reopen rebuilds from the log. The evidence for the gradual half is thinner than for the abrupt half and points the same way. Goal adherence measured over 100k tokens degrades in every model tested and tracks context length rather than turn count ([arXiv:2505.02709](https://arxiv.org/abs/2505.02709)), and Codex's tracker carries a report of task progress falling back after compaction ([openai/codex#25792](https://github.com/openai/codex/issues/25792)). No controlled study was found that measures what re-stating an objective buys, so the cheap form ships first and the replay set decides whether the expensive one is worth its tokens. What ships:
-    - **The goal is the first user prompt, verbatim, plus an optional second field for instructions that are not the objective.** A goal is therefore always written and never asked for twice. `g` rewrites it at any point, and a rewrite is an event the model is told about on its next turn, because a goal that changed silently is worse than one that was never stated. It is never model-authored, for the reason the no-model-authored-list decision already gives: a claim about intent is the last thing that should sit in the place everything else re-anchors to
-    - **It is injected only where it is provably absent**, which is on fork, after compaction, and on reopen. Restating it every turn is the stronger form against drift and costs tokens on every turn of every thread, which is the shape of change this project has twice measured as moving spend rather than removing it
-    - **It lives in the thread record under `.wavez/threads/` and not in jj.** It informs the descriptions of the commits a thread makes under item 11, so a change log reads as a series of steps toward one goal, while the goal itself stays out of the change log because a thread that has committed nothing still has one
-    - **It renders in the thread header beside the name**, is the first thing dropped as the terminal narrows, and `g` opens it in full with the history of its edits. Home rows keep the step, since what a thread is doing now and what it is for are different questions
+4. **Every path through `rename` on a real rename task refuses.** Six of
+   twelve `h3` lanes called it and seven of nine calls came back a refusal,
+   in two shapes. A bare call is ambiguous, because three packages here
+   declare `Read`, and two lanes answered that by re-sending the identical
+   call until the loop detector stopped them, one of them after the refusal
+   had been rewritten to carry the exact `path` argument that resolves it.
+   So that is a repeat the tool should refuse the way `str_replace` refuses
+   one, rather than a sentence to keep rewriting. The other shape is order:
+   a lane that hand-edits the declaration first puts the symbol beyond
+   `rename`, which starts from the declaration, and `str_replace`'s
+   ambiguous refusal was pointing at `rename` at exactly that moment. The
+   advice is withheld now, and what is unsolved is that `str_replace` cannot
+   say anything until a run is already editing. Either the routing moves
+   ahead of the first edit, which costs preamble on every task to serve one
+   shape of task, or `rename` starts from a declaration that already carries
+   the new name.
 
-    What the build changed against that design: the goal is derived rather than stored twice, because a thread's log already holds it. It is the last `KindGoal` event, or the first prompt when nobody rewrote one, so a resumed thread reads it back with no new persistence and a rewrite is auditable beside what it replaced. The injection rule collapsed to one test rather than three hooks: at run start, restate the goal only when the history about to be sent does not already carry it, which covers a fork, a reopen, and a rewrite together and stays silent on every ordinary turn.
-13. Web search. Shipped, and it cost 221 preamble tokens for the pair rather than the ~1.5k a schema of that shape usually runs. The toggle turned out to matter after all and now defaults off: the pair was called in none of 90 recorded runs, 217 tokens is 8% of the preamble, and a coding agent that can reach the network without being asked to is a wider exposure than one that cannot. A project that asks about the world outside it sets `web = true`. What the survey changed: the plan was to mark fetched text untrusted and stop there, and the literature and the field both say a marker is the weakest layer. OpenCode's own `webfetch` blocks nothing (no private-address check, no redirect rule, no boundary) and its injection defenses live in third-party plugins that pay a judge model per tool result; the research converged on enforcing policy outside the model with deterministic checks and constrained egress rather than on asking it nicely. So the boundary shipped last, behind credential refusal, private-address refusal at dial time, a same-host redirect rule, and permission-gated fetches of any host this thread's searches did not return
-14. Harness observability. Everything here is deterministic, needs no model, and answers a question this project has repeatedly answered by hand and slowly.
-    - **A tool error taxonomy.** Shipped. Every failing tool result carries a cause (no match, ambiguous, bad input, refused by design, conflict, io, upstream, malformed arguments, repeated call), the thread log records it, and `-stats` breaks each tool's errors down by it. The rule it enforces is that a refusal that worked is never counted as a failure, and the payoff was immediate: `delete`'s 60% error rate is a third once its 12 correct refusals come out, and `str_replace`'s single number turns out to be three separate problems in different parts of the system. An error from a call site the taxonomy has not reached counts as `unspecified` rather than being guessed at, so the report says how much of itself is missing. The report then named the last two holes and both are closed: `question` and `write` were the only tools still returning an unclassified failure, `write`'s five were all refusals recorded as defects, and `tool.Errorf` is gone because every hole came from an escape hatch existing. The cause names the class and the arguments say which case, so the thread log bounds a failed call's input at 32 KB and only a successful call's at 2000: classifying the corpus ran aground on 13 malformed emissions that were all longer than the old bound and stored with their tails cut
-    - **Gate false-alarm detection.** Shipped. `ChangeGate` keeps each gate's last verdict beside the change count it was given, so a gate that passes over the same change set it just failed over is recorded as a retraction: nothing about the code moved between the two answers, which makes the first one the harness's fault. The loop logs it and never tells the model, because a run told a gate was wrong once will discount the next failure, and `-stats` reports it beside gate rounds and failures. It is the signal that says whether the trimming and selection work is making the gates quieter or just wronger
-    - **A corpus-wide stats command.** Shipped as `-stats-corpus`, which reads `records.jsonl` and reports completion by task, checks held, and each tool's calls, failures, refusals, and causes. It reads the three measurements beside them that nothing had read: where a run's turns went, how the gates behaved, and which deterministic finish checks fired. `-stats-since` scopes it, because the file spans three harnesses and a rate over all of it averages tools that no longer behave the way they did. Two things it gets right on purpose: a refusal is counted apart from a failure, which is what turns `delete`'s 60% into a third, and each tool's row closes with the errors no cause covers, so the report says how much of itself is missing rather than reading as a complete breakdown of an incomplete one
-    - **Turn attribution.** Shipped. `bench.Attribute` splits a run's turns into productive (it produced an accepted change), retrieval (it called tools and changed nothing), harness (it followed a tool error or something the harness injected), and prose. A turn is attributed to what preceded it, so a failure belongs to the turn that emitted it and the reaction to the turn after. Harness wins wherever two apply, because the question it answers is how much of the run the harness caused, and it is marked an estimate rather than a count
-    - **A run timeline a human can read.** The three above are numbers; this is the picture. One page per run: turns as bars, tool calls colored by outcome, gate rounds, escalation points, and the operation id captured at each accepted change. It converges with the per-edit undo picker under item 11, because the thing a person points at to say "put it back to there" and the thing they read to see where the time went are the same list
-15. Harness testing and developer experience. The expensive part of changing this harness is proving the change did something, and today that costs a three-minute replay lane on a machine quiet enough for the result to mean anything.
-    - **Transcript fixtures.** Shipped as `internal/transcript`. A fixture is JSON: the files the workspace starts from, the prompt, the model turns verbatim, and the gate feedback and gate state the harness holds. It replays against the real loop and the real file tools, and its golden frame is every event the run logged with the timestamps and sequence numbers left out. It stays valid only for changes that do not alter what the model sees, which covers gate messages, output reduction, tool result formatting, and the preamble. The first fixture is the `h6` run that spent six turns on a build state it could not re-read, so the wording that cost those turns is now pinned
-    - **A preamble budget.** Half shipped. `wavez -preamble -preamble-max <n>` exits non-zero over the ceiling and says what the prefix actually costs, and `mise run preamble:budget` holds the fast tier's prefix at 2,550 tokens against a current 2,517. It was 2,200 until `declare` bought its 243 tokens with a measured result, which is what the ceiling exists to force (30% of what a fast turn can use, down from 42%), and the report gives a line per tier because one number stopped describing the cost. The report now splits each schema into the prose and the structure it hangs on, which is what made the trim decidable: the tool surface was 84% of the preamble and prose was 69% of that, against 448 tokens of actual grammar. `TestSchemasCarryNoDescriptionLongerThanItsWorth` holds the per-description bound so a new tool's prose is a decision rather than a discovery. The CI half now runs, and it landed generically rather than here: the template gained a `project` job that runs `mise run ci:project` when a project defines that task and says so when it does not, so this project's own gates (`deadcode`, `preamble:budget`) reach CI without editing a file `copier update` overwrites
-    - **`-deadcode` in CI.** It gates now. The twelve functions no main reaches are named one at a time in `deadcodeAllow` with why each is deliberate, so the list doubles as the inventory of what is built and not yet wired, and `mise run deadcode` fails on anything new (proved by adding an orphan and watching it exit 1). Freezing rather than deleting is the point: half of them are roadmap-planned (local model management, gate cadence, the import graph) and deleting planned work to satisfy a check is the wrong trade
-    - **The replay harness swept up after itself.** A replay keeps the workspace of any run whose checks did not all pass, which is most of them and is the only place a failing run's tree survives, and nothing ever expired one: 78 accumulated here, half their directories cleared out from under records that still pointed at them, and every jj command in the repo rebased their commits. A run now drops all but the five most recent before it starts. Forgetting a workspace is half the job, because jj leaves its working-copy commit in the graph, which is why the sweep abandons the commit first and why `TestJjForgottenWorkspaceLeavesItsCommitUntilAbandoned` pins that order
-    - **`mise run scratch`.** One task for a throwaway daemon and TUI on a short socket path, with cleanup. The socket path limit is 104 characters and the scratchpad path is longer, which is a mistake worth making once
-16. A finish check, designed from first principles to replace the model reviewer. The reviewer as built asks a model whether a diff does what the task asked, and the recorded evidence is that it objects to correct diffs: 3 objections in 77 runs, both traceable ones on runs whose diff was right, and no run where an objection turned a failure into a success. It is also a model judging a model, which the critique experiment under [Risks](#risks-and-unverified-claims) already found wraps its own words around the same invention. What replaces it is not a better prompt but the deterministic checks that answer the same question, each able to fail a run on its own:
-    - Every path and symbol the closing answer names exists. The code index settles it, and it is exactly what `h1` invented
-    - The change set intersects what the task's own words name, where the task names a file or a symbol at all
-    - The changed lines are executed by a test, which the coverage map already answers per line
-    - The change set intersects what the standing goal names, which is the harness observation parked under item 12 rather than a model-authored goal
-    Each is a bound rather than a judgment, so a run that passes them all has not been declared correct, only found to have done something of the right shape. The reviewer stays in the tree behind a flag until enough of these exist to replace it.
+5. **Home is the screen a person actually reads, and it was the least
+   measured.** A pass over it with a real 393-thread list found the list
+   rendering every row with no viewport, so `G` moved a cursor below the
+   fold and the key hints sat off-screen; a name column fixed at 20
+   characters cutting every row to `rename-the-exported…` while ninety
+   columns stayed empty; a filter that narrowed 853 rows to 6 without
+   echoing the query or the count; and the state carried twice, once as a
+   glyph and once as a word. Those are fixed. What is left is the part a
+   list this long still cannot do: there is no state filter separate from
+   the text one, so `/failed` also matches a goal that says `failedEdit`,
+   and no way to act on a selection rather than a row. The rest of the
+   screens have had no equivalent pass.
 
-    A fifth check came out of the first replay lane that used them, because a run can satisfy every one of the four by doing nothing. On `h6` a run added the line `// Ensure we truncate on a character boundary` above the code it was asked to rewrite, changed nothing else, and reported complete: every gate passed because nothing was broken, the change set touched the file the task named because it did, the closing answer named only things that exist because it described work it had not done, and the changed line was covered because it sat inside a tested function. `ChangeHasSubstance` reads the run's own diff against its checkpoint and reports a change set whose every added and removed line is a comment or blank.
+**Also open**, and not competing with the four above:
 
-    All five ship as `internal/finish`, run by `agent.Finisher` when a run completes, and recorded on `Outcome.FinishFindings` and a `KindFinish` event. Three decisions the build made against that design. A finding never reaches the model: handing one back would make these the reviewer they exist to replace, and the recorded evidence is that arguing with a model about its own diff buys nothing. The naming check reads only what the answer marks as code (a path with a separator and an extension, a backticked identifier), because the alternative is guessing which English words were meant as identifiers. And every check abstains rather than fails where it has nothing to say: a task that names no file or symbol, a change set the coverage map was never built for, a goal that is just the task again. A bound that fires on every run is noise, not a check.
+- Routine triggers on schedule and thread lifecycle, the Semgrep opt-in
+  routine, and the routines panel marking an abstention distinctly from a
+  pass
+- Fleet-scale local serving past the slot bound that ships: `--cache-ram`
+  sized against the admission headroom (the `kv-slots` numbers), the
+  trimmed-output recall handle, and allow-always persisted per project
+- The timed comparison in `_ai_/bench/timing/`: hosted and `claude -p` rows
+  for the four tasks, three samples each, on a machine running nothing else
+- A run timeline a human can read. The corpus commands are numbers, and this
+  is one page per run: turns as bars, tool calls colored by outcome, gate
+  rounds, and escalation points
+- What the fast tier's remit actually is. Holding the tools, the prompt, and
+  the task fixed on `e2` and varying only the tier, the hosted model passed
+  3 of 3 checks on all three runs while the fast tier reached 3 of 3 about
+  once in six, and every remaining fast-tier failure was one compile error:
+  a test in `package sysinfo_test` naming `Memory` rather than
+  `sysinfo.Memory`. That is the tier rather than the tool surface, and the
+  candidate routing signals are plan mode, a Cycle phase declaring its
+  shape, and the run's own tool history
+
+**Closed**, newest first, each with its lane dated in
+`_ai_/bench/dogfood.md`:
+
+- **Fuzzy suggestions and fuzzy ranking.** A refusal offers a near name only
+  where the query occurs in it as a whole CamelCase or underscore word,
+  judged against the widened query the results came back for. That one rule
+  separates the measured rescue (`TestApplyToFile` for `ApplyToFile`) from
+  both recorded collisions (`OpenThread` and
+  `TestThreads_ListFailsWhenLogUnreadable` for `Read`) with no constant to
+  tune, and nothing qualifying prints nothing. The same rule ranks `search`
+  itself, which fixed a second thing it was not aimed at: `finish` asks the
+  index whether a symbol the closing answer names exists, reading the top
+  five fuzzy hits, and six of ten common symbols in this repository were
+  reported missing while being indexed. That check is 67 of the corpus's 85
+  findings
+- **The thread list scrolls, sorts, and says what it is showing.** Rows are
+  clipped to the terminal with the cursor kept in view, the name and step
+  columns take what the fixed ones leave and are dropped where nothing on
+  screen fills them, `S` cycles the order, `v` opens the goal rather than
+  the last three events, and a status line carries "216 of 393 threads ·
+  matching failed · by recent". The state is a word instead of a glyph
+  beside a word. `Turns` is on `ThreadInfo` for the column that needed it
+- **Two refusals a run could not act on.** `rename`'s ambiguity said "name
+  one with path" and now carries `path: "<file>"` for one of the files it
+  names. And a lane told to send `replace_all: true` sent the string
+  `"true"`, was refused for the type, and never sent the call again, so a
+  quoted boolean is read as the boolean the decoder's own type error names,
+  touching only that field
+- **Repeat one recorded call before repeating a whole run**, as
+  `wavez -recall <thread> [-recall-turn n]`. It opens a throwaway workspace
+  the way a replay does, replays every call before the target rather than
+  the editing ones, and prints the answer the run was given beside the
+  answer the harness gives now. Its first use found that a call the provider
+  rendered into the message body was recovered after the assistant turn was
+  written down, so the transcript was missing exactly the calls worth
+  repeating
+- **The escalation signal fires.** It was returning in silence on the top
+  tier and resetting its counter whenever a debounced gate re-run arrived,
+  so an absent log line was never proof. Four sequential `e2` lanes reached
+  it in two, both on `lint`, and both were the lanes that plateaued (27 and
+  20 turns against 9 and 10)
+- **`undo` is called.** The corpus since 2026-08-25 holds 34 calls across 17
+  runs and 10 tasks, none erroring or refused, against a prediction here
+  that the count would stay at zero whatever tasks were added. Why is not
+  settled: only 4 of the 27 calls whose sidecars survive follow a message
+  naming the tool
+- **`vcs` is gone.** Taken at 226 runs it was called 4 times while the same
+  corpus made 21 git and jj shell calls, ten of them asking exactly what
+  `vcs` offered. Removing it returns 102 preamble tokens and drops the
+  ceiling to 2,450, and the shell's refusal of a version-control write names
+  `undo`
+- **The tool error taxonomy.** Every failure `str_replace`, `delete`,
+  `rename`, `write`, and `undo` can return names a cause, and nothing since
+  2026-08-23 is unclassified. It is what turned one 56% failure rate into
+  three separate problems, and then into one: 52 of 139 single-pair
+  `str_replace` calls carried no `new_string`, all 52 from the fast tier,
+  because a flat `required` list cannot say "either the pair or `edits`" and
+  a local turn decodes under a grammar compiled from that schema. Stated as
+  a top-level `oneOf` the grammar forces the pair, at 62 preamble tokens
+- **The task set covers what it needs to.** `h10` needs a test to fail
+  first, `h11` spans two packages, `h12` asks for a file to end at the bytes
+  it started with, and `h13` crosses a language boundary (Pkl schema, Go
+  loader, Go defaults) at 12 runs and 92%. There is no third language in
+  this project to reach for
+- **A finish check replaces the model reviewer.** Five bounds ship as
+  `internal/finish`, run by `agent.Finisher`: every path and symbol the
+  closing answer names exists, the change set intersects what the task
+  names, the changed lines are executed by a test, the change set
+  intersects the standing goal, and the diff is more than comments. A
+  finding never reaches the model, because arguing with a model about its
+  own diff buys nothing
+- **The measurement substrate**, as `-stats`, `-stats-vs`, `-stats-corpus`,
+  `-replay`, `-preamble` with a ceiling `mise run preamble:budget` holds,
+  turn attribution, gate false-alarm detection, and transcript fixtures
+  under `internal/transcript`. Around it: `-deadcode` gates in CI with each
+  deliberate exception named, a replay keeps the workspaces of its five most
+  recent runs and drops the rest, and `mise run scratch` brings up a
+  throwaway daemon and TUI on a socket path short enough to bind
+- **The harness stops being something the model works around**: shell output
+  dispatched by shape before any size cap, gates refusing a re-run rather
+  than asking for one, a gate failure naming no changed file handing over
+  what the command printed, checkpointing as the run goes, the standing goal
+  injected only where it is provably absent, and web search behind a
+  per-project toggle that defaults off at 221 preamble tokens for the pair
+- **The progress line ships and its estimate does not.** Five estimators
+  scored leave-one-run-out over 138 thread logs, none landing within a
+  factor of two more than a third of the time, and the two reading no
+  history did as well as the three reading this project's. The turn in
+  flight is the question that has an answer, and that is what the line shows
 
 ### Parked
 
@@ -1292,11 +1123,11 @@ queue with no interrupt makes a wrong instruction wait for the run acting on
 it.
 
 - **The remaining gopls Modifiers (extract, inline, change signature).** Blocked upstream: `powernap` v0.1.6 exposes `RequestRename`, `FindReferences`, `RequestDefinition`, and call hierarchy, and no `textDocument/codeAction` or generic request path, so a code action cannot be sent at all without an upstream addition or a second minimal LSP client. `move` shipped instead, because relocating a declaration inside one package is text plus the index and needs no code action. Extract is the one worth the upstream patch: it is the transform that turns a block rewrite into a range and a name
-- **Replaying a recorded run from a chosen turn.** Distinct from the single-call replay now at the top of Next, which needs no workspace at all. Resuming a run mid-flight needs the tree those messages were about, and a replay workspace is a real checkout the run mutated and the harness then deleted, so turn 30's filesystem is gone and re-running the turn answers against the wrong state. The blocker is retention, not replay: a per-tool-call jj operation id would make the workspace addressable at every turn for about what checkpointing already costs. Worth revisiting once the single-call version has been used enough to say whether the full resume is wanted
+- **Replaying a recorded run from a chosen turn.** Distinct from `wavez -recall`, which repeats one call and reaches the tree by replaying the calls before it. Resuming a run mid-flight needs the tree those messages were about, and a replay workspace is a real checkout the run mutated and the harness then deleted, so turn 30's filesystem is gone and re-running the turn answers against the wrong state. The blocker is retention, not replay: a per-tool-call jj operation id would make the workspace addressable at every turn for about what checkpointing already costs. Worth revisiting once the single-call version has been used enough to say whether the full resume is wanted
 - **A goal the model can propose.** The goal is user-authored by decision, and the case that keeps coming back is a thread whose goal is stale because the work turned out to be something else. A model-authored replacement is exactly the claim about progress that Cycles exist to stop trusting, so the version worth building is a harness observation ("this run has not touched what the goal names") rather than a rewrite
 - **Per-change commits with the goal as the description.** Superseded for recoverability by per-edit operation ids, and still open as a way to make the change log readable: one commit per accepted change described by the goal it serves. It waits on wanting that log, since the operation log already answers what a run did
 
-The quiet-machine session (item 10) runs off a fixed list rather than rediscovering steps: the setup and run loop in `_ai_/bench/timing/README.md`.
+The timed comparison runs off a fixed list rather than rediscovering steps: the setup and run loop in `_ai_/bench/timing/README.md`.
 
 ## Considered and deferred
 
@@ -1344,7 +1175,7 @@ No:
 - The replay harness cannot resolve a small effect. Repeated runs of one task on one lane vary 40-70% in turns, so any A/B below roughly a factor of two is noise at the two or three runs a lane gets. Claims about turns in this document that rest on a pair are bounded by that, and a lane that needs a smaller effect measured needs a metric that does not depend on the model's path, such as the exact preamble size `wavez -preamble` reports
 - A change-gate batch can report a diagnostic the format pre-pass in that same batch has already fixed. Seen once, on `h4`: `delete` removed a function, the `lsp` gate told the model that `internal/edit/apply.go` imports `internal/tool` without using it, and by the end of the run the import was gone because `FormatGate` runs `goimports` over the same changed files. Whichever half is wrong (the gate order within a batch, or the LSP client answering from a view older than the write), the model spent a turn on something already repaired, which is the false-positive class the tier work is meant to remove rather than add to
 - A gate failure the gate cannot attribute is handed to the model as work. `describeFailure` ends "no output line named a changed file, so run it yourself to see", which is right when the harness has nothing and expensive when the harness is the thing that is wrong. Measured on `h5`: one `move` call did the whole task, the `go-test` gate reported a build failure in `internal/guard`, and the run spent fourteen of its fifteen turns re-reading files and re-running builds that all passed, then wrote a summary describing a defect that never existed. The cause was the gate's own command. `fallbackPackages` guessed a changed file's package as its directory and passed it to `go test` unprefixed, so `go test internal/guard` resolved against the standard library and failed with "package internal/guard is not in std" before compiling anything. That path is reached exactly when a change creates a file, because the import graph answers for every file it has already seen, which is why `move` and `write` hit it and `rename` and `delete` never did. Fixed by spelling the guess `./internal/guard`. The response was the other half, and it is now closed cheaper than by re-running: `go test -json` had already carried the toolchain's own line ("package internal/guard is not in std") in the stream, and trimming dropped it because it names no `.go` file. A failure with no frames now carries the head of what the command printed, so the same run would have read the diagnosis instead of the gate name. The first fix tried here (making `move` write each file once, which is a real improvement) changed nothing about the failure and was only shown not to be the cause by re-running the task
-- Over half of every recorded edit attempt failed, and the reasons are now separated. Across the 77 runs in `_ai_/bench/replay/records.jsonl`, `str_replace` errored on 78 of 140 calls, `delete` on 24 of 40, and `rename` on 5 of 11, against roughly zero for `read`, `search`, `list`, `context`, and `move`. Classified by cause over the same thread logs, `delete`'s rate is half safeguard and its real failure rate is a third, while `str_replace`'s 77 errors are 36 misses, 19 refused repeats, 13 unparsable argument blocks, 7 bad fields, and 1 ambiguity. The classification of the backlog is inferred from the recorded messages rather than from the causes themselves, since the taxonomy postdates those runs, so it is good enough to aim work and not good enough to quote as a measurement. The reading that survives either way is that the tools taking names and ranges do not fail while the one taking source text does
+- The tool taking source text fails and the tools taking names and ranges do not. `str_replace` errors on 134 of 464 calls and `delete` on 7 of 22, against at or near zero for `read`, `search`, `list`, `context`, and `move`. It was 78 of 140 and 24 of 40 across the first 77 runs, and what closed the gap was the schema rather than the matching: a flat `required` list let the fast tier emit a pair with no `new_string`. Counts from before the cause taxonomy are inferred from recorded messages and are good enough to aim work, not to quote as a measurement. What is left is in [Next](#next)
 - The web tools have no injection detector and are not claimed to. Every protection they carry is about what a request may contain and where it may go, so a page that talks the model into a bad edit is caught by the gates and the permission prompt on whatever it tries next, not by anything in `internal/web`. The residual case is a run whose user approves every prompt: provenance then stops deciding anything, and the marker is all that is left
 - DuckDuckGo's HTML endpoint is parsed by class name (`result__a`, `result__snippet`) and returns nothing rather than guessing when it recognizes neither. A silent change to their markup therefore reads as "that search returned nothing" for every query, which is a failure mode worth recognizing before debugging the query
 - Coverage-map adapters per language are the long tail. Importer-based selection from `codegraph` is the fallback, and on this repo it is close to running everything

@@ -107,6 +107,20 @@ are specific to this codebase and not visible from the code.
   with an empty `tool_calls` and a tool result under nothing, and its prefix
   cannot be rebuilt. Read the sidecar first when a recall's trail is shorter
   than the run was
+- Fuzzy `search` ranks a wider window than it answers with, so what the
+  index scores and what a caller sees are different orders, and
+  `internal/finish` rides on that: its "named symbol is not in the index"
+  check asks for the top five fuzzy hits and looks for an exact name among
+  them. Anything that changes ranking changes what runs are told they
+  invented, which is how six of ten common symbols in this repository were
+  reported missing while indexed
+- A thread's sidecar ends in `.jsonl` like its event log, so anything
+  scanning `.wavez/threads/` has to skip `thread.HistorySuffix`. The daemon
+  did not, opened each sidecar as a thread, gave that thread a sidecar of
+  its own, and grew the list by one file per thread on every start: a real
+  directory reached 1,246 threads for 393 logs. A checkout that ran an old
+  daemon still holds the `*.history.history.jsonl` files, which are safe to
+  delete
 - `.wavez.pkl` injects the `Go conventions` section below into every turn, so it
   holds only what no gate answers. The `lint` gate runs `golangci-lint` on a run's
   changed files and reports what it finds, which covers naming, early returns,

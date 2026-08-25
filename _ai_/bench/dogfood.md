@@ -3389,3 +3389,96 @@ rename task at `rename`, and the corpus says the hand-rolled path costs
 roughly three times the turns and produces most of this task's `ambiguous`
 and `no_match` errors, because a symbol that appears four times identically
 is exactly what a textual anchor cannot address.
+
+## 2026-08-26 — retrieval was ranked by document length, and h3 got worse when it stopped being
+
+Item 1 of Next says retrieval is 58% of every turn a run spends. This is the
+first thing found by reading the retrieval path instead of the counts, and it
+is one line of SQL.
+
+`search` in fuzzy mode asks FTS5 for `ORDER BY rank`, which is bm25, which
+scores by document length. A symbol row is indexed as its name, signature, and
+doc comment joined, so a documented function is a longer document than a bare
+one and loses to it. On this repository's index, `Read` matched 1,239 rows and
+the first twelve were `OpenThread`, `NewRead`,
+`TestThreads_ListFailsWhenLogUnreadable`, `threadClient`, `newThread`,
+`parkThread`, `reopenThread`, `openThread`, `unparkThread`, `readTracker`,
+`checkThread`, and `replaceThreads`. The symbol actually named `Read` was
+thirteenth and the second one sat at row 90.
+
+The fix ranks a 200-row window before answering with the caller's limit:
+exact names first, then names the query is a whole word of, shorter names
+ahead of longer ones because the query covers more of them, and everything a
+name match does not speak for left in bm25 order. A symbol row carries its
+name on the first line of the indexed text, so ranking reads it without
+touching the store, and only the survivors are hydrated. The whole-word rule
+is the one that already filtered near-name suggestions in a refusal, moved
+into `internal/codeintel` and shared.
+
+**What it also fixed.** `internal/finish` asks the index whether a symbol the
+closing answer names exists, by taking the top five fuzzy hits and looking for
+an exact name among them. Ranked by document length that check was wrong more
+often than not. Ten common symbols in this repository, all indexed:
+
+| Symbol | Before | After |
+|---|---|---|
+| `Read` | reported missing | found |
+| `ApplyToFile` | reported missing | found |
+| `Classify` | reported missing | found |
+| `Search` | reported missing | found |
+| `Run` | reported missing | found |
+| `truncate` | found | found |
+| `clip` | found | found |
+| `Close` | found | found |
+| `Update` | found | found |
+| `View` | found | found |
+
+`named symbol is not in the index` is 67 of the corpus's 85 finish findings
+and appears in 45% of runs. Four of the six recorded `h3` lanes before this
+carry it and none of the twelve after do.
+
+**Twelve `h3` lanes, and the task completes less often.** Six lanes before,
+twelve after across four builds, same task and same prompt. Every before lane
+reached the deep tier and eight of the twelve after lanes never left balanced.
+
+| | Before (6) | After (12) |
+|---|---|---|
+| Passed 6 of 6 checks | 5 (83%) | 4 (33%) |
+| Mean turns | 43.2 | 29.0 |
+| `str_replace` calls per lane | 10.2 | 5.0 |
+| Mean spend | $0.099 | $0.048 |
+| `named symbol is not in the index` | 4 lanes | 0 lanes |
+
+Cheaper, shorter, staying on the balanced tier, and finishing the task half as
+often. The cause is legible in the trails rather than inferred. Before this,
+`rename` was effectively unreachable on `h3`: one lane in six called it, at
+turn 68, after the work was done, and was told nothing is indexed under
+`Read`. Now six of twelve lanes call it, and seven of those nine calls
+refuse. The two refusals are the whole story of the regression:
+
+- `Read` is declared in three packages here, so a bare `rename` from `Read` to `ReadLog`
+  is ambiguous and correctly refused. Two lanes then re-sent the identical
+  call and died to the loop detector, one of them after the refusal had been
+  rewritten to carry the exact path argument that resolves it. The message is
+  better and it did not change the behavior, so this is a repeat the tool
+  should refuse rather than a sentence to keep rewriting
+- A lane that hand-edits the declaration first puts the symbol beyond
+  `rename`, which starts from the declaration. `str_replace`'s ambiguous
+  refusal was pointing at `rename` at exactly that moment. It now withholds
+  the advice once the index declares the new name, because asking only
+  whether the old name is declared does not separate the two cases when three
+  packages declare it
+
+The other two fixes came out of the same trails. `rename`'s ambiguity refusal
+now carries `path: "<file>"` rather than "name one with path". And a lane told
+to send `replace_all: true` sent the string `"true"`, was refused for the
+type, and never sent the call again: `decodeInput` now reads a quoted boolean
+as the boolean the type error names, touching only the field the decoder
+complained about, so a string field holding the word "true" is left alone.
+
+What none of this settles is the stop condition. Seven of the twelve after
+lanes ended `stagnant` or `loop_detected` with the same check failing, four
+identical call sites in `internal/bench/stats_test.go`, which `replace_all`
+changes in one call. The runs that finish are the ones that grind or escalate,
+and making retrieval cheap moved the failure from finding the work to
+committing to it.
