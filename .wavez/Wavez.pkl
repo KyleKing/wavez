@@ -146,6 +146,13 @@ class Tier {
   /// hostedKeyCommand. Empty means the loopback server needs none and any
   /// other endpoint falls back to hostedKeyCommand.
   keyCommand: String = ""
+
+  /// Whether a hybrid model reasons on this tier's turns. Null leaves the
+  /// served model's own default, which is on for the qwen3 hybrids: one
+  /// four-lane run measured 930 output tokens a turn with it against 190
+  /// without, nearly all of it a trace no tool reads. Set it false on a tier
+  /// that only calls tools.
+  thinking: Boolean?
 }
 
 class Step {
