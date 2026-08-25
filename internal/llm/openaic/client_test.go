@@ -492,57 +492,43 @@ func TestClient_Stream_SendsThinkingInBothProviderSpellings(t *testing.T) {
 			}
 
 			body := <-bodies
-			assertEnableThinking(t, body, tc.want)
-			assertReasoningEnabled(t, body, tc.want)
+			assertThinkingKey(t, body, "chat_template_kwargs", "enable_thinking", tc.want)
+			assertThinkingKey(t, body, "reasoning", "enabled", tc.want)
 		})
 	}
 }
 
-func assertReasoningEnabled(t *testing.T, body []byte, want *bool) {
+// assertThinkingKey reads one provider's spelling of the reasoning toggle
+// out of the request body, where outer names the object and inner the
+// boolean inside it.
+func assertThinkingKey(t *testing.T, body []byte, outer, inner string, want *bool) {
 	t.Helper()
 
-	var got struct {
-		Reasoning *struct {
-			Enabled *bool `json:"enabled"`
-		} `json:"reasoning"`
-	}
-	if err := json.Unmarshal(body, &got); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
 		t.Fatalf("decoding request body: %v", err)
 	}
 
+	raw, ok := fields[outer]
 	if want == nil {
-		if got.Reasoning != nil {
-			t.Fatalf("reasoning = %+v, want it absent", got.Reasoning)
+		if ok {
+			t.Fatalf("%s = %s, want it absent", outer, raw)
 		}
 
 		return
 	}
-	if got.Reasoning == nil || got.Reasoning.Enabled == nil || *got.Reasoning.Enabled != *want {
-		t.Fatalf("reasoning = %+v, want enabled %v", got.Reasoning, *want)
-	}
-}
 
-func assertEnableThinking(t *testing.T, body []byte, want *bool) {
-	t.Helper()
-
-	var got struct {
-		Kwargs *struct {
-			EnableThinking *bool `json:"enable_thinking"`
-		} `json:"chat_template_kwargs"`
-	}
-	if err := json.Unmarshal(body, &got); err != nil {
-		t.Fatalf("decoding request body: %v", err)
+	if !ok {
+		t.Fatalf("%s is absent, want %s %v", outer, inner, *want)
 	}
 
-	if want == nil {
-		if got.Kwargs != nil {
-			t.Fatalf("chat_template_kwargs = %+v, want it absent", got.Kwargs)
-		}
-
-		return
+	var obj map[string]*bool
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatalf("decoding %s: %v", outer, err)
 	}
-	if got.Kwargs == nil || got.Kwargs.EnableThinking == nil || *got.Kwargs.EnableThinking != *want {
-		t.Fatalf("chat_template_kwargs = %+v, want enable_thinking %v", got.Kwargs, *want)
+
+	if obj[inner] == nil || *obj[inner] != *want {
+		t.Fatalf("%s.%s = %v, want %v", outer, inner, obj[inner], *want)
 	}
 }
 
