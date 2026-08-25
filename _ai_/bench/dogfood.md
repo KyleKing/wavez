@@ -3088,3 +3088,304 @@ and the check deciding that was whether stdin is a character device.
 pipe, and a cron run are given, so the test passed for every run that could
 not possibly answer. It is a terminal test now, measured both ways against
 `/dev/null`: character device true, terminal false.
+
+**Three of `str_replace`'s failure modes were the tool's design.** Over 264
+calls and 74 failures the causes are 39 `no_match`, 16 `bad_input`, 11
+`ambiguous`, 7 `malformed`, and 1 `repeat`, and reading the calls behind them
+rather than the counts turns up faults that no amount of model skill gets
+past.
+
+The tool could not express "every occurrence". `h3` renames `bench.Read` to
+`bench.ReadLog` at four call sites written identically, and the refusal told
+it to widen `old_string` until it was unique, which is a thing the file cannot
+give. That lane died stagnant on two of them. There is a `replace_all` now,
+off unless asked for, and the refusal names it with the count beside the other
+route.
+
+It reported an already-satisfied edit as a failure. `old_string` equal to
+`new_string` was an error, 12 of the 74 and the largest single cause, and the
+tool already disagreed with itself about it: the batch path drops a no-op pair
+and applies the rest, so the same input was droppable in a batch and fatal
+alone. Where the file holds the text the caller asked for, that is the state
+it asked for. It is a success that changed nothing, and only the case where
+the text is absent stays an error.
+
+Its tolerance was narrower than the formatter's freedom, which is the root
+cause under the largest count. The format gate runs gofmt over every changed
+file as soon as an edit lands, and gofmt's column alignment is interior
+whitespace, while the matcher normalised leading whitespace only. A model that
+writes `name: "x",` and then anchors on what it wrote misses, because the
+harness re-spaced the file behind it. Four near-match reports differ that way
+and every one is a struct table; the 17 failures carrying the "you have edited
+this since you last read it" advisory are the same thing seen from the other
+end. One line-comparison predicate now runs the whole fuzzy ladder and its
+tolerance is what the formatter is free to change. The test for it fails
+against the previous matcher with the near-match text the corpus recorded.
+
+Two more are not the model's fault either. `&notUnique` arrives as `¬Unique`,
+because `&not` is a legacy HTML character reference that needs no semicolon,
+so `h11` could not write the identifier and sent the same anchor five times;
+anchor and replacement are both repaired and the caller is told its text
+arrived mangled, while a lone `¬` is left alone as the symbol someone meant. A
+call carrying `source` is a `declare` call sent to the wrong tool, which `h11`
+made three times while reading about `new_string` each time.
+
+The capability is free at the preamble. It first cost 174 tokens and put the
+fast prefix at 2613 against a 2450 budget. Rather than raise the ceiling the
+prose paid for it: the tool description repeated what `new_string`'s own
+description says, and `replace_all` came out of the batch item shape, because
+replace-all is a single-anchor operation and declaring it in both places pays
+twice. The prefix is 2436, under the 2439 it started at.
+
+**The sweep says the lanes recover, not that the errors stopped.** All eight
+tasks pass every check, and `h3` and `h11` flip from stagnant to complete.
+`h3` still hits five `ambiguous` refusals and never sends `replace_all` once:
+it takes the other route the message names, anchoring on the following line,
+and the match count falls 4, 3, then applied. The refusal changed from naming
+an impossible remedy to naming two possible ones, and that is the whole
+difference on that lane. `h2` and `h6` now fail on text the model invented
+against a file it had already edited, which is its own churn rather than a
+matcher that cannot see through spacing.
+
+**`refuseAsker` defeated the fix above it.** The registry drops `question`
+when no asker is wired, and `New` defaulted the option to an asker that fails
+every call, so the nil check one screen up never saw a nil and every headless
+run was offered a tool that could only answer `no Asker configured`. Two
+mechanisms for one intent, and the weaker one won. `WithAsker`'s doc comment
+already promised the tool is not offered at all without it, which the default
+made untrue. The registry test missed it by calling `buildRegistry` directly,
+where the defaulting does not happen, so the assertion moved to the surface
+`New` actually builds.
+
+**The largest cause of a wasted edit turn was the harness rewriting the file
+behind the model.** Across the 31 threads with a transcript sidecar, 15 of 18
+anchor misses were against a file the same run had already changed, and 14 of
+those 15 anchored on text the run itself had written. Six spent a further turn
+re-reading the file; the other twelve guessed again. The tool's answer to a
+successful edit was `path: +5 -2 lines`, which says nothing about what the file
+now holds, and its answer to a stale anchor was to go and read it again, which
+costs the turn by design.
+
+Both are now answered with the text. The formatter runs inside the edit call
+rather than in the gate a moment later, so gofmt, goimports, and the
+`t.Parallel()` repair land before the result is written, and the result carries
+the rewritten region when they changed anything. A stale anchor gets the lines
+where it came closest, numbered the way `read` numbers them. The harness
+already had the bytes in both cases.
+
+Moving the formatter earlier also removes a class of gate failure rather than
+reporting it: an edit that uses `utf8` without importing it used to compile-fail
+at the go-test gate and come back as `undefined: utf8`, and goimports now adds
+the import in the same call. Sixteen of the corpus's twenty compile-shaped gate
+failures name an undefined symbol, though most are `undefined: Memory` from one
+task moving a method between files, which no formatter can fix. The honest claim
+is a slice, not the majority.
+
+**The one gate that rewrites files shared no resource with the gates that read
+them.** `RunGates` runs every gate concurrently under its own resource keys, and
+the format gate declared `worktree` while lint, go-test, and build declared
+`go-test` and the language server and convention gates declared nothing at all.
+So the formatter was rewriting files, inserting imports, and running
+`golangci-lint --fix` while three other gates read the same paths. Every one of
+the 25 retractions recorded over an unchanged tree belongs to `lint` (10),
+`lsp` (10), or `go-test` (5), which are exactly the readers.
+
+Resource keys cannot express this, because a key excludes only the gates that
+declare it and a writer excludes only other writers. The fix is a wave: holders
+of `worktree` run to completion, then everything else runs in parallel as
+before. It costs the format gate's own duration, a mean of 0.94 s against a
+round already bounded by build at 2.9 s. The scheduler test asserted the old
+behaviour directly, pairing `go-test` against `worktree` and requiring them to
+overlap, so the contract it states changed with the code.
+
+The measured drop is not this change's, though, and the sweeps say so. Four
+retractions over 15 notable gate events became zero over 8 in the sweep that
+carried the formatting move and not the wave, because a formatter that runs
+inside the edit call leaves the format gate nothing to rewrite mid-round. The
+wave covers what is left, which is `golangci-lint --fix` and the `t.Parallel()`
+repair, and those still mutate under the readers. The race is real and was read
+out of the code rather than out of a sweep; what a sweep has shown so far is
+that removing most of the writing removed the retractions.
+
+**The entity repair shipped broken and the next sweep caught it.** `h11` came
+back with 8 anchor misses, every one carrying `¬Unique` unrepaired, which is
+the exact failure the repair was written for. The repair itself was fine; the
+table behind it was not. `&quot`, `&amp`, `&lt`, and `&gt` collapse to
+characters source code is made of, so putting them back rewrote every string
+literal opening with a word into `&quotWord`. The repaired anchor then missed
+and the original error stood, which is why the repair looked like it had never
+run. A legacy reference whose rune is ASCII is indistinguishable from the
+character itself, so it is never restored. The test that missed this had a
+fixture with no string literal in it; it has one now, and it fails against the
+previous table.
+
+**Showing the text rather than asking for a read, measured.** Comparing the two
+sweeps on the five tasks they share, `h2`, `h3`, and `h6` together fall from
+147 turns to 91 and from 37 `str_replace` calls to 18, with errors going 13 to
+3. `h6` reached 4 of 4 checks with no failed edit at all, against 15 calls and
+4 failures before. `h11` and `h13` went the other way, and `h11`'s regression
+is the entity bug above. These are single runs on a laptop running four lanes
+at once, so the direction is the claim and the magnitude is not.
+
+**Two lanes died with every check already passing.** `h3` and `h4` both ended
+on `provider stream failed: the model returned no text and no tool call`, after
+26 and 29 turns, with 6 of 6 and 5 of 5 checks green. Raising that rather than
+absorbing it is deliberate, because an empty completion is usually a tier
+rejecting the request shape, and escalation is tried first. What was missing is
+that the error says nothing about what survived: the files are written and the
+transcript is kept, so the run now names the thread on its way out.
+
+**`h11` no longer measures anything.** Its two content checks are
+`str_replace.go:NotUniqueError` and `str_replace_test.go:widen`, and the
+ambiguity branch added this session satisfies both, so the task passes 4 of 4
+on an untouched tree. Both sweeps record it as complete and neither result
+means what it appears to.
+
+**Open: the gate log records work, not waiting.** `runOne` stamps its start
+after the resource lock is already held, so a gate that sat behind another
+holder reports only the time it spent running. The background coverage-map
+build takes a mean of 34 s and a maximum of 137 s, 1,055 s in total across 32
+builds, and it holds `go-test` shared while `go-test`, `build`, `lint`, and
+`fail-to-pass` want it exclusively. Whether that is stalling rounds cannot be
+answered from these logs, because the one number that would say is the one not
+recorded. Timing the acquire is a few lines and is the next thing to measure
+before anything here is called slow.
+
+**Both stagnant deaths in the `clean` sweep were the same harness failure
+wearing two faces.** `h6` and `h11` each ran 8 turns, made 8 tool calls, and
+died on three consecutive tool errors with the model repeating one malformed
+call verbatim. Neither model was confused about the task. `h6` had already
+written a correct boundary scan into `truncate` and `h11` had the test it
+wanted fully drafted. What killed both is that the answer to a bad call
+carried no new information, so the second and third attempts had nothing to
+change.
+
+`h11` sent `str_replace` a `{path, content}` object three times, which is
+exactly `write`'s shape, and got a message about `new_string` each time.
+`write` already refuses an existing file with "use str_replace to edit it" and
+the reverse redirect was missing, so `content` now names `write` the way
+`source` already names `declare`. `h6` sent `search` an object whose only key
+was `mode=fuzzy\n</parameter`, the balanced tier's native XML tool-call tags
+mangled into JSON on the way in. Unknown keys decode silently, so the call read
+as an empty one and the answer said only that query was required. A key
+carrying those tags is never legitimate, so `decodeInput` now refuses the whole
+call and names the syntax that arrived. The pairs are not recovered, because
+the mangling folds a tag and its value into one key and a plausible repair
+would run a query nobody asked for.
+
+Both lanes ran every turn on `balanced`, not on `fast`. `qwen3-coder-30b` emits
+those tags natively, so this is the default balanced model's ordinary output
+rather than a rare corruption, and 53 tag occurrences across the two kept
+workspaces are all of them.
+
+**A gate handed `h6` a failure in a package it had never opened.** The run
+touched `internal/thread` and the gate reported
+`TestHostedKeyErrorsOnFirstHostedRequest` failing on
+`TempDir RemoveAll cleanup: directory not empty`, closing with "Fix the cause
+before continuing." The model read it correctly, said it looked unrelated, and
+then spent every remaining turn on it. Two things were wrong. The framing now
+distinguishes a batch where no failure names a changed file and tells the run
+to decide whether its change caused it rather than to fix it. The flake itself
+is real: `App.Close` cancelled the background context and returned without
+waiting, and `Indexer.Start` writes `.codegraph/` and a `.gitignore` under the
+project root, so a caller that removes the root races a directory back into
+existence underneath the removal. `Indexer` now closes a channel when that
+goroutine returns and `Close` waits on it. `ChangeGate.Start` and
+`CoverageAdapter.Start` are fire-and-forget in the same shape and are not
+fixed, because nothing has yet shown them losing a race.
+
+**The gate failure rate never measured gate failures.** `countGate` counted
+every `KindGate` event as a round and only a `pass: false` detail as a failure,
+and the only emitters of `pass: false` are a tier escalation and an abandoned
+change set. A failure delivered to the model through `TakeFeedback` was logged
+nowhere at all, which is why all four `clean` records read `gate_failures: 0`
+while `h6`'s transcript plainly carries one. `TakeFeedback` now reports whether
+what it returns is a failure, the delivery is logged, and both counters count
+deliveries and nothing else. Any comparison of `gate_rounds` or
+`gate_failures` across this change measures the change: the 57% figure recorded
+earlier came from the old counters and does not mean what its name says.
+
+**Gate rounds now record what they waited for.** `runWave` takes the resource
+lock and `runOne` stamped its start after it, so a gate that queued behind the
+coverage-map build reported only the time it spent running. `Result.Waited`
+holds the acquire and reaches the gate log beside `Duration`. Nothing is
+claimed about whether rounds are stalling until a sweep has written the field.
+
+**Sweep 7 on a clean disk, 8 tasks.** Five finished with every check green
+(`h13` 5/5 in 23 turns, `h2` 2/2 in 20, `h3` 6/6 in 75, `h5` 6/6 in 20, `h12`
+4/4 in 38), `h4` reached 5 of 5 and still recorded `verify_failed`, and `h6`,
+`h11`, and `h12` stopped stagnant. Three of the eight lanes died on the two
+malformed-call loops above, and `h12` had already satisfied all four checks
+when it did, so its result is a harness stop rather than a failed task. That
+is the finding worth keeping from this sweep. The turn counts are not
+comparable with `showtext` or `entityfix`, because `h11` was retargeted at
+`OverlapError` between them and every lane ran on `balanced` rather than
+`fast`.
+
+`h3` is the outlier that is not explained: 75 turns, 73 tool calls, and 15
+error results against 42 turns and 2 errors in `entityfix`, with 9 of its 14
+`str_replace` calls failing, and it passed 6 of 6 anyway. Nothing in this
+session's fixes touches it and it has not been read.
+
+## h3, the outlier that always passes
+
+`h3` renames `bench.Read` to `bench.ReadLog` and updates every caller. Six
+records, every one of them passing its checks except the `post-fix` lane, and
+the turn counts run 15, 26, 42, 48, 53, and 75. Nothing about the task grew.
+
+The variance is one behaviour. `h3` is a rename, `rename` is the tool for it
+and goes through gopls, and every lane did the rename by hand with
+`str_replace` instead. The `clean` lane spent 14 `str_replace` calls, 9 of
+them failing, on a symbol that appears in three files, and reached for
+`rename` once, at turn 68, after the work was already done. It failed there
+for the only reason it could: `Read` no longer existed, so the index had
+nothing under that name. The suggestion it offered back (`OpenThread`,
+`TestThreads_ListFailsWhenLogUnreadable`, `NewRead`) is fuzzy-match noise,
+which is worth fixing separately and is not why the lane was slow.
+
+Two answers made the hand-rolled path worse than it had to be, and both are
+fixed.
+
+The first is a rename half-finished. At turn 32 the lane sent an anchor of
+`events, err := bench.Read(path)` at a site it had already changed, and got
+the near-match report:
+
+```
+old_string not found in source; the closest match starts at line 61 and first differs at line 61:
+  you sent:   (path)
+  source has: Log(path)
+```
+
+Both lines are the suffix the anchor and the replacement share, so the report
+reads as a typo rather than as work already done. `str_replace` now checks
+whether the file holds `new_string` while holding no anchor, and says the
+edit has been made. The exact-identical case (`old_string` equal to
+`new_string`, file already holding it) was already handled, so this closes
+the near-miss beside it.
+
+The second is the XML mangling, again, and this time recoverable. Four
+recorded `search` calls across `h6` and `h12` carry the same shape:
+
+```json
+{"mode=fuzzy\n</parameter": "<parameter=query>\ntruncate"}
+```
+
+The mangling eats the delimiters around the first tag and folds it into the
+key, and leaves every later tag intact in the value. `internal/agent`'s
+`parseToolCallText` has parsed this dialect since it started arriving in the
+message body, one layer away from where it was needed. That parser now lives
+in `internal/xmlcall` and the argument decoder runs it over the mangled keys
+and values: `query` comes back in all four cases, `mode` does not, and a
+dropped required field still fails the decode. Where nothing survives, the
+refusal message stands.
+
+Recovering `query` moved the failure one step along, to `unknown search mode:
+""`, which named a bad value for a field that was absent. An empty mode now
+reads as fuzzy, which is the mode the description leads with and the one that
+cannot do harm.
+
+What is still open on `h3` is the routing, not the tools. Nothing steers a
+rename task at `rename`, and the corpus says the hand-rolled path costs
+roughly three times the turns and produces most of this task's `ambiguous`
+and `no_match` errors, because a symbol that appears four times identically
+is exactly what a textual anchor cannot address.
