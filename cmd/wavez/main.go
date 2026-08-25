@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/app"
@@ -559,11 +561,10 @@ func permissionGate(allowAll bool) permission.Gate {
 // it is not, no asker is wired and the question tool leaves the registry: a
 // replay, a pipe, and a cron run all reach here with stdin closed or
 // redirected, and every question they asked failed with EOF after spending
-// the turn.
+// the turn. A character-device test is not this test, because /dev/null is
+// a character device and is exactly what a background run is given.
 func stdinCanAnswer() bool {
-	info, err := os.Stdin.Stat()
-
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(os.Stdin.Fd())
 }
 
 type stdinAsker struct{}
