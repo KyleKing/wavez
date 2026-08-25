@@ -68,7 +68,9 @@ type options struct {
 	replay              string
 	replayLabel         string
 	replayReport        string
+	recall              string
 	preambleMax         int
+	recallTurn          int
 	maxTurns            int
 	maxToolCallsPerTurn int
 	maxStagnantErrors   int
@@ -141,6 +143,10 @@ func run(args []string) error {
 		"with -replay, name the lane the record measures (defaults to the current commit)")
 	fs.StringVar(&opt.replayReport, "replay-report", "",
 		"print every recorded run of one task and diff the last two")
+	fs.StringVar(&opt.recall, "recall", "",
+		"repeat one tool call a finished run made, by thread id, and print what the harness answers now")
+	fs.IntVar(&opt.recallTurn, "recall-turn", 0,
+		"with -recall, the turn to repeat (0 takes the first call the run was told had failed)")
 	fs.StringVar(&opt.statsSince, "stats-since", "",
 		"with -stats-corpus, read only runs recorded on or after this date (2006-01-02)")
 	fs.BoolVar(&opt.models, "models", false,
@@ -268,6 +274,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 		return true, replayRun(ctx, root, opt)
 	case opt.replayReport != "":
 		return true, replayReport(root, opt.replayReport)
+	case opt.recall != "":
+		return true, recallRun(ctx, root, opt)
 	case opt.models:
 		return true, modelsReport(ctx)
 	case opt.statsCorpus:
@@ -290,7 +298,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 // given.
 func wantsSubcommand(opt options) bool {
 	return opt.undo != "" || opt.stats != "" || opt.replay != "" || opt.replayReport != "" ||
-		opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus || opt.models
+		opt.recall != "" || opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus ||
+		opt.models
 }
 
 func headless(ctx context.Context, opt options) error {
@@ -686,6 +695,8 @@ Flags:
   -replay <task>  run one task of the fixed set in a throwaway workspace and record it
   -replay-label <name>   with -replay, name the lane (defaults to the current commit)
   -replay-report <task>  print every recorded run of one task and diff the last two
+  -recall <id>           repeat one tool call a finished run made and print the answer now
+  -recall-turn <n>       with -recall, the turn to repeat (0 takes the first error)
   -models                list the models ollama has pulled on this machine
   -stats-corpus          report the rates across every recorded run
   -stats-since <date>    with -stats-corpus, read only runs from this date on

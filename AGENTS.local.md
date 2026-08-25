@@ -100,6 +100,13 @@ are specific to this codebase and not visible from the code.
   was actually sent reads the sidecar. Copying or moving a thread means both
   files, and the daemon loads every sidecar under `.wavez/threads/` at
   startup
+- `wavez -recall <thread>` repeats one recorded tool call, replaying every
+  call before it so the tree is the one that call met. It reads the sidecar,
+  so a thread whose turns arrived as `<function=...>` in the message body
+  before that recovery moved ahead of the transcript write shows those turns
+  with an empty `tool_calls` and a tool result under nothing, and its prefix
+  cannot be rebuilt. Read the sidecar first when a recall's trail is shorter
+  than the run was
 - `.wavez.pkl` injects the `Go conventions` section below into every turn, so it
   holds only what no gate answers. The `lint` gate runs `golangci-lint` on a run's
   changed files and reports what it finds, which covers naming, early returns,

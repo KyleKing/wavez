@@ -86,7 +86,7 @@ type history struct {
 func openHistory(dir, id string) (*history, []TurnMessage, error) {
 	path := filepath.Join(dir, id+".history.jsonl")
 
-	entries, err := readHistory(path)
+	entries, err := historyEntries(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -100,7 +100,15 @@ func openHistory(dir, id string) (*history, []TurnMessage, error) {
 	return &history{f: f, path: path}, entries, nil
 }
 
-func readHistory(path string) ([]TurnMessage, error) {
+// ReadHistory returns the model-visible transcript kept beside a thread's
+// event log. The log cannot stand in for it, because tool inputs are
+// truncated there and assistant text is stored as the chunks it streamed in.
+// A thread that never wrote one reads as empty rather than as an error.
+func ReadHistory(dir, id string) ([]TurnMessage, error) {
+	return historyEntries(filepath.Join(dir, id+".history.jsonl"))
+}
+
+func historyEntries(path string) ([]TurnMessage, error) {
 	f, err := os.Open(path) //nolint:gosec // caller-owned log dir
 	if err != nil {
 		if os.IsNotExist(err) {
