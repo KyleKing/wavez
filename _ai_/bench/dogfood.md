@@ -3006,3 +3006,85 @@ rather than error counts. `h10` still fails on the fast tier. Whether a
 turn can be routed down once it is known to be retrieval, which is the
 lever the 60% points at and which the router cannot pull today, because it
 decides from task shape before the turn runs.
+
+## 2026-08-25 — a quarter of the corpus was failing on the gates' own commands
+
+**Sixteen tasks, default routing, no tier pin: $0.51 for the whole set.** The
+most expensive lane was `h3` at $0.126 for 53 turns and 6 of 6 checks, and
+`e1` cost a tenth of a cent. Nothing came near the $1.00 ceiling, so the
+question the ceiling was raised to answer is settled: cost is not what bounds
+this work.
+
+**Four of the sixteen failed verification with the tree fine and the model
+right.** Each was a gate reporting something the run could not act on, three
+rounds running, and each has a distinct cause:
+
+- `h2` and `h4` deleted a file (one the task asked for, one a scratch file the
+  run made) and the format gate went on reading it. A deletion is a change and
+  is not a file to read
+- `h12` had the go-test gate build `./tmp/wavez-replay-X/internal/sysinfo`,
+  the workspace path resolved inside the workspace. The coordinator already
+  carried a fix for that shape and it never fired, because `declare` assigned
+  the index's absolute path to its change while every other tool emits a
+  repo-relative one
+- `h13` edited `internal/config/pkl/Wavez.pkl` and the gate guessed a Go
+  package from its directory, so `go build` reported a package holding no Go
+  files. `h13` is the task whose retrieval crosses the pkl and Go boundary,
+  which means the one task built to span both languages was the one selection
+  could not handle: a mixed change set always reaches the fallback, since the
+  importer tier refuses a file it does not know
+
+**The proof is the same five tasks re-run against the fixes.** All four flip
+from `verify_failed` to `complete`, and every gate round passes first time
+where each had failed three:
+
+| task | before | after |
+| --- | --- | --- |
+| h2 | verify_failed, 43 turns, 1/2 | complete, 18 turns, 2/2 |
+| h4 | verify_failed, 35 turns, 5/5 | complete, 30 turns, 5/5 |
+| h12 | verify_failed, 27 turns, 4/4 | complete, 44 turns, 4/4 |
+| h13 | verify_failed, 25 turns, 5/5 | complete, 31 turns, 5/5 |
+
+`h2` had never passed both its checks before this.
+
+**Nothing inside the loop could see it, and the reason generalizes.** The
+escalation signal fires when a gate fails identically across rounds, and it
+requires the changed-file count to have grown between two of them, which is
+what keeps it off every debounced re-run. A run handed impossible feedback
+stops editing, because there is nothing to edit, so the signal needs progress
+in order to detect the absence of progress and the worst case is the one it
+cannot see. Beside it, `stuckAfter` is 3 and `DefaultMaxVerifyRounds` is 2, so
+the signal is unreachable through verification and only ever fires on
+background gate rounds. Both are recorded rather than changed: escalating
+would have bought nothing here, since the feedback was unanswerable at any
+tier.
+
+**A run stopped on a bound now keeps its transcript.** The event log cannot
+rebuild what the model was sent, because it truncates tool inputs and stores
+assistant text as streamed chunks, so `wavez -resume` reopened a thread and
+handed the model an empty history: the files survived and everything the run
+knew about them did not. The transcript is written to a sidecar beside the log
+and read back at open. Writing it caught its own first bug, which is the one
+that matters: a tool call's arguments are stored as a string, because a
+malformed call is what stops a run and its arguments are not JSON. The ceiling
+stays per-run rather than cumulative, since it is a runaway guard on one
+unattended run and a cumulative one would re-trip on every resume; a resumed
+run reports what the whole thread has cost beside what this run added.
+
+**What `h8` did not prove.** It went from 1 of 4 checks to 4 of 4 across the
+two sweeps, and the search change is not why. The first run searched
+`maxLines`, was told only that nothing matched, and answered from unrelated
+constants; a literal miss now splits the identifier on case and retries, so
+`maxLines` reaches `maxReadLines`. The second run never issued a literal miss
+at all: it found `internal/tools/read.go` through a fuzzy search and read it.
+The change holds on its own logic and its unit test, and this lane is variance.
+
+**A tool nobody could answer stayed in every background run's registry.**
+`question` shows 9 calls and 9 failures in the corpus, every one
+`reading answer: EOF`, and one run spent a further turn asking again after
+the first EOF. The registry already drops the tool when no asker is wired,
+and the check deciding that was whether stdin is a character device.
+`/dev/null` is a character device, which is exactly what a nohup'd sweep, a
+pipe, and a cron run are given, so the test passed for every run that could
+not possibly answer. It is a terminal test now, measured both ways against
+`/dev/null`: character device true, terminal false.

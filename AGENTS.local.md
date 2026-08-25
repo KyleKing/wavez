@@ -94,6 +94,12 @@ are specific to this codebase and not visible from the code.
   harness cannot resolve. Every new tool's cost is one run of it, and the
   pair of web tools came to 221 tokens against an estimate of 1,500, so
   estimate nothing here that can be measured in a second
+- A thread's model-visible transcript is `.wavez/threads/<id>.history.jsonl`,
+  not the event log beside it. The log truncates tool inputs and stores
+  assistant text as streamed chunks, so anything that needs what the model
+  was actually sent reads the sidecar. Copying or moving a thread means both
+  files, and the daemon loads every sidecar under `.wavez/threads/` at
+  startup
 - `.wavez.pkl` injects the `Go conventions` section below into every turn, so it
   holds only what no gate answers. The `lint` gate runs `golangci-lint` on a run's
   changed files and reports what it finds, which covers naming, early returns,
