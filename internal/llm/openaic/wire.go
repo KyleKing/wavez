@@ -15,11 +15,11 @@ type wireRequest struct {
 	// directions, which is what makes a reasoning toggle cost a request
 	// rather than a model reload.
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
-	// Reasoning is OpenRouter's spelling of the same toggle. Both go out on
-	// every request because each provider ignores the other's key, and a
-	// tier that turns reasoning off through chat_template_kwargs alone
-	// leaves a hosted hybrid model reasoning at full length.
+	// Reasoning is OpenRouter's spelling of the same toggle, and Provider
+	// its routing preferences. Which of these the request carries is the
+	// Dialect's to say.
 	Reasoning       *wireReasoning `json:"reasoning,omitempty"`
+	Provider        *wireProvider  `json:"provider,omitempty"`
 	Model           string         `json:"model"`
 	Messages        []wireMessage  `json:"messages"`
 	Tools           []wireTool     `json:"tools,omitempty"`
@@ -33,6 +33,19 @@ type wireRequest struct {
 type wireReasoning struct {
 	Enabled *bool `json:"enabled"`
 }
+
+// wireProvider is OpenRouter's per-request routing policy.
+type wireProvider struct {
+	DataCollection string `json:"data_collection"`
+}
+
+// denyDataCollection restricts routing to providers that do not store
+// prompts. It is unconditional rather than configurable: a coding agent
+// sends the contents of a private repository on every turn, and the models
+// this project serves all have an endpoint that qualifies. OpenRouter
+// enforces it, refusing a request with "No endpoints found matching your
+// data policy" when nothing does, which is the failure worth having.
+const denyDataCollection = "deny"
 
 type wireStreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
@@ -78,7 +91,7 @@ type wireToolFunction struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
-func toWireRequest(model string, req llm.Request) wireRequest {
+func toWireRequest(model string, req llm.Request, d Dialect) wireRequest {
 	messages := make([]wireMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, wireMessage{Role: string(llm.RoleSystem), Content: req.System})
@@ -109,30 +122,47 @@ func toWireRequest(model string, req llm.Request) wireRequest {
 		MaxTokens:       req.MaxTokens,
 		Temperature:     req.Temperature,
 		PresencePenalty: req.PresencePenalty,
-		RepeatPenalty:   req.RepeatPenalty,
+		RepeatPenalty:   repeatPenaltyFor(req.RepeatPenalty, d),
 		Stream:          true,
 		StreamOptions:   &wireStreamOptions{IncludeUsage: true},
 		ResponseFormat:  toWireResponseFormat(req.ResponseFormat),
 
-		ChatTemplateKwargs: toChatTemplateKwargs(req.Thinking),
-		Reasoning:          toWireReasoning(req.Thinking),
+		ChatTemplateKwargs: toChatTemplateKwargs(req.Thinking, d),
+		Reasoning:          toWireReasoning(req.Thinking, d),
+		Provider:           toWireProvider(d),
 	}
 }
 
-func toWireReasoning(thinking *bool) *wireReasoning {
-	if thinking == nil {
+func toWireProvider(d Dialect) *wireProvider {
+	if !d.deniesDataCollection() {
+		return nil
+	}
+
+	return &wireProvider{DataCollection: denyDataCollection}
+}
+
+func toWireReasoning(thinking *bool, d Dialect) *wireReasoning {
+	if thinking == nil || !d.readsReasoning() {
 		return nil
 	}
 
 	return &wireReasoning{Enabled: thinking}
 }
 
-func toChatTemplateKwargs(thinking *bool) map[string]any {
-	if thinking == nil {
+func toChatTemplateKwargs(thinking *bool, d Dialect) map[string]any {
+	if thinking == nil || !d.readsChatTemplateKwargs() {
 		return nil
 	}
 
 	return map[string]any{"enable_thinking": *thinking}
+}
+
+func repeatPenaltyFor(penalty float64, d Dialect) float64 {
+	if !d.readsRepeatPenalty() {
+		return 0
+	}
+
+	return penalty
 }
 
 func toWireResponseFormat(rf *llm.ResponseFormat) *wireResponseFormat {

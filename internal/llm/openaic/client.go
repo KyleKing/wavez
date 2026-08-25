@@ -17,6 +17,7 @@ type Client struct {
 	keyErr     error
 	name       string
 	baseURL    string
+	dialect    Dialect
 	apiKey     string
 	model      string
 	keyOnce    sync.Once
@@ -40,6 +41,13 @@ func WithAPIKey(key string) Option {
 // need. The result is cached; an error surfaces on the request that needed it.
 func WithAPIKeyFunc(fn func() (string, error)) Option {
 	return func(c *Client) { c.apiKeyFn = fn }
+}
+
+// WithDialect states which backend this Client dials, which decides the
+// provider-specific keys the request carries. A Client with none set sends
+// only what every OpenAI-compatible endpoint reads.
+func WithDialect(d Dialect) Option {
+	return func(c *Client) { c.dialect = d }
 }
 
 // WithModel sets the model name sent in each request body.

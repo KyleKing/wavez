@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -546,7 +547,31 @@ func networkTier(ctx context.Context, cfg config.Config, name string, t config.T
 	return openaic.New(name,
 		openaic.WithBaseURL(baseURL),
 		openaic.WithModel(t.Model),
+		openaic.WithDialect(dialectFor(baseURL)),
 		openaic.WithAPIKeyFunc(keyFn))
+}
+
+// OpenRouter's host, which is how an endpoint is recognized as the router
+// rather than as a llama-server somewhere.
+const hostedHost = "openrouter.ai"
+
+// dialectFor names the backend behind an endpoint, which decides the
+// provider-specific keys its requests carry. OpenRouter is matched by host
+// and everything else is a llama-server, because those are the two wavez
+// speaks: a third router would need its own Dialect rather than this
+// guessing on its behalf. A URL that does not parse is treated as the
+// router, so a typo cannot quietly drop the data-collection denial.
+func dialectFor(baseURL string) openaic.Dialect {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return openaic.DialectOpenRouter
+	}
+
+	if u.Hostname() == hostedHost {
+		return openaic.DialectOpenRouter
+	}
+
+	return openaic.DialectLlamaCpp
 }
 
 // tierModels is the model name each tier sends in its request.
@@ -588,7 +613,11 @@ func localRuntime(cfg config.Config, options Options) runtime.Config {
 func fastProviderOptions(
 	ctx context.Context, cfg config.Config, fast config.Tier, baseURL string,
 ) []openaic.Option {
-	opts := []openaic.Option{openaic.WithBaseURL(baseURL), openaic.WithModel(fast.Model)}
+	opts := []openaic.Option{
+		openaic.WithBaseURL(baseURL),
+		openaic.WithModel(fast.Model),
+		openaic.WithDialect(dialectFor(baseURL)),
+	}
 
 	command := fast.KeyCommand
 	if command == "" {

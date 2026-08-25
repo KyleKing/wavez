@@ -149,7 +149,7 @@ func processSSEChunk(name string, chunk sseChunk, state *streamState, yield func
 }
 
 func (c *Client) do(ctx context.Context, req llm.Request) (*http.Response, error) {
-	body, err := json.Marshal(toWireRequest(c.model, req))
+	body, err := json.Marshal(toWireRequest(c.model, req, c.dialect))
 	if err != nil {
 		return nil, fmt.Errorf("openaic: %s: encoding request: %w", c.name, err)
 	}

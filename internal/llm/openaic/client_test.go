@@ -447,19 +447,34 @@ func TestClient_Stream_SendsResponseFormat(t *testing.T) {
 // llama.cpp reads chat_template_kwargs per request and it overrides the
 // server's own --chat-template-kwargs in both directions, so an unset
 // Thinking must send no key at all rather than a false one. OpenRouter reads
-// none of that and takes `reasoning`, so both spellings go out together.
-func TestClient_Stream_SendsThinkingInBothProviderSpellings(t *testing.T) {
+// none of that and takes `reasoning`, so each dialect carries its own
+// spelling and never the other's. It also carries the data-collection
+// denial, which is what keeps a private repository off providers that store
+// prompts.
+func TestClient_Stream_SpellsThinkingPerDialect(t *testing.T) {
 	t.Parallel()
 
 	on, off := true, false
 	tests := []struct {
-		thinking *bool
-		want     *bool
-		name     string
+		thinking     *bool
+		wantKwargs   *bool
+		wantReason   *bool
+		name         string
+		dialect      openaic.Dialect
+		wantProvider bool
 	}{
-		{name: "unset sends nothing", thinking: nil, want: nil},
-		{name: "off", thinking: &off, want: &off},
-		{name: "on", thinking: &on, want: &on},
+		{name: "llamacpp unset sends nothing", dialect: openaic.DialectLlamaCpp},
+		{name: "llamacpp off", dialect: openaic.DialectLlamaCpp, thinking: &off, wantKwargs: &off},
+		{name: "llamacpp on", dialect: openaic.DialectLlamaCpp, thinking: &on, wantKwargs: &on},
+		{name: "openrouter unset", dialect: openaic.DialectOpenRouter, wantProvider: true},
+		{
+			name: "openrouter off", dialect: openaic.DialectOpenRouter,
+			thinking: &off, wantReason: &off, wantProvider: true,
+		},
+		{
+			name: "openrouter on", dialect: openaic.DialectOpenRouter,
+			thinking: &on, wantReason: &on, wantProvider: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -480,7 +495,8 @@ func TestClient_Stream_SendsThinkingInBothProviderSpellings(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			client := newClient(t, srv)
+			client := openaic.New("test-provider", openaic.WithBaseURL(srv.URL),
+				openaic.WithModel("m"), openaic.WithDialect(tc.dialect))
 			req := llm.Request{
 				Model:    "m",
 				Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
@@ -492,9 +508,38 @@ func TestClient_Stream_SendsThinkingInBothProviderSpellings(t *testing.T) {
 			}
 
 			body := <-bodies
-			assertThinkingKey(t, body, "chat_template_kwargs", "enable_thinking", tc.want)
-			assertThinkingKey(t, body, "reasoning", "enabled", tc.want)
+			assertThinkingKey(t, body, "chat_template_kwargs", "enable_thinking", tc.wantKwargs)
+			assertThinkingKey(t, body, "reasoning", "enabled", tc.wantReason)
+			assertDataCollectionDenied(t, body, tc.wantProvider)
 		})
+	}
+}
+
+// A coding agent sends a private repository's contents on every turn, so
+// the denial is unconditional on the dialect that honors it rather than a
+// setting somebody has to find.
+func assertDataCollectionDenied(t *testing.T, body []byte, want bool) {
+	t.Helper()
+
+	var got struct {
+		Provider *struct {
+			DataCollection string `json:"data_collection"`
+		} `json:"provider"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+
+	if !want {
+		if got.Provider != nil {
+			t.Fatalf("provider = %+v, want it absent", got.Provider)
+		}
+
+		return
+	}
+
+	if got.Provider == nil || got.Provider.DataCollection != "deny" {
+		t.Fatalf("provider = %+v, want data_collection deny", got.Provider)
 	}
 }
 
