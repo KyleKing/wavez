@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
+	"time"
 
 	"github.com/kyleking/wavez/internal/vcs"
 )
@@ -35,8 +35,12 @@ func TestPruneKeptWorkspacesLeavesTheMostRecent(t *testing.T) {
 	// they carry this process's id to keep two runs from colliding there.
 	base := int64(os.Getpid()) * created
 
+	if replayWorkspaceName(time.Unix(0, base), 1) == replayWorkspaceName(time.Unix(0, base), 2) {
+		t.Fatal("two lanes starting on the same nanosecond must not name the same workspace")
+	}
+
 	for i := range created {
-		name := replayWorkspacePrefix + strconv.FormatInt(base+int64(i), 36)
+		name := replayWorkspaceName(time.Unix(0, base+int64(i)), os.Getpid())
 		dir := filepath.Join(scratchBase(), name)
 		t.Cleanup(func() {
 			if err := os.RemoveAll(dir); err != nil {

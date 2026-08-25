@@ -33,7 +33,7 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return err //nolint:wrapcheck // Find already lists the ids it has
 	}
 
-	dir := filepath.Join(scratchBase(), "wavez-replay-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	dir := filepath.Join(scratchBase(), replayWorkspaceName(time.Now(), os.Getpid()))
 	name := filepath.Base(dir)
 	jj := vcs.NewJj()
 
@@ -127,6 +127,14 @@ func replayRun(ctx context.Context, root string, opt options) error {
 // is how a sweep tells its own from a workspace someone is working in.
 const replayWorkspacePrefix = "wavez-replay-"
 
+// replayWorkspaceName is one run's workspace: the start time so a sweep can
+// order them by age, and the pid because lanes started together landed on
+// the same nanosecond and the second one failed to add its workspace at all.
+func replayWorkspaceName(at time.Time, pid int) string {
+	return fmt.Sprintf("%s%s-%s", replayWorkspacePrefix,
+		strconv.FormatInt(at.UnixNano(), 36), strconv.FormatInt(int64(pid), 36))
+}
+
 // keptReplayWorkspaces is how many failing runs' trees survive a later run.
 // A kept tree answers what a run left behind, which is a question worth
 // hours rather than weeks, and nothing else expires them: 78 accumulated
@@ -187,7 +195,9 @@ func dropWorkspace(ctx context.Context, jj *vcs.Jj, root, name string) {
 }
 
 func replayWorkspaceAge(name string) int64 {
-	n, err := strconv.ParseInt(strings.TrimPrefix(name, replayWorkspacePrefix), 36, 64)
+	stamp, _, _ := strings.Cut(strings.TrimPrefix(name, replayWorkspacePrefix), "-")
+
+	n, err := strconv.ParseInt(stamp, 36, 64)
 	if err != nil {
 		return 0
 	}
