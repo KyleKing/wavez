@@ -21,16 +21,22 @@ Show
 
 Type "/tmp/wz-demo/wavez -socket /tmp/wz-demo/d.sock"
 Enter
-Sleep 1500ms
+Sleep 5s
 
-Type "j"
-Sleep 400ms
 Type "j"
 Sleep 600ms
+Type "j"
+Sleep 1s
 Screenshot docs/img/home.png
 
-Enter
+Type "v"
 Sleep 1s
+Screenshot docs/img/home-goal.png
+Type "v"
+Sleep 600ms
+
+Enter
+Sleep 2s
 Tab
 Sleep 200ms
 Tab
