@@ -942,6 +942,12 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		return r.streamFailed(ctx, req.Model, err)
 	}
 
+	if len(calls) == 0 {
+		if recovered := r.recoverTextCalls(text); len(recovered) > 0 {
+			calls, stopReason = recovered, llm.StopToolUse
+		}
+	}
+
 	msg := llm.Message{Content: text, ToolCalls: calls}
 	meta := thread.TurnMeta{Model: req.Model, Tier: string(r.route.Choice)}
 	if err := r.thread.AppendAssistant(ctx, msg, usage, meta); err != nil {
@@ -1232,20 +1238,30 @@ func (r *run) emptyTurn(ctx context.Context, text string, usage *llm.Usage) (Out
 	return out, true, err
 }
 
+// recoverTextCalls reads the calls a model rendered into its message body
+// instead of emitting, before the turn is written down. Recovering later
+// worked and left the transcript holding the prose and no call, so the one
+// record of what a run asked for undercounted the fast tier exactly where
+// the dialect leaks; anything reading the sidecar back saw a turn that
+// called nothing and a tool result with no call above it.
+func (r *run) recoverTextCalls(text string) []llm.ToolCall {
+	if !looksLikeToolCallText(text, r.toolNames()) {
+		return nil
+	}
+
+	calls := parseToolCallText(text, r.toolNames())
+	r.outcome.RecoveredCalls += len(calls)
+
+	return calls
+}
+
 func (r *run) endTurnWithoutCalls(ctx context.Context, text string) (bool, Outcome, error) {
 	r.answer = text
 
 	switch {
 	case looksLikeToolCallText(text, r.toolNames()):
-		// The model made a well-formed call in a dialect the provider did
-		// not claim. Reading it invents nothing, and the alternative is the
-		// refusal this run was already heading for.
-		if calls := parseToolCallText(text, r.toolNames()); len(calls) > 0 {
-			r.outcome.RecoveredCalls += len(calls)
-
-			return r.runTools(ctx, calls)
-		}
-
+		// Recovery already ran and found nothing readable, so the markup is
+		// all there is and the run is told to make the call instead.
 		return r.handleToolCallAsText(ctx)
 	case looksLikeQuestionToUser(text):
 		return r.handleTalkedNotActed(ctx, StopAskedInProse,

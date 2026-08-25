@@ -48,9 +48,18 @@ func TestRun_ToolCallWrittenAsTextIsRecovered(t *testing.T) {
 	loop := agent.New(tiers(local, fake.New("hosted")),
 		tool.NewRegistry(echoTool{name: "echo"}), permission.AllowAll())
 
-	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "do it", router.Input{})
+	th := newThread(t)
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+
+	// The transcript is the only record of what a run asked for, and a
+	// recovered call that reaches the tools without reaching the transcript
+	// leaves a tool result under a turn that called nothing.
+	if names := calledTools(th.History()); len(names) != 1 || names[0] != "echo" {
+		t.Errorf("transcript calls = %v, want the recovered echo call", names)
 	}
 
 	if out.Stop != agent.StopComplete {
@@ -89,4 +98,16 @@ func TestRun_UnreadableMarkupIsStillNotSuccess(t *testing.T) {
 	if out.ToolCalls != 0 || out.RecoveredCalls != 0 {
 		t.Errorf("calls = %d, recovered = %d; nothing was readable", out.ToolCalls, out.RecoveredCalls)
 	}
+}
+
+func calledTools(history []llm.Message) []string {
+	var out []string
+
+	for _, m := range history {
+		for _, c := range m.ToolCalls {
+			out = append(out, c.Name)
+		}
+	}
+
+	return out
 }
