@@ -210,21 +210,30 @@ func replayWorkspaceAge(name string) int64 {
 // they came from is what a surprising counter is diagnosed with, so it lands
 // in the project's own log directory where -stats reads it by thread id.
 func keepLog(root, dir, id string) error {
-	src := filepath.Join(app.ThreadLogDir(dir), id+".jsonl")
-
-	body, err := os.ReadFile(src) //nolint:gosec // the path is built from a thread this process just ran
-	if err != nil {
-		return fmt.Errorf("replay: reading %s: %w", src, err)
-	}
-
 	dst := app.ThreadLogDir(root)
 	if err := os.MkdirAll(dst, logDirMode); err != nil {
 		return fmt.Errorf("replay: creating %s: %w", dst, err)
 	}
 
-	//nolint:gosec // id is a thread id this process generated, not input
-	if err := os.WriteFile(filepath.Join(dst, id+".jsonl"), body, logFileMode); err != nil {
-		return fmt.Errorf("replay: writing the kept log: %w", err)
+	// The transcript sidecar comes with the log, because the workspace it
+	// was written in is dropped on a clean run and a bounded run is
+	// resumable only while both survive.
+	for _, name := range []string{id + ".jsonl", id + ".history.jsonl"} {
+		src := filepath.Join(app.ThreadLogDir(dir), name)
+
+		body, err := os.ReadFile(src) //nolint:gosec // the path is built from a thread this process just ran
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+
+			return fmt.Errorf("replay: reading %s: %w", src, err)
+		}
+
+		//nolint:gosec // name is built from a thread id this process generated, not input
+		if err := os.WriteFile(filepath.Join(dst, name), body, logFileMode); err != nil {
+			return fmt.Errorf("replay: writing the kept log: %w", err)
+		}
 	}
 
 	return nil
