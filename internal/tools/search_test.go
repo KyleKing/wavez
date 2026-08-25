@@ -292,3 +292,28 @@ func TestSearchRetriesAWordyLiteralAsFuzzy(t *testing.T) {
 		t.Errorf("Content = %q, want a single-word literal answered directly", exact.Content)
 	}
 }
+
+// A name the index does not hold under that spelling is the same problem as
+// an edit anchor that misses, and the same answer applies: name what is
+// there. One run searched `maxLines`, was told only that nothing matched,
+// and answered the task from unrelated constants.
+func TestSearchNamesTheClosestNamesOnALiteralMiss(t *testing.T) {
+	t.Parallel()
+
+	search := tools.NewSearch(openTestIndex(t, map[string]string{
+		"tools/read.go": "package tools\n\nconst maxReadLines = 400\n",
+	}))
+
+	result, err := search.Run(context.Background(),
+		json.RawMessage(`{"mode":"literal","query":"maxLines"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(result.Content, "closest names the index holds") {
+		t.Errorf("Content = %q, want the miss to offer what is there", result.Content)
+	}
+	if !strings.Contains(result.Content, "maxReadLines") {
+		t.Errorf("Content = %q, want the name the index actually holds", result.Content)
+	}
+}

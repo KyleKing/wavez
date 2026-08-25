@@ -47,8 +47,7 @@ var searchSchema = buildSchema(map[string]schemaProperty{
 // literal text like "truncate function in internal/thread/thread.go" and
 // got nothing, while every literal search naming one identifier landed.
 func worthRetryingAsFuzzy(in searchInput) bool {
-	return codeintel.SearchMode(in.Mode) == codeintel.SearchLiteral &&
-		strings.ContainsFunc(in.Query, unicode.IsSpace)
+	return codeintel.SearchMode(in.Mode) == codeintel.SearchLiteral
 }
 
 // Index is the code index Search queries. Search refreshes as a side effect
@@ -153,7 +152,7 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 
 	retried, stats, err := s.index.Search(ctx, codeintel.SearchQuery{
 		Mode:  codeintel.SearchFuzzy,
-		Text:  in.Query,
+		Text:  fuzzyRetryText(in.Query),
 		Limit: in.Limit,
 	})
 	if err != nil {
@@ -165,10 +164,87 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Result{Content: formatSearchResults(scoped, stats, in.Query)}, nil
 	}
 
-	return tool.Result{Content: fmt.Sprintf(
-		"no literal match for %q, which is several words and literal matches an exact "+
-			"substring. Searched fuzzy instead:\n%s",
-		in.Query, formatSearchResults(scoped, stats, in.Query))}, nil
+	return tool.Result{Content: fmt.Sprintf("%s:\n%s",
+		literalMissReason(in.Query), formatSearchResults(scoped, stats, in.Query))}, nil
+}
+
+// fuzzyRetryText is what a literal miss searches for instead. The index
+// tokenizes on trigrams, so a one-identifier query matches an exact
+// substring in fuzzy mode too and the retry finds the same nothing.
+// Splitting it on case and underscores lets the parts match a name spelled
+// with more of them: `maxLines` reaches `maxReadLines`. Parts shorter than
+// a trigram are dropped, since the tokenizer indexes no term below three
+// characters and one would match every row.
+func fuzzyRetryText(query string) string {
+	if strings.ContainsFunc(query, unicode.IsSpace) {
+		return query
+	}
+
+	notWord := func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+
+	var parts []string
+
+	for _, word := range strings.FieldsFunc(query, notWord) {
+		parts = append(parts, splitCamel(word)...)
+	}
+
+	kept := parts[:0]
+
+	for _, p := range parts {
+		if len(p) >= minTrigram {
+			kept = append(kept, p)
+		}
+	}
+
+	// One part is the query again, so the retry would find the same nothing.
+	if len(kept) < minSplitParts {
+		return query
+	}
+
+	return strings.Join(kept, " ")
+}
+
+// minTrigram is the shortest term the index's trigram tokenizer holds.
+const minTrigram = 3
+
+// minSplitParts is how many parts make a split worth searching.
+const minSplitParts = 2
+
+func splitCamel(word string) []string {
+	var (
+		out     []string
+		current []rune
+	)
+
+	for _, r := range word {
+		if unicode.IsUpper(r) && len(current) > 0 {
+			out = append(out, string(current))
+			current = current[:0]
+		}
+
+		current = append(current, r)
+	}
+
+	if len(current) > 0 {
+		out = append(out, string(current))
+	}
+
+	return out
+}
+
+// literalMissReason says why a literal query found nothing and what the
+// fuzzy results below it are. A single token that misses is a name the
+// index does not hold under that spelling, and naming the ones it does
+// hold is the same argument as reporting a near match on a failed edit
+// anchor: one run searched `maxLines`, was told only that nothing matched,
+// and answered from unrelated constants rather than from `maxReadLines`.
+func literalMissReason(query string) string {
+	if strings.ContainsFunc(query, unicode.IsSpace) {
+		return fmt.Sprintf("no literal match for %q, which is several words and literal matches "+
+			"an exact substring. Searched fuzzy instead", query)
+	}
+
+	return fmt.Sprintf("no literal match for %q. The closest names the index holds", query)
 }
 
 // formatSearchResults distinguishes an empty result from an index that
