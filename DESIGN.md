@@ -935,6 +935,24 @@ measured and what it did not settle.
    resumes a run, since the corpus says the failures worth chasing are one
    call wide.
 
+   **Closed: it ships as `wavez -recall <thread> [-recall-turn n]`.** It
+   opens a throwaway workspace the way a replay does, replays the calls
+   before the target so the tree is the one the call met, then prints the
+   arguments, the answer the run was given, and the answer the harness gives
+   now. Every call rather than the editing ones, because the `h3` runs did
+   most of their renaming through `sed` under the shell and a prefix that
+   skipped shell rebuilt a tree the target never saw; 44 calls of that run
+   replay in 26 seconds. Two things it found on its first use. The `h3`
+   turn-32 anchor miss now answers that the edit is already made rather than
+   with a suffix diff, which is the fix from the lane above proved against
+   the run that motivated it. And the transcript was missing exactly the
+   calls worth repeating: a call the provider rendered into the message body
+   was recovered after the assistant turn was written down, so twelve of
+   `h3`'s turns held prose and an empty `tool_calls` with a tool result
+   underneath. Recovery now runs before the turn is recorded, which also
+   means the corpus stopped undercounting the fast tier's calls where the
+   dialect leaks.
+
 2. **Fuzzy matching suggests names that are not close, and the refusals
    that carry them read as noise.** `rename` answered a missing `Read` with
    `OpenThread`, `TestThreads_ListFailsWhenLogUnreadable`, and `NewRead`,
@@ -952,6 +970,28 @@ measured and what it did not settle.
    fuzzy mode has the same shape, since both sit on the trigram index and
    the retry path already splits queries on case and underscores to work
    around short-token behaviour. `h3` is the lane to measure it on.
+
+   **Half closed.** The floor is a rule rather than a threshold: a candidate
+   is printed only where the query occurs in it as a whole CamelCase or
+   underscore word, judged against the widened query the results came back
+   for rather than the name asked for, for the reason `searchWidening`
+   already states. `Read` is a word of `NewRead` and three letters in the
+   middle of `OpenThread`, and that one test separates the measured rescue
+   (`TestApplyToFile` for `ApplyToFile`) from both recorded collisions with
+   no constant to tune. Nothing qualifying prints nothing.
+
+   `search`'s own fuzzy mode has a different shape and a worse number. Its
+   miss path is a fallback result list rather than a suggestion list, so the
+   floor does not belong there, and the `h3` transcript says why it still
+   costs: fuzzy `Read in internal/bench` returned 20 of 1,997 matches and
+   fuzzy `func Read` narrowed to that package returned 2 of 4,819, so a
+   short query matches most of the repository and the run is told only that
+   its query was broad. Adding a word made it worse, since fuzzy splits on
+   non-word characters and every word widens the match. That run reached for
+   `grep` under the shell at turn 16 and called `search` once more in 57
+   turns, after the work was finished. Ranking fuzzy hits by how much of the
+   matched name the query covers is the same argument one level down, and
+   `h3` is still the lane to measure it on.
 
 3. **Item 2, aimed by the taxonomy that now exists.** Across the 77 recorded
    replay runs, `str_replace` errored on 56% of its calls (78 of 140),
@@ -1021,6 +1061,24 @@ measured and what it did not settle.
    actually matches, which names the line the source has and the anchor
    omits. `no_match` is 121 of `str_replace`'s 359 classified failures over
    532 calls, so this is the largest single thing left in the tool
+
+   The corpus since 2026-08-23 now puts `str_replace` at 29% of calls
+   failing (134 of 464), against the 56% (78 of 140) the first 77 runs
+   showed, and `delete` at 32% (7 of 22) against 60%. What is left is
+   `no_match` 67, `bad_input` 32, `ambiguous` 20, `malformed` 11, and
+   `repeat` 4. `ambiguous` is the one that grew, from 1 across the first
+   corpus to 20, and `h3` says what it is: four call sites written
+   identically, which no widening tells apart and which is a rename asked as
+   a text edit. Nothing steered a rename task at `rename`, and now the
+   ambiguous refusal does: where the pair substitutes one identifier and
+   changes nothing else, it names the call that changes every site in the
+   project rather than only the ones this file holds. It costs no preamble,
+   because it is a sentence in a failure the run was already being given,
+   and it says nothing for a pair that rewrites text rather than
+   substituting a name. Two of the 67 are
+   now answered rather than repeated, since a part-finished rename says the
+   edit is already made, which `wavez -recall p-dkykn7hmlye0 -recall-turn 32`
+   reproduces against the run that motivated it.
 4. **The escalation signal was clearing its own evidence.** It reads as
    never having fired, and the reason is two defects rather than a
    condition set too strictly. `escalateIfStuck` returned in silence
@@ -1054,9 +1112,15 @@ measured and what it did not settle.
    end at the bytes it started with, and what it turned up is about
    benchmarks rather than about the task: a replay checks the end state, so
    a prompt cannot require an intermediate one, and the shortest path
-   through `h12` skips the step it was written to force (item 7). The set
-   still has no task whose retrieval crosses a language boundary. `h2` stays
+   through `h12` skips the step it was written to force (item 7). `h2` stays
    the existing one worth studying rather than replacing.
+
+   The cross-language gap this named is closed by `h13`, which was written
+   after it: its retrieval spans the Pkl schema, the Go loader that mirrors
+   it with pkl struct tags, and the Go defaults the overlay lands on. It has
+   run 12 times at 92% and a mean of 29.7 turns, 33 of one run's 44 turns
+   being retrieval, so it measures the boundary rather than merely crossing
+   it. There is no third language in this project to reach for.
 
 6. **The 34% of turns the harness costs, aimed at twice and unmeasured.**
    The corpus reports where a run's turns go (15% productive, 44%
@@ -1101,6 +1165,16 @@ measured and what it did not settle.
    not decode: it is `str_replace` missing its anchor, five times in a row
    in one lane, which item 3 now aims at directly.
 
+   The number this item is named for has moved. Over 2,085 turns since
+   2026-08-23 the split is 14% productive, 58% retrieval, 25% harness, and
+   3% prose, against 15/44/34/6 over the 1,195 turns it was written from.
+   Harness turns fell by nine points and retrieval took every one of them,
+   which is the tool surface erroring less and the runs reading more rather
+   than a run getting cheaper: mean turns per task are unchanged inside the
+   bands each task already varies over. So the thing to aim at next is
+   retrieval, not the harness, and the instrument for it is the same one
+   that found the last two harness causes.
+
 7. **`undo` shipped and no run has called it.** Two lanes with the tool
    present (`h7`, `h10`) made zero `undo` calls, which is `vcs`'s pattern
    exactly: a tool can be reachable, correct, and unreached. `h7` improved
@@ -1131,6 +1205,15 @@ measured and what it did not settle.
    is the 44-turn `h7` failure this was built for. `h12` stays in the set on
    its own merits as the first task that asks for a file to end where it
    started
+
+   **Closed: it is called.** The corpus since 2026-08-25 holds 34 `undo`
+   calls across 17 runs and 10 different tasks, none of which errored or
+   was refused, so the prediction that the count would stay at zero
+   whatever tasks were added was wrong. What is not settled is why. Only 4
+   of the 27 calls whose sidecars survive follow a message that named the
+   tool, so the shell's refusal pointing at `undo` explains a minority and
+   the rest is a run reaching for it off the tool description alone. The 57
+   tokens are paid for either way
 
 8. **A tool nothing calls is a tool nothing needed. Closed: `vcs` is gone.**
    Taken at 226 runs rather than 5, it was called 4 times while the same
