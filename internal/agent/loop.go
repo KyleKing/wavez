@@ -43,9 +43,10 @@ const (
 	// distribution, not a tuned figure.
 	DefaultMaxWallClock = 180 * time.Second
 	// DefaultMaxHostedSpendUSD bounds accumulated hosted-tier spend for one
-	// Run, at roughly fifty escalated turns of the hosted default's price in
-	// DefaultPricing.
-	DefaultMaxHostedSpendUSD = 0.10
+	// Run. It is a runaway bound rather than a budget: a hard task on the
+	// deep tier costs cents, and the ceiling exists so a loop that cannot
+	// stop itself costs a dollar instead of whatever the deadline allows.
+	DefaultMaxHostedSpendUSD = 1.00
 	// DefaultMaxStagnantErrors bounds consecutive tool-call results that
 	// return an error, regardless of whether their inputs matched: the
 	// near-miss loop (three different wrong str_replace anchors in a row)
@@ -89,7 +90,9 @@ type ModelPricing struct {
 //
 //nolint:mnd // published per-million-token prices, not magic numbers
 var DefaultPricing = map[string]ModelPricing{
+	"moonshotai/kimi-k2.7-code":         {InputPerMillion: 0.67, OutputPerMillion: 3.40},
 	"openai/gpt-5-mini":                 {InputPerMillion: 0.25, OutputPerMillion: 2.00},
+	"qwen/qwen3-8b":                     {InputPerMillion: 0.12, OutputPerMillion: 0.46},
 	"qwen/qwen3-coder":                  {InputPerMillion: 0.30, OutputPerMillion: 1.00},
 	"qwen/qwen3-coder-30b-a3b-instruct": {InputPerMillion: 0.07, OutputPerMillion: 0.28},
 }
