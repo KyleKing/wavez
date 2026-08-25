@@ -2910,3 +2910,64 @@ insurance is worth it.
 request, which needs lanes that hold the fast tier for a whole task and now
 can have them. Whether the two `str_replace` fixes move turns, which is the
 next set of lanes. The harness's 34% of turns, unchanged at 1,450 turns.
+
+## 2026-08-25 — parallel lanes were grading the tool on a tree jj had rewritten
+
+**The measurement was wrong before the tool was.** Four `deep` lanes run at
+once put `h13` at 3 of 5 and `h10` at 1 of 4. The same tasks on the same tier
+under the fix score 5 of 5 and 4 of 4. Nothing about the model changed.
+
+**Root cause, proved from jj's own operation log.** Replay workspaces share
+one jj store, and nearly every jj command snapshots the working copy, so a
+read is a write to the operation log. Four lanes each snapshot per accepted
+edit, add and forget a fail-to-pass workspace per gate round, and abandon
+their workspace at the end. Two four-lane windows produced 3 and 9
+`reconcile divergent operations` entries; the window after the fix produced
+2, and those coincide with `jj` typed by hand, which does not take the lock.
+The damage was visible in one lane directly: `h13` recorded "deadline
+reached, 5 file(s) changed" and its workspace held 2 of those files, its
+working copy marked `(divergent)`, its checks graded against the remains. Its
+successful multi-file edit to `Wavez.pkl` was gone by the time anything read
+it. Every jj invocation now serializes on a lock in the shared store, which
+costs milliseconds against turns that cost seconds, so lanes still overlap
+where the time goes.
+
+**What that had been hiding.** `h13` is a new task whose retrieval crosses
+the pkl and Go boundary: add a config key that exists in the pkl schema, its
+Go mirror struct with pkl tags, and the Config it overlays onto. Under the
+race it read as the model failing to reach the pkl side. It was not. Both
+locked lanes edited all three files and passed every check, one of them
+through a single multi-file `str_replace` batch using the per-edit `path`
+that the schema only started declaring this session.
+
+**The deep tier is a different model now and it changes what the tool can
+do.** `balanced` and `deep` were both `qwen/qwen3-coder-30b-a3b-instruct`, so
+every escalation re-ran the failure on the model that had just produced it.
+`deep` is `moonshotai/kimi-k2.7-code`, and two tasks that had never once been
+done are now done: `h7` at 5 of 5 in 8 turns against 0 of 3 runs and a mean
+of 27 turns, and `h2` at 2 of 2 in 11 turns against 0 of 10. `h11` went 1 of
+4 to 4 of 4. Fourteen providers serve it, so there is no repeat of the
+single-provider rate limit the fast tier hit.
+
+**The cost ceiling was about to become the binding constraint.** It was $0.10
+a run, and the first `h13` lane spent $0.80 and a later one reached $1.00 and
+stopped as `cost_ceiling` having already passed 5 of 5. At the old ceiling
+every hard task would have died around turn four and read as the model
+failing.
+
+**The anchor fix holds where it was aimed.** Across four `e2` lanes, `no_match`
+fell from 9 failures in 61 tool calls to 2 in 91. What replaced it at the top
+is the no-op replacement (7 of 91), and reading those shows a copy-paste slip
+in a repetitive edit sequence that the run corrects on the next turn, which
+is a one-turn cost rather than a failure mode.
+
+**A wrong argument shape now reads as JSON rather than as Go.** Every tool
+handed the decoder's own message back, naming Go types
+("[]tools.editPair"). Two logged runs sent `edits` as a string holding the
+array, got that message, and did not change the shape. One shared decoder
+now says which field it was, what shape it takes, and what arrived.
+
+**What is not settled.** Whether the two `str_replace` fixes move turns
+rather than error counts, because every four-lane comparison before the jj
+fix is unreliable and has to be re-run. `h10` still fails on the fast tier.
+The harness's share of turns, unchanged.
