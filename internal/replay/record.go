@@ -62,6 +62,11 @@ type Record struct {
 	Stop    string        `json:"stop"`
 	Checks  []CheckResult `json:"checks,omitempty"`
 	Stats   bench.Stats   `json:"stats"`
+	// SpendUSD is what the run's hosted turns cost, accumulated by the loop
+	// against the model that actually served each turn. Stats carries the
+	// tokens and not the model behind them, so this is the only place a
+	// record says what it cost.
+	SpendUSD float64 `json:"spend_usd,omitempty"`
 	// Complete is the loop's own verdict, which says the run ended tidily
 	// and nothing about whether it did the task. Checks is what says that.
 	Complete bool `json:"complete"`
@@ -85,7 +90,10 @@ func (r Record) CheckSummary() string {
 }
 
 // NewRecord stamps a finished run.
-func NewRecord(run Run, started time.Time, stop string, stats bench.Stats, checks []CheckResult) Record {
+func NewRecord(
+	run Run, started time.Time, stop string,
+	stats bench.Stats, checks []CheckResult, spendUSD float64,
+) Record {
 	return Record{
 		Run:      run,
 		Started:  started.UTC().Format(time.RFC3339),
@@ -93,6 +101,7 @@ func NewRecord(run Run, started time.Time, stop string, stats bench.Stats, check
 		Complete: stop == StopComplete,
 		Stats:    stats,
 		Checks:   checks,
+		SpendUSD: spendUSD,
 	}
 }
 

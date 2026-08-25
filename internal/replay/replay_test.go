@@ -134,12 +134,12 @@ func TestRecordsRoundTrip(t *testing.T) {
 func fixtureRecords() []replay.Record {
 	return []replay.Record{
 		replay.NewRecord(replay.Run{Task: "e1", Label: "before", Model: "balanced", MaxTurns: 60},
-			started, "complete", bench.Stats{Turns: 30, ToolCalls: 40, InputTokens: 900}, nil),
+			started, "complete", bench.Stats{Turns: 30, ToolCalls: 40, InputTokens: 900}, nil, 0),
 		replay.NewRecord(replay.Run{Task: "q1", Label: "before"},
-			started, "max_turns", bench.Stats{Turns: 60}, nil),
+			started, "max_turns", bench.Stats{Turns: 60}, nil, 0),
 		replay.NewRecord(replay.Run{Task: "e1", Label: "after", Model: "balanced", MaxTurns: 60},
 			started, "complete", bench.Stats{Turns: 12, ToolCalls: 15, InputTokens: 400},
-			[]replay.CheckResult{{Check: "a:b", Pass: true}, {Check: "c:d"}}),
+			[]replay.CheckResult{{Check: "a:b", Pass: true}, {Check: "c:d"}}, 0),
 	}
 }
 
@@ -166,7 +166,7 @@ func TestReportSkipsARunThatNeverTookATurn(t *testing.T) {
 	recs := []replay.Record{
 		fixtureRecords()[0],
 		replay.NewRecord(replay.Run{Task: "e1", Label: "killed", Model: "balanced", MaxTurns: 60},
-			started, "error", bench.Stats{}, nil),
+			started, "error", bench.Stats{}, nil, 0),
 		fixtureRecords()[2],
 	}
 
@@ -184,7 +184,7 @@ func TestReportFlagsAPairRunUnderDifferentSetups(t *testing.T) {
 	recs := []replay.Record{
 		fixtureRecords()[0],
 		replay.NewRecord(replay.Run{Task: "e1", Label: "after", Model: "local", MaxTurns: 30},
-			started, "complete", bench.Stats{Turns: 12}, nil),
+			started, "complete", bench.Stats{Turns: 12}, nil, 0),
 	}
 
 	var out strings.Builder
@@ -243,9 +243,9 @@ func TestReportSaysTheTaskTextChanged(t *testing.T) {
 
 	recs := []replay.Record{
 		replay.NewRecord(replay.Run{Task: "e1", Label: "before", TaskHash: "aaaaaaaa"},
-			started, "complete", bench.Stats{Turns: 4}, nil),
+			started, "complete", bench.Stats{Turns: 4}, nil, 0),
 		replay.NewRecord(replay.Run{Task: "e1", Label: "after", TaskHash: "bbbbbbbb"},
-			started, "complete", bench.Stats{Turns: 2}, nil),
+			started, "complete", bench.Stats{Turns: 2}, nil, 0),
 	}
 
 	var out strings.Builder
@@ -296,9 +296,9 @@ func TestReportNamesTheTierThatDidTheWork(t *testing.T) {
 
 	recs := []replay.Record{
 		replay.NewRecord(replay.Run{Task: "e3", Label: "pinned", Model: "fast", MaxTurns: 60},
-			started, "complete", bench.Stats{Turns: 18, TierTurns: map[string]int{"fast": 6, "balanced": 12}}, nil),
+			started, "complete", bench.Stats{Turns: 18, TierTurns: map[string]int{"fast": 6, "balanced": 12}}, nil, 0),
 		replay.NewRecord(replay.Run{Task: "e3", Label: "held", Model: "fast", MaxTurns: 60},
-			started, "complete", bench.Stats{Turns: 3, TierTurns: map[string]int{"fast": 3}}, nil),
+			started, "complete", bench.Stats{Turns: 3, TierTurns: map[string]int{"fast": 3}}, nil, 0),
 	}
 
 	var out strings.Builder

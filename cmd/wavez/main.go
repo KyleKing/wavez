@@ -687,7 +687,7 @@ Flags:
   -max-turns <n>                cap model turns, a dead-man's switch
   -max-tool-calls-per-turn <n>  cap tool calls within one model turn
   -max-stagnant-errors <n>      cap consecutive erroring tool-call results
-  -max-wall-clock <duration>    cap one run's wall time (e.g. 180s)
+  -max-wall-clock <duration>    cap one run's wall time (e.g. 600s)
   -max-hosted-spend <dollars>   cap one run's hosted-tier spend
   -v              print version information
 

@@ -105,14 +105,14 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		return fmt.Errorf("replay: %w", err)
 	}
 
-	rec := replay.NewRecord(run, started, stop, stats, checks)
+	rec := replay.NewRecord(run, started, stop, stats, checks, info.Outcome.HostedSpendUSD)
 	if err := replay.Append(filepath.Join(root, replay.DefaultRecordsPath), rec); err != nil {
 		return err //nolint:wrapcheck // Append already names the file and the failure
 	}
 
-	fmt.Fprintf(os.Stderr, "recorded %s/%s: %s in %d turns (%s), checks %s\n",
+	fmt.Fprintf(os.Stderr, "recorded %s/%s: %s in %d turns (%s), checks %s, $%.4f\n",
 		rec.Task, rec.Label, rec.Stop, rec.Stats.Turns,
-		replay.TierMix(rec.Stats.TierTurns), rec.CheckSummary())
+		replay.TierMix(rec.Stats.TierTurns), rec.CheckSummary(), rec.SpendUSD)
 
 	for _, c := range rec.Checks {
 		if !c.Pass {

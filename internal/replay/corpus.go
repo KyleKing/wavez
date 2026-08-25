@@ -73,6 +73,7 @@ func writeRuns(b *strings.Builder, recs []Record) {
 
 func writeTasks(b *strings.Builder, recs []Record) {
 	type tally struct {
+		spend, doneSpend  float64
 		runs, done, turns int
 	}
 
@@ -87,18 +88,21 @@ func writeTasks(b *strings.Builder, recs []Record) {
 
 		t.runs++
 		t.turns += recs[i].Stats.Turns
+		t.spend += recs[i].SpendUSD
 
 		if allChecksHeld(recs[i]) {
 			t.done++
+			t.doneSpend += recs[i].SpendUSD
 		}
 	}
 
-	b.WriteString("\ntask     runs   did the work   mean turns\n")
+	b.WriteString("\ntask     runs   did the work   mean turns   $/run   $/done\n")
 
 	for _, name := range sortedKeys(byTask) {
 		t := byTask[name]
-		fmt.Fprintf(b, "%-8s %4d   %-12s   %10.1f\n",
-			name, t.runs, share(t.done, t.runs), float64(t.turns)/float64(t.runs))
+		fmt.Fprintf(b, "%-8s %4d   %-12s   %10.1f   %5s   %6s\n",
+			name, t.runs, share(t.done, t.runs), float64(t.turns)/float64(t.runs),
+			dollars(t.spend, t.runs), dollars(t.spend, t.done))
 	}
 }
 
@@ -186,6 +190,17 @@ func total(causes map[string]int) int {
 	}
 
 	return sum
+}
+
+// dollars is spend over n, and a dash where n is zero. The per-completion
+// column is the one that ranks a tier: a cheap model that never finishes
+// costs more per unit of work than an expensive one that does.
+func dollars(spend float64, n int) string {
+	if n == 0 || spend == 0 {
+		return "-"
+	}
+
+	return fmt.Sprintf("$%.3f", spend/float64(n))
 }
 
 const asPercent = 100
