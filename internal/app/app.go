@@ -964,6 +964,18 @@ func (a *App) Close() error {
 
 	var errs []error
 
+	// The index writes under the project root, so Close waits for it rather
+	// than only canceling it: a caller that removes the root as soon as
+	// Close returns races `.codegraph/` back into existence underneath the
+	// removal, which is what failed one lane's whole gate round.
+	if a.Indexer != nil {
+		waitCtx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), serverStopTimeout)
+		if err := a.Indexer.Wait(waitCtx); err != nil {
+			errs = append(errs, err)
+		}
+		cancel()
+	}
+
 	if a.lspPool != nil {
 		poolCtx, cancel := context.WithTimeout(context.WithoutCancel(context.Background()), serverStopTimeout)
 		if err := a.lspPool.Close(poolCtx); err != nil {

@@ -2,6 +2,7 @@ package codeintel
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/kyleking/wavez/internal/codeintel/lang"
@@ -23,10 +24,14 @@ import (
 // issues no write statements at all. Start absorbs the cold cost in the
 // background so no query pays it.
 type Indexer struct {
-	store     *Store
-	registry  *lang.Registry
-	edges     *EdgeAdapter
-	root      string
+	store    *Store
+	registry *lang.Registry
+	edges    *EdgeAdapter
+	root     string
+	// started closes when the goroutine Start spawned has returned. Start
+	// writes into the project root, so a caller that tears the root down
+	// has to wait for it rather than only canceling it.
+	started   chan struct{}
 	lastEdges EdgeStats
 	copied    bool
 	mu        sync.Mutex
@@ -173,7 +178,38 @@ func (ix *Indexer) refreshAndCopy(
 // It drops its error because the next Refresh reports the same failure to a
 // caller who can act on it.
 func (ix *Indexer) Start(ctx context.Context) {
+	done := make(chan struct{})
+
+	ix.mu.Lock()
+	ix.started = done
+	ix.mu.Unlock()
+
 	go func() {
+		defer close(done)
+
 		_, _ = ix.InitEdges(ctx) //nolint:errcheck // see doc comment: the next Refresh reports the same failure
 	}()
+}
+
+// Wait blocks until the work Start began has returned, or until ctx is
+// done. It reports ctx's error in that second case and nil otherwise.
+//
+// Canceling Start's context is not enough on its own: the index writes
+// `.codegraph/` under the project root, so a caller that removes the root
+// without waiting races a directory back into existence underneath itself.
+func (ix *Indexer) Wait(ctx context.Context) error {
+	ix.mu.Lock()
+	done := ix.started
+	ix.mu.Unlock()
+
+	if done == nil {
+		return nil
+	}
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for the index to stop: %w", ctx.Err())
+	}
 }
