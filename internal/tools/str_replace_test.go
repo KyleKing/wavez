@@ -710,37 +710,65 @@ func TestStrReplace_SaysAnEditIsAlreadyMade(t *testing.T) {
 // `ambiguous` went from 1 across the first corpus to 20, and every case is a
 // rename asked as a text edit. The h3 shape: four sites written identically,
 // a pair that changes one identifier, and no tool result anywhere naming the
-// tool built for it.
+// tool built for it. The advice stops once the new name is declared,
+// because that is the declaration rename would have started from.
 func TestStrReplace_AmbiguousRenamePointsAtRename(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	body := "package p\n\nfunc a() { events, err := bench.Read(path) }\n" +
-		"func b() { events, err := bench.Read(path) }\n"
-
-	if err := os.WriteFile(filepath.Join(dir, "file.go"), []byte(body), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	s := tools.NewStrReplace(dir, nil)
-
-	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+	call := map[string]any{
 		"path":       "file.go",
 		"old_string": "events, err := bench.Read(path)",
 		"new_string": "events, err := bench.ReadLog(path)",
-	}))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	}
+	callers := "package p\n\nfunc a() { events, err := bench.Read(path) }\n" +
+		"func b() { events, err := bench.Read(path) }\n"
+
+	tests := []struct {
+		name       string
+		declared   string
+		wantAdvice bool
+	}{
+		{
+			name:       "declaration still named Read",
+			declared:   "func Read(path string) error { return nil }\n",
+			wantAdvice: true,
+		},
+		{
+			name: "declaration already renamed, another package still declares Read",
+			declared: "func ReadLog(path string) error { return nil }\n" +
+				"type Read struct{}\n",
+			wantAdvice: false,
+		},
 	}
 
-	if !result.IsError || result.Cause != tool.CauseAmbiguous {
-		t.Fatalf("IsError = %v, Cause = %q, want an ambiguous failure", result.IsError, result.Cause)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	for _, want := range []string{"rename", `symbol: "Read"`, `to: "ReadLog"`} {
-		if !strings.Contains(result.Content, want) {
-			t.Errorf("content = %q, want it to carry %s", result.Content, want)
-		}
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "file.go"), []byte(callers), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			index := openTestIndex(t, map[string]string{"bench/stats.go": "package bench\n\n" + tc.declared})
+			s := tools.NewStrReplace(dir, nil, tools.WithSymbols(index))
+
+			result, err := s.Run(context.Background(), mustJSON(t, call))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if !result.IsError || result.Cause != tool.CauseAmbiguous {
+				t.Fatalf("IsError = %v, Cause = %q, want an ambiguous failure", result.IsError, result.Cause)
+			}
+
+			for _, want := range []string{"rename", `symbol: "Read"`, `to: "ReadLog"`} {
+				if strings.Contains(result.Content, want) != tc.wantAdvice {
+					t.Errorf("content = %q, carrying %s = %v, want %v",
+						result.Content, want, !tc.wantAdvice, tc.wantAdvice)
+				}
+			}
+		})
 	}
 }
 

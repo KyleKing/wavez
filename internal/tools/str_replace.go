@@ -339,7 +339,7 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 	batch, err := edit.ApplyToFiles(edits)
 	if err != nil {
-		return s.failedEdit(&in, edits, err), nil
+		return s.failedEdit(ctx, &in, edits, err), nil
 	}
 
 	changes := batch.Changes
@@ -538,7 +538,9 @@ func noChangeAdvice(edits []edit.FileEdit, anchor string) string {
 
 // failedEdit explains a batch that did not apply, adding what the error
 // alone cannot say.
-func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err error) tool.Result {
+func (s *StrReplace) failedEdit(
+	ctx context.Context, in *strReplaceInput, edits []edit.FileEdit, err error,
+) tool.Result {
 	if errors.Is(err, edit.ErrNotFound) {
 		if name, ok := declaredBy(in); ok {
 			return tool.Fail(tool.CauseNoMatch,
@@ -574,7 +576,8 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 			"%v\n\nWhere the %d sites are written identically no widening tells them apart. "+
 				"Send the same call with replace_all: true to change all %d, or anchor on "+
 				"surrounding text that differs.%s",
-			err, len(notUnique.Lines), len(notUnique.Lines), orRename(in.anchor(), in.replacement()))
+			err, len(notUnique.Lines), len(notUnique.Lines),
+			s.orRename(ctx, in.anchor(), in.replacement()))
 	}
 
 	if errors.Is(err, edit.ErrNoChange) {
@@ -603,16 +606,47 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 // `bench.Read(path)` against four sites written identically, took the
 // per-site path, and spent 57 turns on `sed`. Nothing else steers a rename
 // task at `rename`.
-func orRename(oldString, newString string) string {
+//
+// It says nothing once the index declares the new name, because `rename`
+// starts from the declaration and a declaration already carrying the new
+// name is one `rename` can no longer resolve. Two `h3` lanes hand-edited
+// the declaration, met this refusal at the call sites, and spent their last
+// two turns on a `rename` that answered that nothing is indexed under the
+// old name. Asking only whether the old name is declared does not separate
+// them, since `Read` is declared in three packages here and the rename
+// touches one.
+func (s *StrReplace) orRename(ctx context.Context, oldString, newString string) string {
 	from, to, ok := substitutedIdentifier(oldString, newString)
-	if !ok {
+	if !ok || !s.declares(ctx, from) || s.declares(ctx, to) {
 		return ""
 	}
 
-	return fmt.Sprintf(" Every site here changes %s to %s and nothing else, so if %s is a "+
-		"declared symbol rather than a local name, rename with symbol: %q, to: %q changes "+
-		"every site in the project in one call, including the ones this file does not hold.",
+	return fmt.Sprintf(" Every site here changes %s to %s and nothing else, and %s is a "+
+		"declared symbol, so rename with symbol: %q, to: %q changes every site in the "+
+		"project in one call, including the ones this file does not hold.",
 		from, to, from, from, to)
+}
+
+// declares reports whether the index holds a declaration under name. Where
+// no index is wired the answer is no, so advice that depends on one stays
+// out of a build that cannot check it.
+func (s *StrReplace) declares(ctx context.Context, name string) bool {
+	if s.deps.symbols == nil {
+		return false
+	}
+
+	results, _, err := searchWidening(ctx, s.deps.symbols, name)
+	if err != nil {
+		return false
+	}
+
+	for i := range results {
+		if sym := results[i].Symbol; sym != nil && sym.Name == name {
+			return true
+		}
+	}
+
+	return false
 }
 
 // substitutedIdentifier reports the one identifier a pair replaces, where

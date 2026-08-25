@@ -35,6 +35,7 @@ type deps struct {
 	leases  Leases
 	checks  Checks
 	changes Changes
+	symbols SymbolSearch
 	// allowedCommands widen the guard's built-in list of shell commands that
 	// run without a prompt, from what the project named.
 	allowedCommands []string
@@ -42,6 +43,13 @@ type deps struct {
 
 // Option configures a tool's optional dependencies.
 type Option func(*deps)
+
+// WithSymbols lets a tool ask what the index declares. A tool that edits
+// text does not need it to edit, and needs it to say whether a symbol tool
+// could have done the job instead.
+func WithSymbols(s SymbolSearch) Option {
+	return func(d *deps) { d.symbols = s }
+}
 
 // WithLeases makes a tool hold the lease covering a write target's subtree
 // for as long as the write takes. Acquisition sits here rather than at thread
