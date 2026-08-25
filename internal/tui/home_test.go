@@ -133,8 +133,10 @@ func TestHome_RendersEveryState(t *testing.T) {
 			assert.Contains(t, out, want, "size %dx%d", size.w, size.h)
 		}
 
-		for _, glyph := range []string{">", "*", "!", "x", "ok"} {
-			assert.Contains(t, out, glyph, "size %dx%d missing ascii glyph %q", size.w, size.h, glyph)
+		// The state is a word rather than a glyph, so the column reads
+		// without a legend and a filter can narrow on what it says.
+		for _, state := range []string{"working", "gating", "waiting", "failed", "done"} {
+			assert.Contains(t, out, state, "size %dx%d missing state %q", size.w, size.h, state)
 		}
 	}
 }

@@ -265,14 +265,17 @@ func (m Model) diagDrill() []string {
 	for i := range rows {
 		r := &rows[i]
 		out = append(out, fmt.Sprintf("  %-22s %-14s %-9s %-8s %s",
-			truncate(r.Name, nameColWidth), truncate(r.Dir, drillDirWidth),
+			truncate(r.Name, drillNameWidth), truncate(r.Dir, drillDirWidth),
 			tokens(r.Context)+"/"+tokens(r.Window), tokens(r.Tokens), spend(r.Spend)))
 	}
 
 	return out
 }
 
-const drillDirWidth = 13
+const (
+	drillNameWidth = 21
+	drillDirWidth  = 13
+)
 
 // gauge renders a number the daemon measured, or a dash where it reported
 // the gauge unmeasured. A zero that means "no source" must never read as a

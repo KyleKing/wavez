@@ -264,7 +264,10 @@ type ThreadInfo struct {
 	Spend  float64     `json:"spend"`
 	Tokens int         `json:"tokens"`
 	// Turn is which turn of the current run is in flight, counting from one.
+	// Turns is how many it has finished, which is what a list column means
+	// by "turns" and is one less than Turn for a thread still working.
 	Turn     int           `json:"turn,omitempty"`
+	Turns    int           `json:"turns,omitempty"`
 	TurnMean time.Duration `json:"turn_mean,omitempty"`
 	Context  int           `json:"context"`
 	Window   int           `json:"window"`

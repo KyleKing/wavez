@@ -32,3 +32,14 @@ var asciiGlyphs = map[event.State]string{
 	event.StateFailed:  "x",
 	event.StateDone:    "ok",
 }
+
+// stateLabel is the state as a column reads it. Only needs_input differs
+// from the wire value, because a column carries the word a person scans for
+// and "waiting" is what a thread stopped for an answer is doing.
+func stateLabel(st event.State) string {
+	if st == event.StateNeedsIn {
+		return "waiting"
+	}
+
+	return string(st)
+}

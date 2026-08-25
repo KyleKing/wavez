@@ -1,8 +1,9 @@
-[1m┌ wavez · dev · 5 threads · ! 1 needs input · mem 0.0G/0.0G ───────────────────┐[m
-[1m│ [m[2m   thread                step                        age    spend[m           [1m │[m
-[1m│ [m[1m>   ! docs-pass            allow? rm -rf .testmondata  59m    $0.00[m         [1m │[m
-[1m│ [m    > fix-lock-timeout     editing internal/lease.go   58m    $0.00         [1m │[m
-[1m│ [m    * add-jj-backend       gate test 4/7               59m    $0.00         [1m │[m
-[1m│ [m    x flaky-ci             go test failed              1h     $0.00         [1m │[m
-[1m│ [m    ok release-notes        done                        2h     $0.00        [1m │[m
-[1m└ [enter]open [n]new [v]peek [i]inbox [s]schedule [w]scope [D]diag [/]filter ──┘[m
+[1m┌ wavez · dev · ! 1 needs input · mem 0.0G/0.0G ───────────────────────────────┐[m
+[1m│ [m[2m    thread           dir             state     turns    age    spend[m        [1m │[m
+[1m│ [m[2m5 of 5 threads · by recent[m                                                  [1m │[m
+[1m│ [m[1m>   docs-pass        calcipy         waiting       0    59m    $0.00[m        [1m │[m
+[1m│ [m    fix-lock-timeout calcipy         working       0    58m    $0.00        [1m │[m
+[1m│ [m    add-jj-backend   wavez           gating        0    59m    $0.00        [1m │[m
+[1m│ [m    flaky-ci         yak-shears      failed        0     1h    $0.00        [1m │[m
+[1m│ [m    release-notes    yak-shears      done          0     2h    $0.00        [1m │[m
+[1m└ [enter]open [n]new [v]goal [/]filter [S]sort [i]inbox [s]schedule [w]scope ──┘[m

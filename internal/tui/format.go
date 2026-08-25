@@ -26,10 +26,22 @@ func age(t, now time.Time) string {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
-	default:
+	case d < day:
 		return fmt.Sprintf("%dh", int(d.Hours()))
+	case d < week:
+		return fmt.Sprintf("%dd", int(d/day))
+	default:
+		return fmt.Sprintf("%dw", int(d/week))
 	}
 }
+
+// A list of ages is read by comparing them, and hours past a day stop
+// comparing: 107h and 251h are four days apart and neither reads as a
+// number of days.
+const (
+	day  = 24 * time.Hour
+	week = 7 * day
+)
 
 // spend renders a dollar amount to two decimal places.
 func spend(v float64) string {

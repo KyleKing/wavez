@@ -142,6 +142,7 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 		LastEvent:  mt.lastAt,
 		Spend:      mt.spendUSD,
 		Turn:       mt.turns + 1,
+		Turns:      mt.turns,
 		TurnStart:  mt.turnStart,
 		TurnMean:   mt.turnMean(),
 		Tokens:     mt.usage.tokens(),
