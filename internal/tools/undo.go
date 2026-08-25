@@ -26,7 +26,7 @@ var undoSchema = buildSchema(map[string]schemaProperty{
 // One recorded `h7` lane spent 44 turns and reached its deadline after
 // three shell attempts at `git checkout -- <file>` and `jj checkout --
 // <file>`, each refused by the guard, because reverting through version
-// control is a write and the vcs tool has no verb that writes.
+// control is a write, and every version-control write is off the shell.
 //
 // This reaches version control not at all. It restores from the bytes the
 // run itself snapshotted before its first edit, so the worst it can discard

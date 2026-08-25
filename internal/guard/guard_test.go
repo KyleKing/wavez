@@ -87,12 +87,12 @@ func TestClassify_RM(t *testing.T) {
 	})
 }
 
-// Version control reaches a run through the vcs tool, which reads status,
-// diff, and log and has no verb that writes. Both CLIs are therefore off
-// the shell entirely: it is what keeps a force push, a history rewrite, and
-// a git commit in a checkout jj owns from being one shell string away.
-// Nothing the harness does is affected, because its own checkpointing calls
-// internal/vcs directly rather than through this tool.
+// Both version-control CLIs are off the shell entirely, which is what keeps
+// a force push, a history rewrite, and a git commit in a checkout jj owns
+// from being one shell string away. A read-only status, diff, or log never
+// reaches this: Shell answers those from what the run recorded as it wrote,
+// before classifying anything. Nothing the harness does is affected, because
+// its own checkpointing calls internal/vcs directly.
 func TestClassify_VersionControlIsNotAShellCommand(t *testing.T) {
 	t.Parallel()
 
@@ -106,7 +106,7 @@ func TestClassify_VersionControlIsNotAShellCommand(t *testing.T) {
 		{name: "git commit", command: "git commit -m x", wantVerdict: guard.Refuse},
 		{name: "git checkout", command: "git checkout main", wantVerdict: guard.Refuse},
 		{
-			name: "a git read is a question for the vcs tool", command: "git status --porcelain",
+			name: "a git read the shell did not answer is still refused", command: "git status --porcelain",
 			wantVerdict: guard.Refuse,
 		},
 		{name: "so is a git log", command: "git log -1", wantVerdict: guard.Refuse},

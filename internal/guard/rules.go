@@ -172,12 +172,15 @@ var supersededTools = map[string]string{
 	"find": "list names what is under a directory (with a glob), and search reads " +
 		"contents through the code index",
 	"truncate": "write replaces a whole file and str_replace replaces part of one",
-	// The vcs tool reads status, diff, and log and has no verb that writes,
-	// so version control reaching a run as a typed surface is what keeps a
-	// force push, a history rewrite, and a git commit in a jj checkout from
-	// being one shell string away.
-	cmdGit: "the vcs tool reads status, diff, and log",
-	"jj":   "the vcs tool reads status, diff, and log",
+	// Only a version-control write reaches this. Shell answers a read-only
+	// status, diff, or log from what the run recorded as it wrote, before
+	// classifying anything. Refusing the rest is what keeps a force push, a
+	// history rewrite, and a git commit in a jj checkout from being one
+	// shell string away, and naming undo is what a run reverting its own
+	// edit actually needs: one h7 lane spent 44 turns on three refused
+	// attempts at `git checkout -- <file>`.
+	cmdGit: "the harness owns version control; undo puts back a file this run edited",
+	"jj":   "the harness owns version control; undo puts back a file this run edited",
 }
 
 // classifyXargs classifies the command xargs would invoke per input line,
@@ -278,8 +281,8 @@ var gitReadOnly = map[string]bool{
 }
 
 // classifyGit grades a git command by subcommand. It sits behind the ban in
-// supersededTools, which refuses every git command outright, so its grades
-// no longer decide a verdict on their own. It stays because the ban is a
+// supersededTools, which refuses every git write outright, so its grades no
+// longer decide a verdict on their own. It stays because the ban is a
 // policy and this is the safety analysis: narrowing the ban must not
 // silently allow a history rewrite.
 func classifyGit(cmd string, tokens []string, env Env) finding {
