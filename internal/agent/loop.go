@@ -714,6 +714,56 @@ func (r *run) routeInput(estimated int) router.Input {
 	}
 }
 
+// streamFailed decides what a provider failure means: a canceled context and
+// an expired deadline are the bound that fired rather than the tier, and
+// anything else is retried one tier up rather than on itself, so a run
+// pinned to a failing provider moves rather than retrying it until the turn
+// bound. The top tier has nowhere to go and stops.
+func (r *run) streamFailed(ctx context.Context, model string, cause error) (bool, Outcome, error) {
+	if ctx.Err() != nil {
+		out, cerr := r.stopCanceled(ctx)
+
+		return true, out, cerr
+	}
+
+	// stream bounds itself by the deadline on its own context, so the
+	// caller's ctx is still live when a hung stream is cut off. Naming the
+	// bound that fired beats reporting it as a provider failure.
+	if r.pastDeadline() {
+		out, derr := r.stopBound(ctx, StopDeadline, r.deadlineReason())
+
+		return true, out, derr
+	}
+
+	if !r.escalate() {
+		out, herr := r.stopFailed(ctx, cause)
+
+		return true, out, herr
+	}
+
+	if err := r.logTierFailure(model, string(r.route.Choice), cause); err != nil {
+		return true, Outcome{}, err
+	}
+
+	return false, Outcome{}, nil
+}
+
+// logTierFailure records the provider failure that moved this run up a tier.
+// Without it the move leaves no trace at all: three lanes ran their whole
+// task on the tier above after one upstream 429, and the records read as a
+// router decision about task shape.
+func (r *run) logTierFailure(model, tier string, cause error) error {
+	if _, err := r.thread.Log().Append(event.Event{
+		Kind:   event.KindError,
+		Text:   fmt.Sprintf("%s tier failed and the turn moved up: %v", tier, cause),
+		Detail: map[string]any{"tier": tier, "model": model, "escalated": true},
+	}); err != nil {
+		return fmt.Errorf("logging tier failure: %w", err)
+	}
+
+	return nil
+}
+
 // thinkingFor is this turn's reasoning toggle: the thread's own pin when it
 // has one, and otherwise the tier the turn routed to.
 func (r *run) thinkingFor(route router.Decision) *bool {
@@ -809,29 +859,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 	releaseSlot()
 
 	if err != nil {
-		if ctx.Err() != nil {
-			out, cerr := r.stopCanceled(ctx)
-
-			return true, out, cerr
-		}
-		// stream bounds itself by the deadline on its own context, so the
-		// caller's ctx is still live when a hung stream is cut off. Naming
-		// the bound that fired beats reporting it as a provider failure.
-		if r.pastDeadline() {
-			out, derr := r.stopBound(ctx, StopDeadline, r.deadlineReason())
-
-			return true, out, derr
-		}
-		// A failed tier is retried one tier up rather than on itself, so a
-		// run pinned to a failing provider moves rather than retrying it
-		// until the turn bound. The top tier has nowhere to go and stops.
-		if r.escalate() {
-			return false, Outcome{}, nil
-		}
-
-		out, herr := r.stopFailed(ctx, err)
-
-		return true, out, herr
+		return r.streamFailed(ctx, req.Model, err)
 	}
 
 	msg := llm.Message{Content: text, ToolCalls: calls}

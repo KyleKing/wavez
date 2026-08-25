@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
+	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
@@ -20,7 +21,9 @@ import (
 // itself, and the run stops once the top tier fails. Before this a run
 // pinned to a failing provider retried until the turn bound: 200 turns in
 // six seconds. The pin is a floor, so pinning the cheapest tier still walks
-// all three.
+// all three. Each move is logged, because a move that leaves no trace reads
+// afterwards as a router decision about the task rather than a tier that
+// went down.
 func TestRun_EachTierIsTriedAtMostOnce(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +38,9 @@ func TestRun_EachTierIsTriedAtMostOnce(t *testing.T) {
 
 	hint := router.Input{Override: router.ChoiceFast}
 
-	out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go", hint)
+	th := newThread(t)
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "go", hint)
 	if !errors.Is(err, agent.ErrScriptedFailure) {
 		t.Fatalf("Run error = %v, want a provider failure", err)
 	}
@@ -52,6 +57,22 @@ func TestRun_EachTierIsTriedAtMostOnce(t *testing.T) {
 		if got := len(p.Requests()); got != 1 {
 			t.Errorf("%s was asked %d times, want exactly 1", p.Name(), got)
 		}
+	}
+
+	events, lerr := th.Log().Since(0)
+	if lerr != nil {
+		t.Fatalf("Since: %v", lerr)
+	}
+
+	moved := 0
+	for _, e := range events {
+		if up, ok := e.Detail["escalated"].(bool); ok && up && e.Kind == event.KindError {
+			moved++
+		}
+	}
+
+	if moved != 2 {
+		t.Errorf("logged %d tier moves, want one per tier the run left", moved)
 	}
 }
 
