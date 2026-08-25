@@ -431,6 +431,44 @@ func blockMatches(block, oldLines []string) bool {
 	return true
 }
 
+// closestMatch is where in source the anchor most nearly sits, -1 when no
+// line of it appears at all.
+//
+// An alignment whose first line matches wins over a higher-scoring one that
+// slides past it. Scoring alone picks whichever offset agrees on the most
+// lines, and a source that gained one line the anchor does not have scores
+// higher shifted by one, which makes the report say the anchor's first line
+// is wrong when that line is exactly where it belongs. One replay lane
+// resent the same anchor five times reading that.
+func closestMatch(sourceLines, oldLines []string) int {
+	n := len(oldLines)
+	anchored, anchoredScore := -1, 0
+	best, bestScore := -1, 0
+
+	for i := 0; i+n <= len(sourceLines); i++ {
+		score := 0
+		for j := range oldLines {
+			if trimLeading(sourceLines[i+j]) == trimLeading(oldLines[j]) {
+				score++
+			}
+		}
+
+		if score > bestScore {
+			best, bestScore = i, score
+		}
+
+		if score > anchoredScore && trimLeading(sourceLines[i]) == trimLeading(oldLines[0]) {
+			anchored, anchoredScore = i, score
+		}
+	}
+
+	if anchored >= 0 {
+		return anchored
+	}
+
+	return best
+}
+
 // minPrefixMatch is how much of an anchor has to be right before saying
 // where it goes wrong helps. Below it the report would point at a
 // coincidence.
@@ -500,22 +538,7 @@ func leadingWhitespace(s string) string {
 }
 
 func notFoundError(source, oldString string, sourceLines, oldLines []string) error {
-	n := len(oldLines)
-
-	bestScore, bestIdx := 0, -1
-	for i := 0; i+n <= len(sourceLines); i++ {
-		score := 0
-		for j := range oldLines {
-			if trimLeading(sourceLines[i+j]) == trimLeading(oldLines[j]) {
-				score++
-			}
-		}
-
-		if score > bestScore {
-			bestScore, bestIdx = score, i
-		}
-	}
-
+	bestIdx := closestMatch(sourceLines, oldLines)
 	if bestIdx < 0 {
 		return prefixMismatch(source, oldString)
 	}

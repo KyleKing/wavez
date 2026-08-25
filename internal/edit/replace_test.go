@@ -231,6 +231,32 @@ func TestReplace_NotFound(t *testing.T) {
 			t.Errorf("Sent/Found = %q/%q, want the two lines that part", notFound.Sent, notFound.Found)
 		}
 	})
+
+	// A source that gained one line the anchor does not have scores higher
+	// aligned one line down, and the report then blames the anchor's first
+	// line, which is the one line that was right. One replay lane read that
+	// and re-sent the same anchor five times.
+	t.Run("with a line the anchor does not have", func(t *testing.T) {
+		t.Parallel()
+
+		source := "func f() int {\n\t// what it does\n\tif x == 0 {\n\t\treturn 0\n\t}\n\treturn 1\n}\n"
+		anchor := "func f() int {\n\tif x == 0 {\n\t\treturn 0\n\t}\n\treturn 1\n}"
+
+		_, err := edit.Replace(source, anchor, "func f() int { return 2 }")
+
+		notFound := requireNotFound(t, err)
+		if notFound.CandidateLine != 1 {
+			t.Errorf("CandidateLine = %d, want 1: the anchor starts exactly where it says", notFound.CandidateLine)
+		}
+
+		if notFound.MismatchLine != 2 {
+			t.Errorf("MismatchLine = %d, want 2", notFound.MismatchLine)
+		}
+
+		if strings.TrimSpace(notFound.Found) != "// what it does" {
+			t.Errorf("Found = %q, want the line the source has and the anchor omits", notFound.Found)
+		}
+	})
 }
 
 // An anchor whose only fault is trailing junk matches no line at all, so the
