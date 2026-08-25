@@ -460,3 +460,125 @@ func TestReplace_NotFoundReportIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// gofmt aligns struct fields, and the format gate runs it over every file
+// the moment an edit lands. An anchor copied from what the model itself
+// wrote then faces a line the harness re-spaced behind it, which is four of
+// the near-match reports in this project's corpus and every one of them a
+// table entry.
+func TestReplaceMatchesAcrossFormatterSpacing(t *testing.T) {
+	t.Parallel()
+
+	source := "package a\n\nvar table = []entry{\n" +
+		"\t{name:  \"first\", want:  1},\n\t{name:  \"second\", want: 22},\n}\n"
+
+	got, err := edit.Replace(source,
+		"\t{name: \"second\", want: 22},",
+		"\t{name: \"second\", want: 33},")
+	if err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	if !strings.Contains(got.Source, "want: 33") {
+		t.Errorf("Source = %q, want the replacement applied", got.Source)
+	}
+	if !strings.Contains(got.Source, "{name:  \"first\", want:  1}") {
+		t.Errorf("Source = %q, want the untouched row left alone", got.Source)
+	}
+}
+
+// A rename touches the same call written identically at several sites, and
+// no widening tells them apart. One replay lane died stagnant sending the
+// same pair five times against "widen old_string to make it unique".
+func TestReplaceAllTakesEveryOccurrence(t *testing.T) {
+	t.Parallel()
+
+	source := "package a\n\nfunc one() { bench.Read(path) }\n\nfunc two() { bench.Read(path) }\n"
+
+	if _, err := edit.Replace(source, "bench.Read(path)", "bench.ReadLog(path)"); !errors.Is(err, edit.ErrNotUnique) {
+		t.Fatalf("Replace err = %v, want ErrNotUnique so one occurrence stays the default", err)
+	}
+
+	got, err := edit.ReplaceAll(source, "bench.Read(path)", "bench.ReadLog(path)")
+	if err != nil {
+		t.Fatalf("ReplaceAll: %v", err)
+	}
+
+	if strings.Contains(got.Source, "bench.Read(path)") {
+		t.Errorf("Source = %q, want no occurrence left", got.Source)
+	}
+	if n := strings.Count(got.Source, "bench.ReadLog(path)"); n != 2 {
+		t.Errorf("replaced %d occurrences, want 2", n)
+	}
+	if got.Matches != 2 {
+		t.Errorf("Matches = %d, want 2", got.Matches)
+	}
+	if len(got.Ranges) != 2 {
+		t.Errorf("Ranges = %v, want one per occurrence", got.Ranges)
+	}
+}
+
+// Every occurrence still means every occurrence when the anchor reaches
+// its sites only through the fuzzy ladder, which is where a
+// formatter-respaced file leaves a whole-line anchor.
+func TestReplaceAllAcrossFormatterSpacing(t *testing.T) {
+	t.Parallel()
+
+	source := "package a\n\nfunc one() {\n\tdo(a,  b)\n}\n\nfunc two() {\n\tdo(a,  b)\n}\n"
+
+	got, err := edit.ReplaceAll(source, "\tdo(a, b)", "\tdo(b, a)")
+	if err != nil {
+		t.Fatalf("ReplaceAll: %v", err)
+	}
+
+	if n := strings.Count(got.Source, "do(b, a)"); n != 2 {
+		t.Errorf("Source = %q, want both occurrences replaced", got.Source)
+	}
+	if got.Matches != 2 {
+		t.Errorf("Matches = %d, want 2", got.Matches)
+	}
+}
+
+// A model asking for `&notUnique` had it arrive as `¬Unique`, the legacy
+// HTML reference for the ampersand and "not". It could not write the
+// identifier at all: one replay lane sent the same anchor five times and
+// died stagnant.
+func TestReplaceRepairsACollapsedEntity(t *testing.T) {
+	t.Parallel()
+
+	source := "package a\n\nfunc f() {\n\tif errors.As(err, &notUnique) {\n\t\treturn\n\t}\n}\n"
+
+	got, err := edit.Replace(source,
+		"\tif errors.As(err, ¬Unique) {",
+		"\tif errors.As(err, ¬Unique) && ok {")
+	if err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	if !strings.Contains(got.Source, "errors.As(err, &notUnique) && ok {") {
+		t.Errorf("Source = %q, want the ampersand put back on both halves", got.Source)
+	}
+	if strings.Contains(got.Source, "¬") {
+		t.Errorf("Source = %q, want no collapsed rune written to the file", got.Source)
+	}
+	if got.Note == "" {
+		t.Error("Note is empty, want the caller told its text arrived mangled")
+	}
+}
+
+// A rune standing on its own is the symbol the writer meant, not a mangled
+// address-of, and repairing it would corrupt the file.
+func TestReplaceLeavesALoneEntityRuneAlone(t *testing.T) {
+	t.Parallel()
+
+	source := "package a\n\n// ¬ is negation.\nvar x = 1\n"
+
+	got, err := edit.Replace(source, "var x = 1", "var x = 2")
+	if err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	if !strings.Contains(got.Source, "// ¬ is negation.") {
+		t.Errorf("Source = %q, want the standalone rune untouched", got.Source)
+	}
+}

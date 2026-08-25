@@ -14,6 +14,9 @@ import (
 type Pair struct {
 	OldString string
 	NewString string
+	// All replaces every occurrence rather than refusing more than one.
+	// Off by default, so the wider edit is only ever the one asked for.
+	All bool
 }
 
 // ApplyAllToFile applies every pair to path, reading and writing the file
@@ -37,12 +40,12 @@ type Pair struct {
 // from the file's before and after rather than from each replacement, since
 // a later edit shifts the line numbers an earlier one reported.
 func ApplyAllToFile(path string, pairs []Pair) (tool.Change, error) {
-	changes, err := ApplyToFiles([]FileEdit{{Path: path, Pairs: pairs}})
+	batch, err := ApplyToFiles([]FileEdit{{Path: path, Pairs: pairs}})
 	if err != nil {
 		return tool.Change{}, err
 	}
 
-	return changes[0], nil
+	return batch.Changes[0], nil
 }
 
 // FileEdit is one file's batch of replacements.
@@ -64,9 +67,9 @@ type FileEdit struct {
 // can decide in advance, which is every matching failure. A write that
 // fails partway through is an I/O error rather than a bad edit, and is
 // reported naming the file it stopped at.
-func ApplyToFiles(edits []FileEdit) ([]tool.Change, error) {
+func ApplyToFiles(edits []FileEdit) (Batch, error) {
 	if len(edits) == 0 {
-		return nil, ErrEmptyOldString
+		return Batch{}, ErrEmptyOldString
 	}
 
 	planned := make([]plannedWrite, 0, len(edits))
@@ -74,28 +77,37 @@ func ApplyToFiles(edits []FileEdit) ([]tool.Change, error) {
 	for _, fe := range edits {
 		p, err := planFile(fe)
 		if err != nil {
-			return nil, err
+			return Batch{}, err
 		}
 
 		planned = append(planned, p)
 	}
 
-	changes := make([]tool.Change, 0, len(planned))
+	out := Batch{Changes: make([]tool.Change, 0, len(planned))}
 
 	for _, p := range planned {
 		if err := writeAtomic(p.path, p.mode, []byte(p.after)); err != nil {
-			return nil, fmt.Errorf("writing %s: %w", p.path, err)
+			return Batch{}, fmt.Errorf("writing %s: %w", p.path, err)
 		}
 
-		changes = append(changes, tool.Change{
+		out.Changes = append(out.Changes, tool.Change{
 			Path:    p.path,
 			Added:   p.added,
 			Removed: p.removed,
 			Ranges:  changedSpan(p.before, p.after),
 		})
+		out.Notes = append(out.Notes, p.notes...)
 	}
 
-	return changes, nil
+	return out, nil
+}
+
+// Batch is what one call to ApplyToFiles produced.
+type Batch struct {
+	Changes []tool.Change
+	// Notes is what the caller has to be told about how a match was
+	// reached, empty when every anchor matched as it was sent.
+	Notes []string
 }
 
 // plannedWrite is one file's resolved batch, held until every file's batch
@@ -104,6 +116,7 @@ type plannedWrite struct {
 	path    string
 	before  string
 	after   string
+	notes   []string
 	mode    os.FileMode
 	added   int
 	removed int
@@ -137,7 +150,7 @@ func planFile(fe FileEdit) (plannedWrite, error) {
 
 	return plannedWrite{
 		path: fe.Path, before: before, after: out.source, mode: info.Mode(),
-		added: out.added, removed: out.removed,
+		added: out.added, removed: out.removed, notes: out.notes,
 	}, nil
 }
 
@@ -145,6 +158,7 @@ func planFile(fe FileEdit) (plannedWrite, error) {
 // text that goes there.
 type located struct {
 	text    string
+	note    string
 	start   int
 	end     int
 	added   int
@@ -180,17 +194,26 @@ func applyAll(before string, pairs []Pair) (applied, error) {
 		}
 	}
 
+	var notes []string
+
+	for i := range spans {
+		if spans[i].note != "" {
+			notes = append(notes, spans[i].note)
+		}
+	}
+
 	source := before
 	for i := len(spans) - 1; i >= 0; i-- {
 		source = source[:spans[i].start] + spans[i].text + source[spans[i].end:]
 	}
 
-	return applied{source: source, added: added, removed: removed}, nil
+	return applied{source: source, notes: notes, added: added, removed: removed}, nil
 }
 
 // applied is a whole batch's outcome: the new text and what it moved.
 type applied struct {
 	source  string
+	notes   []string
 	added   int
 	removed int
 }
@@ -200,7 +223,7 @@ type applied struct {
 // the exact-then-fuzzy match, so a batch and a single pair can never
 // disagree about what an anchor means.
 func locate(src string, p Pair) (located, error) {
-	res, err := Replace(src, p.OldString, p.NewString)
+	res, err := replaceWithRepair(src, p.OldString, p.NewString, p.All)
 	if err != nil {
 		return located{}, err
 	}
@@ -209,6 +232,7 @@ func locate(src string, p Pair) (located, error) {
 	tail := commonSuffix(src[head:], res.Source[head:])
 
 	return located{
+		note:    res.Note,
 		start:   head,
 		end:     len(src) - tail,
 		text:    res.Source[head : len(res.Source)-tail],

@@ -100,10 +100,16 @@ func (*NotUniqueError) Is(target error) bool { return target == ErrNotUnique }
 // 1-indexed line range that changed in it, and line counts for building a
 // tool.Change.
 type Result struct {
-	Source  string
+	Source string
+	// Note is what a caller has to be told about how the match was reached,
+	// empty when the text matched as it was sent.
+	Note    string
 	Ranges  []tool.LineRange
 	Added   int
 	Removed int
+	// Matches is how many occurrences were replaced, one unless the caller
+	// asked for every occurrence.
+	Matches int
 }
 
 // Replace substitutes oldString with newString in source. It tries an exact
@@ -114,6 +120,65 @@ type Result struct {
 // returns *NotFoundError or *NotUniqueError. The source's line ending style
 // (LF or CRLF) is preserved exactly.
 func Replace(source, oldString, newString string) (Result, error) {
+	return replaceWithRepair(source, oldString, newString, false)
+}
+
+// Holds reports whether source contains anchor, resolved by the same ladder
+// Replace matches with, so "the file already reads that way" and "an edit
+// here would match" can never disagree.
+func Holds(source, anchor string) bool {
+	if anchor == "" {
+		return false
+	}
+
+	_, err := doReplace(source, anchor, anchor+"\x00", false)
+
+	return err == nil || errors.Is(err, ErrNotUnique)
+}
+
+// ReplaceAll substitutes every occurrence of oldString, where Replace
+// refuses more than one. Two occurrences of the same text are not always a
+// mistake: a rename touches a call written identically at four sites, and
+// no widening makes them distinguishable, so "widen old_string" asks for
+// something the file cannot give. One replay lane died stagnant sending the
+// same pair five times against that answer.
+//
+// It is a separate entry point rather than a flag with a default, so the
+// broader edit is only ever the one the caller named.
+func ReplaceAll(source, oldString, newString string) (Result, error) {
+	return replaceWithRepair(source, oldString, newString, true)
+}
+
+func replaceWithRepair(source, oldString, newString string, all bool) (Result, error) {
+	res, err := attempt(source, oldString, newString, all)
+	if !errors.Is(err, ErrNotFound) {
+		return res, err
+	}
+
+	// The anchor may never have left the model in the shape it was written:
+	// see restoreEntities. The replacement is repaired with it, since the
+	// same collapse hit both halves and writing the collapsed rune into the
+	// file would leave it unparsable.
+	repairedOld, changed := restoreEntities(oldString)
+	if !changed {
+		return res, err
+	}
+
+	repairedNew, _ := restoreEntities(newString)
+
+	repaired, repairErr := attempt(source, repairedOld, repairedNew, all)
+	if repairErr != nil {
+		return res, err
+	}
+
+	repaired.Note = "old_string and new_string arrived with an HTML character reference in " +
+		"place of an ampersand and a name, and were repaired to match the file. Text you " +
+		"send may be mangled that way in transit."
+
+	return repaired, nil
+}
+
+func attempt(source, oldString, newString string, all bool) (Result, error) {
 	if oldString == "" {
 		return Result{}, ErrEmptyOldString
 	}
@@ -131,7 +196,7 @@ func Replace(source, oldString, newString string) (Result, error) {
 		normNew = strings.ReplaceAll(newString, "\r\n", "\n")
 	}
 
-	spliced, err := doReplace(normSource, normOld, normNew)
+	spliced, err := doReplace(normSource, normOld, normNew, all)
 	if err != nil {
 		return Result{}, err
 	}
@@ -141,11 +206,17 @@ func Replace(source, oldString, newString string) (Result, error) {
 		newSource = strings.ReplaceAll(newSource, "\n", "\r\n")
 	}
 
+	ranges := spliced.ranges
+	if len(ranges) == 0 {
+		ranges = []tool.LineRange{lineRange(spliced.startLine, spliced.added)}
+	}
+
 	return Result{
 		Source:  newSource,
-		Ranges:  []tool.LineRange{lineRange(spliced.startLine, spliced.added)},
+		Ranges:  ranges,
 		Added:   spliced.added,
 		Removed: spliced.removed,
+		Matches: max(spliced.matches, 1),
 	}, nil
 }
 
@@ -160,22 +231,62 @@ func lineRange(startLine, added int) tool.LineRange {
 // splice is the outcome of locating and substituting one match: the new
 // source text plus the accounting Replace needs to build a Result.
 type splice struct {
-	source    string
+	source string
+	// ranges is set only when more than one occurrence moved, since a
+	// single one is derived from startLine and added.
+	ranges    []tool.LineRange
 	startLine int
 	added     int
 	removed   int
+	matches   int
 }
 
-func doReplace(source, oldString, newString string) (splice, error) {
+func doReplace(source, oldString, newString string, all bool) (splice, error) {
 	idxs := findAll(source, oldString)
 
-	switch len(idxs) {
-	case 0:
-		return spliceFuzzy(source, oldString, newString)
-	case 1:
+	switch {
+	case len(idxs) == 0:
+		return spliceFuzzy(source, oldString, newString, all)
+	case len(idxs) == 1:
 		return spliceExact(source, oldString, newString, idxs[0]), nil
+	case all:
+		return spliceEvery(source, oldString, newString, idxs), nil
 	default:
 		return splice{}, &NotUniqueError{Lines: matchLines(source, idxs)}
+	}
+}
+
+// spliceEvery replaces each exact occurrence, reporting one range per
+// occurrence in the text it produces rather than in the text it read.
+func spliceEvery(source, oldString, newString string, idxs []int) splice {
+	var b strings.Builder
+
+	ranges := make([]tool.LineRange, 0, len(idxs))
+	added, removed, delta, prev := 0, 0, 0, 0
+
+	for _, idx := range idxs {
+		b.WriteString(source[prev:idx])
+
+		startLine := 1 + strings.Count(source[:idx], "\n") + delta
+		ranges = append(ranges, lineRange(startLine, countLines(newString)))
+
+		b.WriteString(newString)
+
+		added += countLines(newString)
+		removed += countLines(oldString)
+		delta += strings.Count(newString, "\n") - strings.Count(oldString, "\n")
+		prev = idx + len(oldString)
+	}
+
+	b.WriteString(source[prev:])
+
+	return splice{
+		source:    b.String(),
+		ranges:    ranges,
+		startLine: ranges[0].Start,
+		added:     added,
+		removed:   removed,
+		matches:   len(idxs),
 	}
 }
 
@@ -225,16 +336,23 @@ func spliceExact(source, oldString, newString string, idx int) splice {
 	}
 }
 
-func spliceFuzzy(source, oldString, newString string) (splice, error) {
+func spliceFuzzy(source, oldString, newString string, all bool) (splice, error) {
 	sourceLines := strings.Split(source, "\n")
 	oldLines := strings.Split(oldString, "\n")
 
 	starts := fuzzyMatches(sourceLines, oldLines)
 
-	switch len(starts) {
-	case 0:
-		return spliceOverBlanks(source, oldString, newString, sourceLines, oldLines)
-	case 1:
+	switch {
+	case len(starts) == 0:
+		return spliceOverBlanks(source, oldString, newString, sourceLines, oldLines, all)
+	case len(starts) == 1:
+	case all:
+		spans := make([][2]int, len(starts))
+		for i, s := range starts {
+			spans[i] = [2]int{s, s + len(oldLines) - 1}
+		}
+
+		return spliceEverySpan(sourceLines, oldLines, newString, spans), nil
 	default:
 		lines := make([]int, len(starts))
 		for i, s := range starts {
@@ -290,7 +408,9 @@ func spliceFuzzy(source, oldString, newString string) (splice, error) {
 // blank lines the anchor does not, and replaces the whole source span it
 // covered. Leading whitespace is ignored on both sides, as the line-wise
 // match already does.
-func spliceOverBlanks(source, oldString, newString string, sourceLines, oldLines []string) (splice, error) {
+func spliceOverBlanks(
+	source, oldString, newString string, sourceLines, oldLines []string, all bool,
+) (splice, error) {
 	wanted := nonBlank(oldLines)
 	if len(wanted) == 0 {
 		return splice{}, notFoundError(source, oldString, sourceLines, oldLines)
@@ -304,10 +424,12 @@ func spliceOverBlanks(source, oldString, newString string, sourceLines, oldLines
 		}
 	}
 
-	switch len(spans) {
-	case 0:
+	switch {
+	case len(spans) == 0:
 		return splice{}, notFoundError(source, oldString, sourceLines, oldLines)
-	case 1:
+	case len(spans) == 1:
+	case all:
+		return spliceEverySpan(sourceLines, oldLines, newString, spans), nil
 	default:
 		lines := make([]int, len(spans))
 		for i, s := range spans {
@@ -327,18 +449,18 @@ func spliceOverBlanks(source, oldString, newString string, sourceLines, oldLines
 func spanOverBlanks(sourceLines, wanted []string, start int) (int, bool) {
 	// The span begins on the anchor's first line rather than on a blank one
 	// ahead of it, or every blank line before a match would start one too.
-	if trimLeading(sourceLines[start]) != wanted[0] {
+	if collapseSpacing(sourceLines[start]) != wanted[0] {
 		return 0, false
 	}
 
 	i, end := start, start
 
 	for _, want := range wanted {
-		for i < len(sourceLines) && trimLeading(sourceLines[i]) == "" {
+		for i < len(sourceLines) && blankLine(sourceLines[i]) {
 			i++
 		}
 
-		if i >= len(sourceLines) || trimLeading(sourceLines[i]) != want {
+		if i >= len(sourceLines) || collapseSpacing(sourceLines[i]) != want {
 			return 0, false
 		}
 
@@ -352,7 +474,7 @@ func nonBlank(lines []string) []string {
 	out := make([]string, 0, len(lines))
 
 	for _, l := range lines {
-		if t := trimLeading(l); t != "" {
+		if t := collapseSpacing(l); t != "" {
 			out = append(out, t)
 		}
 	}
@@ -376,7 +498,7 @@ func spliceSpan(sourceLines, oldLines []string, newString string, start, end int
 	shifted := make([]string, len(newLines))
 	for j, l := range newLines {
 		shifted[j] = to + strings.TrimPrefix(l, from)
-		if trimLeading(l) == "" {
+		if blankLine(l) {
 			shifted[j] = l
 		}
 	}
@@ -396,11 +518,45 @@ func spliceSpan(sourceLines, oldLines []string, newString string, start, end int
 	}
 }
 
+// spliceEverySpan replaces every matched span, working from the last one
+// back so an earlier span's line numbers are still the ones it was found
+// at. Each occurrence is reindented against the source lines it faces, as
+// a single fuzzy match is.
+func spliceEverySpan(sourceLines, oldLines []string, newString string, spans [][2]int) splice {
+	lines := sourceLines
+	added, removed := 0, 0
+
+	for i := len(spans) - 1; i >= 0; i-- {
+		one := spliceSpan(lines, oldLines, newString, spans[i][0], spans[i][1])
+		lines = strings.Split(one.source, "\n")
+		added += one.added
+		removed += one.removed
+	}
+
+	ranges := make([]tool.LineRange, 0, len(spans))
+	delta := 0
+
+	for _, span := range spans {
+		startLine := span[0] + 1 + delta
+		ranges = append(ranges, lineRange(startLine, countLines(newString)))
+		delta += countLines(newString) - (span[1] - span[0] + 1)
+	}
+
+	return splice{
+		source:    strings.Join(lines, "\n"),
+		ranges:    ranges,
+		startLine: ranges[0].Start,
+		added:     added,
+		removed:   removed,
+		matches:   len(spans),
+	}
+}
+
 // firstIndent is the indentation of the first line that has any content,
 // which is what the anchor was written against.
 func firstIndent(lines []string) string {
 	for _, l := range lines {
-		if trimLeading(l) != "" {
+		if !blankLine(l) {
 			return leadingWhitespace(l)
 		}
 	}
@@ -423,7 +579,7 @@ func fuzzyMatches(sourceLines, oldLines []string) []int {
 
 func blockMatches(block, oldLines []string) bool {
 	for j := range oldLines {
-		if trimLeading(block[j]) != trimLeading(oldLines[j]) {
+		if !sameLine(block[j], oldLines[j]) {
 			return false
 		}
 	}
@@ -448,7 +604,7 @@ func closestMatch(sourceLines, oldLines []string) int {
 	for i := 0; i+n <= len(sourceLines); i++ {
 		score := 0
 		for j := range oldLines {
-			if trimLeading(sourceLines[i+j]) == trimLeading(oldLines[j]) {
+			if sameLine(sourceLines[i+j], oldLines[j]) {
 				score++
 			}
 		}
@@ -457,7 +613,7 @@ func closestMatch(sourceLines, oldLines []string) int {
 			best, bestScore = i, score
 		}
 
-		if score > anchoredScore && trimLeading(sourceLines[i]) == trimLeading(oldLines[0]) {
+		if score > anchoredScore && sameLine(sourceLines[i], oldLines[0]) {
 			anchored, anchoredScore = i, score
 		}
 	}
@@ -528,9 +684,47 @@ func restOfLine(s string) string {
 	return s
 }
 
-func trimLeading(s string) string {
-	return strings.TrimLeft(s, " \t")
+// sameLine reports whether two lines are the same code written with
+// different spacing. It is the one comparison every fuzzy rung makes, and
+// its tolerance is deliberately the formatter's freedom: the format gate
+// runs gofmt over each file the moment an edit lands, and gofmt's own
+// column alignment is interior whitespace. An anchor copied from what the
+// model wrote reads `name: "x",` where the file now holds `name:  "x",`,
+// so comparing on leading whitespace alone loses to a rewrite the harness
+// performed itself.
+func sameLine(a, b string) bool {
+	return collapseSpacing(a) == collapseSpacing(b)
 }
+
+// collapseSpacing trims a line and reduces every run of spaces and tabs
+// inside it to one space.
+func collapseSpacing(s string) string {
+	var (
+		b     strings.Builder
+		space bool
+	)
+
+	for _, r := range strings.TrimSpace(s) {
+		if r == ' ' || r == '\t' {
+			space = true
+
+			continue
+		}
+
+		if space {
+			b.WriteByte(' ')
+
+			space = false
+		}
+
+		b.WriteRune(r)
+	}
+
+	return b.String()
+}
+
+// blankLine reports a line with nothing but whitespace on it.
+func blankLine(s string) bool { return collapseSpacing(s) == "" }
 
 func leadingWhitespace(s string) string {
 	trimmed := strings.TrimLeft(s, " \t")
@@ -544,7 +738,7 @@ func notFoundError(source, oldString string, sourceLines, oldLines []string) err
 	}
 
 	for j := range oldLines {
-		if trimLeading(sourceLines[bestIdx+j]) == trimLeading(oldLines[j]) {
+		if sameLine(sourceLines[bestIdx+j], oldLines[j]) {
 			continue
 		}
 

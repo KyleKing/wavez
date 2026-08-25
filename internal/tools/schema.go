@@ -4,6 +4,7 @@ import "encoding/json"
 
 // JSON Schema type and property names repeated across every tool's schema.
 const (
+	schemaTypeBoolean = "boolean"
 	schemaTypeString  = "string"
 	schemaTypeInteger = "integer"
 	schemaTypeArray   = "array"

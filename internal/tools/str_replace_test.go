@@ -554,7 +554,8 @@ func TestStrReplace_DropsANoOpEditAndKeepsTheRest(t *testing.T) {
 		t.Errorf("file = %q, want the real edit applied", got)
 	}
 
-	// A batch with nothing but no-ops has nothing to apply and says so.
+	// A batch of nothing but no-ops asked for text the file already holds,
+	// which is the state it asked for.
 	empty, err := s.Run(context.Background(), mustJSON(t, map[string]any{
 		"path":  "a.go",
 		"edits": []map[string]string{{"old_string": "package p", "new_string": "package p"}},
@@ -563,8 +564,11 @@ func TestStrReplace_DropsANoOpEditAndKeepsTheRest(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if !empty.IsError || !strings.Contains(empty.Content, "nothing") {
-		t.Errorf("result = %+v, want an all-no-op batch refused", empty)
+	if empty.IsError || !strings.Contains(empty.Content, "already holds") {
+		t.Errorf("result = %+v, want the already-satisfied batch reported as done", empty)
+	}
+	if len(empty.Changes) != 0 {
+		t.Errorf("Changes = %v, want none for a call that wrote nothing", empty.Changes)
 	}
 }
 
@@ -613,7 +617,9 @@ func TestStrReplace_RefusesABatchThatRepeatsAnAnchor(t *testing.T) {
 // records, 81 of 322 across this project's thread logs, and mostly from the
 // hosted tiers rather than the fast one. The error alone says only that the
 // fields matched, which leaves the run to guess which of the two mistakes
-// it made.
+// it made. Only one of them is a mistake: a call naming text the file
+// already holds asked for the state the file is in, and reporting that as a
+// failure sent one run round the same block three times.
 func TestStrReplace_TellsAnAlreadyWrittenFileFromALostAnchor(t *testing.T) {
 	t.Parallel()
 
@@ -625,12 +631,22 @@ func TestStrReplace_TellsAnAlreadyWrittenFileFromALostAnchor(t *testing.T) {
 	s := tools.NewStrReplace(dir, nil)
 
 	tests := []struct {
-		name string
-		text string
-		want string
+		name    string
+		text    string
+		want    string
+		isError bool
 	}{
-		{name: "the file already reads that way", text: "a := 1", want: "already holds exactly that text"},
-		{name: "the text is the replacement", text: "z := 9", want: "send the text it should replace"},
+		{
+			name: "the file already reads that way",
+			text: "a := 1",
+			want: "already holds exactly that text",
+		},
+		{
+			name:    "the text is the replacement",
+			text:    "z := 9",
+			want:    "send the text it should replace",
+			isError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -644,10 +660,12 @@ func TestStrReplace_TellsAnAlreadyWrittenFileFromALostAnchor(t *testing.T) {
 				t.Fatalf("Run: %v", err)
 			}
 
-			if !result.IsError || result.Cause != tool.CauseBadInput {
-				t.Fatalf("Cause = %q, IsError = %v, want bad_input error", result.Cause, result.IsError)
+			if result.IsError != tt.isError {
+				t.Fatalf("IsError = %v, want %v (%q)", result.IsError, tt.isError, result.Content)
 			}
-
+			if tt.isError && result.Cause != tool.CauseBadInput {
+				t.Fatalf("Cause = %q, want bad_input", result.Cause)
+			}
 			if !strings.Contains(result.Content, tt.want) {
 				t.Errorf("content = %q, want it to contain %q", result.Content, tt.want)
 			}
@@ -685,5 +703,74 @@ func TestStrReplace_AWrongShapeIsNamedInJSONTerms(t *testing.T) {
 
 	if strings.Contains(result.Content, "tools.editPair") {
 		t.Errorf("Content = %q, want no Go type name in a message a model reads", result.Content)
+	}
+}
+
+// The h3 shape: a rename whose call sites are written identically, where
+// "widen old_string to make it unique" asks for something the file cannot
+// give. One replay lane died stagnant after two of these.
+func TestStrReplace_ReplaceAllReachesIdenticalSites(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a_test.go")
+	source := "package p\n\nfunc one() {\n\tevents := bench.Read(path)\n}\n" +
+		"\nfunc two() {\n\tevents := bench.Read(path)\n}\n"
+
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := tools.NewStrReplace(dir, nil)
+	args := map[string]any{
+		"path": "a_test.go", "old_string": "bench.Read(path)", "new_string": "bench.ReadLog(path)",
+	}
+
+	refused, err := s.Run(context.Background(), mustJSON(t, args))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !refused.IsError || refused.Cause != tool.CauseAmbiguous {
+		t.Fatalf("Cause = %q, IsError = %v, want an ambiguous refusal", refused.Cause, refused.IsError)
+	}
+	if !strings.Contains(refused.Content, "replace_all: true") {
+		t.Errorf("content = %q, want the refusal to name the way through", refused.Content)
+	}
+
+	args["replace_all"] = true
+
+	result, err := s.Run(context.Background(), mustJSON(t, args))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("IsError = true: %q", result.Content)
+	}
+
+	after, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if n := strings.Count(string(after), "bench.ReadLog(path)"); n != 2 {
+		t.Errorf("file = %q, want both call sites renamed", string(after))
+	}
+}
+
+// A call carrying declare's fields is a declare call sent here. One lane
+// made it three times and died stagnant reading about new_string.
+func TestStrReplace_NamesTheToolThatOwnsSource(t *testing.T) {
+	t.Parallel()
+
+	s := tools.NewStrReplace(t.TempDir(), nil)
+
+	result, err := s.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "a.go", "source": "func A() {}",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !result.IsError || !strings.Contains(result.Content, "declare") {
+		t.Errorf("content = %q, want it to name declare", result.Content)
 	}
 }

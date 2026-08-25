@@ -6,9 +6,11 @@
 extend-exclude = ["CHANGELOG.md", "internal/tui/vim_test.go"]
 
 # Identifiers and prefixes typos reads as misspellings: golangci-lint linter
-# names, a TUI framework, and an English prefix.
+# names, a TUI framework, an English prefix, and an HTML character reference
+# name (`&curren` is the currency sign, and is why `&current` collapses).
 [default.extend-words]
 Ratatui = "Ratatui"
+curren = "curren"
 decorder = "decorder"
 importas = "importas"
 mis = "mis"

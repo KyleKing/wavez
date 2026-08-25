@@ -14,10 +14,22 @@ import (
 )
 
 const (
-	propEdits     = "edits"
-	propNewString = "new_string"
-	propOldString = "old_string"
+	propEdits      = "edits"
+	propNewString  = "new_string"
+	propOldString  = "old_string"
+	propReplaceAll = "replace_all"
 )
+
+// replaceAllProp is the way out of an ambiguity the file cannot resolve.
+// Refusing every anchor that matches twice asks the caller to widen it, and
+// a rename's call sites are written identically, so no widening exists: one
+// lane sent the same pair five times and died stagnant against that answer.
+// It stays optional and off, so the wider edit is only ever the one asked
+// for.
+var replaceAllProp = schemaProperty{
+	Type:        schemaTypeBoolean,
+	Description: "Replace every occurrence rather than requiring exactly one.",
+}
 
 var strReplacePathProp = schemaProperty{
 	Type:        schemaTypeString,
@@ -39,11 +51,11 @@ var strReplaceSchema = buildOneOf(
 		},
 		propNewString: {
 			Type: schemaTypeString,
-			Description: "Text that replaces old_string entirely. To insert lines before or " +
-				"after existing code, repeat that code inside new_string, or it is deleted. " +
-				"Send \"\" to delete old_string outright.",
+			Description: "What old_string becomes, replacing it entirely: to insert around " +
+				"existing code, repeat that code here or it is deleted. \"\" deletes it.",
 		},
-	}, propPath, propOldString, propNewString),
+		propReplaceAll: replaceAllProp,
+	}, propPath, propOldString, propNewString, propReplaceAll),
 	branch(map[string]schemaProperty{
 		propPath: strReplacePathProp,
 		propEdits: {
@@ -90,9 +102,8 @@ func (*StrReplace) Name() string { return "str_replace" }
 
 // Description implements tool.Tool.
 func (*StrReplace) Description() string {
-	return "Replace one exact occurrence of old_string with new_string in an existing file, or " +
-		"several at once with edits. new_string replaces old_string entirely, so an insertion " +
-		"must repeat the surrounding lines."
+	return "Replace text in an existing file: one occurrence of old_string with new_string, or " +
+		"several at once with edits."
 }
 
 // Schema implements tool.Tool.
@@ -103,10 +114,15 @@ func (*StrReplace) Schema() json.RawMessage { return strReplaceSchema }
 // empty new_string deletes old_string, and an absent one is a call that was
 // cut short before it said what to replace old_string with.
 type strReplaceInput struct {
-	NewString *string    `json:"new_string"`
-	Path      string     `json:"path"`
-	OldString string     `json:"old_string"`
-	Edits     []editPair `json:"edits"`
+	NewString *string `json:"new_string"`
+	Path      string  `json:"path"`
+	OldString string  `json:"old_string"`
+	// Source is not this tool's field. It is declare's, and a call carrying
+	// it is a declare call sent here, which one lane made three times and
+	// died stagnant on a message about new_string.
+	Source     string     `json:"source"`
+	Edits      []editPair `json:"edits"`
+	ReplaceAll bool       `json:"replace_all"`
 }
 
 type editPair struct {
@@ -133,14 +149,15 @@ func (in *strReplaceInput) shapeError() (string, bool) {
 		return "", true
 	}
 
+	if in.Source != "" && in.OldString == "" && in.NewString == nil && len(in.Edits) == 0 {
+		return "source is declare's field, not this tool's, so nothing was edited. Send this " +
+			"call to declare with symbol and source to write the whole declaration by name, or " +
+			"send old_string and new_string here.", false
+	}
+
 	if len(in.Edits) > 0 {
 		if in.OldString != "" || in.NewString != nil {
 			return "send either edits or one old_string/new_string pair, not both", false
-		}
-
-		if len(in.dedupedEdits()) == 0 {
-			return "every edit in this call replaces text with itself, so there is nothing " +
-				"to apply. Send the text you want in new_string.", false
 		}
 
 		return in.conflictingEdit()
@@ -211,18 +228,18 @@ func (in *strReplaceInput) pairs() []edit.Pair {
 	// reads this, and shapeError lets that one through so the missing field
 	// named first is the first one missing.
 	if len(in.Edits) == 0 {
-		if in.NewString == nil {
+		if in.NewString == nil || in.OldString == *in.NewString {
 			return nil
 		}
 
-		return []edit.Pair{{OldString: in.OldString, NewString: *in.NewString}}
+		return []edit.Pair{{OldString: in.OldString, NewString: *in.NewString, All: in.ReplaceAll}}
 	}
 
 	deduped := in.dedupedEdits()
 
 	out := make([]edit.Pair, 0, len(deduped))
 	for _, e := range deduped {
-		out = append(out, edit.Pair{OldString: e.OldString, NewString: e.NewString})
+		out = append(out, edit.Pair{OldString: e.OldString, NewString: e.NewString, All: in.ReplaceAll})
 	}
 
 	return out
@@ -249,7 +266,15 @@ func (in *strReplaceInput) byFile() []pathGroup {
 			order = append(order, path)
 		}
 
-		pairs[path] = append(pairs[path], edit.Pair{OldString: e.OldString, NewString: e.NewString})
+		pairs[path] = append(pairs[path],
+			edit.Pair{OldString: e.OldString, NewString: e.NewString, All: in.ReplaceAll})
+	}
+
+	if len(order) == 0 {
+		// Every edit was a no-op, and the call still names a file: the
+		// answer to it depends on what that file holds, so it has to be
+		// resolved and read like any other.
+		return []pathGroup{{Path: in.Path}}
 	}
 
 	out := make([]pathGroup, 0, len(order))
@@ -289,24 +314,50 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	}
 	defer release()
 
+	if len(in.pairs()) == 0 {
+		return nothingToApply(in.anchor(), edits), nil
+	}
+
 	before := sourceBefore(edits)
 
-	changes, err := edit.ApplyToFiles(edits)
+	batch, err := edit.ApplyToFiles(edits)
 	if err != nil {
 		return s.failedEdit(&in, edits, err), nil
 	}
 
+	changes := batch.Changes
 	for i := range changes {
 		changes[i].Path = groups[i].Path
 		s.scope.Wrote(edits[i].Path)
 	}
 
-	content := describeChanges(changes, len(in.pairs()))
+	parts := append([]string{describeChanges(changes, len(in.pairs()))}, dedupeNotes(batch.Notes)...)
 	if broke := brokenSyntax(groups, edits, before); broke != "" {
-		content += "\n" + broke
+		parts = append(parts, broke)
 	}
 
+	content := strings.Join(parts, "\n")
+
 	return tool.Result{Content: content, Changes: changes}, nil
+}
+
+// dedupeNotes keeps the first of each distinct note, since one batch can
+// reach the same repair on every pair and saying so once is the report.
+func dedupeNotes(notes []string) []string {
+	out := make([]string, 0, len(notes))
+	seen := make(map[string]bool, len(notes))
+
+	for _, n := range notes {
+		if n == "" || seen[n] {
+			continue
+		}
+
+		seen[n] = true
+
+		out = append(out, n)
+	}
+
+	return out
 }
 
 // sourceBefore reads each file a batch is about to edit. A file it cannot
@@ -398,6 +449,38 @@ func (s *StrReplace) prepare(
 	return edits, release, nil
 }
 
+// anchor is the text this call names, whichever shape it came in.
+func (in *strReplaceInput) anchor() string {
+	if len(in.Edits) > 0 {
+		return in.Edits[0].OldString
+	}
+
+	return in.OldString
+}
+
+// nothingToApply answers a call whose every edit replaces text with itself.
+//
+// Where the file already holds that text, the state the call asked for is
+// the state the file is in, and the call succeeded having changed nothing.
+// Reporting it as a failure is what sent one run round the same block three
+// times, and the batch path had always disagreed with the single-pair path
+// about it: a no-op pair beside a real one is dropped, and a no-op pair
+// alone was an error. Only where the text is absent is the call a mistake,
+// and then it is the fields the wrong way round.
+func nothingToApply(anchor string, edits []edit.FileEdit) tool.Result {
+	for _, src := range sourceBefore(edits) {
+		if src != nil && edit.Holds(string(src), anchor) {
+			return tool.Result{Content: "no change: the file already holds exactly that text, " +
+				"so there was nothing to replace. Nothing was written."}
+		}
+	}
+
+	return tool.Fail(tool.CauseBadInput,
+		"old_string and new_string are identical and the file does not hold that text, so it "+
+			"is the replacement rather than the anchor: send the text it should replace as "+
+			"old_string.")
+}
+
 // noChangeAdvice separates the two ways a call sends one text twice. It is
 // the largest single failure str_replace records, and the error alone says
 // only that the two fields matched. Neither branch tells the run its work
@@ -443,6 +526,14 @@ func (s *StrReplace) failedEdit(in *strReplaceInput, edits []edit.FileEdit, err 
 					"Read the file first, or use declare to write the whole declaration by name.",
 				err, unread)
 		}
+	}
+
+	var notUnique *edit.NotUniqueError
+	if errors.As(err, &notUnique) && !in.ReplaceAll {
+		return tool.Fail(tool.CauseAmbiguous,
+			"%v\n\nWhere the %d sites are written identically no widening tells them apart. "+
+				"Send the same call with replace_all: true to change all %d, or anchor on "+
+				"surrounding text that differs.", err, len(notUnique.Lines), len(notUnique.Lines))
 	}
 
 	if errors.Is(err, edit.ErrNoChange) {
