@@ -79,9 +79,8 @@ func (m *manager) reopenThread(id, path string) (*managedThread, error) {
 		return nil, fmt.Errorf("reading thread log: %w", err)
 	}
 
-	// A resumed thread's history starts empty, so its goal is one of the
-	// three things that would otherwise be lost outright rather than
-	// gradually.
+	// The history sidecar restores the transcript; the goal was only ever
+	// in the log, and a rewritten one is not in the transcript at all.
 	th.SetGoalFromLog(events)
 
 	created, err := reopenCreated(path, events)

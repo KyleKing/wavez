@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/kyleking/wavez/internal/llm/fake"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
+	"github.com/kyleking/wavez/internal/thread"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -434,5 +436,74 @@ func TestRun_DeadlineTripsWithinATurn(t *testing.T) {
 	}
 	if got := echo.runs.Load(); got != 2 {
 		t.Errorf("tool runs = %d, want 2: the deadline must trip mid-turn, not after all 4 calls", got)
+	}
+}
+
+// A run stopped at the ceiling is meant to be picked back up: the ceiling is
+// a runaway guard on one unattended run, not a budget for the work. Before
+// the history sidecar, resuming handed the model an empty transcript, so
+// everything the stopped run had learned was spent again.
+func TestRun_CostCeilingLeavesTheThreadResumable(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	deep := router.Input{Override: router.ChoiceDeep}
+	models := router.Tiers[string]{Deep: "qwen/qwen3-coder-30b-a3b-instruct"}
+	usage := &llm.Usage{InputTokens: 10_000_000, OutputTokens: 10_000_000}
+
+	first := fake.New("hosted", fake.Turn{Text: []string{"read the parser"}, StopReason: llm.StopEndTurn, Usage: usage})
+	th, err := thread.Open(dir, "t1", []string{"/repo"})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	loop := agent.New(tiers(fake.New("local"), first), tool.NewRegistry(echoTool{name: "echo"}),
+		permission.AllowAll(), agent.WithModels(models), agent.WithMaxHostedSpendUSD(0.01))
+
+	stopped, err := loop.Run(context.Background(), th, basicPrefix(), "fix the parser", deep)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stopped.Stop != agent.StopCostCeiling {
+		t.Fatalf("Stop = %q, want cost_ceiling", stopped.Stop)
+	}
+	if !strings.Contains(stopped.Reason, "keeps its transcript") {
+		t.Errorf("Reason = %q, want it to say the thread can be continued", stopped.Reason)
+	}
+	if err := th.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	second := fake.New("hosted", fake.Turn{Text: []string{"fixed"}, StopReason: llm.StopEndTurn})
+	resumed, err := thread.Open(dir, "t1", []string{"/repo"})
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer resumed.Close() //nolint:errcheck // the assertions below are what the test reports
+
+	loop = agent.New(tiers(fake.New("local"), second), tool.NewRegistry(echoTool{name: "echo"}),
+		permission.AllowAll(), agent.WithModels(models), agent.WithMaxHostedSpendUSD(100))
+
+	out, err := loop.Run(context.Background(), resumed, basicPrefix(), "keep going", deep)
+	if err != nil {
+		t.Fatalf("resumed Run: %v", err)
+	}
+	if out.Stop != agent.StopComplete {
+		t.Fatalf("Stop = %q, want complete", out.Stop)
+	}
+
+	sent := second.Requests()
+	if len(sent) != 1 {
+		t.Fatalf("Requests len = %d, want 1", len(sent))
+	}
+	if got := len(sent[0].Messages); got != 3 {
+		t.Fatalf("resumed request carried %d messages, want the two from the stopped run plus the new prompt", got)
+	}
+	if sent[0].Messages[1].Content != "read the parser" {
+		t.Errorf("second message = %q, want the stopped run's own turn", sent[0].Messages[1].Content)
+	}
+	if out.ThreadSpendUSD <= out.HostedSpendUSD {
+		t.Errorf("ThreadSpendUSD = %v, want it to carry the stopped run's $%v too",
+			out.ThreadSpendUSD, stopped.HostedSpendUSD)
 	}
 }

@@ -6,6 +6,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/kyleking/wavez/internal/event"
@@ -51,6 +52,7 @@ type TurnMessage struct {
 // local runtime.
 type Thread struct {
 	log     *eventlog.Log
+	history *history
 	id      ID
 	model   string
 	goal    string
@@ -112,7 +114,15 @@ func Open(logDir string, id ID, dirs []string, opts ...Option) (*Thread, error) 
 		return nil, fmt.Errorf("opening thread log: %w", err)
 	}
 
-	t := &Thread{id: id, dirs: dirs, log: log, state: event.StateIdle}
+	hist, entries, err := openHistory(logDir, string(id))
+	if err != nil {
+		return nil, errors.Join(err, log.Close())
+	}
+
+	t := &Thread{
+		id: id, dirs: dirs, log: log, state: event.StateIdle,
+		history: hist, entries: entries, turn: lastTurn(entries),
+	}
 	for _, opt := range opts {
 		opt(t)
 	}
@@ -197,7 +207,9 @@ func (t *Thread) AppendUser(ctx context.Context, text string) error {
 	if err := contextErr(ctx); err != nil {
 		return err
 	}
-	t.entries = append(t.entries, TurnMessage{Message: llm.Message{Role: llm.RoleUser, Content: text}, Turn: t.turn})
+	if err := t.record(TurnMessage{Message: llm.Message{Role: llm.RoleUser, Content: text}, Turn: t.turn}); err != nil {
+		return err
+	}
 	if _, err := t.log.Append(event.Event{Kind: event.KindUser, Text: text}); err != nil {
 		return fmt.Errorf("logging user turn: %w", err)
 	}
@@ -227,7 +239,9 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 		return err
 	}
 	msg.Role = llm.RoleAssistant
-	t.entries = append(t.entries, TurnMessage{Message: msg, Turn: t.turn})
+	if err := t.record(TurnMessage{Message: msg, Turn: t.turn}); err != nil {
+		return err
+	}
 
 	detail := map[string]any{"tool_calls": len(msg.ToolCalls)}
 	if usage != nil {
@@ -273,7 +287,9 @@ func (t *Thread) AppendToolResult(
 		ToolCallID: toolCallID,
 		IsError:    result.IsError,
 	}
-	t.entries = append(t.entries, TurnMessage{Message: msg, Turn: t.turn})
+	if err := t.record(TurnMessage{Message: msg, Turn: t.turn}); err != nil {
+		return err
+	}
 
 	ev := event.Event{Kind: event.KindTool, Tool: toolName, Text: result.Content, Changes: result.Changes}
 	if len(input) > 0 {
@@ -328,13 +344,22 @@ func (t *Thread) TurnHistory() []TurnMessage {
 	return out
 }
 
-// Close flushes and releases the thread's event log.
-func (t *Thread) Close() error {
-	if err := t.log.Close(); err != nil {
-		return fmt.Errorf("closing thread log: %w", err)
+// record appends one message to history and to the sidecar that survives
+// the process. The sidecar is written first, so a resumed thread never
+// carries a message this one failed to persist.
+func (t *Thread) record(entry TurnMessage) error {
+	if err := t.history.append(entry); err != nil {
+		return err
 	}
 
+	t.entries = append(t.entries, entry)
+
 	return nil
+}
+
+// Close flushes and releases the thread's event log and history sidecar.
+func (t *Thread) Close() error {
+	return errors.Join(t.log.Close(), t.history.Close())
 }
 
 func truncate(s string, limit int) string {

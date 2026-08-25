@@ -218,7 +218,12 @@ type Outcome struct {
 	TokensCompacted int
 	Elapsed         time.Duration
 	HostedSpendUSD  float64
-	StagnantCount   int
+	// ThreadSpendUSD is what every run on this thread has cost, including
+	// this one. HostedSpendUSD is what the ceiling bounds, since the
+	// ceiling is a runaway guard on one unattended run; this is what says
+	// whether resuming the thread is still worth it.
+	ThreadSpendUSD float64
+	StagnantCount  int
 	// RecoveredCalls counts the tool calls read back out of prose because
 	// the provider did not parse the model's own serialization. It is
 	// recorded because a tier that needs it is a tier with a templating
@@ -552,8 +557,10 @@ func (l *Loop) Run(
 		loop: l, thread: th, system: system, tools: prefix.Tools, fastTools: prefix.FastTools,
 		hint: hint, gk: newGateKeeper(l.gate),
 		task: prompt, startTime: start, deadline: deadline,
+		priorSpend: l.priorSpend(th),
 	}
 	r.outcome.Checkpoint = checkpoint
+	r.outcome.ThreadSpendUSD = r.priorSpend
 
 	return r.drive(ctx)
 }
@@ -561,10 +568,9 @@ func (l *Loop) Run(
 // standingGoal is the thread's goal when the history about to be sent does
 // not already carry it, and empty otherwise. A goal restated on every turn
 // is the stronger form against drift and costs tokens on every turn of
-// every thread; this covers the three points that lose it outright instead,
-// which are a fork (it inherits no transcript by design), a reopen (a
-// resumed thread's history starts empty), and a rewrite (the new wording
-// was never in the history at all).
+// every thread; this covers the two points that lose it outright instead,
+// which are a fork (it inherits no transcript by design) and a rewrite (the
+// new wording was never in the history at all).
 func standingGoal(th *thread.Thread) string {
 	goal := th.Goal()
 	if goal == "" {
@@ -595,6 +601,54 @@ func (l *Loop) captureCheckpoint(ctx context.Context) (string, error) {
 	}
 
 	return checkpoint, nil
+}
+
+// priorSpend prices the assistant turns already in th's log, so a resumed
+// run reports what the thread has cost rather than what this run added. It
+// returns zero rather than an error on an unreadable log: a report that
+// cannot be built is not a reason to refuse the run.
+func (l *Loop) priorSpend(th *thread.Thread) float64 {
+	evs, err := th.Log().Since(0)
+	if err != nil {
+		return 0
+	}
+
+	total := 0.0
+
+	for i := range evs {
+		if evs[i].Kind != event.KindAgent || evs[i].Role == "" {
+			continue
+		}
+
+		raw, ok := evs[i].Detail["usage"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		model, ok := evs[i].Detail["model"].(string)
+		if !ok {
+			continue
+		}
+
+		total += l.priceTurn(model, &llm.Usage{
+			InputTokens:     loggedInt(raw, "input_tokens"),
+			OutputTokens:    loggedInt(raw, "output_tokens"),
+			CacheReadTokens: loggedInt(raw, "cache_read_tokens"),
+		})
+	}
+
+	return total
+}
+
+// loggedInt reads a count back out of a log detail, where every number
+// decoded as a float64.
+func loggedInt(detail map[string]any, key string) int {
+	v, ok := detail[key].(float64)
+	if !ok {
+		return 0
+	}
+
+	return int(v)
 }
 
 // priceTurn prices one turn's usage against the configured per-model table.
@@ -663,8 +717,13 @@ type run struct {
 	hint      router.Input
 	// route is the tier the turn in flight was routed to, which is what
 	// says whether there is still a tier above to escalate into.
-	route             router.Decision
-	outcome           Outcome
+	route router.Decision
+	// priorSpend is what the thread's earlier runs cost, so a resumed run
+	// can report the thread's total without the ceiling bounding it.
+	outcome Outcome
+	// priorSpend is what the thread's earlier runs cost, so a resumed run
+	// can report the thread's total without the ceiling bounding it.
+	priorSpend        float64
 	compactedThrough  int
 	verifyRounds      int
 	reviewRounds      int
@@ -895,10 +954,14 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		// Priced per model rather than per tier: a model with no price
 		// costs nothing, which is what an on-box tier is.
 		r.outcome.HostedSpendUSD += r.loop.priceTurn(req.Model, usage)
+		r.outcome.ThreadSpendUSD = r.priorSpend + r.outcome.HostedSpendUSD
 	}
 	if r.loop.options.MaxHostedSpendUSD > 0 && r.outcome.HostedSpendUSD >= r.loop.options.MaxHostedSpendUSD {
-		reason := fmt.Sprintf("hosted spend ceiling reached: $%.4f spent (ceiling $%.4f) after %d turn(s)",
-			r.outcome.HostedSpendUSD, r.loop.options.MaxHostedSpendUSD, r.outcome.Turns)
+		reason := fmt.Sprintf(
+			"hosted spend ceiling reached: $%.4f spent (ceiling $%.4f) after %d turn(s); "+
+				"thread %s has cost $%.4f and keeps its transcript, so another prompt continues it",
+			r.outcome.HostedSpendUSD, r.loop.options.MaxHostedSpendUSD, r.outcome.Turns,
+			r.thread.ID(), r.outcome.ThreadSpendUSD)
 		out, err := r.stopBound(ctx, StopCostCeiling, reason)
 
 		return true, out, err

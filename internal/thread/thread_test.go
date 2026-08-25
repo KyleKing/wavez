@@ -349,3 +349,76 @@ func TestGoalIsTheFirstPromptUntilRewritten(t *testing.T) {
 		t.Errorf("GoalFrom = %q, want the rewritten goal", got)
 	}
 }
+
+// A run stopped on a bound keeps the files it wrote; without this it kept
+// nothing else, because the event log truncates tool inputs and stores
+// assistant text as streamed chunks, so it cannot rebuild what the model
+// was sent.
+func TestReopenRestoresTheTranscript(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	ctx := t.Context()
+
+	first, err := thread.Open(dir, "t1", []string{"/repo"})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	first.BeginTurn()
+	if err := first.AppendUser(ctx, "fix the parser"); err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	calls := []llm.ToolCall{
+		{ID: "c1", Name: "read", Input: json.RawMessage(`{"path":"a.go"}`)},
+		// A run stops on exactly this, so the transcript that explains why
+		// has to survive being written down.
+		{ID: "c2", Name: "read", Input: json.RawMessage(`{path: not json`)},
+	}
+	if err := first.AppendAssistant(ctx,
+		llm.Message{Content: "reading", ToolCalls: calls}, nil, thread.TurnMeta{}); err != nil {
+		t.Fatalf("assistant: %v", err)
+	}
+	if err := first.AppendToolResult(ctx, "c1", "read",
+		json.RawMessage(`{"path":"a.go"}`), tool.Result{Content: "package a"}, ""); err != nil {
+		t.Fatalf("tool: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	second, err := thread.Open(dir, "t1", []string{"/repo"})
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := second.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+
+	assertTranscript(t, second)
+}
+
+func assertTranscript(t *testing.T, th *thread.Thread) {
+	t.Helper()
+
+	got := th.History()
+	if len(got) != 3 {
+		t.Fatalf("History = %d messages, want 3", len(got))
+	}
+	if got[0].Role != llm.RoleUser || got[0].Content != "fix the parser" {
+		t.Errorf("first message = %+v, want the user prompt", got[0])
+	}
+	if len(got[1].ToolCalls) != 2 || string(got[1].ToolCalls[0].Input) != `{"path":"a.go"}` {
+		t.Errorf("assistant tool calls = %+v, want both calls whole", got[1].ToolCalls)
+	}
+	if string(got[1].ToolCalls[1].Input) != `{path: not json` {
+		t.Errorf("malformed input = %q, want the bytes the model emitted", got[1].ToolCalls[1].Input)
+	}
+	if got[2].Role != llm.RoleTool || got[2].ToolCallID != "c1" {
+		t.Errorf("third message = %+v, want the tool result", got[2])
+	}
+	if th.Turn() != 1 {
+		t.Errorf("Turn = %d, want 1 so the next turn does not reuse it", th.Turn())
+	}
+}

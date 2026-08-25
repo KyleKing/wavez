@@ -724,12 +724,40 @@ func reportRun(th *thread.Thread, a *app.App, outcome agent.Outcome, opt options
 	}
 
 	fmt.Println(linkifyText(a.Config.Links, finalText(th)))
-	fmt.Fprintf(os.Stderr, "\nstop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f checkpoint=%s\n",
-		outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls,
-		outcome.HostedSpendUSD, outcome.Checkpoint)
+	fmt.Fprintf(os.Stderr,
+		"\nthread=%s stop=%s elapsed=%s turns=%d tool_calls=%d hosted_spend=$%.4f thread_spend=$%.4f checkpoint=%s\n",
+		th.ID(), outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls,
+		outcome.HostedSpendUSD, outcome.ThreadSpendUSD, outcome.Checkpoint)
+	reportResume(th.ID(), outcome)
 	reportStrayedEdits(a.Scope.Strayed(), root, opt.strictScope)
 
 	return nil
+}
+
+// reportResume names the command that picks a bounded run back up. A run
+// that stopped on a bound keeps both its files and its transcript, so the
+// only thing between it and finishing is knowing that, and the bound line
+// on its own reads like the work is gone.
+func reportResume(id thread.ID, outcome agent.Outcome) {
+	if !resumable(outcome.Stop) {
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "the transcript is kept; continue with: wavez -resume %s -p '<what is left>'\n", id)
+}
+
+// resumable is the bounds a run can be picked up from: the run ran out of
+// something the caller can grant more of. A malformed tool call or a
+// provider failure is not one of them, because resuming changes nothing
+// about why it stopped.
+func resumable(stop agent.Stop) bool {
+	switch stop {
+	case agent.StopCostCeiling, agent.StopDeadline, agent.StopMaxTurns,
+		agent.StopStagnant, agent.StopVerifyFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // Strayed paths are absolute; a report shows them relative to root, leaving

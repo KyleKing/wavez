@@ -30,6 +30,7 @@ type runResult struct {
 	OutputTokens    int      `json:"output_tokens"`
 	TokensCompacted int      `json:"tokens_compacted"`
 	HostedSpendUSD  float64  `json:"hosted_spend_usd"`
+	ThreadSpendUSD  float64  `json:"thread_spend_usd"`
 	Complete        bool     `json:"complete"`
 }
 
@@ -50,6 +51,7 @@ func newRunResult(id thread.ID, text string, outcome agent.Outcome, strayed []st
 		OutputTokens:    outcome.OutputTokens,
 		TokensCompacted: outcome.TokensCompacted,
 		HostedSpendUSD:  outcome.HostedSpendUSD,
+		ThreadSpendUSD:  outcome.ThreadSpendUSD,
 	}
 }
 
