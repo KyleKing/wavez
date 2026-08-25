@@ -55,6 +55,10 @@ var strReplaceSchema = buildOneOf(
 				Properties: map[string]schemaProperty{
 					propOldString: {Type: schemaTypeString, Description: "Exact text to replace, as above."},
 					propNewString: {Type: schemaTypeString, Description: "Text that replaces it, as above."},
+					propPath: {
+						Type:        schemaTypeString,
+						Description: "File this edit applies to. Omit to use the call's own path.",
+					},
 				},
 				Required: []string{propOldString, propNewString},
 			},

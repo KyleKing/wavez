@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -344,6 +345,58 @@ func TestStrReplace_EveryBranchRequiresEveryPropertyItDeclares(t *testing.T) {
 			}
 		}
 	}
+}
+
+// The batch shape's own description says an edit may name its own path, and
+// a local turn can only send what the schema declares, so a description
+// promising what the grammar forbids is a capability that does not exist
+// where it is needed most.
+func TestStrReplace_ABatchEditCanDeclareItsOwnPath(t *testing.T) {
+	t.Parallel()
+
+	var schema jsonSchema
+	if err := json.Unmarshal(tools.NewStrReplace(t.TempDir(), nil).Schema(), &schema); err != nil {
+		t.Fatalf("Schema() is not valid JSON: %v", err)
+	}
+
+	var found bool
+
+	for _, b := range schema.branches() {
+		raw, ok := b.Properties["edits"]
+		if !ok {
+			continue
+		}
+
+		var edits struct {
+			Items struct {
+				Properties map[string]property `json:"properties"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(raw, &edits); err != nil {
+			t.Fatalf("decoding the edits property: %v", err)
+		}
+
+		if _, ok := edits.Items.Properties["path"]; !ok {
+			t.Errorf("an edit declares %v, want path among them", keysOf(edits.Items.Properties))
+		}
+
+		found = true
+	}
+
+	if !found {
+		t.Fatal("no branch declares edits")
+	}
+}
+
+func keysOf(m map[string]property) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 // A batch that anchors in two files fails with only "not found", which
