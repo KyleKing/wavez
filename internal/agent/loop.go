@@ -288,7 +288,10 @@ type Options struct {
 	ChangeGate   ChangeGate
 	Pricing      map[string]ModelPricing
 	// Models is the model name sent in a request routed to each tier.
-	Models   router.Tiers[string]
+	Models router.Tiers[string]
+	// Thinking is each tier's reasoning default, applied to a turn whose
+	// thread pinned none. Nil leaves the served model's own default.
+	Thinking router.Tiers[*bool]
 	RepoRoot string
 	Compact  thread.CompactOptions
 	// ContextWindow is the fast tier's served context in tokens, which
@@ -388,6 +391,10 @@ func WithClock(c gate.Clock) Option { return func(o *Options) { o.Clock = c } }
 
 // WithModels sets the model name sent in a request routed to each tier.
 func WithModels(m router.Tiers[string]) Option { return func(o *Options) { o.Models = m } }
+
+// WithThinking sets each tier's reasoning default for turns whose thread
+// pinned none.
+func WithThinking(t router.Tiers[*bool]) Option { return func(o *Options) { o.Thinking = t } }
 
 // WithContextWindow sets the fast tier's served context in tokens.
 func WithContextWindow(n int) Option { return func(o *Options) { o.ContextWindow = n } }
@@ -707,6 +714,16 @@ func (r *run) routeInput(estimated int) router.Input {
 	}
 }
 
+// thinkingFor is this turn's reasoning toggle: the thread's own pin when it
+// has one, and otherwise the tier the turn routed to.
+func (r *run) thinkingFor(route router.Decision) *bool {
+	if r.hint.Thinking != nil {
+		return r.hint.Thinking
+	}
+
+	return r.loop.options.Thinking.For(route)
+}
+
 func (r *run) drive(ctx context.Context) (Outcome, error) {
 	for {
 		if ctx.Err() != nil {
@@ -777,7 +794,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		System:   r.system,
 		Tools:    r.toolsFor(r.route.Choice),
 		Messages: messages,
-		Thinking: r.hint.Thinking,
+		Thinking: r.thinkingFor(route),
 	}
 	bound := r.loop.options.samplingFor(route)
 	req.PresencePenalty, req.RepeatPenalty = bound.presence, bound.repeat

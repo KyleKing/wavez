@@ -453,6 +453,7 @@ const (
 func loopOptions(root string, cfg config.Config, options Options) []agent.Option {
 	out := []agent.Option{
 		agent.WithModels(tierModels(cfg)),
+		agent.WithThinking(tierThinking(cfg)),
 		agent.WithContextWindow(localRuntime(cfg, options).ContextSize),
 		agent.WithCheckpointer(vcs.NewJj(), root),
 		agent.WithHooks(hook.New(root,
@@ -554,6 +555,15 @@ func tierModels(cfg config.Config) router.Tiers[string] {
 		Fast:     cfg.Tiers.Fast.Model,
 		Balanced: cfg.Tiers.Balanced.Model,
 		Deep:     cfg.Tiers.Deep.Model,
+	}
+}
+
+// tierThinking is each tier's reasoning default.
+func tierThinking(cfg config.Config) router.Tiers[*bool] {
+	return router.Tiers[*bool]{
+		Fast:     cfg.Tiers.Fast.Thinking,
+		Balanced: cfg.Tiers.Balanced.Thinking,
+		Deep:     cfg.Tiers.Deep.Thinking,
 	}
 }
 

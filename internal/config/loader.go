@@ -62,6 +62,7 @@ type pklConfig struct {
 
 // pklTier mirrors the Tier class in pkl/Wavez.pkl.
 type pklTier struct {
+	Thinking   *bool  `pkl:"thinking"`
 	Model      string `pkl:"model"`
 	BaseURL    string `pkl:"baseURL"`
 	KeyCommand string `pkl:"keyCommand"`
@@ -234,6 +235,7 @@ func tierFromPkl(def Tier, p pklTier) Tier {
 	}
 	def.BaseURL = p.BaseURL
 	def.KeyCommand = p.KeyCommand
+	def.Thinking = p.Thinking
 
 	return def
 }

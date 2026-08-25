@@ -127,7 +127,12 @@ type Config struct {
 // served from. An empty BaseURL means the tier's default endpoint: the
 // llama-server on LocalPort for the fast tier, OpenRouter for the others.
 type Tier struct {
-	Model string
+	// Thinking turns a hybrid model's reasoning on or off for this tier's
+	// turns. Nil leaves the served model's own default, since the flag is
+	// meaningful in both states and a request that omits it must not
+	// silently flip it.
+	Thinking *bool
+	Model    string
 	// BaseURL points this tier at a server elsewhere. When the fast tier
 	// sets it, Wavez neither starts nor stops a llama-server and LocalPort
 	// is unused.

@@ -63,3 +63,50 @@ func TestRun_ShowsTheFastTierItsOwnToolSurface(t *testing.T) {
 		})
 	}
 }
+
+// A tier's reasoning default is what stops a hybrid model spending most of
+// every turn on a trace no tool reads, and a thread that pinned the toggle
+// itself still wins, since the pin is the one place a person said what they
+// wanted.
+func TestRun_TierReasoningDefaultYieldsToAThreadsPin(t *testing.T) {
+	t.Parallel()
+
+	off, on := false, true
+
+	for _, tc := range []struct {
+		tier   *bool
+		pinned *bool
+		want   *bool
+		name   string
+	}{
+		{name: "neither", tier: nil, pinned: nil, want: nil},
+		{name: "tier only", tier: &off, pinned: nil, want: &off},
+		{name: "pin over tier", tier: &off, pinned: &on, want: &on},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			provider := fake.New("fast",
+				fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
+
+			loop := agent.New(tiers(provider, fake.New("deep")),
+				tool.NewRegistry(readOnlyTool{}), permission.AllowAll(),
+				agent.WithThinking(router.Tiers[*bool]{Fast: tc.tier}))
+
+			if _, err := loop.Run(context.Background(), newThread(t), basicPrefix(),
+				"say something", router.Input{Override: router.ChoiceFast, Thinking: tc.pinned}); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			reqs := provider.Requests()
+			if len(reqs) == 0 {
+				t.Fatal("no request reached the provider")
+			}
+
+			got := reqs[0].Thinking
+			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+				t.Errorf("Thinking = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
