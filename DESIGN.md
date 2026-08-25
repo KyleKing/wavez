@@ -919,7 +919,22 @@ measured and what it did not settle.
    cannot be recovered. What the closed taxonomy says is that the live
    profile is `bad_input` 99, `no_match` 98, `repeat` 31, and `malformed`
    15, and item 4 is where the first two of those are read by message
-   rather than by cause
+   rather than by cause.
+
+   Two more causes are named and fixed, both found by reading a lane rather
+   than the counts. The batch shape's description said an edit may name its
+   own path and the schema did not declare one, so the capability existed in
+   Go, was promised in prose, and was unemittable under the grammar a local
+   turn decodes with, which is the shape every recorded `e2` fast-tier
+   failure had. It costs 25 preamble tokens. And the near-match report
+   pointed at the wrong place: it reported whichever alignment scored
+   highest, so a source that had gained one line the anchor lacked scored
+   higher shifted by one and the report blamed the anchor's first line,
+   the one line that was right. One lane read that and re-sent the same
+   anchor five times. The report now prefers the alignment whose first line
+   actually matches, which names the line the source has and the anchor
+   omits. `no_match` is 121 of `str_replace`'s 359 classified failures over
+   532 calls, so this is the largest single thing left in the tool
 2. **The escalation signal was clearing its own evidence.** It reads as
    never having fired, and the reason is two defects rather than a
    condition set too strictly. `escalateIfStuck` returned in silence
@@ -932,8 +947,12 @@ measured and what it did not settle.
    two and a re-run before the third. Both are fixed, and replaying all 262
    thread logs against the fixed rule reaches the condition on three of
    them where none reached it before, all fast-tier runs with a tier above.
-   What is still open is whether it fires in a live run, which one lane
-   settles: a fast `e2` or `h6` that plateaus.
+   **Closed: it fires.** Four sequential `e2` lanes on the local fast tier
+   reached it in two, both on the `lint` gate at turn 29 of the log, both
+   escalating a tier, and both were the lanes that plateaued (27 turns to a
+   deadline and 20 to a failed verification, against 9 and 10 for the two
+   that never reached it). The signal now separates the lanes that stall
+   from the lanes that finish, which is what it was built to do.
 3. **More tasks, and one of them found a bug in the model's own output.**
    `h10` covers the shape that needs a test to fail first, and `h11` is the
    first whose retrieval spans two packages: it asks for a `NotUniqueError`
@@ -945,9 +964,13 @@ measured and what it did not settle.
    unescapes HTML entities, so the substitution happens before the bytes
    arrive. One occurrence in the corpus, so it is recorded rather than
    repaired, and a second one is what would justify a table of entity names
-   to undo. The set still has no task whose retrieval crosses a language
-   boundary. `h2` stays the existing one worth studying rather than
-   replacing.
+   to undo. `h12` joins the set as the first task that asks for a file to
+   end at the bytes it started with, and what it turned up is about
+   benchmarks rather than about the task: a replay checks the end state, so
+   a prompt cannot require an intermediate one, and the shortest path
+   through `h12` skips the step it was written to force (item 5). The set
+   still has no task whose retrieval crosses a language boundary. `h2` stays
+   the existing one worth studying rather than replacing.
 
 4. **The 34% of turns the harness costs, aimed at twice and unmeasured.**
    The corpus reports where a run's turns go (15% productive, 44%
@@ -979,8 +1002,18 @@ measured and what it did not settle.
    fixed is that OpenRouter's shared pool rate-limits `qwen/qwen3-8b`
    upstream, so three lanes ran their whole task a tier up. Every fast-tier
    lane since the move is contaminated by it, and what closes this now is a
-   fast tier that answers every request: a provider key, provider routing,
-   or the loopback server back.
+   fast tier that answers every request, which now exists: the fast tier is
+   served from this laptop and moves to OpenRouter per turn while the
+   machine is too loaded to keep up, so a lane is neither the laptop's
+   decode rate to lose nor a shared pool's to rate-limit. The first four
+   sequential lanes under it split cleanly. Two ran `e2` end to end on the
+   fast tier at 9 and 10 turns, 1,389 and 958 output tokens, one complete
+   with 3 of 3 checks; the other two reached the stuck signal on `lint`,
+   escalated, and took 27 and 20 turns. Output per turn on the fast-only
+   lanes is 154 and 96 against 274 and 199 for the local lanes before this
+   work. What the split says is that the remaining cost is not the tier and
+   not decode: it is `str_replace` missing its anchor, five times in a row
+   in one lane, which item 1 now aims at directly.
 
 5. **`undo` shipped and no run has called it.** Two lanes with the tool
    present (`h7`, `h10`) made zero `undo` calls, which is `vcs`'s pattern
@@ -993,8 +1026,25 @@ measured and what it did not settle.
    that made it rather than a gate round later, and that is precisely the
    thrash the numbers show going away. One run each way separates neither.
    What decides `undo` is whether a run reaches for it once cornered, which
-   needs a task that corners one; if it stays uncalled at 30 runs its 57
-   preamble tokens buy nothing and the ceiling comes back down
+   needs a task that corners one. At 136 runs since it shipped it has still
+   been called zero times, and `h12` was written to find out whether that is
+   the tool or the tasks. It asks for a method, then for `memory.go` to end
+   at exactly the bytes it started with and the method to live in `load.go`
+   instead. Three lanes ran it and none called `undo`, for a reason worth
+   more than the count: the shortest path through the task is to never edit
+   `memory.go` at all, and one lane took it and passed 4 of 4 checks in 8
+   turns. A replay checks the end state, so no prompt can require an
+   intermediate one, which means **no task can corner a run into `undo` by
+   construction**. Only a run that has already broken something gets
+   cornered, and that is not something a benchmark can ask for. So the count
+   will stay at zero whatever tasks are added, and the decision is whether
+   `undo` is worth 57 tokens as insurance against the corner rather than as
+   a measured win. What did change is the dead end: the shell's refusal of a
+   version-control write now names `undo`, so a run reaching for `git
+   checkout -- <file>` is pointed at the tool instead of at nothing, which
+   is the 44-turn `h7` failure this was built for. `h12` stays in the set on
+   its own merits as the first task that asks for a file to end where it
+   started
 
 6. **A tool nothing calls is a tool nothing needed. Closed: `vcs` is gone.**
    Taken at 226 runs rather than 5, it was called 4 times while the same
