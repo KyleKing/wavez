@@ -1,6 +1,6 @@
 # Changes here will be overwritten by Copier
 _commit: v0.11.3
-_src_path: ../my_go_template
+_src_path: gh:KyleKing/my_go_template
 author_email: dev.act.kyle@gmail.com
 author_name: Kyle King
 author_username: kyleking
