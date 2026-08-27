@@ -1,3 +1,9 @@
+## v0.15.2 (2026-08-27)
+
+### Fix
+
+- **ci**: skip the macOS-only verify-released hk step on the ubuntu hooks job
+
 ## v0.15.1 (2026-08-27)
 
 ### Fix
