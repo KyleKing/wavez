@@ -82,6 +82,8 @@ deadcodeAllow = new Listing {
   // internal/edit's own tests still pin here.
   "edit.ApplyToFile"
   "edit.ApplyAllToFile"
+  "edit.Replace"
+  "edit.ReplaceAll"
   // Orphans with no caller and no roadmap home. Each is a deletion waiting
   // on someone to confirm nothing outside this module wants it.
   "daemon.manager.queued"
