@@ -1,3 +1,9 @@
+## v0.15.1 (2026-08-27)
+
+### Fix
+
+- **config**: allowlist edit.Replace and edit.ReplaceAll as deadcode orphans
+
 ## v0.15.0 (2026-08-27)
 
 ### Feat
