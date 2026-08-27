@@ -1,3 +1,191 @@
+## v0.15.0 (2026-08-27)
+
+### Feat
+
+- **tui**: make the thread list scroll, sort, and say what it is showing
+- **cli**: repeat one recorded tool call and print what the harness answers now
+- **gate**: record how long a gate waited for its resources
+- **edit**: format inside the edit call and answer a stale anchor with the text
+- **edit**: let str_replace change every occurrence and see past the formatter
+- **tools**: name the closest indexed names when a literal search misses
+- **thread**: keep the transcript so a bounded run can be picked back up
+- **replay**: record what a run spent and report cost per completed task
+- **agent**: give the deep tier a model the tier below it is not
+- **llm**: serve the fast tier here while the machine has room and elsewhere while it does not
+- **llm**: route each tier through its backend's dialect and deny data collection
+- **config**: let a tier turn a hybrid model's reasoning off
+- **replay**: record which model served each tier so a tier's move is visible
+- **bench**: add a task whose retrieval spans two packages
+- **edit**: match an anchor that dropped the file's blank lines
+- **bench**: add a task that needs a failing test first, and record what undo did not settle
+- **tools**: let a run put back a file it edited instead of reaching for the shell
+- **tools**: tell a str_replace that broke the file's syntax from one that did not
+- **gofix**: add the t.Parallel a changed test is missing instead of reporting it
+- **guard**: decide from an allowlist so an unknown command asks instead of running
+- wire the full-run cadence, the checks helper, and the model list
+- **tools**: read version control through a tool with no verb that writes
+- **guard**: refuse find, truncate, and a force push rather than approving them
+- **bench**: add two replay tasks the fast tier fails without emitting a malformed call
+- **deadcode**: freeze the unreached functions so the check fails on a new one
+- **agent**: escalate a tier that cannot move a gate failure instead of waiting for the deadline
+- **bench**: read the corpus's turns, gates, and finish checks, scoped to one harness
+- **tools**: write a whole declaration by name, sending its source once
+- **tools**: let one str_replace call span the files a change actually touches
+- **finish**: fail a run whose whole diff is comments
+- **gate**: report the linter findings the fix pass cannot fix, and stop asking the prompt
+- **cli**: split the preamble's teaching prose from the grammar it hangs on
+- **daemon**: queue a prompt sent mid-turn and let it interrupt the run
+- **tui**: undo back to one edit instead of only the whole run
+- **agent**: run the deterministic finish checks when a run completes
+- **finish**: name the changed lines no test executes
+- **finish**: bound a run's change set by what its task and goal name
+- **finish**: fail a run whose closing answer names a path or symbol that does not exist
+- **bench**: attribute each turn to productive, retrieval, or the harness
+- **replay**: report the rates across every recorded run
+- **app**: record a gate that retracts a failure over an unchanged change set
+- **transcript**: replay a frozen run's turns so a harness change is verifiable without a model
+- **agent**: record whether the gates passed on a run that stopped on a bound
+- **agent**: name a malformed call and a refused repeat as their own causes
+- **tools**: classify why a tool call failed so a refusal is not a defect
+- **web**: add search and fetch with the defenses that do not depend on the model
+- **tui**: show the turn in flight against what this run's turns cost
+- **gate**: report what a failure printed when no frame names a changed file
+- **tools**: add a move Modifier for relocating declarations
+- **tui**: show a thread's goal in the header and behind g
+- **thread**: carry a standing goal and restate it where it is lost
+- **agent**: checkpoint every edit and answer what the run changed
+- **shell**: answer a re-run of the project's checks from the gate log
+- **search**: add a literal mode for exact substrings
+- **tools**: scope a search to a path and say that OR works
+- **tools**: delete several declarations in one call
+- **tools**: delete a declaration by name
+- **tools**: rename a symbol through the language server
+- **cli**: account for the fixed preamble by section
+- **tools**: reduce shell output to what names a failure
+- **replay**: report the tier that actually ran each turn
+- **bench**: let a replay check run the compiler
+- **bench**: give each replay task an oracle and check it
+- **bench**: replay a fixed task and record what the run spent
+- **bench**: count the tool calls that returned an error
+- **bench**: report the shell commands a run ran
+- **bench**: diff two runs with -stats-vs
+- **tools**: add a list tool for what the tree holds
+- **bench**: add a JSON mode to -stats
+- **bench**: report what a finished run spent with -stats
+- **gate**: report weak tests as advisories instead of failing a run
+- **router**: route turns across fast, balanced, and deep tiers
+
+### Fix
+
+- point copier at the published template
+- **daemon**: stop reopening a thread's transcript sidecar as a thread
+- **tools**: read a boolean a caller quoted as the boolean it names
+- **tools**: give an ambiguous symbol refusal the path argument that resolves it
+- **tools**: withhold the rename advice once the declaration is already renamed
+- **codeintel**: rank fuzzy hits by the name they match, not by document length
+- **tools**: point an ambiguous one-name edit at rename
+- **tools**: suggest only names that hold the query as a whole word
+- **agent**: record a recovered tool call on the turn that made it
+- **tools**: say when an edit has already been made
+- **tools**: recover the tool arguments XML mangling left intact
+- **agent**: count what the gates handed the run, and stop counting a refusal against it
+- **app**: wait for the index to stop before Close returns
+- **tools**: answer a malformed call with the tool and the shape it needs
+- **cli**: name the thread a failed run left behind
+- **edit**: never restore an HTML entity whose rune is ASCII
+- **gate**: run the gate that rewrites the worktree before the gates that read it
+- **app**: offer the question tool only where something can answer it
+- **cli**: drop the question tool where nothing can answer it
+- **replay**: keep a run's transcript beside the log it kept
+- **tools**: name a declare change the way the rest of the project does
+- **gate**: stop failing a run for what the gate's own command got wrong
+- **agent**: make a run's bounds mean what they say
+- **vcs**: serialize jj against one repo so parallel lanes stop losing edits
+- **edit**: report a near match where the anchor starts, not where it scores best
+- **tools**: declare the per-edit path the batch shape already honors
+- **agent**: log the provider failure that moves a run up a tier
+- **replay**: stop two lanes started together naming the same workspace
+- **replay**: keep the tree of a run that passed its checks but stopped early
+- **preamble**: report the fast prefix against the window the project serves
+- **llm**: send the reasoning toggle in OpenRouter's spelling too
+- **app**: give a hosted fast tier the key every other hosted tier resolves
+- **tools**: stop a no-op replacement telling a run its work may be done
+- **edit**: name a blank source line in a near-match report instead of printing nothing
+- **tools**: say which of the two mistakes a no-op replacement made
+- **tools**: name the cause of every failure undo can return
+- **agent**: log a stuck gate on the top tier instead of returning in silence
+- **gate**: keep a stuck gate's count across a debounced re-run instead of clearing it
+- **lint**: disable the gocritic check that contradicts nonamedreturns
+- **gate**: stop reporting a compile error the build gate already named
+- **sandbox**: keep a command from reading the secrets its own output would carry away
+- **gate**: make a change path relative before it becomes a go test pattern
+- **tool**: name the cause of every failure a tool can return
+- **app**: stop offering the question tool where nothing can answer it
+- **replay**: expire the workspaces a failing run keeps instead of stacking them
+- **agent**: read back a hosted model's own tool-call dialect instead of refusing the turn
+- **llm**: read a reasoning model's trace and name a turn that returned nothing
+- **tools**: merge a declaration's imports instead of appending a second block
+- **tools**: say when an anchor missed because the run edited the file since reading it
+- **edit**: resolve every anchor in a batch against the file as read
+- **app**: repeat what the gates found when a run asks the shell to re-check
+- **tools**: drop a no-op edit instead of failing the batch it rides in
+- **tools**: retry a wordy literal search as fuzzy instead of answering nothing
+- **agent**: bound repetition on fast turns so a tool argument cannot run away
+- **tools**: say a batch applies to one file so a cross-file anchor is actionable
+- **thread**: keep a failed tool call's arguments whole so the failure can be read
+- **tools**: require the replacement pair so a cut-short edit cannot delete
+- **gate**: spell a fallback package as a directory pattern
+- **tools**: write each file once per move
+- **app**: review a diff on the balanced tier, not the fast one
+- **tools**: name the declaration holding each blocking use
+- **tools**: say how to delete a used declaration and its users together
+- **tools**: refuse to delete a declaration something still uses
+- **tools**: judge a widened lookup against the query it ran
+- **tools**: widen a symbol lookup until a plausible name comes back
+- **tools**: widen a symbol lookup that finds nothing
+- **tools**: let rename take a package directory as its path
+- **sched**: hold a local slot per turn and hand it over in order
+- **sched**: bound local turns by the slots the server actually serves
+- **vcs**: recover from a stale working copy instead of surfacing it
+- **tools**: report a missing path as missing, not as outside the root
+- **bench**: diff against the last replay run that took a turn
+- **bench**: keep a replay workspace short enough for a unix socket
+- **agent**: let a malformed tool call be sent again instead of ending the run
+- **tui**: fit the too-small message in the terminal it names
+- **tui**: make the model screen's confirmation answerable only once it asks
+- **cli**: name the tiers -model actually takes
+- **agent**: nudge any run that can edit and has not
+- **agent**: tell a run that has changed nothing to start
+- **guard**: refuse git writes where jj owns the working copy
+- **guard**: hold git commands that move the working copy
+- **llm**: accept a numeric error code in a provider's stream
+- **agent**: compact against the window of the tier serving the turn
+- **sandbox**: let a sandboxed build read the machine's module cache
+
+### Refactor
+
+- **tools**: name a wrong argument shape in JSON terms rather than Go ones
+- **tools**: drop vcs, which the shell was already answering past
+- **search**: stop advertising the modes that only return an error
+
+### Perf
+
+- **agent**: show the fast tier its own tool surface
+- **config**: leave the web tools off unless a project asks for them
+- **tools**: stop paying every turn for prose the failure already carries
+- **app**: stop handing the model a CI runbook written for a human
+- **agent**: dedupe repeated tool results when the request is assembled
+- **replay**: seed a workspace from the project's derived state
+- **edit**: diagnose an anchor that matches no line at all
+- **edit**: name the line a failed anchor got wrong
+- **tools**: apply several replacements in one str_replace call
+- **gate**: tell the run which gates passed on its change
+- **tools**: let read and list take several targets in one call
+- **tools**: number the lines read returns
+- **retrieval**: report the matching lines of a file-level search hit
+- **tools**: always return what a read asked for
+- **retrieval**: stop re-serving lines and OR fuzzy search terms
+
 ## v0.14.0 (2026-08-19)
 
 ### Feat
