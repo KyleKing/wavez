@@ -193,8 +193,12 @@ func (m Model) focusMatch() Model {
 
 	idx := matches[min(m.thread.search.cursor, len(matches)-1)]
 	width := m.transcriptWidth()
-	height := m.transcriptHeight()
 	lineCount := tr.lineCount(width, m.thread.filter)
+
+	height := 1
+	if info, ok := m.activeThread(); ok {
+		height = m.transcriptHeight(info)
+	}
 
 	lo, hi := rowLineSpan(tr, width, m.thread.filter, idx, lineCount)
 	if lo >= hi {

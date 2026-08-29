@@ -335,8 +335,11 @@ func (m Model) transcriptWidth() int {
 // possible.
 func (m Model) clampCursorVisible(tr *transcript) Model {
 	width := m.transcriptWidth()
-	height := m.transcriptHeight()
 	lineCount := tr.lineCount(width, m.thread.filter)
+	height := 0
+	if info, ok := m.activeThread(); ok {
+		height = m.transcriptHeight(info)
+	}
 
 	lo, hi := rowLineSpan(tr, width, m.thread.filter, m.thread.cursor, lineCount)
 	if lo >= hi {
@@ -572,50 +575,61 @@ func lastSeg(dir string) string {
 	return dir[i+1:]
 }
 
-// Layout constants for Thread view's fixed chrome: below stackedBelowWidth
-// columns the diff pane stacks under the transcript per DESIGN.md, and the
-// non-transcript rows (header, ledger, separators, diff, input) consume a
-// fixed share of the frame's height.
-const (
-	stackedBelowWidth = 100
-	chromeRows        = 8
-	stackedChromeRows = 10
-	ledgerLabelWidth  = 8
-)
+// ledgerLabelWidth is the inset the "ledger" label and the progress line
+// under it share, so both start at the same column.
+const ledgerLabelWidth = 8
 
-// transcriptHeight is the row budget the transcript window gets after the
-// frame's fixed chrome and whatever optional lines are showing.
-func (m Model) transcriptHeight() int {
-	height := m.height - chromeRows
-	if m.width < stackedBelowWidth {
-		const half = 2
-		height = (m.height - stackedChromeRows) / half
+// transcriptHeight is what the terminal has left after the rows rendered
+// around the transcript, which grow a line per changed file.
+func (m Model) transcriptHeight(info api.ThreadInfo) int {
+	return max(m.height-len(m.nonTranscriptBody(info))-frameBorderRows, 1)
+}
+
+const frameBorderRows = 2
+
+// nonTranscriptBody is in threadBody's own order, since it is what that
+// order costs.
+func (m Model) nonTranscriptBody(info api.ThreadInfo) []string {
+	return append(m.threadHead(info), m.threadTail()...)
+}
+
+func (m Model) threadHead(info api.ThreadInfo) []string {
+	inner := m.width - boxPad
+
+	head := []string{m.th.fgMuted.Render("ledger  " + truncate(ledgerLine(info), inner-ledgerLabelWidth))}
+	if progress := progressLine(info, m.now()); progress != "" {
+		head = append(head, m.th.fgMuted.Render("        "+truncate(progress, inner-ledgerLabelWidth)))
 	}
 
+	return head
+}
+
+func (m Model) threadTail() []string {
+	inner := m.width - boxPad
+	sep := strings.Repeat("─", max(inner, 0))
+
+	tail := []string{sep}
+	tail = append(tail, m.diffPane(inner)...)
 	if m.status != "" {
-		height--
+		tail = append(tail, m.th.statusWarn.Render(truncate(m.status, inner)))
 	}
 
 	if m.thread.search.visible() {
-		height--
+		tail = append(tail, m.searchLine(inner))
 	}
 
-	return max(height, 1)
+	return append(tail, sep, m.thread.input.inlineView(m.th))
 }
 
 func (m Model) threadBody(info api.ThreadInfo) []string {
 	inner := m.width - boxPad
 
-	var body []string
-	body = append(body, m.th.fgMuted.Render("ledger  "+truncate(ledgerLine(info), inner-ledgerLabelWidth)))
-	if progress := progressLine(info, m.now()); progress != "" {
-		body = append(body, m.th.fgMuted.Render("        "+truncate(progress, inner-ledgerLabelWidth)))
-	}
+	body := m.threadHead(info)
 
 	tr := m.transcripts[info.ID]
 	if tr != nil {
 		rows := tr.render(renderOpts{
-			width: inner, height: m.transcriptHeight(), offset: m.thread.scrollOffset,
+			width: inner, height: m.transcriptHeight(info), offset: m.thread.scrollOffset,
 			cursor: m.thread.cursor, theme: m.th, query: m.thread.search.query, filter: m.thread.filter,
 			links: m.links,
 		})
@@ -626,20 +640,7 @@ func (m Model) threadBody(info api.ThreadInfo) []string {
 		body = append(body, rows...)
 	}
 
-	sep := strings.Repeat("─", max(inner, 0))
-	body = append(body, sep)
-	body = append(body, m.diffPane(inner)...)
-	if m.status != "" {
-		body = append(body, m.th.statusWarn.Render(truncate(m.status, inner)))
-	}
-
-	if m.thread.search.visible() {
-		body = append(body, m.searchLine(inner))
-	}
-
-	body = append(body, sep, m.thread.input.inlineView(m.th))
-
-	return body
+	return append(body, m.threadTail()...)
 }
 
 // composeChrome is the rows renderCompose spends on the frame's border and
@@ -722,6 +723,21 @@ func changeSummary(tr *transcript, width int) []string {
 	paths, stats := tr.changeStats()
 	if len(paths) == 0 {
 		return []string{"  (no changes yet)"}
+	}
+
+	// Matches diffPane, so the fallback is never taller than the pane it stands in for.
+	const paneHeight = 6
+
+	if len(paths) > paneHeight {
+		rest := len(paths) - paneHeight + 1
+		paths = paths[:paneHeight-1]
+		out := make([]string, 0, paneHeight)
+		for _, path := range paths {
+			s := stats[path]
+			out = append(out, truncate(fmt.Sprintf("%s  +%d -%d", path, s[0], s[1]), width))
+		}
+
+		return append(out, truncate(fmt.Sprintf("  … %d more changed", rest), width))
 	}
 
 	out := make([]string, 0, len(paths))

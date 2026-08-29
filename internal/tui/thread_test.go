@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -375,7 +376,7 @@ func TestThreadCursor_ExpandedRowTallerThanPanelShowsFromTop(t *testing.T) {
 	m := newSized(t, tui.Options{NoColor: true}, 80, 24)
 	m = openThread(t, m, sampleThreads()[:1])
 
-	long := "HEADMARK " + strings.Repeat("word ", 200) + "TAILMARK"
+	long := "HEADMARK " + strings.Repeat("word ", 400) + "TAILMARK"
 	m = apply(t, m, api.Reply{Kind: api.RepEvent, Event: &event.Event{
 		ThreadID: "t1", Kind: event.KindTool, Text: long, Seq: 0,
 	}})
@@ -451,5 +452,50 @@ func TestThread_HeaderNamesThePinnedTier(t *testing.T) {
 
 			assert.Contains(t, m.View().Content, tc.want)
 		})
+	}
+}
+
+// The change summary grows a row per changed path and the frame's bottom
+// rule carries every key hint, so an overflow takes the hints off screen.
+func TestThread_FitsTheTerminalAcrossHeightsAndChangeCounts(t *testing.T) {
+	t.Parallel()
+
+	// The app itself refuses to render below 80x24, so the table starts at
+	// that floor.
+	sizes := []struct{ width, height int }{
+		{110, 30},
+		{120, 24},
+		{100, 40},
+		{80, 24},
+		{140, 31},
+	}
+	changeCounts := []int{1, 2, 3, 6, 12, 40}
+
+	for _, size := range sizes {
+		for _, changes := range changeCounts {
+			name := fmt.Sprintf("%dx%d/%d-files", size.width, size.height, changes)
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				m := newSized(t, tui.Options{NoColor: true}, size.width, size.height)
+				m = openThread(t, m, sampleThreads()[:1])
+
+				eventMsgs := make([]tea.Msg, 0, changes)
+				for i := range changes {
+					eventMsgs = append(eventMsgs, api.Reply{Kind: api.RepEvent, Event: &event.Event{
+						ThreadID: "t1", Kind: event.KindTool, Text: "edited file",
+						Seq:     uint64(i),
+						Changes: []tool.Change{{Path: fmt.Sprintf("pkg/file%02d.go", i), Added: 1, Removed: 1}},
+					}})
+				}
+				m = apply(t, m, eventMsgs...)
+
+				out := m.View().Content
+				assert.LessOrEqual(t, strings.Count(out, "\n")+1, size.height,
+					"the rendered thread screen must not be taller than the terminal")
+				assert.Contains(t, out, "└", "the frame's bottom rule holds every key hint, so it must stay on screen")
+				assert.Contains(t, out, "[tab]panel", "at least one key hint must survive in the footer")
+			})
+		}
 	}
 }
