@@ -66,6 +66,14 @@ func TestLintGateAbstainsRatherThanBlaming(t *testing.T) {
 func lintFixture(t *testing.T, source string) string {
 	t.Helper()
 
+	return lintFixtureWithSibling(t, source, "")
+}
+
+// lintFixtureWithSibling writes a package whose second file, when sibling is
+// non-empty, holds a declaration a.go depends on.
+func lintFixtureWithSibling(t *testing.T, source, sibling string) string {
+	t.Helper()
+
 	root := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(root, "go.mod"),
@@ -85,7 +93,39 @@ func lintFixture(t *testing.T, source string) string {
 		t.Fatalf("writing fixture file: %v", err)
 	}
 
+	if sibling != "" {
+		if err := os.WriteFile(filepath.Join(root, "b.go"), []byte(sibling), 0o600); err != nil {
+			t.Fatalf("writing sibling file: %v", err)
+		}
+	}
+
 	return root
+}
+
+// The linter type-checks whatever it is handed, so a changed file passed on
+// its own is one file of its package and every symbol declared in a sibling
+// reads as undefined. This gate took those for compile errors and abstained,
+// which made it silent on almost every real change: a package of one file is
+// the only shape that ever reported a finding.
+//
+//nolint:paralleltest // same lock as the tests above
+func TestLintGateSeesPastASiblingFile(t *testing.T) {
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		t.Skip("golangci-lint is not installed")
+	}
+
+	root := lintFixtureWithSibling(t,
+		"package a\n\nfunc F() (n int) {\n\tn = G()\n\treturn\n}\n",
+		"package a\n\nfunc G() int { return 1 }\n")
+
+	result := runLintGate(t, root)
+	if result.Reason != "" {
+		t.Fatalf("gate abstained on a package that compiles: %+v", result)
+	}
+
+	if result.Pass || len(result.Failures) != 1 {
+		t.Fatalf("result = %+v, want the naked return reported", result)
+	}
 }
 
 func runLintGate(t *testing.T, root string) gate.Result {

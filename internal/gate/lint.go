@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/tool"
@@ -22,12 +24,9 @@ const lintGateName = "lint"
 // a hundred rules is one mistake, and listing all of them buries it.
 const maxLintFindings = 10
 
-// typecheckSuffix marks a finding that is a compile error rather than a
-// rule. The linter type-checks before it lints, so a package that will not
-// build reports every parse and type error under this name. BuildGate is
-// already saying it in the same round, and 168 of the 264 lint findings
-// logged against a model were this, so reporting it here is the same
-// compile error arriving twice.
+// typecheckSuffix marks a compile error rather than a rule. One of these
+// anywhere in a linted package means most linters did not run, so the gate
+// abstains and lets BuildGate report the error once.
 const typecheckSuffix = "(typecheck)"
 
 // LintGate reports the linter findings on a run's own changed files.
@@ -74,8 +73,8 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 		return Abstained(g.Name(), rc.Selection.Level, lintTool+" is not installed"), nil
 	}
 
-	//nolint:gosec // files is this gate's own changed-file list
-	cmd := exec.CommandContext(ctx, path, append([]string{"run"}, files...)...)
+	//nolint:gosec // the arguments are this gate's own changed-file list
+	cmd := exec.CommandContext(ctx, path, slices.Concat(lintArgs, packagesOf(files))...)
 	cmd.Dir = g.repoRoot
 
 	out, err := cmd.CombinedOutput()
@@ -101,38 +100,61 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	}, nil
 }
 
+// lintArgs run the linter the way CI does: golangci-lint's default caps
+// hide findings CI then reports, and maxLintFindings is this gate's bound.
+var lintArgs = []string{"run", "--max-issues-per-linter=0", "--max-same-issues=0"}
+
+// packagesOf names the directories a change set's files sit in, since the
+// linter type-checks whatever it is handed: given a file it sees one file
+// of a package and reports every symbol declared elsewhere in that package
+// as undefined, which this gate then reads as a compile error and abstains
+// on. Findings are narrowed back to the changed files afterwards.
+func packagesOf(files []string) []string {
+	seen := map[string]bool{}
+
+	var out []string
+
+	for _, f := range files {
+		dir := "./" + filepath.ToSlash(filepath.Dir(f))
+		if seen[dir] {
+			continue
+		}
+
+		seen[dir] = true
+
+		out = append(out, dir)
+	}
+
+	return out
+}
+
 // lintFailures turns the linter's output into one failure per finding, so a
 // model reads which rule it broke and where rather than a wall of report.
 // A finding always names its own file and line, so unlike a compiler or a
 // test there is nothing to trim: every line is already about the change.
 func lintFailures(out []byte, changes []tool.Change) []TrimmedFailure {
 	changed := changedPaths(changes)
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+
+	// One type error anywhere in a linted package stops most linters from
+	// running at all, so whatever else the output holds is not a reading of
+	// the change. The build gate reports the error in the same round.
+	for _, line := range lines {
+		if strings.HasSuffix(strings.TrimSpace(line), typecheckSuffix) {
+			return nil
+		}
+	}
 
 	var findings []string
 
-	compileErrors := 0
-
-	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
-		if !namesAChangedFile(line, changed) {
-			continue
+	for _, line := range lines {
+		if namesAChangedFile(line, changed) {
+			findings = append(findings, strings.TrimSpace(line))
 		}
-		if strings.HasSuffix(strings.TrimSpace(line), typecheckSuffix) {
-			compileErrors++
-
-			continue
-		}
-		findings = append(findings, strings.TrimSpace(line))
-	}
-
-	if len(findings) == 0 && compileErrors > 0 {
-		return nil
 	}
 
 	if len(findings) == 0 {
-		return []TrimmedFailure{{
-			Test:    lintGateName,
-			Context: headOf(strings.Split(strings.TrimRight(string(out), "\n"), "\n")),
-		}}
+		return []TrimmedFailure{{Test: lintGateName, Context: headOf(lines)}}
 	}
 
 	dropped := 0
