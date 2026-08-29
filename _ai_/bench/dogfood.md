@@ -3774,3 +3774,37 @@ used to end at the two identifiers.
 
 What this does not settle: whether the advice reaches a run that has not yet
 edited anything, which is the other shape item 4 names and is still open.
+
+## 2026-08-29 — the lint gate was reading the linter's own trouble as findings
+
+Found by watching an `h3` replay rather than by looking for it. The run was
+handed this as a gate failure on its own changes:
+
+```
+lint lint
+  level=warning msg="[runner] Can't process results by generated_file_filter
+  processor: can't filter issue &result.Issue{FromLinter:\"errcheck\", ...
+```
+
+900 bytes of a quoted `result.Issue` struct, and the run spent a turn deciding
+it was "a stale cache replay" and moving on. It was right to ignore it and it
+should never have had to.
+
+Two causes, and each hides the other. The gate asked whether a line contains a
+changed file's path, and that warning quotes the path four times. And the path
+a finding opens with is the linter's own, resolved against its idea of the
+working directory: under a symlinked root (`/tmp`, `/var/folders`, both on
+macOS) a change set holding `internal/bench/stats.go` gets findings that open
+`../../<temp>/internal/bench/stats.go`. So the loose test was the only thing
+matching anything, and what it matched was the noise. Every real finding in
+every replay lane was dropped, silently, by the same rule that let the warning
+through.
+
+A finding now has to look like one, `path:line:col: `, and its path is matched
+by suffix. The fixture reproduces both: it lives under `t.TempDir()`, which is
+where the relative path comes from, and the test asserts the frames name `a.go`
+and carry no `level=warning`. Reverting either half fails it.
+
+This is the second defect in this gate found by reading a transcript instead of
+the code, after the package-scope fix earlier today. Both were invisible while
+its tests passed, and both were the test fixture agreeing with the bug.

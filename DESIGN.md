@@ -1071,12 +1071,14 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   candidate routing signals are plan mode, a Cycle phase declaring its
   shape, and the run's own tool history
 - The `lint` gate now runs over the packages a change touches, which is
-  what stopped it abstaining on every multi-file package, and it still
-  narrows its findings to the changed files. So it reads a neighbor and says
-  nothing about it: work displaced out of a run's own files is linted and
-  then filtered away. Reporting a package-level finding as the run's own
-  would blame it for what it inherited, so the remaining candidate is
-  diffing the package's issue count against the count at the run's start
+  what stopped it abstaining on every multi-file package, and a finding is
+  matched by shape and by path suffix, which is what stopped it reporting the
+  linter's own `level=warning` lines while dropping every real finding under a
+  symlinked root. So it reads a neighbor and says nothing about it: work
+  displaced out of a run's own files is linted and then filtered away.
+  Reporting a package-level finding as the run's own would blame it for what
+  it inherited, so the remaining candidate is diffing the package's issue
+  count against the count at the run's start
 
 **Closed**, newest first, each with its lane dated in
 `_ai_/bench/dogfood.md`:

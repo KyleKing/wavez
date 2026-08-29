@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -170,9 +171,32 @@ func lintFailures(out []byte, changes []tool.Change) []TrimmedFailure {
 	return []TrimmedFailure{{Test: lintGateName, Frames: findings}}
 }
 
+// findingLine matches the head of a golangci-lint finding,
+// `path:line:col: message (linter)`.
+var findingLine = regexp.MustCompile(`^(.+?):\d+:\d+: `)
+
+// namesAChangedFile reports whether a line is a finding about one of the
+// changed files. It matches the path a finding opens with rather than the
+// path anywhere in the line, and it matches by suffix.
+//
+// Both halves are load-bearing. Anywhere in the line reads the linter's own
+// diagnostics as findings: a workspace under a symlinked root turned one
+// `level=warning` line quoting a result.Issue struct into a 900-byte finding
+// that a run then spent a turn explaining away. And the path a finding opens
+// with is resolved against the linter's idea of the working directory, which
+// under such a root is `../../<temp>/internal/bench/stats.go` for a change
+// set holding `internal/bench/stats.go`, so an equality test drops every real
+// finding while keeping that warning.
 func namesAChangedFile(line string, changed []string) bool {
+	match := findingLine.FindStringSubmatch(strings.TrimSpace(line))
+	if match == nil {
+		return false
+	}
+
+	reported := filepath.ToSlash(filepath.Clean(match[1]))
+
 	for _, path := range changed {
-		if strings.Contains(line, path) {
+		if reported == path || strings.HasSuffix(reported, "/"+path) {
 			return true
 		}
 	}

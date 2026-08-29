@@ -36,8 +36,16 @@ func TestLintGateReportsWhatTheFixPassCannotFix(t *testing.T) {
 		t.Fatalf("Failures = %+v, want one entry naming the findings", result.Failures)
 	}
 
-	if !strings.Contains(strings.Join(result.Failures[0].Frames, "\n"), "a.go") {
+	frames := strings.Join(result.Failures[0].Frames, "\n")
+	if !strings.Contains(frames, "a.go") {
 		t.Errorf("frames = %v, want them to name the changed file", result.Failures[0].Frames)
+	}
+
+	// Under a symlinked temp root the linter narrates its own trouble
+	// resolving that path, quoting the whole result.Issue struct. Reading
+	// those lines as findings costs a run a turn to explain away.
+	if strings.Contains(frames, "level=warning") {
+		t.Errorf("frames = %v, want the linter's own diagnostics left out", result.Failures[0].Frames)
 	}
 }
 
