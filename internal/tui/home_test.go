@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -286,4 +287,130 @@ func TestHome_FilterStateTerm(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHome_Selection is the selection set as one table: space toggles a
+// row, `*` marks every filtered row and a second `*` clears, the status
+// line counts what a bulk action would touch, and y/n/a answer every
+// selected row with a prompt pending (an answered row drops its marker and
+// its prompt line, so the screen agrees with what was sent).
+func TestHome_Selection(t *testing.T) {
+	t.Parallel()
+
+	pending := []api.PendingInfo{
+		{ID: "p1", ThreadID: "t2", Thread: "docs-pass", Tool: "shell", Action: "rm -rf .testmondata"},
+		{ID: "p2", ThreadID: "t3", Thread: "add-jj-backend", Tool: "write", Action: "write internal/lease.go"},
+	}
+
+	tests := []struct {
+		name    string
+		setup   []api.Reply
+		keys    string
+		want    []string
+		wantNot []string
+	}{
+		{
+			name:  "space marks the cursor row, without hiding its cursor mark",
+			setup: []api.Reply{{Kind: api.RepThreads, Threads: sampleThreads()}},
+			keys:  "<sp>",
+			want:  []string{"1 selected", ">*  docs-pass"},
+		},
+		{
+			name:    "space twice returns the row to unmarked",
+			setup:   []api.Reply{{Kind: api.RepThreads, Threads: sampleThreads()}},
+			keys:    "<sp><sp>",
+			want:    []string{"5 of 5 threads"},
+			wantNot: []string{"selected", " * "},
+		},
+		{
+			name:  "`*` marks every filtered row, the cursor row carrying both marks",
+			setup: []api.Reply{{Kind: api.RepThreads, Threads: sampleThreads()}},
+			keys:  "*",
+			want:  []string{"5 selected", ">*  docs-pass", " *  fix-lock-timeout", " *  add-jj-backend"},
+		},
+		{
+			name:    "a second `*` clears the selection",
+			setup:   []api.Reply{{Kind: api.RepThreads, Threads: sampleThreads()}},
+			keys:    "**",
+			want:    []string{"5 of 5 threads"},
+			wantNot: []string{"selected", " * "},
+		},
+		{
+			name:    "`*` selects only what the filter shows once it is applied",
+			setup:   []api.Reply{{Kind: api.RepThreads, Threads: sampleThreads()}},
+			keys:    "/calcipy<cr>*",
+			want:    []string{"2 of 5 threads", "2 selected", ">*  docs-pass", " *  fix-lock-timeout"},
+			wantNot: []string{" *  add-jj-backend"},
+		},
+		{
+			name:    "esc clears a selection",
+			setup:   []api.Reply{{Kind: api.RepThreads, Threads: sampleThreads()}},
+			keys:    "*<esc>",
+			want:    []string{"5 of 5 threads"},
+			wantNot: []string{"selected", " * "},
+		},
+		{
+			name: "y answers every selected row with a prompt pending",
+			setup: []api.Reply{
+				{Kind: api.RepThreads, Threads: sampleThreads()},
+				{Kind: api.RepPending, Pending: pending},
+			},
+			keys: "*y",
+			want: []string{"3 selected"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := newSized(t, tui.Options{Dir: "/dev/wavez", NoColor: true}, 120, 40)
+			for _, r := range tt.setup {
+				m = apply(t, m, r)
+			}
+
+			for _, k := range keyMsgs(tt.keys) {
+				m = apply(t, m, k)
+			}
+
+			out := m.View().Content
+
+			for _, want := range tt.want {
+				assert.Contains(t, out, want)
+			}
+
+			for _, not := range tt.wantNot {
+				assert.NotContains(t, out, not)
+			}
+		})
+	}
+}
+
+// keyMsgs turns a literal key sequence into the messages a real terminal
+// sends: `<sp>`, `<esc>`, `<cr>`, and `<tab>` as those keys, every other
+// rune as itself.
+func keyMsgs(keys string) []tea.KeyPressMsg {
+	msgs := make([]tea.KeyPressMsg, 0, len(keys))
+
+	for keys != "" {
+		var msg tea.KeyPressMsg
+
+		switch {
+		case strings.HasPrefix(keys, "<sp>"):
+			msg, keys = tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}, keys[len("<sp>"):]
+		case strings.HasPrefix(keys, "<esc>"):
+			msg, keys = tea.KeyPressMsg{Code: tea.KeyEscape}, keys[len("<esc>"):]
+		case strings.HasPrefix(keys, "<cr>"):
+			msg, keys = tea.KeyPressMsg{Code: tea.KeyEnter}, keys[len("<cr>"):]
+		case strings.HasPrefix(keys, "<tab>"):
+			msg, keys = tea.KeyPressMsg{Code: tea.KeyTab}, keys[len("<tab>"):]
+		default:
+			r, size := utf8.DecodeRuneInString(keys)
+			msg, keys = tea.KeyPressMsg{Code: r, Text: string(r)}, keys[size:]
+		}
+
+		msgs = append(msgs, msg)
+	}
+
+	return msgs
 }

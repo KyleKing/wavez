@@ -1003,9 +1003,15 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    matches no text, so `/state:failed` is the failures alone where
    `/failed` also caught a goal saying `failedEdit`, `/state:failed rename`
    narrows by both, and a word after the colon that names no state matches
-   nothing, which puts a typo on screen as an empty list. What is left is
-   acting on a selection rather than a row. The rest of the screens have
-   had no equivalent pass.
+   nothing, which puts a typo on screen as an empty list. A selection
+   followed: space marks the cursor row, `*` marks every row the filter
+   shows and a second `*` clears, the count sits in the header beside the
+   match count, and `y`/`n`/`a` answer every selected row that has a prompt
+   pending. Enter applies the filter, which the footer had advertised and
+   the input swallowed, and without which `*` could never reach what a
+   filter narrowed to. What is left on this screen is archiving a
+   selection, which needs a thread state the daemon does not carry yet. The
+   rest of the screens have had no equivalent pass.
 
 **Also open**, and not competing with the four above:
 

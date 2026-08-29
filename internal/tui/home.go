@@ -18,7 +18,11 @@ import (
 
 // homeState is Home's list cursor, filter, per-row expansion, and scope.
 type homeState struct {
-	expanded    map[string]bool
+	expanded map[string]bool
+	// selected is the bulk-action set, keyed by thread ID the way expanded
+	// is. `*` fills it from the filtered rows, space toggles one row, and
+	// esc clears it.
+	selected    map[string]bool
 	filterInput textinput.Model
 	answerInput textinput.Model
 	cursor      int
@@ -38,6 +42,7 @@ type homeState struct {
 func newHomeState(th theme) homeState {
 	return homeState{
 		expanded:    map[string]bool{},
+		selected:    map[string]bool{},
 		filterInput: th.newInput("filter by name or directory"),
 		answerInput: th.newInput("type an answer, or y/n/a"),
 	}
@@ -215,6 +220,16 @@ func (m Model) pendingFor(threadID string) *api.PendingInfo {
 
 func (m Model) updateHomeKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 	if m.home.filtering {
+		// Enter applies the filter: the query stays and the list keys come
+		// back, so `*` can select what the filter narrowed to. Esc, in
+		// popOrClose, is the cancel path and resets the query.
+		if s == keyEnter {
+			m.home.filtering = false
+			m.home.filterInput.Blur()
+
+			return m, nil
+		}
+
 		var cmd tea.Cmd
 		m.home.filterInput, cmd = m.home.filterInput.Update(msg)
 
@@ -280,10 +295,10 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 		}
 	case "y", "n", "a":
 		// A pending prompt owns these letters while it is focused; with no
-		// prompt on the row, `n` means new thread.
+		// prompt on the row and none in the selection, `n` means new thread.
 		if len(rows) > 0 {
 			row := rows[m.cappedCursor(len(rows))]
-			if m.pendingFor(row.ID) != nil {
+			if m.pendingFor(row.ID) != nil || m.selectionPending() {
 				return m.homeAnswer(msg, s, row)
 			}
 		}
@@ -291,9 +306,79 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 		if s == "n" {
 			return m.openNewThread("")
 		}
+	default:
+		return m.homeSelectionKey(s, rows)
 	}
 
 	return m, nil
+}
+
+// homeSelectionKey is the selection-set keys, split out of homeActionKey
+// the way homeCursorMove was split out of updateHomeKey, to keep both under
+// the complexity budget.
+func (m Model) homeSelectionKey(s string, rows []api.ThreadInfo) (Model, tea.Cmd) {
+	switch s {
+	case " ", "space":
+		if len(rows) > 0 {
+			return m.toggleSelected(rows[m.cappedCursor(len(rows))].ID), nil
+		}
+	case "*":
+		return m.selectAll(rows), nil
+	}
+
+	return m, nil
+}
+
+// toggleSelected marks or unmarks one row for a bulk action.
+func (m Model) toggleSelected(id string) Model {
+	if m.home.selected[id] {
+		delete(m.home.selected, id)
+
+		return m
+	}
+
+	m.home.selected[id] = true
+
+	return m
+}
+
+// selectAll marks every row the current filter shows, or clears the
+// selection when every shown row is already marked, so the one key does
+// both.
+func (m Model) selectAll(rows []api.ThreadInfo) Model {
+	all := true
+	for i := range rows {
+		if !m.home.selected[rows[i].ID] {
+			all = false
+
+			break
+		}
+	}
+
+	if all {
+		m.home.selected = map[string]bool{}
+
+		return m
+	}
+
+	for i := range rows {
+		m.home.selected[rows[i].ID] = true
+	}
+
+	return m
+}
+
+// selectionPending reports whether any selected row is waiting on an
+// answer, which is what lets y/n/a act on a selection whose cursor row has
+// nothing pending itself.
+func (m Model) selectionPending() bool {
+	for id := range m.home.selected {
+		if m.pendingFor(id) != nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // toggleScope switches Home between the launch root and the whole fleet,
@@ -345,6 +430,14 @@ func (m Model) openThread(id string) (Model, tea.Cmd) {
 }
 
 func (m Model) homeAnswer(msg tea.KeyPressMsg, s string, row api.ThreadInfo) (Model, tea.Cmd) {
+	// A selection answers every selected row that has one pending and
+	// leaves the rest alone, so the cursor row's own prompt does not steal
+	// the key when a bulk answer is what was asked for. A question's typed
+	// answer keeps ownership of the keys while it is being written.
+	if !m.home.answerActive && len(m.home.selected) > 0 {
+		return m.homeAnswerSelection(s)
+	}
+
 	pending := m.pendingFor(row.ID)
 	if pending == nil {
 		m.home.answerActive = false
@@ -370,6 +463,43 @@ func (m Model) homeAnswer(msg tea.KeyPressMsg, s string, row api.ThreadInfo) (Mo
 	return m, nil
 }
 
+// homeAnswerSelection applies y/n/a to every selected row with a prompt
+// pending and leaves the rest selected, so a selection of mixed rows keeps
+// the ones the key did not touch. Questions need typed text, so a selection
+// answers only the plain permission prompts; a question still takes its own
+// answer inline.
+func (m Model) homeAnswerSelection(s string) (Model, tea.Cmd) {
+	var decision permission.Decision
+
+	switch s {
+	case "y":
+		decision = permission.Allow
+	case "n":
+		decision = permission.Deny
+	case "a":
+		decision = permission.AllowAlways
+	default:
+		return m, nil
+	}
+
+	m.home.answerActive = false
+
+	var cmds []tea.Cmd
+	for id := range m.home.selected {
+		pending := m.pendingFor(id)
+		if pending == nil || pending.Question {
+			continue
+		}
+
+		nm, cmd := m.sendAnswer(pending.ID, "", decision)
+		m = nm
+		delete(m.home.selected, id)
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
 func (m Model) homeAnswerQuestion(msg tea.KeyPressMsg, s string, pending api.PendingInfo) (Model, tea.Cmd) {
 	if !m.home.answerActive {
 		m.home.answerActive = true
@@ -392,6 +522,7 @@ func (m Model) homeAnswerQuestion(msg tea.KeyPressMsg, s string, pending api.Pen
 
 func (m Model) sendAnswer(promptID, text string, decision permission.Decision) (Model, tea.Cmd) {
 	m.home.answerActive = false
+	m.dropPending(promptID)
 
 	var cmd tea.Cmd
 	if m.client != nil {
@@ -399,6 +530,20 @@ func (m Model) sendAnswer(promptID, text string, decision permission.Decision) (
 	}
 
 	return m, cmd
+}
+
+// dropPending removes an answered prompt from the local list so its row
+// reads as answered on screen; the daemon's next pending push replaces the
+// list wholesale, which reconciles anything the daemon disagreed with.
+func (m *Model) dropPending(promptID string) {
+	kept := m.pending[:0]
+	for i := range m.pending {
+		if m.pending[i].ID != promptID {
+			kept = append(kept, m.pending[i])
+		}
+	}
+
+	m.pending = kept
 }
 
 func (m Model) renderHome() string {
@@ -479,6 +624,10 @@ func (m Model) homeStatus(shown int) string {
 
 	if q := strings.TrimSpace(m.home.filterInput.Value()); q != "" {
 		parts = append(parts, "matching "+q)
+	}
+
+	if n := len(m.home.selected); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d selected", n))
 	}
 
 	parts = append(parts, "by "+m.home.sort.String())
@@ -620,7 +769,7 @@ const (
 	goalPreviewLines   = 2
 )
 
-func (m Model) renderHomeRow(t api.ThreadInfo, c homeCols, selected bool) string {
+func (m Model) renderHomeRow(t api.ThreadInfo, c homeCols, current bool) string {
 	prefix := "  "
 	if t.Parent != "" {
 		prefix = "└ "
@@ -641,11 +790,23 @@ func (m Model) renderHomeRow(t api.ThreadInfo, c homeCols, selected bool) string
 		ageColWidth-1, age(t.LastEvent, m.now()),
 		spendColWidth-1, spend(t.Spend))
 
-	if selected {
-		return m.th.accent.Render("> " + line)
+	// The gutter's two cells are the cursor `>` and the selection marker,
+	// so a row can be both current and selected with neither hiding the
+	// other.
+	gutter := "  "
+	if current {
+		gutter = "> "
 	}
 
-	return m.th.fgDefault.Render("  " + line)
+	if m.home.selected[t.ID] {
+		gutter = gutter[:1] + "*"
+	}
+
+	if current {
+		return m.th.accent.Render(gutter + line)
+	}
+
+	return m.th.fgDefault.Render(gutter + line)
 }
 
 // homeStep is the live detail cell: what the thread is doing right now,

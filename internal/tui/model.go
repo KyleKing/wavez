@@ -140,51 +140,76 @@ func (m *Model) push(s screenKind) {
 // popOrClose implements Esc: close an overlay first, then go up one level
 // in the screen stack, and do nothing at the root. Esc never quits.
 func (m *Model) popOrClose() {
+	if m.closeOverlay() {
+		return
+	}
+
+	if len(m.stack) > 1 {
+		m.stack = m.stack[:len(m.stack)-1]
+		m.focus = 0
+	}
+}
+
+// closeOverlay is Esc's first rung: the overlays that float above every
+// screen. It reports whether esc did something, so popOrClose knows not to
+// also pop.
+func (m *Model) closeOverlay() bool {
 	if m.help {
 		m.help = false
 
-		return
+		return true
 	}
 	if m.palette.open {
 		m.palette.open = false
 
-		return
+		return true
 	}
 	if m.restore.open {
 		m.restore = restoreState{}
 		m.status = "undo canceled"
 
-		return
+		return true
 	}
+
+	return m.closeScreenState()
+}
+
+// closeScreenState is Esc's second rung: the state the current screen peels
+// away before esc pops the stack. Ordering is the contract, so the home
+// filter clears before the home selection does.
+func (m *Model) closeScreenState() bool {
 	if m.top() == screenThread && m.focus == focusInput {
 		m.popComposer()
 
-		return
+		return true
 	}
 	if m.top() == screenThread && m.thread.search.visible() {
 		m.clearSearch()
 
-		return
+		return true
 	}
 	if m.top() == screenThread && m.thread.filter != catNone {
 		m.thread.filter = catNone
 
-		return
+		return true
 	}
 	if m.top() == screenModels && m.closeModelsOverlay() {
-		return
+		return true
 	}
 	if m.top() == screenHome && m.home.filtering {
 		m.home.filtering = false
 		m.home.filterInput.Blur()
 		m.home.filterInput.Reset()
 
-		return
+		return true
 	}
-	if len(m.stack) > 1 {
-		m.stack = m.stack[:len(m.stack)-1]
-		m.focus = 0
+	if m.top() == screenHome && len(m.home.selected) > 0 {
+		m.home.selected = map[string]bool{}
+
+		return true
 	}
+
+	return false
 }
 
 // popComposer is Esc's ladder inside the composer: insert mode drops to
