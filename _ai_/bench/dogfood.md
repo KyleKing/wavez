@@ -3482,3 +3482,83 @@ identical call sites in `internal/bench/stats_test.go`, which `replace_all`
 changes in one call. The runs that finish are the ones that grind or escalate,
 and making retrieval cheap moved the failure from finding the work to
 committing to it.
+
+## 2026-08-29 — the network tiers move to z.ai, and GLM answers a composed schema with {}
+
+Both network tiers now serve GLM-5.3 from the z.ai coding plan instead of
+OpenRouter, so a turn that leaves this laptop costs a subscription rather
+than a token. Three things had to be settled to make that a move rather than
+a swap.
+
+**The coding-plan key opens one endpoint.** `https://api.z.ai/api/paas/v4`
+refuses it; `https://api.z.ai/api/coding/paas/v4` serves it. The key is read
+from the login keychain by a per-tier `keyCommand`, so it never reaches the
+environment, the repo, or the process table, and a tier moved to another
+provider fails to authenticate rather than handing that provider this key.
+
+**The escalation had to stay an escalation.** Both network tiers naming
+`glm-5.3` on the same settings means a turn that fails on `balanced` re-runs
+on the model that just produced the failure. Reasoning is the lever this
+config has: `"thinking": {"type": "enabled"}` (a string, not a boolean)
+against `disabled` measured 98 reasoning tokens versus 0 on the same prompt,
+so `deep` is the reasoning pass and `balanced` is not.
+
+**And then three runs in a row died `loop_detected`, all emitting
+`str_replace` with `{}`.** The sidecar confirmed the arguments were genuinely
+empty rather than truncated by the event log, and raw SSE from the provider
+showed the arguments arriving complete in a single delta with correct
+`index` values, which exonerated the accumulation path and implicated the
+schema. Three probes at the provider, same prompt and same tool, varying only
+the parameter schema:
+
+| Schema for `str_replace` | Completion tokens | Arguments |
+|---|---|---|
+| The real one (top-level `oneOf`) | 6 | `{}` |
+| Flattened to its first branch | 52 | correct and complete |
+| Top-level `anyOf` | 6 | `{}` |
+
+GLM-5.3 honors no top-level schema composition, in either spelling. That is
+why `str_replace` was the only tool failing while `read` and `search` worked
+in the same threads: it is the only tool built with `buildOneOf`. The shape
+exists because llama-server compiles a grammar from the schema and a flat
+`required` list lets a local turn close the call after `old_string`, which is
+the fix recorded on 2026-08-23. Right for the tier it was measured on, fatal
+on the one it was never measured against.
+
+`openaic.schemaFor` sends a dialect that does not compose the first branch of
+the composition, chosen at the one place tool schemas reach the wire. What it
+drops costs extra calls rather than correctness, since the first branch is
+the shape a caller can always satisfy. The edit that had looped three times
+then landed in four turns with `stop=complete`. The standing consequence is
+in `AGENTS.local.md`: a tool reachable only through a later `buildOneOf`
+branch is a tool the hosted tiers cannot reach at all.
+
+## 2026-08-29 — Home gets a state filter and a selection, driven through wavez
+
+Both halves of Next item 5, written by wavez against its own repository and
+verified in a PTY at 110x28 over the real 397-thread list.
+
+`/state:failed` narrows by lifecycle position alone, where `/failed` had also
+matched a goal saying `failedEdit`, because the filter scanned the state
+label as one more text field. `/state:failed rename` narrows by both, and a
+word after the colon that names no state matches nothing, so a typo reads as
+an empty list rather than a silent match-all. Then `*` marks every row the
+filter shows (212 of 397, counted in the header beside the match count),
+space marks the cursor row, `>*` says a row is both current and selected, and
+Esc peels the selection before it peels the filter. `y`/`n`/`a` answer every
+selected row with a prompt pending.
+
+Enter never applied the filter despite the footer advertising it, which the
+selection found rather than the filter lane: `*` cannot reach what a filter
+narrowed to if the filter never commits. Archiving a selection is what is
+left, and it needs a thread state the daemon does not carry.
+
+**Where the run needed a hand, and why each one is a gap rather than a
+stumble.** It emitted duplicate declarations of the same two helpers and kept
+going, so the package did not build. It could not write its own DESIGN.md
+sentence until the `oneOf` fix above landed. And asked to reduce complexity
+in `popOrClose` it moved the complexity into `closeOverlay` and reported
+clean, because the `lint` gate runs `golangci-lint` on a run's changed files
+and the function it had pushed the issue into was not one of them. A gate
+scoped to changed files cannot see work displaced out of them, which is worth
+an item on its own.
