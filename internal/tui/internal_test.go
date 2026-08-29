@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -130,6 +131,107 @@ func TestTranscript_RenderExpandsAnswerAndFoldsNote(t *testing.T) {
 
 	assert.Greater(t, len(answerLines), 1, "an expanded answer wraps across multiple lines")
 	assert.Len(t, noteLines, 1, "a folded note stays one line")
+}
+
+// lipgloss measures a tab as one cell where the terminal renders eight, so a
+// tab reaching a rendered row walks the frame's right border off that row.
+func TestTranscript_ExpandedRowRendersNoTab(t *testing.T) {
+	t.Parallel()
+
+	tr := &transcript{}
+	tr.append(event.Event{
+		Kind: event.KindTool, Tool: "read",
+		Text: "internal/tui/thread.go (lines 1-3 of 3):\nfunc x() {\n\tif y {\n\t\treturn\n\t}\n}",
+	})
+	require.Len(t, tr.rows, 1)
+
+	r := tr.rows[0]
+	r.expanded = true
+
+	for _, line := range renderRowLines(r, 110, newTheme(true), "", false, link.Table{}) {
+		assert.NotContains(t, line, "\t", "a rendered row carries no tab")
+	}
+}
+
+func TestTranscript_FoldedToolRowShowsItsHeadline(t *testing.T) {
+	t.Parallel()
+
+	th := newTheme(true)
+
+	// Wide enough that every case's first line fits whole, so what the
+	// assertions see is the fold rule, not the truncation rule.
+	const width = 110
+
+	cases := []struct {
+		name     string
+		tool     string
+		text     string
+		foldHas  string // what the one folded line must carry
+		foldLack string // what it must not carry: body left to the expanded row
+	}{
+		{
+			name: "read carries its file header and a body below",
+			tool: "read",
+			text: "internal/tui/thread.go (lines 295-345 of 982):\n295 }\n" +
+				"296 case \"y\", \"n\", \"a\":\n297 // A pendi",
+			foldHas:  "read internal/tui/thread.go (lines 295-345 of 982):…",
+			foldLack: "295 }",
+		},
+		{
+			name: "search folds to its summary line",
+			tool: "search",
+			text: "20 results, of 99 that matched; raise limit or narrow the query to see the rest\n" +
+				"internal/tui/thread.go\ninternal/tui/home.go",
+			foldHas:  "search 20 results, of 99 that matched; raise limit or narrow the query to see the rest…",
+			foldLack: "internal/tui/thread.go",
+		},
+		{
+			name:    "shell folds to its exit code",
+			tool:    "shell",
+			text:    "exit code: 0\nGOOS=\"darwin\"\nGOARCH=\"arm64\"",
+			foldHas: "shell exit code: 0…",
+		},
+		{
+			name:    "str_replace has nothing under its headline",
+			tool:    "str_replace",
+			text:    "internal/tui/thread.go: +46 -26 lines (now lines 581-623)",
+			foldHas: "str_replace internal/tui/thread.go: +46 -26 lines (now lines 581-623)",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tr := &transcript{}
+			tr.append(event.Event{Kind: event.KindTool, Tool: tc.tool, Text: tc.text})
+			require.Len(t, tr.rows, 1)
+			require.False(t, tr.rows[0].expanded, "a tool row folds by default")
+
+			r := tr.rows[0]
+			folded := renderRowLines(r, width, th, "", false, link.Table{})
+			require.Len(t, folded, 1, "a folded row is one line")
+
+			foldLine := ansi.Strip(folded[0])
+			assert.Contains(t, foldLine, tc.foldHas)
+			if tc.foldLack != "" {
+				assert.NotContains(t, foldLine, tc.foldLack,
+					"a folded row spends its width on the headline, not the body")
+			}
+
+			r.expanded = true
+
+			expanded := renderRowLines(r, width, th, "", false, link.Table{})
+			body := strings.Join(expanded, "\n")
+			for _, ln := range strings.Split(tc.text, "\n")[1:] {
+				if ln == "" {
+					continue
+				}
+
+				assert.Contains(t, body, ln, "an expanded row still carries the whole result")
+			}
+		})
+	}
 }
 
 func TestTranscript_LinkedIdentifierDoesNotWidenTheWrap(t *testing.T) {

@@ -359,34 +359,59 @@ func renderRowLines(r row, width int, th theme, query string, marked bool, links
 	}
 
 	if !r.expanded {
-		line := truncate(text, width-indent)
+		line := firstLine(text)
+		more := strings.Contains(text, "\n")
 
-		return []string{prefix + style.Render(label) + " " + highlightWords(line, query, th.searchHit)}
+		folded := highlightWords(fold(line, width-indent, more), query, th.searchHit)
+
+		return []string{prefix + style.Render(label) + " " + folded}
 	}
 
-	wrapped := strings.Split(lipgloss.Wrap(text, max(width-indent, 1), ""), "\n")
+	out := make([]string, 0, 2)
 
-	out := make([]string, 0, len(wrapped))
+	for _, ln := range strings.Split(text, "\n") {
+		for _, w := range strings.Split(lipgloss.Wrap(ln, max(width-indent, 1), ""), "\n") {
+			highlighted := highlightWords(w, query, th.searchHit)
+			if len(out) == 0 {
+				out = append(out, prefix+style.Render(label)+" "+highlighted)
 
-	for i, w := range wrapped {
-		highlighted := highlightWords(w, query, th.searchHit)
-		if i == 0 {
-			out = append(out, prefix+style.Render(label)+" "+highlighted)
+				continue
+			}
 
-			continue
+			out = append(out, pad+highlighted)
 		}
-
-		out = append(out, pad+highlighted)
 	}
 
 	return out
 }
 
-// rowText is a row's normalized, single-line content: a tool row is
-// prefixed by its tool name to match the label, per DESIGN.md's mock
-// ("▸ tool  ran gofmt").
+// firstLine returns s up to its first newline.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+
+	return s
+}
+
+// fold truncates to n cells, ending in the ellipsis that marks more to read
+// whenever a body sits under the line, not only when the line itself is cut.
+func fold(s string, n int, more bool) string {
+	if more && lipgloss.Width(s) <= n {
+		return truncate(s, n-1) + "…"
+	}
+
+	return truncate(s, n)
+}
+
+// rowText is a row's normalized content: a tool row is prefixed by its tool
+// name to match the label, per DESIGN.md's mock ("▸ tool  ran gofmt"). Line
+// breaks survive because the fold reads them; a tab does not, since lipgloss
+// measures it as one cell and the terminal renders eight, which walks the
+// frame's right border off a row carrying indented source.
 func rowText(r row) string {
-	text := flatten(r.text)
+	text := strings.ReplaceAll(r.text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\t", tabStop)
 	if r.tool != "" && r.kind == event.KindTool {
 		text = r.tool + " " + text
 	}
@@ -394,18 +419,8 @@ func rowText(r row) string {
 	return text
 }
 
-// flatten collapses a row's text to one line. A transcript row's fold state
-// is what controls how many lines it spans, so text destined for either a
-// folded or an expanded row is normalized the same way first: a tool result
-// carrying a whole file would otherwise print its newlines straight through
-// the frame and destroy the layout.
-func flatten(s string) string {
-	if !strings.ContainsAny(s, "\n\r\t") {
-		return s
-	}
-
-	return strings.Join(strings.Fields(s), " ")
-}
+// tabStop is what a tab becomes, since lipgloss cannot measure the real one.
+const tabStop = "    "
 
 func rowLabel(k event.Kind, th theme) (string, lipgloss.Style) {
 	switch k {
