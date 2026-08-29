@@ -46,6 +46,25 @@ func TestThread_VisibleWindowOnly(t *testing.T) {
 	assert.NotContains(t, out, "step 0\n", "an event far outside the window must not render")
 }
 
+// An esc that falls through here pops the screen underneath while the goal
+// keeps rendering, and `g` is a no-op off the thread screen, so nothing
+// closes the overlay again.
+func TestThread_GoalOverlayEscClosesWithoutPopping(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{NoColor: true}, 100, 24)
+	m = openThread(t, m, sampleThreads()[:1])
+
+	m = apply(t, m, tea.KeyPressMsg{Code: 'g', Text: "g"})
+	require.Contains(t, m.View().Content, "goal · fix-lock-timeout", "g opened the goal overlay")
+
+	m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEsc})
+	out := m.View().Content
+
+	assert.NotContains(t, out, "goal · ", "esc closed the goal overlay")
+	assert.Contains(t, out, "fix-lock-timeout", "the thread screen is still the one showing")
+}
+
 func TestThread_DiffPaneSummarizesChanges(t *testing.T) {
 	t.Parallel()
 

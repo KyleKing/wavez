@@ -164,6 +164,11 @@ func (m *Model) closeOverlay() bool {
 
 		return true
 	}
+	if m.goal {
+		m.goal = false
+
+		return true
+	}
 	if m.restore.open {
 		m.restore = restoreState{}
 		m.status = "undo canceled"
