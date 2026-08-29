@@ -1054,12 +1054,13 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   `sysinfo.Memory`. That is the tier rather than the tool surface, and the
   candidate routing signals are plan mode, a Cycle phase declaring its
   shape, and the run's own tool history
-- A gate scoped to a run's changed files cannot see work displaced out of
-  them. Asked to reduce complexity in one function, a run moved it into a
-  neighbor and the `lint` gate reported clean, because `golangci-lint` ran
-  over the changed files and the neighbor was not one. The candidates are
-  running the linter over the package a changed file sits in, or diffing the
-  whole-module issue count against the count at the run's start
+- The `lint` gate now runs over the packages a change touches, which is
+  what stopped it abstaining on every multi-file package, and it still
+  narrows its findings to the changed files. So it reads a neighbor and says
+  nothing about it: work displaced out of a run's own files is linted and
+  then filtered away. Reporting a package-level finding as the run's own
+  would blame it for what it inherited, so the remaining candidate is
+  diffing the package's issue count against the count at the run's start
 
 **Closed**, newest first, each with its lane dated in
 `_ai_/bench/dogfood.md`:

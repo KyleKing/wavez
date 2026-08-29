@@ -3662,3 +3662,34 @@ one `mnd`, one `thelper`, three `lll`, two `gofumpt`. The lint gate reads a
 run's changed files and still sees less than `golangci-lint run ./...`,
 which is the open item under "Also open" and is now worth more than the
 phrasing work it keeps interrupting.
+
+## 2026-08-29 — why the lint gate had been silent
+
+Three runs in a row reported passing gates and left findings CI fails, so
+the gate was worth reading before the next lane. `LintGate` ran
+`golangci-lint run <changed files...>`. Handed a file rather than a package,
+the linter type-checks that file alone, so every symbol declared in a
+sibling comes back undefined: twenty-three `(typecheck)` errors on
+`internal/tui/help.go` and no rule findings at all. The gate read those as a
+compile error, took its "the build gate reports it" branch, and abstained.
+The build gate was green, so nothing reached the run.
+
+That is every multi-file package in the module, which is every package. The
+one shape that ever reported a finding was a package of one file, which is
+what `lint_test.go`'s fixture was.
+
+The gate now names the directories instead and narrows findings back to the
+changed files, so its scope is unchanged and its reading is not. Reverting
+that one argument makes the new two-file fixture abstain with "the change
+does not compile" on a package that compiles, which is the whole bug in one
+line. The compile-error rule widened with it: one `(typecheck)` anywhere in
+a linted package means most linters never ran, so the gate abstains on the
+whole output rather than on the changed-file slice of it. Under package
+scope `golangci-lint` also prints a build-failure header
+(`a.go:1: : # fixture`) that carries no `(typecheck)` suffix and named a
+changed file, so the old rule would have reported it as a finding.
+
+What this does not fix is the displaced-work case in "Also open". The gate
+reads the neighbor now and filters it out, because a package-level finding
+is as likely to be inherited as caused. Counting a package's issues at the
+start of a run and again at the end is the shape that separates the two.
