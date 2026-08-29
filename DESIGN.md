@@ -1023,11 +1023,13 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    diff pane it stands in for. And a folded row spent its width on a
    space-joined dump of the result body, where every tool already puts its
    headline on the first line, so a fold now cuts there and the body is
-   what expanding is for. What is left here is the help screen and the
-   footer reading from one source, so a key carries its phrase once: the
-   footer collapses by priority already, and `?` still lists nineteen
-   one-word labels down a single column. `../gh-repo-dashboard` does this
-   with `key.WithHelp` and a `discoverability_test.go`.
+   what expanding is for. The help screen then turned out to carry the same
+   overflow, in the one place a lost reader goes: nineteen one-word labels
+   down a single column ran the bottom rule off an 80x24 terminal. A `hint`
+   now carries the sentence help shows beside the word the footer shows, and
+   the list folds into as many columns as the width fits, which is what
+   brings it back inside the height. `internal/tui/discoverability_test.go`
+   holds the property, after `../gh-repo-dashboard`.
 
    The other screens have had no equivalent pass.
 

@@ -3620,3 +3620,45 @@ new table: both are right, because the app refuses to render below 80x24 and
 the fix legitimately made that transcript window taller, but a run that
 adjusts a test to reach green is a run that has to be read rather than
 trusted.
+
+## 2026-08-29 — the help screen, and the difference between fitting and showing
+
+`?` on the thread screen at 80x24 rendered eight header lines and then
+nineteen hints one per row, so the bottom rule and the last five keys were
+below the terminal. Home at 120 wide showed thirteen one-word labels down a
+single column with a hundred empty columns beside them, and the labels were
+the footer's: `v goal`, `w scope`, `D diag`, `S sort`. A footer has to say
+`scope` in five cells. Help does not, and was saying it anyway because both
+read the same field.
+
+So `hint` grew a third field. The footer keeps taking `label`, help takes
+`phrase` and falls back to `label` where the word already says it (`quit`,
+`help`, `back`), and the list folds into as many columns as the width fits.
+The fold is what brings the screen back inside the height: nineteen hints in
+ten rows at 80 wide, seven at 120.
+
+The run wrote the layout and the test, and four of its nineteen phrases were
+invented rather than read. `g goal` on the thread screen got "change the
+project directory", which is `w`'s job on Home; `w` itself got the same
+sentence, where it toggles between one project's threads and the fleet's;
+`t think` got "toggle thinking", where `nextThinking` is tri-state; `u undo`
+got "restore the last change set", where the key opens a picker. Every one
+is plausible from the label alone and wrong from the handler, which is the
+failure mode to expect from a phrase-writing task: the label is in the
+prompt and the handler is a file away.
+
+The test it wrote asserted the render is never taller than the terminal and
+always carries its bottom rule, and forcing the layout back to one column
+did not fail it. The clamp that keeps the frame inside the height had cut
+the tail hints instead, so the screen fit and showed less, which is the
+regression the test existed to catch. Adding "the last hint is still on
+screen" makes the mutation fail, and it immediately failed for real: one
+41-character phrase I had just written collapsed the grid to a single
+column at 80 wide, because a column is sized to the widest entry. Phrases
+have a width budget of about thirty cells now, and the test is what says so.
+
+Third run in a row that reported passing gates and left issues CI fails:
+one `mnd`, one `thelper`, three `lll`, two `gofumpt`. The lint gate reads a
+run's changed files and still sees less than `golangci-lint run ./...`,
+which is the open item under "Also open" and is now worth more than the
+phrasing work it keeps interrupting.
