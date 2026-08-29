@@ -3693,3 +3693,36 @@ What this does not fix is the displaced-work case in "Also open". The gate
 reads the neighbor now and filters it out, because a package-level finding
 is as likely to be inherited as caused. Counting a package's issues at the
 start of a run and again at the end is the shape that separates the two.
+
+## 2026-08-29 — the last screen, and three ways to window a list
+
+Rendering each screen at 80x24 against the 393-thread daemon answered which
+of them still needed a pass, and it was one: Inbox, Diagnostics and Routines
+all fit inside the frame. Schedule drew every lane it had, so the footer,
+the bottom rule and all five key hints were off screen and the cursor could
+move below the fold; cut every name to eighteen characters, so six different
+threads read `create-the-file-i…` while forty columns stayed empty; and
+carried each state twice, as fifteen identical glyphs and again as the word
+beside them. Those are Home's three defects, unfixed on the one screen the
+Home pass did not reach.
+
+The run took the reference implementations it was pointed at and the fixes
+are right. Two things it did not weigh. It dropped the glyph run entirely
+when every cell matched, which left the status column landing wherever the
+name ended, so a screen whose whole job is scanning had a status that moved
+row to row; blanking the run instead keeps the column and makes the one lane
+with real history (`#*#*#*#*#*#*#`) the only marked row on screen, which is
+the row worth looking at. And it reserved the "… N more" line whether or not
+anything overflowed, which costs a lane on every 24-row terminal.
+
+Then the linter said `laneWindow` was a line-for-line copy of `homeWindow`,
+which is the whole point of pointing a run at a reference: it read the shape
+and retyped it rather than calling it. Extracting one `scrolledWindow` found
+a third implementation already in `models.go` under the name `listWindow`,
+centering the cursor and keeping no scroll position. Three list windows in
+one package, two of them identical. They are `scrolledWindow` and
+`centeredWindow` now, each named for its policy, because the reason a run
+writes the fourth is that the first three do not say which is which.
+
+The lint gate reported this one itself, first round after the package-scope
+fix.

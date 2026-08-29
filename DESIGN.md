@@ -1031,7 +1031,16 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    brings it back inside the height. `internal/tui/discoverability_test.go`
    holds the property, after `../gh-repo-dashboard`.
 
-   The other screens have had no equivalent pass.
+   Schedule was the last screen with the same defects, and the sweep that
+   found it was a render of each screen at 80x24 rather than a reading of
+   the code: Inbox, Diagnostics and Routines all fit, and Schedule drew all
+   393 lanes with no viewport, cut every name to 18 characters so six
+   threads read `create-the-file-i…` alike, and carried the state twice as
+   fifteen identical glyphs beside the word. It windows now, the name takes
+   what the fixed columns leave, and a run of one state blanks so the eye
+   goes to the lane whose history actually changed.
+   `TestEveryScreen_FitsItsTerminal` holds the property for all eight
+   screens, in height and in row width.
 
 **Also open**, and not competing with the four above:
 
