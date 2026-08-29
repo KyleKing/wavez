@@ -3562,3 +3562,61 @@ clean, because the `lint` gate runs `golangci-lint` on a run's changed files
 and the function it had pushed the issue into was not one of them. A gate
 scoped to changed files cannot see work displaced out of them, which is worth
 an item on its own.
+
+## 2026-08-29 — a measured pass over the thread screen, and what a fold is for
+
+Three lanes, each found by driving the real TUI in a PTY at 110x30 against
+the live 400-thread daemon rather than by reading the code.
+
+**The goal overlay could not be closed.** Press `g` on a thread, press esc,
+and the overlay stays on screen with no key that dismisses it, including both
+keys its own footer advertises. `m.goal` was set in one place and cleared
+nowhere: `render` drew it above every screen while `closeOverlay` checked
+help, palette, and restore and never it, so esc fell through to `popOrClose`
+and popped the stack underneath the overlay. Once that pop reached Home, `g`
+returned early because its case is thread-screen only, and esc does nothing at
+the root. Fixed by making it an overlay in the one place that closes them.
+15 turns, $0.067.
+
+**The screen lost its bottom rule, and with it every key hint.** Two changed
+files rendered the rule and three rendered no `└` anywhere in the pane, which
+is the experiment that names the cause: `transcriptHeight` subtracted a
+constant `chromeRows = 8` while `changeSummary` returned one row per changed
+path with no bound at all, so the body outgrew the terminal and pushed the
+frame off the bottom. The budget is now computed from the rows that actually
+render, which is what a constant could not stay right about, and the summary
+is bounded by the same `paneHeight` the diff pane uses. A table of five
+terminal sizes against six change counts up to 40 holds it. 49 turns, $0.40.
+
+The first read of this was wrong and worth recording: the screen looked like
+it had no footer at all. It has one, and two separate things were hiding it.
+A toast replaces the bottom rule for four seconds by design, which is what the
+first capture caught. The overflow is the real defect, and it was only
+separable by watching the rule come back as the file count fell.
+
+**A folded row spent its width on the result body.** `read internal/tui/home.go
+(lines 295-345 of 982): 295 } 296 case "y", "n", "a": 297 // A pendi…` is a
+file being read one space-joined line at a time. Every tool already puts its
+headline on the result's first line and its body below, and `flatten` was
+joining them before the fold ever saw the boundary. A fold now cuts at the
+first line, the ellipsis marks a body under the line and not only a line that
+was cut, and expanding is what the body is for. Agent rows keep their real
+line breaks as a side effect, so a bulleted answer reads as bullets. 23 turns,
+$0.128.
+
+Removing `flatten` took a guarantee with it that its doc comment did not
+claim: it also stripped tabs, and lipgloss measures a tab as one cell where
+the terminal renders eight, so an expanded row carrying indented source walks
+the frame's right border off that row. Tabs become four spaces in `rowText`
+and a test named for the trigger holds it.
+
+**What the three runs said about the harness.** The stagnation nudge fired
+once, correctly, after fifteen straight reading turns on a task whose whole
+diff is two files. The `lint` gate reported clean on a run that left four
+`golangci-lint` findings in the files it had just changed, which is the second
+sighting of a gate seeing less than the CI job it stands for. And one run
+changed an existing test's fixture and dropped a `100x16` case from its own
+new table: both are right, because the app refuses to render below 80x24 and
+the fix legitimately made that transcript window taller, but a run that
+adjusts a test to reach green is a run that has to be read rather than
+trusted.

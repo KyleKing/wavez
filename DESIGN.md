@@ -1010,8 +1010,26 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    pending. Enter applies the filter, which the footer had advertised and
    the input swallowed, and without which `*` could never reach what a
    filter narrowed to. What is left on this screen is archiving a
-   selection, which needs a thread state the daemon does not carry yet. The
-   rest of the screens have had no equivalent pass.
+   selection, which needs a thread state the daemon does not carry yet.
+
+   The thread screen has had the same pass. Pressing `g` and then esc used
+   to leave the goal overlay on screen forever, because esc popped the
+   stack under an overlay `closeOverlay` never checked and `g` binds to
+   nothing off the thread screen. The screen also overflowed the terminal
+   and lost its bottom rule, and with it all nineteen key hints, once a
+   thread changed three files: the transcript's budget was a constant while
+   the change summary grew a row per path, so the budget is now derived
+   from the rows that actually render and the summary is bounded like the
+   diff pane it stands in for. And a folded row spent its width on a
+   space-joined dump of the result body, where every tool already puts its
+   headline on the first line, so a fold now cuts there and the body is
+   what expanding is for. What is left here is the help screen and the
+   footer reading from one source, so a key carries its phrase once: the
+   footer collapses by priority already, and `?` still lists nineteen
+   one-word labels down a single column. `../gh-repo-dashboard` does this
+   with `key.WithHelp` and a `discoverability_test.go`.
+
+   The other screens have had no equivalent pass.
 
 **Also open**, and not competing with the four above:
 
