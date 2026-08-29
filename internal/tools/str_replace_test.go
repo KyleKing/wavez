@@ -710,8 +710,10 @@ func TestStrReplace_SaysAnEditIsAlreadyMade(t *testing.T) {
 // `ambiguous` went from 1 across the first corpus to 20, and every case is a
 // rename asked as a text edit. The h3 shape: four sites written identically,
 // a pair that changes one identifier, and no tool result anywhere naming the
-// tool built for it. The advice stops once the new name is declared,
-// because that is the declaration rename would have started from.
+// tool built for it. Where the new name is already declared the run has
+// hand-edited the declaration, and the advice names the file holding it,
+// which is the one argument a bare rename cannot supply while another
+// package declares the old name.
 func TestStrReplace_AmbiguousRenamePointsAtRename(t *testing.T) {
 	t.Parallel()
 
@@ -724,20 +726,19 @@ func TestStrReplace_AmbiguousRenamePointsAtRename(t *testing.T) {
 		"func b() { events, err := bench.Read(path) }\n"
 
 	tests := []struct {
-		name       string
-		declared   string
-		wantAdvice bool
+		name     string
+		declared string
+		wantPath bool
 	}{
 		{
-			name:       "declaration still named Read",
-			declared:   "func Read(path string) error { return nil }\n",
-			wantAdvice: true,
+			name:     "declaration still named Read",
+			declared: "func Read(path string) error { return nil }\n",
 		},
 		{
 			name: "declaration already renamed, another package still declares Read",
 			declared: "func ReadLog(path string) error { return nil }\n" +
 				"type Read struct{}\n",
-			wantAdvice: false,
+			wantPath: true,
 		},
 	}
 
@@ -762,13 +763,22 @@ func TestStrReplace_AmbiguousRenamePointsAtRename(t *testing.T) {
 				t.Fatalf("IsError = %v, Cause = %q, want an ambiguous failure", result.IsError, result.Cause)
 			}
 
-			for _, want := range []string{"rename", `symbol: "Read"`, `to: "ReadLog"`} {
-				if strings.Contains(result.Content, want) != tc.wantAdvice {
-					t.Errorf("content = %q, carrying %s = %v, want %v",
-						result.Content, want, !tc.wantAdvice, tc.wantAdvice)
-				}
-			}
+			wantRenameAdvice(t, result.Content, tc.wantPath)
 		})
+	}
+}
+
+func wantRenameAdvice(t *testing.T, content string, wantPath bool) {
+	t.Helper()
+
+	for _, want := range []string{"rename", `symbol: "Read"`, `to: "ReadLog"`} {
+		if !strings.Contains(content, want) {
+			t.Errorf("content = %q, want it to carry %s", content, want)
+		}
+	}
+
+	if got := strings.Contains(content, `path: "bench/stats.go"`); got != wantPath {
+		t.Errorf("content = %q, naming the declaring file = %v, want %v", content, got, wantPath)
 	}
 }
 

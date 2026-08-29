@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/edit"
 	"github.com/kyleking/wavez/internal/gofix"
 	"github.com/kyleking/wavez/internal/tool"
@@ -607,46 +608,50 @@ func (s *StrReplace) failedEdit(
 // per-site path, and spent 57 turns on `sed`. Nothing else steers a rename
 // task at `rename`.
 //
-// It says nothing once the index declares the new name, because `rename`
-// starts from the declaration and a declaration already carrying the new
-// name is one `rename` can no longer resolve. Two `h3` lanes hand-edited
-// the declaration, met this refusal at the call sites, and spent their last
-// two turns on a `rename` that answered that nothing is indexed under the
-// old name. Asking only whether the old name is declared does not separate
-// them, since `Read` is declared in three packages here and the rename
-// touches one.
+// Where the index declares the new name too, the run has hand-edited the
+// declaration and the sites are what is left, so the advice carries the file
+// holding that declaration: `rename` puts the old name back before renaming
+// from it, and a bare call cannot say which one while another package
+// declares the old name, as three do for `Read` here.
 func (s *StrReplace) orRename(ctx context.Context, oldString, newString string) string {
 	from, to, ok := substitutedIdentifier(oldString, newString)
-	if !ok || !s.declares(ctx, from) || s.declares(ctx, to) {
+	if !ok || len(s.declaredIn(ctx, from)) == 0 {
 		return ""
 	}
 
+	narrow := ""
+	if at := s.declaredIn(ctx, to); len(at) == 1 {
+		narrow = fmt.Sprintf(", path: %q", at[0])
+	}
+
 	return fmt.Sprintf(" Every site here changes %s to %s and nothing else, and %s is a "+
-		"declared symbol, so rename with symbol: %q, to: %q changes every site in the "+
+		"declared symbol, so rename with symbol: %q, to: %q%s changes every site in the "+
 		"project in one call, including the ones this file does not hold.",
-		from, to, from, from, to)
+		from, to, from, from, to, narrow)
 }
 
-// declares reports whether the index holds a declaration under name. Where
-// no index is wired the answer is no, so advice that depends on one stays
-// out of a build that cannot check it.
-func (s *StrReplace) declares(ctx context.Context, name string) bool {
+// declaredIn names the files the index holds a declaration of name in.
+// Where no index is wired the answer is none, so advice that depends on one
+// stays out of a build that cannot check it.
+func (s *StrReplace) declaredIn(ctx context.Context, name string) []string {
 	if s.deps.symbols == nil {
-		return false
+		return nil
 	}
 
 	results, _, err := searchWidening(ctx, s.deps.symbols, name)
 	if err != nil {
-		return false
+		return nil
 	}
+
+	var syms []codeintel.Symbol
 
 	for i := range results {
 		if sym := results[i].Symbol; sym != nil && sym.Name == name {
-			return true
+			syms = append(syms, *sym)
 		}
 	}
 
-	return false
+	return declaringFiles(syms)
 }
 
 // substitutedIdentifier reports the one identifier a pair replaces, where

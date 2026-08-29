@@ -985,11 +985,18 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    a lane that hand-edits the declaration first puts the symbol beyond
    `rename`, which starts from the declaration, and `str_replace`'s
    ambiguous refusal was pointing at `rename` at exactly that moment. The
-   advice is withheld now, and what is unsolved is that `str_replace` cannot
-   say anything until a run is already editing. Either the routing moves
-   ahead of the first edit, which costs preamble on every task to serve one
-   shape of task, or `rename` starts from a declaration that already carries
-   the new name.
+   `rename` starts from a declaration that already carries the new name now:
+   it writes the old name back at the declaration alone, which makes the
+   references resolve again, and renames from there through type information.
+   `str_replace`'s advice followed, since withholding it was this limitation
+   rather than a judgement, and it carries the file holding the declaration
+   because a bare call cannot say which of three `Read`s is meant. Both are
+   measured on the recorded calls with `-recall` rather than on a replay: the
+   hosted tier finishes `h3` in 5 turns with one clean `rename`, so a lane no
+   longer reaches the shape. What is unsolved is that `str_replace` cannot say
+   anything until a run is already editing, and the choice there is routing
+   ahead of the first edit against preamble spent on every task to serve one
+   shape of task.
 
 5. **Home is the screen a person actually reads, and it was the least
    measured.** A pass over it with a real 393-thread list found the list

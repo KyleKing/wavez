@@ -3726,3 +3726,51 @@ writes the fourth is that the first three do not say which is which.
 
 The lint gate reported this one itself, first round after the package-scope
 fix.
+
+## 2026-08-29 — rename finishes what a run started by hand
+
+Next item 4: every path through `rename` on a real rename task refused, and
+the half of it nothing addressed was order. A run that edits the declaration
+itself and then calls `rename` has put the symbol beyond the tool. Nothing is
+indexed under the old name, and the references still carrying it resolve to
+nothing the server can follow, so neither half of the rename can be finished.
+Two `h3` lanes did exactly that and spent their last two turns being told the
+symbol does not exist.
+
+`rename` now writes the old name back at the declaration alone before renaming
+from it. The references the run had already changed keep the new name, since
+the server does not reach them either, and the rest are renamed through type
+information as they always were. Where the put-back fails the caller gets the
+refusal it already had, because a tree where neither name resolves is not one
+this tool can explain.
+
+`str_replace`'s advice moved with it. It had said nothing once the index
+declared the new name, and the reason it gave was this limitation. It speaks
+now and carries the file holding that declaration, which is the one argument a
+bare `rename` cannot supply while three packages here declare `Read`.
+
+**Measured with `-recall`, not with a replay.** Three `h3` lanes on the fix ran
+5, 5, and 9 turns with 6 of 6 checks and one `rename` call each, no errors: the
+hosted tier does not produce the failing shape any more, so a replay measures
+the tier. The recorded calls that do hold it are the instrument.
+`wavez -recall p-dkyw3ldf04pk -recall-turn 14` repeats the refusal verbatim:
+
+```
+arguments:
+    {"path": "internal/bench/stats.go", "symbol": "Read", "to": "ReadLog"}
+
+the run was told (error):
+    no symbol by that name is indexed: Read under internal/bench/stats.go; it
+    is declared in internal/tools/read.go, internal/tools/scope.go
+
+it is told now (ok):
+    renamed Read to ReadLog: 6 occurrences across 2 files
+```
+
+`p-dkyw7pf8xrjc -recall-turn 13` is the same call in the other lane and answers
+the same way. Turn 12 of the first is the `str_replace` refusal that preceded
+it, and the advice there now ends `path: "internal/bench/stats.go"` where it
+used to end at the two identifiers.
+
+What this does not settle: whether the advice reaches a run that has not yet
+edited anything, which is the other shape item 4 names and is still open.

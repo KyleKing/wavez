@@ -221,3 +221,45 @@ func TestRenameMissNamesWhereTheSymbolIs(t *testing.T) {
 		t.Errorf("the refusal does not name where Alpha is declared: %s", res.Content)
 	}
 }
+
+// A run that hand-edits the declaration and then calls rename used to be past
+// the tool: nothing is indexed under the old name, and the references still
+// carrying it resolve to nothing, so the h3 lanes that did this spent their
+// last two turns being told the symbol does not exist. Measured across twelve
+// of them, seven of nine rename calls came back a refusal.
+func TestRenameFinishesAHandEditedDeclaration(t *testing.T) {
+	t.Parallel()
+
+	root, rn := renameProject(t)
+
+	decl := filepath.Join(root, "a", "a.go")
+	edited := strings.Replace(read(t, root, "a/a.go"), "func Alpha()", "func Beta()", 1)
+
+	if err := os.WriteFile(decl, []byte(edited), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), renameBudget)
+	defer cancel()
+
+	res, err := rn.Run(ctx, []byte(`{"symbol":"Alpha","to":"Beta","path":"a/a.go"}`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError {
+		t.Fatalf("a half-done rename was refused: %s", res.Content)
+	}
+
+	if got := read(t, root, "a/a.go"); !strings.Contains(got, "func Beta()") {
+		t.Errorf("the declaration lost the new name:\n%s", got)
+	}
+
+	if got := read(t, root, "b/b.go"); !strings.Contains(got, "a.Beta()") {
+		t.Errorf("the reference the run could not reach was not renamed:\n%s", got)
+	}
+
+	if got := read(t, root, "c/c.go"); !strings.Contains(got, "func Alpha()") {
+		t.Errorf("an unrelated function of the same name was renamed:\n%s", got)
+	}
+}

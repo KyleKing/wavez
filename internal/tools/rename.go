@@ -116,7 +116,7 @@ func (r *Rename) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 		return tool.Fail(tool.CauseBadInput, "%s", msg), nil
 	}
 
-	decl, err := locate(ctx, r.index, r.root, in.Symbol, in.Path)
+	decl, err := r.locateOrPutBack(ctx, in)
 	if err != nil {
 		return failWith(err), nil
 	}
@@ -131,6 +131,49 @@ func (r *Rename) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 	}
 
 	return r.apply(ctx, in, edits)
+}
+
+// locateOrPutBack finds the declaration to rename from, putting the old name
+// back first where a run already changed it by hand.
+//
+// A run that edits the declaration itself and then calls rename has put the
+// symbol beyond this tool: nothing is indexed under the old name, and the
+// references still carrying it resolve to nothing the server can follow, so
+// neither half of the rename can be finished. Writing the old name back at
+// the declaration alone makes them resolve again, and the rename that follows
+// is the type-aware one that was asked for. References the run had already
+// changed keep the new name, since the server does not reach them either.
+func (r *Rename) locateOrPutBack(ctx context.Context, in renameInput) (declaration, error) {
+	decl, err := locate(ctx, r.index, r.root, in.Symbol, in.Path)
+	if !errors.Is(err, ErrSymbolNotIndexed) {
+		return decl, err
+	}
+
+	if !r.putBack(ctx, in) {
+		return decl, err
+	}
+
+	return locate(ctx, r.index, r.root, in.Symbol, in.Path)
+}
+
+// putBack renames the declaration of in.To back to in.Symbol, reporting
+// whether the old name is there to rename from. Any failure leaves the
+// caller with the refusal it already has, because a tree where neither name
+// resolves is not one this tool can explain.
+func (r *Rename) putBack(ctx context.Context, in renameInput) bool {
+	decl, err := locate(ctx, r.index, r.root, in.To, in.Path)
+	if err != nil {
+		return false
+	}
+
+	edits, err := r.ask(ctx, decl, in.Symbol)
+	if err != nil {
+		return false
+	}
+
+	res, err := r.apply(ctx, renameInput{Symbol: in.To, To: in.Symbol, Path: in.Path}, edits)
+
+	return err == nil && !res.IsError
 }
 
 func checkNames(in renameInput) string {
