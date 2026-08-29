@@ -89,12 +89,21 @@ type ModelPricing struct {
 }
 
 // DefaultPricing prices the models DESIGN.md's model-routing decision
-// names, per their published OpenRouter rates. A model with no entry here
-// prices at zero, so the cost ceiling never trips for a model wavez has no
-// real price for.
+// names, per each provider's published per-token rates. A model with no
+// entry here prices at zero, so the cost ceiling never trips for a model
+// wavez has no real price for.
+//
+// The GLM tiers run on a flat coding plan, so what they report is a shadow
+// price rather than a bill: it is what the same tokens would cost at z.ai's
+// pay-per-use rates, which is what keeps a run comparable to the corpus
+// recorded before the plan.
 //
 //nolint:mnd // published per-million-token prices, not magic numbers
 var DefaultPricing = map[string]ModelPricing{
+	// Free at every rate, entered rather than omitted so the zero reads as
+	// measured instead of missing.
+	"glm-4.7-flash":                     {},
+	"glm-5.3":                           {InputPerMillion: 1.40, OutputPerMillion: 4.40, CacheReadPerMillion: 0.26},
 	"moonshotai/kimi-k2.7-code":         {InputPerMillion: 0.67, OutputPerMillion: 3.40, CacheReadPerMillion: 0.19},
 	"openai/gpt-5-mini":                 {InputPerMillion: 0.25, OutputPerMillion: 2.00, CacheReadPerMillion: 0.025},
 	"qwen/qwen3-8b":                     {InputPerMillion: 0.117, OutputPerMillion: 0.455},
