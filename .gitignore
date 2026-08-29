@@ -1,5 +1,6 @@
 # Built binary (from copier project_name)
 /wavez
+/wavezd
 
 # Changelog scratch file written by the commitizen action; goreleaser's dirty
 # check must not see it as untracked

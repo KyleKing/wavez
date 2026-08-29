@@ -125,21 +125,72 @@ func (s homeSort) less(a, b api.ThreadInfo) bool {
 	}
 }
 
-// homeMatches is the filter, over everything the row shows. The state word
-// is in it so `failed` narrows to the failures without a second key, which
-// is the narrowing a list this long is most often asked for.
+// homeMatches is the filter, over everything the row shows. A `state:`
+// term narrows by lifecycle position and matches no text, so `/state:failed`
+// is the failures alone and a goal saying "failedEdit" stays out of it; the
+// word after the colon is one the state column shows, and a word it does not
+// show matches nothing rather than falling back to text, so a typo reads as
+// an empty list instead of a silent match-all. Text without the prefix scans
+// every field except the state word, since the prefix owns that narrowing.
 func homeMatches(t api.ThreadInfo, q string) bool {
-	if q == "" {
+	q = strings.ToLower(strings.TrimSpace(q))
+	text, state, hasState := cutStateTerm(q)
+	if hasState && state == "" {
+		return false
+	}
+
+	if hasState && t.State != state {
+		return false
+	}
+
+	if text == "" {
 		return true
 	}
 
-	for _, field := range []string{t.Name, t.Dir, rootBase(t.Root), stateLabel(t.State), t.Goal} {
-		if strings.Contains(strings.ToLower(field), q) {
+	for _, field := range []string{t.Name, t.Dir, rootBase(t.Root), t.Goal} {
+		if strings.Contains(strings.ToLower(field), text) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// cutStateTerm splits a query into its text and its `state:` term. The term
+// may lead the query or follow the text, and whatever sits after its one
+// word is text again. A `state:` with no word yet (a query still being
+// typed) is no term at all.
+func cutStateTerm(q string) (string, event.State, bool) {
+	const prefix = "state:"
+
+	i := strings.LastIndex(q, prefix)
+	if i < 0 || i > 0 && q[i-1] != ' ' {
+		return q, "", false
+	}
+
+	word, rest, _ := strings.Cut(q[i+len(prefix):], " ")
+	text := strings.TrimSpace(q[:i] + " " + rest)
+	if word == "" {
+		return text, "", false
+	}
+
+	return text, stateWord(word), true
+}
+
+// stateWord resolves one typed word to a state, or "" when it names none.
+// `needs-input` spells the one state whose wire name a person will not type.
+func stateWord(w string) event.State {
+	if w == "needs-input" {
+		return event.StateNeedsIn
+	}
+
+	switch event.State(w) {
+	case event.StateIdle, event.StateWorking, event.StateGating,
+		event.StateNeedsIn, event.StateBlocked, event.StateFailed, event.StateDone:
+		return event.State(w)
+	}
+
+	return ""
 }
 
 // rootBase names the group a fleet row renders under: the launch directory

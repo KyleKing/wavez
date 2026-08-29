@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -206,4 +207,83 @@ func TestHome_PermissionRowAnsweredInline(t *testing.T) {
 
 	assert.Contains(t, out, "rm -rf .testmondata")
 	assert.Contains(t, out, "[y]es [n]o [a]lways")
+}
+
+// TestHome_FilterStateTerm pins the `state:` term against the trap that
+// motivated it: a done thread whose goal says failedEdit must stay out of
+// `state:failed`, which a term falling back to text matching would catch.
+func TestHome_FilterStateTerm(t *testing.T) {
+	t.Parallel()
+
+	base := fixedNow().Add(-time.Hour)
+	threads := []api.ThreadInfo{
+		{
+			ID: "s1", Name: "rename-lock", Dir: "calcipy", Step: "editing internal/lease.go",
+			State: event.StateWorking, LastEvent: base.Add(2 * time.Minute),
+		},
+		{
+			ID: "s2", Name: "rename-docs", Dir: "yak-shears", Step: "gate test 4/7",
+			State: event.StateFailed, LastEvent: base.Add(time.Minute),
+		},
+		{
+			ID: "s3", Name: "docs-pass", Dir: "calcipy", Step: "allow? rm -rf .testmondata",
+			State: event.StateNeedsIn, LastEvent: base.Add(40 * time.Second),
+		},
+		{
+			ID: "s4", Name: "failed-edit", Dir: "yak-shears", Step: "done", Goal: "failedEdit",
+			State: event.StateDone, LastEvent: base,
+		},
+	}
+
+	tests := []struct {
+		name string
+		keys string
+		want []string
+	}{
+		{
+			name: "text alone still matches by name", keys: "rename",
+			want: []string{"rename-lock", "rename-docs"},
+		},
+		{
+			name: "state term narrows to that state alone", keys: "state:failed",
+			want: []string{"rename-docs"},
+		},
+		{
+			name: "state term and text narrow together", keys: "state:failed rename",
+			want: []string{"rename-docs"},
+		},
+		{name: "state term naming no state matches nothing", keys: "state:bogus"},
+		{
+			name: "needs-input spells the state its wire name does not", keys: "state:needs-input",
+			want: []string{"docs-pass"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := newSized(t, tui.Options{Dir: "/dev/wavez", NoColor: true}, 100, 30)
+			m = apply(t, m,
+				api.Reply{Kind: api.RepThreads, Threads: threads},
+				tea.KeyPressMsg{Code: '/', Text: "/"},
+			)
+
+			for _, r := range tt.keys {
+				m = apply(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
+			}
+
+			out := m.View().Content
+
+			for _, row := range tt.want {
+				assert.Contains(t, out, row)
+			}
+
+			for _, row := range threads {
+				if !slices.Contains(tt.want, row.Name) {
+					assert.NotContains(t, out, row.Name, "query %q should have filtered this row out", tt.keys)
+				}
+			}
+		})
+	}
 }

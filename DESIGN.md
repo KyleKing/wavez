@@ -998,11 +998,14 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    characters cutting every row to `rename-the-exported…` while ninety
    columns stayed empty; a filter that narrowed 853 rows to 6 without
    echoing the query or the count; and the state carried twice, once as a
-   glyph and once as a word. Those are fixed. What is left is the part a
-   list this long still cannot do: there is no state filter separate from
-   the text one, so `/failed` also matches a goal that says `failedEdit`,
-   and no way to act on a selection rather than a row. The rest of the
-   screens have had no equivalent pass.
+   glyph and once as a word. Those are fixed, and so is the state filter:
+   a `state:` term inside the same query narrows by lifecycle position and
+   matches no text, so `/state:failed` is the failures alone where
+   `/failed` also caught a goal saying `failedEdit`, `/state:failed rename`
+   narrows by both, and a word after the colon that names no state matches
+   nothing, which puts a typo on screen as an empty list. What is left is
+   acting on a selection rather than a row. The rest of the screens have
+   had no equivalent pass.
 
 **Also open**, and not competing with the four above:
 
