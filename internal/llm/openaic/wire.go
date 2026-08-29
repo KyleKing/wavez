@@ -15,10 +15,11 @@ type wireRequest struct {
 	// directions, which is what makes a reasoning toggle cost a request
 	// rather than a model reload.
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
-	// Reasoning is OpenRouter's spelling of the same toggle, and Provider
-	// its routing preferences. Which of these the request carries is the
-	// Dialect's to say.
+	// Reasoning is OpenRouter's spelling of the same toggle, Thinking is
+	// Z.AI's, and Provider is OpenRouter's routing preferences. Which of
+	// these the request carries is the Dialect's to say.
 	Reasoning       *wireReasoning `json:"reasoning,omitempty"`
+	Thinking        *wireThinking  `json:"thinking,omitempty"`
 	Provider        *wireProvider  `json:"provider,omitempty"`
 	Model           string         `json:"model"`
 	Messages        []wireMessage  `json:"messages"`
@@ -33,6 +34,18 @@ type wireRequest struct {
 type wireReasoning struct {
 	Enabled *bool `json:"enabled"`
 }
+
+// wireThinking is Z.AI's reasoning toggle, whose type is a string rather
+// than a boolean. Omitting it leaves the served model reasoning, since
+// "enabled" is the endpoint's own default.
+type wireThinking struct {
+	Type string `json:"type"`
+}
+
+const (
+	thinkingEnabled  = "enabled"
+	thinkingDisabled = "disabled"
+)
 
 // wireProvider is OpenRouter's per-request routing policy.
 type wireProvider struct {
@@ -129,6 +142,7 @@ func toWireRequest(model string, req llm.Request, d Dialect) wireRequest {
 
 		ChatTemplateKwargs: toChatTemplateKwargs(req.Thinking, d),
 		Reasoning:          toWireReasoning(req.Thinking, d),
+		Thinking:           toWireThinking(req.Thinking, d),
 		Provider:           toWireProvider(d),
 	}
 }
@@ -147,6 +161,18 @@ func toWireReasoning(thinking *bool, d Dialect) *wireReasoning {
 	}
 
 	return &wireReasoning{Enabled: thinking}
+}
+
+func toWireThinking(thinking *bool, d Dialect) *wireThinking {
+	if thinking == nil || !d.readsThinkingType() {
+		return nil
+	}
+
+	if *thinking {
+		return &wireThinking{Type: thinkingEnabled}
+	}
+
+	return &wireThinking{Type: thinkingDisabled}
 }
 
 func toChatTemplateKwargs(thinking *bool, d Dialect) map[string]any {

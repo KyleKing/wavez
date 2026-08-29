@@ -447,18 +447,20 @@ func TestClient_Stream_SendsResponseFormat(t *testing.T) {
 // llama.cpp reads chat_template_kwargs per request and it overrides the
 // server's own --chat-template-kwargs in both directions, so an unset
 // Thinking must send no key at all rather than a false one. OpenRouter reads
-// none of that and takes `reasoning`, so each dialect carries its own
-// spelling and never the other's. It also carries the data-collection
-// denial, which is what keeps a private repository off providers that store
-// prompts.
+// none of that and takes `reasoning`, Z.AI takes `thinking` with a string
+// type, so each dialect carries its own spelling and never another's.
+// OpenRouter alone carries the data-collection denial, which is what keeps a
+// private repository off providers that store prompts.
 func TestClient_Stream_SpellsThinkingPerDialect(t *testing.T) {
 	t.Parallel()
 
 	on, off := true, false
+	enabled, disabled := "enabled", "disabled"
 	tests := []struct {
 		thinking     *bool
 		wantKwargs   *bool
 		wantReason   *bool
+		wantThinking *string
 		name         string
 		dialect      openaic.Dialect
 		wantProvider bool
@@ -474,6 +476,15 @@ func TestClient_Stream_SpellsThinkingPerDialect(t *testing.T) {
 		{
 			name: "openrouter on", dialect: openaic.DialectOpenRouter,
 			thinking: &on, wantReason: &on, wantProvider: true,
+		},
+		{name: "zai unset sends nothing", dialect: openaic.DialectZAI},
+		{
+			name: "zai off", dialect: openaic.DialectZAI,
+			thinking: &off, wantThinking: &disabled,
+		},
+		{
+			name: "zai on", dialect: openaic.DialectZAI,
+			thinking: &on, wantThinking: &enabled,
 		},
 	}
 
@@ -510,6 +521,7 @@ func TestClient_Stream_SpellsThinkingPerDialect(t *testing.T) {
 			body := <-bodies
 			assertThinkingKey(t, body, "chat_template_kwargs", "enable_thinking", tc.wantKwargs)
 			assertThinkingKey(t, body, "reasoning", "enabled", tc.wantReason)
+			assertThinkingType(t, body, tc.wantThinking)
 			assertDataCollectionDenied(t, body, tc.wantProvider)
 		})
 	}
@@ -574,6 +586,33 @@ func assertThinkingKey(t *testing.T, body []byte, outer, inner string, want *boo
 
 	if obj[inner] == nil || *obj[inner] != *want {
 		t.Fatalf("%s.%s = %v, want %v", outer, inner, obj[inner], *want)
+	}
+}
+
+// Z.AI types its toggle as a string, so a boolean sent there reads as a
+// decode error on the provider rather than as reasoning off.
+func assertThinkingType(t *testing.T, body []byte, want *string) {
+	t.Helper()
+
+	var got struct {
+		Thinking *struct {
+			Type string `json:"type"`
+		} `json:"thinking"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+
+	if want == nil {
+		if got.Thinking != nil {
+			t.Fatalf("thinking = %+v, want it absent", got.Thinking)
+		}
+
+		return
+	}
+
+	if got.Thinking == nil || got.Thinking.Type != *want {
+		t.Fatalf("thinking = %+v, want type %q", got.Thinking, *want)
 	}
 }
 

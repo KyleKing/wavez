@@ -26,7 +26,9 @@ deep: Tier = new { model = "qwen/qwen3-coder-30b-a3b-instruct" }
 /// credential helper, so the key never enters the environment or the repo.
 /// Examples: "op read op://vault/item/credential" or
 /// "security find-generic-password -w -s wavez-openrouter". When empty, Wavez
-/// falls back to the OPENROUTER_API_KEY environment variable.
+/// falls back to the OPENROUTER_API_KEY environment variable. Tiers on
+/// different providers each set their own `keyCommand`, since one command
+/// returns one provider's key.
 hostedKeyCommand: String = ""
 
 /// Base URL of a SearxNG instance the web search tool queries, such as
@@ -146,6 +148,13 @@ class Tier {
   /// fails the turn when that machine is down rather than loading a model
   /// here, and the memory headroom the daemon measures still describes this
   /// laptop.
+  ///
+  /// The host decides which provider-specific keys the request carries:
+  /// "openrouter.ai" sends OpenRouter's `reasoning` and its data-collection
+  /// denial, "api.z.ai" and "open.bigmodel.cn" send Z.AI's `thinking`, and
+  /// anything else is treated as a llama-server. Z.AI's coding plan serves
+  /// only "https://api.z.ai/api/coding/paas/v4"; its general
+  /// "/api/paas/v4" root refuses a coding-plan key.
   baseURL: String = ""
 
   /// Command whose stdout is this tier's bearer token, overriding
@@ -154,7 +163,8 @@ class Tier {
   keyCommand: String = ""
 
   /// Whether a hybrid model reasons on this tier's turns. Null leaves the
-  /// served model's own default, which is on for the qwen3 hybrids: one
+  /// served model's own default, which is on for the qwen3 hybrids and for
+  /// Z.AI's GLM models: one
   /// four-lane run measured 930 output tokens a turn with it against 190
   /// without, nearly all of it a trace no tool reads. Set it false on a tier
   /// that only calls tools.

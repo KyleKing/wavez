@@ -18,7 +18,7 @@ Status: M2 in progress. [docs/glossary.md](docs/glossary.md) is the map: the voc
 - **Threads** replace the single god session. Each work stream carries its own compacted history, and a scheduler coordinates threads touching the same directories against the laptop's memory
 - **Code intelligence** is one SQLite store per project (symbols, edges, trigram FTS, line-to-test coverage) that every other subsystem queries: gates today, and modifiers, intent edits, and the Neovim pickers as they land
 
-Also: local models first (qwen3:8b on `llama-server` with n-gram speculation, chosen by measurement on this laptop, falling back to a hosted endpoint for the turns the laptop is too loaded to serve), hosted models through OpenRouter when a task needs more, works across directories rather than worktrees, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
+Also: local models first (qwen3:8b on `llama-server` with n-gram speculation, chosen by measurement on this laptop, falling back to a hosted endpoint for the turns the laptop is too loaded to serve), hosted models through z.ai's coding plan when a task needs more, with OpenRouter one config field away, works across directories rather than worktrees, macOS Seatbelt sandbox plus a destructive-command guard, and a daemon/TUI split so a phone client can attach later.
 
 TLDR: fewer tokens, faster builds, higher quality, low RAM.
 

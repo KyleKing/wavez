@@ -80,6 +80,8 @@ func TestDialectForNamesTheBackend(t *testing.T) {
 		{baseURL: "https://m4.tailnet.ts.net/v1", want: openaic.DialectLlamaCpp},
 		{baseURL: DefaultHostedBaseURL, want: openaic.DialectOpenRouter},
 		{baseURL: "https://openrouter.ai/api/v1", want: openaic.DialectOpenRouter},
+		{baseURL: DefaultZAIBaseURL, want: openaic.DialectZAI},
+		{baseURL: "https://open.bigmodel.cn/api/coding/paas/v4", want: openaic.DialectZAI},
 		{baseURL: "://not a url", want: openaic.DialectOpenRouter},
 	} {
 		t.Run(tt.baseURL, func(t *testing.T) {

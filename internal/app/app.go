@@ -54,6 +54,10 @@ const (
 	// DefaultHostedBaseURL is OpenRouter's OpenAI-compatible endpoint
 	// (DESIGN.md's router decision).
 	DefaultHostedBaseURL = "https://openrouter.ai/api/v1"
+	// DefaultZAIBaseURL is Z.AI's coding-plan endpoint. It is the only
+	// z.ai endpoint a coding plan may dial: the general
+	// "/api/paas/v4" root rejects a coding-plan key.
+	DefaultZAIBaseURL = "https://api.z.ai/api/coding/paas/v4"
 	// HostedAPIKeyEnv is the environment variable holding the OpenRouter
 	// API key for the default hosted provider.
 	//nolint:gosec // this names an env var, it does not hold a credential
@@ -553,27 +557,34 @@ func networkTier(ctx context.Context, cfg config.Config, name string, t config.T
 		openaic.WithAPIKeyFunc(keyFn))
 }
 
-// OpenRouter's host, which is how an endpoint is recognized as the router
-// rather than as a llama-server somewhere.
-const hostedHost = "openrouter.ai"
+// The hosted providers wavez speaks, by the host that identifies each. Z.AI
+// serves the same API from a mainland deployment under a second host.
+const (
+	hostedHost   = "openrouter.ai"
+	zaiHost      = "api.z.ai"
+	zaiChinaHost = "open.bigmodel.cn"
+)
 
 // dialectFor names the backend behind an endpoint, which decides the
-// provider-specific keys its requests carry. OpenRouter is matched by host
-// and everything else is a llama-server, because those are the two wavez
-// speaks: a third router would need its own Dialect rather than this
-// guessing on its behalf. A URL that does not parse is treated as the
-// router, so a typo cannot quietly drop the data-collection denial.
+// provider-specific keys its requests carry. The hosted providers are
+// matched by host and everything else is a llama-server, so a fourth
+// provider needs its own Dialect rather than this guessing on its behalf. A
+// URL that does not parse is treated as the router, so a typo cannot
+// quietly drop the data-collection denial.
 func dialectFor(baseURL string) openaic.Dialect {
 	u, err := url.Parse(baseURL)
 	if err != nil {
 		return openaic.DialectOpenRouter
 	}
 
-	if u.Hostname() == hostedHost {
+	switch u.Hostname() {
+	case hostedHost:
 		return openaic.DialectOpenRouter
+	case zaiHost, zaiChinaHost:
+		return openaic.DialectZAI
+	default:
+		return openaic.DialectLlamaCpp
 	}
-
-	return openaic.DialectLlamaCpp
 }
 
 // tierModels is the model name each tier sends in its request.
