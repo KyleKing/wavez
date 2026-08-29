@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,5 +240,64 @@ func TestRead_ReadsSeveralFilesInOneCall(t *testing.T) {
 	ranged := run(`{"path":"a.go,b.go","start_line":1,"end_line":1}`)
 	if !ranged.IsError || !strings.Contains(ranged.Content, "a line range reads one file") {
 		t.Errorf("a range over two paths = %q (IsError=%v), want a refusal", ranged.Content, ranged.IsError)
+	}
+}
+
+// A whole-file read of a long file comes back as its outline. Measured over
+// this project's thread logs, 522 whole-file reads of Go files that still
+// exist cost 3,906 KB numbered, and answering the 148 of them past 300 lines
+// with an outline costs 1,625 KB: 58% of the bytes for 28% of the calls.
+func TestRead_OutlinesALongFileAndReadsAShortOneWhole(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	var long strings.Builder
+
+	long.WriteString("package p\n\nimport \"fmt\"\n")
+
+	for i := range 40 {
+		fmt.Fprintf(&long, "\n// Fn%02d does a thing.\nfunc Fn%02d() { fmt.Println(%d) }\n", i, i, i)
+
+		for range 5 {
+			long.WriteString("// filler that makes this file worth outlining\n")
+		}
+	}
+
+	write(t, filepath.Join(dir, "long.go"), long.String())
+	write(t, filepath.Join(dir, "short.go"), "package p\n\nfunc Only() {}\n")
+
+	r := tools.NewRead(dir, tools.NewScope(false))
+
+	read := func(args string) string {
+		t.Helper()
+
+		res, err := r.Run(t.Context(), []byte(args))
+		if err != nil {
+			t.Fatalf("Run(%s): %v", args, err)
+		}
+
+		return res.Content
+	}
+
+	outlined := read(`{"path":"long.go"}`)
+	if strings.Contains(outlined, "fmt.Println(7)") {
+		t.Errorf("a long file came back as its text:\n%s", outlined)
+	}
+
+	for _, want := range []string{"is 324 lines", "func Fn07()", "1\tpackage p"} {
+		if !strings.Contains(outlined, want) {
+			t.Errorf("the outline does not carry %q:\n%s", want, outlined)
+		}
+	}
+
+	if whole := read(`{"path":"short.go"}`); !strings.Contains(whole, "func Only() {}") {
+		t.Errorf("a short file was not read whole:\n%s", whole)
+	}
+
+	// A range says what it wants, so it is answered with the lines rather
+	// than with the map of the file the caller already has.
+	if ranged := read(`{"path":"long.go","start_line":1,"end_line":3}`); !strings.Contains(ranged, "import") {
+		t.Errorf("a line range was outlined:\n%s", ranged)
 	}
 }

@@ -3808,3 +3808,46 @@ and carry no `level=warning`. Reverting either half fails it.
 This is the second defect in this gate found by reading a transcript instead of
 the code, after the package-scope fix earlier today. Both were invisible while
 its tests passed, and both were the test fixture agreeing with the bug.
+
+## 2026-08-29 — outline-mode read, and the task it costs turns on
+
+Next item 3: `read` is 67% of all tool result bytes, and a run that has found
+the right file still reads it end to end. A whole-file read of a file past 300
+lines now comes back as the package clause, the imports, and every declaration
+with the line range that reads its body.
+
+**Where 300 comes from.** Over this project's thread logs, 572 of 1,506 read
+calls asked for a whole file. Of the 522 that named a Go file still in the
+tree, the ones past 300 lines are 28% of the calls and 67% of the bytes. Run
+the outline over that same set and the payload falls from 3,906 KB numbered to
+1,625 KB, a 58% cut for 28% of the calls. The tool description gained one
+sentence saying so, which `wavez -preamble` prices at 21 tokens, 2,652 to
+2,673.
+
+**h13, four lanes today, alternating control and outline on the same setup.**
+Every lane passed 5 of 5 checks.
+
+| | turns | input tokens | read bytes | spend |
+|---|---|---|---|---|
+| control | 10.5 | 172,918 | 40,936 | $0.0694 |
+| outline | 10.0 | 132,091 | 33,181 | $0.0537 |
+
+Turns are flat, which is the number that had to hold: LogDx-CI's agent-loop
+result is that a weak first payload is not lost quality but two to four times
+the tool calls. Read calls did rise, 4.5 to 8.5, and the bytes fell anyway, so
+the follow-up call is a range rather than another whole file.
+
+**h3 is where it costs.** Three lanes before the outline ran 5, 5, and 9 turns;
+two after ran 7 and 13, and read bytes went from 630 and 0 and 1,562 to 3,126
+and 10,441. Both still passed 6 of 6. The task is a rename, `rename` does the
+work in one call, and the two files it touches are 341 and 354 lines, so the
+outline is handed to a run that wanted the text and charges it a range call per
+site. That is the same mechanism as the h13 win pointed the other way: an
+outline pays where finding is the work and costs where editing is.
+
+Neither task settles turns on its own at two or three lanes, per the 40-70%
+spread. What is settled is the payload and the preamble, and that no lane in
+either direction lost a check.
+
+A third h3 lane recorded as `outline-3-killed`: I stopped the batch to free the
+machine, and $0.0000 against 3 of 6 checks is the kill rather than a result.

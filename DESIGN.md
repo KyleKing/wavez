@@ -965,14 +965,22 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    instrument for them is `-recall` over the lanes that hold them rather
    than another sweep.
 
-3. **What a run reads after it has found the right file.** `read` is 67% of
-   all tool result bytes, and the lanes that pass still read whole files:
-   both `h3` lanes under the new ranking read `internal/bench/stats.go` and
-   `internal/bench/stats_test.go` end to end, 341 and 354 lines, and between
-   them the task changes six. Outline mode is the shape already argued for in
-   `_ai_/research/2026-08-payload-reduction.md` and it was held for a
-   retrieval-hard task to measure on. `h13` is that task: 33 of one run's 44
-   turns were retrieval across a Pkl schema, a Go loader, and Go defaults.
+3. **What a run reads after it has found the right file.** A whole-file read
+   past 300 lines comes back as the package clause, the imports, and every
+   declaration with the range that reads its body. Over this project's thread
+   logs that answers 28% of whole-file reads and cuts 58% of their bytes, for
+   21 tokens of preamble. Four `h13` lanes alternating control and outline
+   held turns at 10.5 against 10.0 and cut input tokens 24%, read bytes 19%,
+   and spend 23%, with 5 of 5 checks every lane, which is the result that
+   mattered: LogDx-CI's finding is that a weak first payload costs turns
+   rather than quality.
+
+   It costs turns where editing rather than finding is the work. `h3` ran 5,
+   5, and 9 turns before and 7 and 13 after, with read bytes rising, because
+   `rename` does that task in one call and the two files it touches are 341
+   and 354 lines. Both lanes still passed 6 of 6. What is open is whether the
+   trigger should read the run's own history rather than the file's length: a
+   file this run has already written to is one it wants the text of.
 
 4. **Every path through `rename` on a real rename task refuses.** Six of
    twelve `h3` lanes called it and seven of nine calls came back a refusal,

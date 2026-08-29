@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -62,14 +63,15 @@ var readSchema = buildSchema(map[string]schemaProperty{
 // DedupeToolReads replaces a byte-identical earlier result without the model
 // ever being told no.
 type Read struct {
-	scope *Scope
-	root  string
+	scope    *Scope
+	registry *lang.Registry
+	root     string
 }
 
 // NewRead builds a Read tool scoped to root, reporting each file it reads
 // to scope.
 func NewRead(root string, scope *Scope) *Read {
-	return &Read{root: root, scope: scope}
+	return &Read{root: root, scope: scope, registry: lang.NewDefaultRegistry()}
 }
 
 // Name implements tool.Tool.
@@ -81,7 +83,8 @@ func (*Read) Description() string {
 		"Each line comes back as its line number, a tab, then the text; strip that prefix " +
 		"before reusing a line as an edit anchor or as file content. " +
 		"Prefer search to locate code and read only the range it names; reading whole files " +
-		"to find something spends the context window on lines you will not use."
+		"to find something spends the context window on lines you will not use. " +
+		"A long file comes back as an outline of its declarations with the line range of each."
 }
 
 // Schema implements tool.Tool.
@@ -165,6 +168,14 @@ func (r *Read) readAll(paths []string, start, end int) tool.Result {
 		data, err := os.ReadFile(abs) // #nosec G304 -- abs is resolved and root-checked above
 		if err != nil {
 			return tool.Fail(tool.CauseIO, "reading %s: %v", p, err)
+		}
+
+		if start == 0 && end == 0 {
+			if brief := outline(r.registry, p, data); brief != "" {
+				blocks = append(blocks, brief)
+
+				continue
+			}
 		}
 
 		r.scope.Observe(abs)
