@@ -957,25 +957,25 @@ func oneLine(s string) string {
 
 func homeHints(filtering bool) []hint {
 	if filtering {
-		return []hint{{keyEnter, labelApply}, {keyEsc, "cancel"}}
+		return []hint{{keyEnter, labelApply, ""}, {keyEsc, "cancel", ""}}
 	}
 
 	// Ordered by what a reader loses least when the footer is too narrow:
 	// footerHints drops from the end, and the palette is the one entry that
 	// is also reachable from help.
 	return []hint{
-		{keyEnter, labelOpen},
-		{"n", "new"},
-		{"v", "goal"},
-		{"/", "filter"},
-		{"S", "sort"},
-		{"i", labelInbox},
-		{"s", "schedule"},
-		{"w", "scope"},
-		{"D", "diag"},
-		{"q", labelQuit},
-		{"?", labelHelp},
-		{":", "palette"},
-		{"R", labelRoutines},
+		{keyEnter, labelOpen, ""},
+		{"n", "new", "start a new thread"},
+		{"v", "goal", "expand the row: goal, prompt, last rows"},
+		{"/", "filter", "filter the thread list"},
+		{"S", "sort", "change the list's sort order"},
+		{"i", labelInbox, "open pending prompts"},
+		{"s", "schedule", "open the schedule"},
+		{"w", "scope", "show every project's threads"},
+		{"D", "diag", "open the diagnostics panel"},
+		{"q", labelQuit, ""},
+		{"?", labelHelp, ""},
+		{":", "palette", "open the command palette"},
+		{"R", labelRoutines, "open the routines panel"},
 	}
 }

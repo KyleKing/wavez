@@ -51,11 +51,15 @@ func bytesGB(b uint64) string {
 
 func diagnosticsHints(drilled bool) []hint {
 	if drilled {
-		return []hint{{keyEsc, "rows"}, {keyTab, "section"}, {"r", "reset"}, {"?", labelHelp}}
+		return []hint{{keyEsc, "rows", ""}, {keyTab, "section", ""}, {"r", "reset", ""}, {"?", labelHelp, ""}}
 	}
 
 	return []hint{
-		{keyTab, "section"}, {keyEnter, "drill"}, {"r", "reset window"}, {keyEsc, labelBack}, {"?", labelHelp},
+		{keyTab, "section", ""},
+		{keyEnter, "drill", ""},
+		{"r", "reset window", ""},
+		{keyEsc, labelBack, ""},
+		{"?", labelHelp, ""},
 	}
 }
 

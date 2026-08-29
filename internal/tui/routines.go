@@ -83,7 +83,7 @@ func (m Model) cappedRoutineCursor(n int) int {
 }
 
 func routinesHints() []hint {
-	return []hint{{"r", "run"}, {"h", "history"}, {keyEsc, labelBack}, {"?", labelHelp}}
+	return []hint{{"r", "run", ""}, {"h", "history", ""}, {keyEsc, labelBack, ""}, {"?", labelHelp, ""}}
 }
 
 func (m Model) renderRoutines() string {

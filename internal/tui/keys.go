@@ -6,10 +6,13 @@ import (
 )
 
 // hint is one footer entry. Hints are supplied in priority order (highest
-// first); footerHints drops from the tail as width shrinks.
+// first); footerHints drops from the tail as width shrinks. Phrase is the
+// sentence the help screen shows instead of the one-word footer label when
+// that label does not say what the key does; empty falls back to the label.
 type hint struct {
-	key   string
-	label string
+	key    string
+	label  string
+	phrase string
 }
 
 // Key strings, as tea.KeyPressMsg.String() reports them, and hint labels

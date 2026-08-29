@@ -23,7 +23,7 @@ func (m Model) updateSummaryKey(_ string) (Model, tea.Cmd) {
 }
 
 func summaryHints() []hint {
-	return []hint{{keyEsc, labelBack}, {"?", labelHelp}}
+	return []hint{{keyEsc, labelBack, ""}, {"?", labelHelp, ""}}
 }
 
 // renderSummary renders the active thread's rows grouped by category

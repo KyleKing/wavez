@@ -165,7 +165,8 @@ func (m Model) renderInbox() string {
 		body = append(body, m.th.fgMuted.Render("nothing waiting"))
 	}
 
-	footer := footerHints([]hint{{keyEnter, "answer"}, {"o", labelOpen}, {keyEsc, labelBack}}, m.width-boxPad)
+	hints := []hint{{keyEnter, "answer", ""}, {"o", labelOpen, ""}, {keyEsc, labelBack, ""}}
+	footer := footerHints(hints, m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
 }

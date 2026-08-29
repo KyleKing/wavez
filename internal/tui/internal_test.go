@@ -427,7 +427,7 @@ func TestTranscript_FuzzySearchFindsWordsSubstringWouldMiss(t *testing.T) {
 func TestFooterHints_DropsLowestPriorityAsWidthShrinks(t *testing.T) {
 	t.Parallel()
 
-	hints := []hint{{"enter", "open"}, {"v", "peek"}, {"i", "inbox"}, {"?", "help"}}
+	hints := []hint{{"enter", "open", ""}, {"v", "peek", ""}, {"i", "inbox", ""}, {"?", "help", ""}}
 
 	wide := footerHints(hints, 80)
 	narrow := footerHints(hints, 12)

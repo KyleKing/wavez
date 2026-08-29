@@ -1,13 +1,20 @@
 package tui
 
+import (
+	"strings"
+
+	"charm.land/lipgloss/v2"
+)
+
 // renderHelp lists every layer of controls for the current screen: the
-// universal floor (L0/L1) plus that screen's single-key verbs (L2).
+// universal floor (L0/L1) plus that screen's single-key verbs (L2). The
+// "this screen" entries flow into as many columns as the width fits, and the
+// whole body is sized from the lines that actually render so the frame never
+// grows taller than the terminal at the app's 80x24 floor.
 func (m Model) renderHelp() string {
 	hints := m.currentHints()
 
-	const headerLines = 4
-
-	body := make([]string, 0, len(hints)+headerLines+len(composerHelp()))
+	body := make([]string, 0, 8)
 	body = append(body,
 		"navigation   j/k up/down   g/G top/bottom   Tab/Shift+Tab focus panel",
 		"universal    Esc back   ? help   : palette   q quit (Home only)",
@@ -18,13 +25,56 @@ func (m Model) renderHelp() string {
 	}
 
 	body = append(body, "", "this screen:")
+	body = append(body, hintLines(hints, m.width-boxPad)...)
 
-	for _, h := range hints {
-		body = append(body, "  "+h.key+"  "+h.label)
+	// A screen that grows more hints than the columns can fold is cut here
+	// rather than rendered off the bottom, taking the frame's rules with it.
+	if fits := max(m.height-frameBorderRows, 0); len(body) > fits {
+		body = body[:fits]
 	}
 
 	return frame(m.width, "help", body, "[esc]"+labelBack, m.th)
 }
+
+// hintLines lays hints out in aligned columns: however many copies of the
+// widest entry fit side by side across width, so a help list stays inside the
+// height instead of running one key per row off the bottom.
+func hintLines(hints []hint, width int) []string {
+	if len(hints) == 0 || width < 1 {
+		return nil
+	}
+
+	cells := make([]string, len(hints))
+
+	cellW := 0
+	for i, h := range hints {
+		text := h.phrase
+		if text == "" {
+			text = h.label
+		}
+
+		cells[i] = h.key + hintGutter + text
+		cellW = max(cellW, lipgloss.Width(cells[i]))
+	}
+
+	cols := max(width/(cellW+len(hintGutter)), 1)
+
+	var lines []string
+	for start := 0; start < len(cells); start += cols {
+		line := make([]string, 0, cols)
+		for _, c := range cells[start:min(start+cols, len(cells))] {
+			line = append(line, padRight(c, cellW))
+		}
+
+		lines = append(lines, hintGutter+strings.Join(line, hintGutter))
+	}
+
+	return lines
+}
+
+// hintGutter separates a key from its phrase and one column from the next,
+// so both readings of the gap are the same width.
+const hintGutter = "  "
 
 // composerHelp is the message composer's map. Editing is modal and has no
 // non-vim fallback, so the floor has to be written down somewhere.
@@ -44,7 +94,7 @@ func (m Model) currentHints() []hint {
 	case screenThread:
 		return threadHints(m.thread.search, m.focus, m.thread.filter)
 	case screenInbox:
-		return []hint{{keyEnter, "answer"}, {"o", labelOpen}, {keyEsc, labelBack}}
+		return []hint{{keyEnter, "answer", ""}, {"o", labelOpen, ""}, {keyEsc, labelBack, ""}}
 	case screenDiagnostics:
 		return diagnosticsHints(m.diagUI.drilled)
 	case screenModels:

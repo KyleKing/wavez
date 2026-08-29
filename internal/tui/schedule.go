@@ -325,10 +325,10 @@ func scheduleHints(leases bool) []hint {
 	}
 
 	return []hint{
-		{keyEnter, labelOpen},
-		{"l", locks},
-		{"x", "kill"},
-		{keyEsc, labelBack},
-		{"?", labelHelp},
+		{keyEnter, labelOpen, ""},
+		{"l", locks, ""},
+		{"x", "kill", ""},
+		{keyEsc, labelBack, ""},
+		{"?", labelHelp, ""},
 	}
 }

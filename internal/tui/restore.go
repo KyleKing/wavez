@@ -197,9 +197,9 @@ func (m Model) renderRestore() string {
 
 	body = append(body, "", "restore?  [y]es  [n]o")
 
-	hints := []hint{{"y", "restore"}, {"n", labelCancel}, {keyEsc, labelCancel}}
+	hints := []hint{{"y", "restore", ""}, {"n", labelCancel, ""}, {keyEsc, labelCancel, ""}}
 	if len(m.restore.edits) > 0 {
-		hints = append([]hint{{"j/k", "pick edit"}}, hints...)
+		hints = append([]hint{{"j/k", "pick edit", ""}}, hints...)
 	}
 
 	footer := footerHints(hints, inner)

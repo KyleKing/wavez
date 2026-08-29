@@ -657,11 +657,11 @@ func (m Model) renderCompose() string {
 
 	body := m.thread.input.composeBody(m.th, m.width-boxPad, m.height-composeChrome)
 	footer := footerHints([]hint{
-		{keyCompose, "inline"},
-		{keyEnter, "newline"},
-		{keyEsc, "normal"},
-		{"i", "insert"},
-		{keyTab, "snippet"},
+		{keyCompose, "inline", ""},
+		{keyEnter, "newline", ""},
+		{keyEsc, "normal", ""},
+		{"i", "insert", ""},
+		{keyTab, "snippet", ""},
 	}, m.width-boxPad)
 
 	return frame(m.width, title, body, footer, m.th)
@@ -761,32 +761,32 @@ const threadHintTail = 13
 // diff pane, where no hint names it.
 func threadHints(search searchState, focus int, filter filterCategory) []hint {
 	if search.editing {
-		return []hint{{keyEnter, labelApply}, {keyEsc, labelCancel}}
+		return []hint{{keyEnter, labelApply, ""}, {keyEsc, labelCancel, ""}}
 	}
 
 	if focus == focusInput {
 		return []hint{
-			{keyEnter, labelSend},
-			{keyInterrupt, "send now"},
-			{keyCompose, "fullscreen"},
-			{keyEsc, "normal mode"},
-			{keyTab, labelPanel},
-			{"?", labelHelp},
+			{keyEnter, labelSend, ""},
+			{keyInterrupt, "send now", ""},
+			{keyCompose, "fullscreen", ""},
+			{keyEsc, "normal mode", ""},
+			{keyTab, labelPanel, ""},
+			{"?", labelHelp, ""},
 		}
 	}
 
 	var enter []hint
 	if focus == focusTranscript {
-		enter = []hint{{keyEnter, "toggle"}}
+		enter = []hint{{keyEnter, "toggle", ""}}
 	}
 
 	head := make([]hint, 0, len(enter)+2)
 	head = append(head, enter...)
-	head = append(head, hint{keyTab, labelPanel}, hint{"/", "search"})
-	back := []hint{{keyEsc, labelHome}}
+	head = append(head, hint{keyTab, labelPanel, ""}, hint{"/", "search", ""})
+	back := []hint{{keyEsc, labelHome, ""}}
 
 	if filter != catNone {
-		back = []hint{{keyEsc, "clear filter"}}
+		back = []hint{{keyEsc, "clear filter", ""}}
 	}
 
 	// A live query puts its keys first: footerHints drops from the tail, and
@@ -794,35 +794,35 @@ func threadHints(search searchState, focus int, filter filterCategory) []hint {
 	if search.query != "" {
 		head = make([]hint, 0, len(enter)+4)
 		head = append(head,
-			hint{"n", "next match"},
-			hint{"N", "prev match"},
-			hint{keyEsc, "clear search"},
+			hint{"n", "next match", ""},
+			hint{"N", "prev match", ""},
+			hint{keyEsc, "clear search", ""},
 		)
 		head = append(head, enter...)
-		head = append(head, hint{keyTab, labelPanel})
+		head = append(head, hint{keyTab, labelPanel, ""})
 		back = nil
 	}
 
 	hints := make([]hint, 0, len(head)+len(back)+threadHintTail)
 	hints = append(hints, head...)
 	hints = append(hints,
-		hint{"d", "diff"},
-		hint{"a", "ask-line"},
-		hint{"f", "fork"},
-		hint{"[", "prev"},
-		hint{"]", "next"},
-		hint{"i", labelInbox},
-		hint{"u", "undo"},
-		hint{"m", "route"},
-		hint{"t", "think"},
-		hint{"F", "fuzzy"},
-		hint{"g", "goal"},
-		hint{"c", filterHintLabel(filter)},
-		hint{"s", "summary"},
+		hint{"d", "diff", "open the diff pane"},
+		hint{"a", "ask-line", "ask about the selected diff line"},
+		hint{"f", "fork", "fork this thread"},
+		hint{"[", "prev", "previous thread"},
+		hint{"]", "next", "next thread"},
+		hint{"i", labelInbox, "open pending prompts"},
+		hint{"u", "undo", "pick a checkpoint to restore"},
+		hint{"m", "route", "pick the next turn's model"},
+		hint{"t", "think", "cycle thinking: default, off, on"},
+		hint{"F", "fuzzy", "fuzzy-search the transcript"},
+		hint{"g", "goal", "show this thread's goal"},
+		hint{"c", filterHintLabel(filter), "step the kind filter"},
+		hint{"s", "summary", "group rows by kind"},
 	)
 	hints = append(hints, back...)
 
-	return append(hints, hint{"?", labelHelp})
+	return append(hints, hint{"?", labelHelp, ""})
 }
 
 // filterBadge names an active kind filter in the header. A filter that keeps

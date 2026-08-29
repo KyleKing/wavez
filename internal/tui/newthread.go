@@ -116,8 +116,8 @@ func (m Model) renderNewThread() string {
 
 func newThreadHints() []hint {
 	return []hint{
-		{keyEnter, "create"},
-		{keyTab, "cycle"},
-		{keyEsc, "cancel"},
+		{keyEnter, "create", ""},
+		{keyTab, "cycle", ""},
+		{keyEsc, "cancel", ""},
 	}
 }

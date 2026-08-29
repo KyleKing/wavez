@@ -494,16 +494,20 @@ func (m Model) modelSettingsRows() []string {
 func (m Model) modelHints() []hint {
 	switch {
 	case m.models.naming, m.models.editing:
-		return []hint{{keyEnter, labelApply}, {keyEsc, labelCancel}}
+		return []hint{{keyEnter, labelApply, ""}, {keyEsc, labelCancel, ""}}
 	case m.models.action != "" && m.models.confirm == "":
-		return []hint{{keyEsc, labelCancel}}
+		return []hint{{keyEsc, labelCancel, ""}}
 	case m.models.action != "":
-		return []hint{{"y", "confirm"}, {"n", labelCancel}}
+		return []hint{{"y", "confirm", ""}, {"n", labelCancel, ""}}
 	case m.models.settings:
-		return []hint{{keyEnter, "edit"}, {"0", "default"}, {keyEsc, labelBack}}
+		return []hint{{keyEnter, "edit", ""}, {"0", "default", ""}, {keyEsc, labelBack, ""}}
 	default:
 		return []hint{
-			{keyEnter, "settings"}, {"u", "check"}, {"a", "install"}, {"x", "uninstall"}, {keyEsc, labelBack},
+			{keyEnter, "settings", ""},
+			{"u", "check", ""},
+			{"a", "install", ""},
+			{"x", "uninstall", ""},
+			{keyEsc, labelBack, ""},
 		}
 	}
 }

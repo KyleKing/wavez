@@ -193,7 +193,7 @@ func (m Model) renderPalette() string {
 		body = append(body, m.th.fgMuted.Render("no matches"))
 	}
 
-	footer := footerHints([]hint{{keyEnter, "go"}, {keyEsc, "close"}}, m.width-boxPad)
+	footer := footerHints([]hint{{keyEnter, "go", ""}, {keyEsc, "close", ""}}, m.width-boxPad)
 
 	return frame(m.width, "palette", body, footer, m.th)
 }
