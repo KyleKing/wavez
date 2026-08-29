@@ -635,26 +635,8 @@ func (m Model) homeStatus(shown int) string {
 	return m.th.fgMuted.Render(strings.Join(parts, " · "))
 }
 
-// homeWindow is the slice of row indexes that fit, scrolled so the cursor
-// is one of them.
 func (m Model) homeWindow(rows []api.ThreadInfo, cursor int) []int {
-	budget := m.homeListBudget()
-
-	offset := min(m.home.offset, max(len(rows)-budget, 0))
-	if cursor < offset {
-		offset = cursor
-	}
-
-	if cursor >= offset+budget {
-		offset = cursor - budget + 1
-	}
-
-	out := make([]int, 0, budget)
-	for i := offset; i < len(rows) && len(out) < budget; i++ {
-		out = append(out, i)
-	}
-
-	return out
+	return scrolledWindow(len(rows), cursor, m.home.offset, m.homeListBudget())
 }
 
 // homeListBudget is how many rows fit once the two border lines, the column

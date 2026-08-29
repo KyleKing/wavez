@@ -64,3 +64,23 @@ func rule(left, right rune, label string, width int) string {
 
 	return b.String()
 }
+
+// scrolledWindow is the run of row indexes a list can show: budget of them at
+// most, scrolled from offset by however far it takes to keep cursor inside.
+func scrolledWindow(count, cursor, offset, budget int) []int {
+	offset = min(offset, max(count-budget, 0))
+	if cursor < offset {
+		offset = cursor
+	}
+
+	if cursor >= offset+budget {
+		offset = cursor - budget + 1
+	}
+
+	out := make([]int, 0, budget)
+	for i := offset; i < count && len(out) < budget; i++ {
+		out = append(out, i)
+	}
+
+	return out
+}

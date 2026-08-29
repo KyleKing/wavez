@@ -1,8 +1,8 @@
 [1m┌ schedule · phase: execute · mem 11.0G/16.0G free 31% · qwen3:8b loaded ──────┐[m
-[1m│ [m[1m> fix-lock-timeout   ############### editing internal/lease.go[m              [1m │[m
+[1m│ [m[1m> fix-lock-timeout                   editing internal/lease.go[m              [1m │[m
 [1m│ [m  add-jj-backend     #*#*#*#*#*#*#*# gate test 4/7                          [1m │[m
-[1m│ [m  jj-op-log-undo     ooooooooooooooo lock internal/vcs <- add-jj-backend    [1m │[m
-[1m│ [m  docs-pass          !!!!!!!!!!!!!!! needs input                            [1m │[m
+[1m│ [m  jj-op-log-undo                     lock internal/vcs <- add-jj-backend    [1m │[m
+[1m│ [m  docs-pass                          needs input                            [1m │[m
 [1m│ [mgate · fix-lock-timeout ────────────────────────────────────────────────────[1m │[m
 [1m│ [m[2mnothing running[m                                                             [1m │[m
 [1m└ [enter]open [l]locks [x]kill [esc]back [?]help ──────────────────────────────┘[m

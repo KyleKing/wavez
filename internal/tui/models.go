@@ -391,7 +391,7 @@ func (m Model) modelRows(budget int) []string {
 		"model", "quant", "size", "headroom", "loaded", "update"))}
 
 	cursor := min(max(m.models.cursor, 0), len(m.models.list)-1)
-	start, end := listWindow(cursor, len(m.models.list), budget)
+	start, end := centeredWindow(cursor, len(m.models.list), budget)
 
 	for i := start; i < end; i++ {
 		info := &m.models.list[i]
@@ -418,10 +418,12 @@ func (m Model) modelRows(budget int) []string {
 	return out
 }
 
-// listWindow is the slice of a list to draw: everything when it fits, and
-// otherwise a run of budget rows around the cursor, one row shorter to leave
-// the line that says how much is hidden.
-func listWindow(cursor, n, budget int) (int, int) {
+// centeredWindow is the slice of a list to draw: everything when it fits, and
+// otherwise a run of budget rows centered on the cursor, one row shorter to
+// leave the line that says how much is hidden. It keeps no scroll position,
+// unlike scrolledWindow, so the cursor sits mid-list rather than where the
+// reader last left it.
+func centeredWindow(cursor, n, budget int) (int, int) {
 	if budget >= n {
 		return 0, n
 	}
