@@ -42,3 +42,11 @@ func (d Dialect) readsChatTemplateKwargs() bool { return d == DialectLlamaCpp }
 // repeat_penalty, which is not an OpenAI parameter and which no OpenRouter
 // endpoint of the models this project serves lists as supported.
 func (d Dialect) readsRepeatPenalty() bool { return d == DialectLlamaCpp }
+
+// composesSchemas reports whether this dialect's served models honor a
+// top-level `oneOf` in a tool's parameter schema. GLM-5.3 does not: given
+// one it answers with `{}` in six completion tokens, and the same call with
+// the schema flattened to a single branch answers with every argument. Both
+// `oneOf` and `anyOf` fail that way, so there is no composed shape to fall
+// back to.
+func (d Dialect) composesSchemas() bool { return d != DialectZAI }

@@ -1,6 +1,7 @@
 package openaic_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -694,4 +695,107 @@ func TestRequestCarriesTheRepetitionBounds(t *testing.T) {
 	if _, ok := got["repeat_penalty"]; ok {
 		t.Errorf("repeat_penalty = %v, want it omitted when unset", got["repeat_penalty"])
 	}
+}
+
+// A tool schema stating alternative input shapes as a top-level `oneOf` is
+// what llama-server compiles its grammar from, and it is also what GLM-5.3
+// answers with `{}`, so the shape a request carries has to follow its
+// dialect the way the reasoning toggle does.
+func TestClient_Stream_FlattensComposedSchemaOnlyWhereItIsNotRead(t *testing.T) {
+	t.Parallel()
+
+	composed := json.RawMessage(`{"oneOf":[` +
+		`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},` +
+		`{"type":"object","properties":{"edits":{"type":"array"}},"required":["edits"]}]}`)
+	plain := json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`)
+
+	tests := []struct {
+		name    string
+		dialect openaic.Dialect
+		schema  json.RawMessage
+		wantOne bool
+	}{
+		{name: "zai gets the first branch", schema: composed, dialect: openaic.DialectZAI},
+		{name: "openrouter keeps the composition", schema: composed, dialect: openaic.DialectOpenRouter, wantOne: true},
+		{name: "llamacpp keeps the composition", schema: composed, dialect: openaic.DialectLlamaCpp, wantOne: true},
+		{name: "a plain schema is untouched on zai", schema: plain, dialect: openaic.DialectZAI},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodies := make(chan []byte, 1)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Errorf("reading request body: %v", err)
+				}
+				bodies <- body
+				w.Header().Set("Content-Type", "text/event-stream")
+				if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+					t.Logf("writing SSE body: %v", err)
+				}
+			}))
+			t.Cleanup(srv.Close)
+
+			client := openaic.New("test-provider", openaic.WithBaseURL(srv.URL),
+				openaic.WithModel("m"), openaic.WithDialect(tc.dialect))
+			req := llm.Request{
+				Model:    "m",
+				Messages: []llm.Message{{Role: llm.RoleUser, Content: "hi"}},
+				Tools:    []llm.ToolSpec{{Name: "str_replace", Schema: tc.schema}},
+			}
+
+			if _, err := collectAll(client, req); err != nil {
+				t.Fatalf("Stream: %v", err)
+			}
+
+			assertSchemaShape(t, sentToolSchema(t, <-bodies), tc.schema, tc.dialect, tc.wantOne)
+		})
+	}
+}
+
+// assertSchemaShape checks that a dialect was sent the composition it reads
+// and, where it was not, that the branch it got kept its own requirements
+// and none of the branch it lost.
+func assertSchemaShape(t *testing.T, sent, orig json.RawMessage, d openaic.Dialect, wantOne bool) {
+	t.Helper()
+
+	if got := bytes.Contains(sent, []byte(`"oneOf"`)); got != wantOne {
+		t.Fatalf("schema sent to %s composed = %v, want %v: %s", d, got, wantOne, sent)
+	}
+
+	if wantOne || !bytes.Contains(orig, []byte(`"oneOf"`)) {
+		return
+	}
+
+	if !bytes.Contains(sent, []byte(`"required"`)) {
+		t.Errorf("the flattened branch dropped its own required fields: %s", sent)
+	}
+	if bytes.Contains(sent, []byte(`"edits"`)) {
+		t.Errorf("the dropped branch leaked into the flattened one: %s", sent)
+	}
+}
+
+// sentToolSchema digs the one advertised tool's parameter schema back out of
+// a recorded request body.
+func sentToolSchema(t *testing.T, body []byte) json.RawMessage {
+	t.Helper()
+
+	var sent struct {
+		Tools []struct {
+			Function struct {
+				Parameters json.RawMessage `json:"parameters"`
+			} `json:"function"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &sent); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+	if len(sent.Tools) != 1 {
+		t.Fatalf("advertised %d tools, want 1", len(sent.Tools))
+	}
+
+	return sent.Tools[0].Function.Parameters
 }

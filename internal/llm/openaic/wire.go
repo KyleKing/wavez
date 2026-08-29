@@ -104,6 +104,28 @@ type wireToolFunction struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
+// schemaFor answers the parameter schema a dialect can actually decode. A
+// dialect that does not compose gets the first branch of a top-level
+// `oneOf`, which is the shape every such schema states first and the one a
+// caller can always satisfy; the alternatives it drops cost extra calls
+// rather than correctness. A schema that is not a composition is passed
+// through, as is one whose branches do not parse, since a schema this code
+// cannot read is one it must not rewrite.
+func schemaFor(schema json.RawMessage, d Dialect) json.RawMessage {
+	if d.composesSchemas() || len(schema) == 0 {
+		return schema
+	}
+
+	var composed struct {
+		OneOf []json.RawMessage `json:"oneOf"` //nolint:tagliatelle // JSON Schema's own spelling
+	}
+	if err := json.Unmarshal(schema, &composed); err != nil || len(composed.OneOf) == 0 {
+		return schema
+	}
+
+	return composed.OneOf[0]
+}
+
 func toWireRequest(model string, req llm.Request, d Dialect) wireRequest {
 	messages := make([]wireMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
@@ -122,7 +144,7 @@ func toWireRequest(model string, req llm.Request, d Dialect) wireRequest {
 				Function: wireToolFunction{
 					Name:        t.Name,
 					Description: t.Description,
-					Parameters:  t.Schema,
+					Parameters:  schemaFor(t.Schema, d),
 				},
 			}
 		}

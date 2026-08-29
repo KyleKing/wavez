@@ -83,7 +83,12 @@ are specific to this codebase and not visible from the code.
   model can take mid-call. State alternative input shapes as a top-level
   `oneOf` of whole objects (`buildOneOf`), because an `anyOf` written beside
   `properties` is silently ignored, and never let an absent field mean
-  something destructive
+  something destructive. That shape is the local tier's and no one else's:
+  GLM-5.3 answers any top-level `oneOf` or `anyOf` with `{}` in six
+  completion tokens, and the same call with one branch answers with every
+  argument, so `openaic.schemaFor` sends z.ai the first branch. A tool
+  reached only through `buildOneOf`'s later branches is a tool the hosted
+  tiers cannot reach at all
 - A replay record's `model` is a tier name, and `served` is what actually
   answered it. Moving the fast tier from the loopback llama-server to a
   hosted endpoint keeps the tier name and changes the machine, the window,
