@@ -3851,3 +3851,45 @@ either direction lost a check.
 
 A third h3 lane recorded as `outline-3-killed`: I stopped the batch to free the
 machine, and $0.0000 against 3 of 6 checks is the kill rather than a result.
+
+## 2026-08-29 — counting the edit tools by window, and getting it wrong first
+
+Next item 2 said `no_match` is what is left in the edit tools. Mining the
+thread logs for those turned up a clean class straight away: anchors whose only
+fault was gofmt's column alignment, `name:  "x"` sent as `name: "x"`. A
+whitespace-tolerant retry looked like the obvious lane.
+
+It is already built. `edit.Replace` falls through exact matching to a line-wise
+match that collapses interior spacing, and then to one that tolerates blank
+lines the anchor dropped, and both recorded cases apply today with no error.
+That much held up. The corpus is weeks wide and most of it predates those
+tiers, so an unwindowed count of a failure class measures the history of the
+fix rather than what is left.
+
+Then I windowed it by hand over `.wavez/threads/` and published the result,
+and it was wrong twice over. That directory holds interactive threads as well
+as replay ones, so it is not the corpus any earlier number came from. And the
+filter compared a missing timestamp as a string, which files every event that
+carries no `at` into the older window. It reported `no_match` falling to 6 of
+176 calls, which would have closed the item.
+
+`wavez -stats-corpus`, with `-stats-since 2026-08-26`, is the instrument and
+already existed:
+
+| | calls | errors | no_match | ambiguous |
+|---|---|---|---|---|
+| before 2026-08-26 | 264 | 74 (28%) | 39 | 11 |
+| 2026-08-26 onward | 295 | 91 (31%) | 31 | 28 |
+
+`no_match` fell from 14.8% of calls to 10.5% and `ambiguous` rose from 4.2% to
+9.5%. Both are live and `no_match` is still the larger, which is the opposite
+of what the hand count said. Eight of the recent `ambiguous` results are one
+identifier substituted, `Read` to `ReadLog`, and are answered by this
+morning's `orRename` change: `wavez -recall p-dkywvbjtyx0o -recall-turn 16`
+ends `path: "internal/bench/stats.go"` where it used to stop at the widening
+advice.
+
+Two rules out of this, and the second is the one that cost the lane. Window a
+failure class before mining it. And reach for the corpus command before
+writing the aggregation, because a hand-rolled count over a directory is a
+different population with its own bugs, and it is confident either way.

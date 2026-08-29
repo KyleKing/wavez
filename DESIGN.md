@@ -954,16 +954,31 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    instead. That is item 4, and it is now the thing holding this task rather
    than retrieval.
 
-2. **`no_match` is what is left in the edit tools.** `str_replace` fails 29%
-   of its calls (134 of 464) against the 56% (78 of 140) the first 77 runs
-   showed, and `delete` 32% (7 of 22) against 60%. What remains is
-   `no_match` 67, `bad_input` 32, `ambiguous` 20, `malformed` 11, and
-   `repeat` 4. Two of the 67 are answered rather than repeated now that a
-   part-finished rename says the edit is already made, which
-   `wavez -recall p-dkykn7hmlye0 -recall-turn 32` reproduces against the run
-   that motivated it. The rest are anchors that genuinely miss, and the
-   instrument for them is `-recall` over the lanes that hold them rather
-   than another sweep.
+2. **`no_match` is still the largest class in the edit tools, and
+   `ambiguous` is the one that grew.** From `wavez -stats-corpus`, which is
+   what these counts have to come from: over the whole corpus `str_replace`
+   runs 559 calls at a 30% error rate, `no_match` 70, `bad_input` 41,
+   `ambiguous` 39, `malformed` 11, `repeat` 4. Split at 2026-08-26 with
+   `-stats-since`, the 264 calls before it erred 28% with `no_match` 39 and
+   `ambiguous` 11, and the 295 after erred 31% with `no_match` 31 and
+   `ambiguous` 28. So `no_match` fell from 14.8% of calls to 10.5% and
+   `ambiguous` rose from 4.2% to 9.5%, and both are live.
+
+   One `no_match` class is already answered and is worth not re-deriving: an
+   anchor whose only fault is gofmt's column alignment, `name:  "x"` sent as
+   `name: "x"`, applies today through the line-wise tier in `edit.Replace`
+   that collapses interior spacing, and the blank-tolerant tier below it
+   covers an anchor copied without the file's blank lines. The rest are
+   anchors that genuinely miss, and the instrument for them is `-recall` over
+   the lanes that hold them rather than another sweep.
+
+   Of the recent `ambiguous` results, eight are one identifier substituted,
+   `Read` to `ReadLog`, which is what `orRename` was withholding advice from
+   while `rename` could not finish a hand-edited declaration.
+   `wavez -recall p-dkywvbjtyx0o -recall-turn 16` shows one answered now,
+   ending `path: "internal/bench/stats.go"`. The rest change several
+   identifiers at once, which is a text edit rather than a rename, and
+   `replace_all` is what the refusal already offers them.
 
 3. **What a run reads after it has found the right file.** A whole-file read
    past 300 lines comes back as the package clause, the imports, and every
