@@ -2,11 +2,13 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/edit"
@@ -93,14 +95,18 @@ var strReplaceSchema = buildOneOf(
 // alone.
 type StrReplace struct {
 	scope *Scope
-	root  string
-	deps  deps
+	// refused records each anchor this run has already been refused, against
+	// the file's bytes at the time. See repeatedRefusal.
+	refused map[string][32]byte
+	root    string
+	deps    deps
+	mu      sync.Mutex
 }
 
 // NewStrReplace builds a StrReplace tool scoped to root, checking each edit
 // against scope.
 func NewStrReplace(root string, scope *Scope, opts ...Option) *StrReplace {
-	return &StrReplace{root: root, scope: scope, deps: newDeps(opts)}
+	return &StrReplace{root: root, scope: scope, deps: newDeps(opts), refused: map[string][32]byte{}}
 }
 
 // Name implements tool.Tool.
@@ -340,7 +346,7 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 
 	batch, err := edit.ApplyToFiles(edits)
 	if err != nil {
-		return s.failedEdit(ctx, &in, edits, err), nil
+		return s.repeatedRefusal(edits, before, s.failedEdit(ctx, &in, edits, err)), nil
 	}
 
 	changes := batch.Changes
@@ -362,6 +368,57 @@ func (s *StrReplace) Run(ctx context.Context, input json.RawMessage) (tool.Resul
 	content := strings.Join(parts, "\n")
 
 	return tool.Result{Content: content, Changes: changes}, nil
+}
+
+// repeatedRefusal answers an anchor this run was already refused for a file
+// that has not changed since, which is a call whose outcome is settled before
+// it runs. The loop's own repeat detection reaches only a call that
+// immediately follows its twin, and 15 of str_replace's 91 recorded failures
+// since 2026-08-26 re-sent an input that had already failed, 4 of them
+// adjacent. One run sent the same whole-declaration anchor at three separate
+// turns, reading past the advice to use declare each time, and then used
+// declare and succeeded.
+//
+// The file's bytes are what makes this safe rather than a guess: identical
+// bytes and an identical anchor cannot match now having missed before. A run
+// that fixes the file and tries again is a different call and is left alone.
+func (s *StrReplace) repeatedRefusal(edits []edit.FileEdit, before [][]byte, result tool.Result) tool.Result {
+	if !result.IsError {
+		return result
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	repeat := false
+
+	for i, e := range edits {
+		if i >= len(before) || before[i] == nil {
+			continue
+		}
+
+		sum := sha256.Sum256(before[i])
+
+		for _, pair := range e.Pairs {
+			key := e.Path + "\x00" + pair.OldString
+			if was, seen := s.refused[key]; seen && was == sum {
+				repeat = true
+			}
+
+			s.refused[key] = sum
+		}
+	}
+
+	if !repeat {
+		return result
+	}
+
+	result.Content = "you already sent this old_string for this file and it was refused, and the file has " +
+		"not changed since, so it cannot match now either. Act on what the refusal said rather than " +
+		"re-sending it:\n\n" + result.Content
+	result.Cause = tool.CauseRepeat
+
+	return result
 }
 
 // dedupeNotes keeps the first of each distinct note, since one batch can

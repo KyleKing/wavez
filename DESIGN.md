@@ -964,6 +964,15 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    `ambiguous` 28. So `no_match` fell from 14.8% of calls to 10.5% and
    `ambiguous` rose from 4.2% to 9.5%, and both are live.
 
+   The largest single shape inside them is a re-send: 15 of the 91 recent
+   `str_replace` failures repeat an input that already failed in the same run,
+   and 19 do across all tools, of which the loop's adjacent-call detection
+   reached 4. `str_replace` now records each refused anchor against the file's
+   bytes and answers an identical anchor for unchanged bytes with `repeat`,
+   which is a check rather than a guess because identical bytes and an
+   identical anchor cannot match now having missed before.
+   `wavez -recall p-dkyhkk6eessg -recall-turn 21` is one of them.
+
    One `no_match` class is already answered and is worth not re-deriving: an
    anchor whose only fault is gofmt's column alignment, `name:  "x"` sent as
    `name: "x"`, applies today through the line-wise tier in `edit.Replace`

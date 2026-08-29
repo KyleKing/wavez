@@ -1005,3 +1005,50 @@ func TestStrReplace_ShowsTheTextRatherThanAskingForAReread(t *testing.T) {
 		t.Errorf("content = %q, want the text rather than an instruction to re-read", stale.Content)
 	}
 }
+
+// The loop's repeat detection reaches only a call that immediately follows
+// its twin, and 4 of the 19 recorded re-sends since 2026-08-26 were adjacent.
+// One run sent the same whole-declaration anchor at three separate turns,
+// reading past the advice to use declare each time.
+func TestStrReplace_RefusesAnAnchorItAlreadyRefusedForAnUnchangedFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.go")
+	write(t, path, "package p\n\nfunc a() { x := 1 }\n")
+
+	s := tools.NewStrReplace(dir, tools.NewScope(false))
+	miss := map[string]any{"path": "file.go", "old_string": "func b()", "new_string": "func c()"}
+
+	first := runEdit(t, s, miss)
+	if !first.IsError || first.Cause == tool.CauseRepeat {
+		t.Fatalf("first call = %+v, want the anchor's own refusal", first)
+	}
+
+	second := runEdit(t, s, miss)
+	if second.Cause != tool.CauseRepeat {
+		t.Errorf("second call Cause = %q, want %q: %s", second.Cause, tool.CauseRepeat, second.Content)
+	}
+	if !strings.Contains(second.Content, first.Content) {
+		t.Errorf("the repeat dropped what the first refusal said:\n%s", second.Content)
+	}
+
+	// A run that changes the file and tries the same anchor is asking a
+	// different question, and the answer is the anchor's own again.
+	write(t, path, "package p\n\nfunc b() { x := 1 }\n")
+
+	if again := runEdit(t, s, miss); again.IsError {
+		t.Errorf("the anchor was refused after the file changed to hold it: %s", again.Content)
+	}
+}
+
+func runEdit(t *testing.T, s *tools.StrReplace, args map[string]any) tool.Result {
+	t.Helper()
+
+	res, err := s.Run(t.Context(), mustJSON(t, args))
+	if err != nil {
+		t.Fatalf("Run(%v): %v", args, err)
+	}
+
+	return res
+}

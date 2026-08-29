@@ -3893,3 +3893,43 @@ Two rules out of this, and the second is the one that cost the lane. Window a
 failure class before mining it. And reach for the corpus command before
 writing the aggregation, because a hand-rolled count over a directory is a
 different population with its own bugs, and it is confident either way.
+
+## 2026-08-29 — a refused anchor, sent again, for a file that had not changed
+
+Reading the recent `no_match` results one by one rather than counting them, the
+shape that stands out is not a bad anchor. It is the same anchor twice. Of
+`str_replace`'s 91 failures in runs started 2026-08-26 onward, 15 re-send an
+input that had already failed in that run, and across all tools 19 do. The
+loop's own repeat detection reached 4 of the 19, because it compares against
+the immediately preceding call and these are separated by a `read`, an `undo`,
+or another edit.
+
+One run sent the same whole-declaration anchor for `truncate` at three separate
+turns, each time reading past a refusal that named `declare` as the tool with
+no anchor to match, and then used `declare` and succeeded.
+
+`str_replace` now records each anchor it refuses against the file's bytes at
+that moment, and answers a second identical anchor for unchanged bytes with
+`repeat`, leading with what to do and keeping the original refusal underneath.
+The bytes are what make this a check rather than a guess: identical bytes and
+an identical anchor cannot match now having missed before, so nothing is
+refused that could have worked. A run that fixes the file and tries the same
+anchor is a different call and is left alone, which the test asserts by writing
+the anchor into the file and expecting the edit to apply.
+
+`wavez -recall p-dkyhkk6eessg -recall-turn 21` is one of the recorded ones, and
+now answers:
+
+```
+it is told now (error (repeat)):
+    you already sent this old_string for this file and it was refused, and the
+    file has not changed since, so it cannot match now either. Act on what the
+    refusal said rather than re-sending it:
+
+    edit 1 of 1: old_string not found in source; ...
+```
+
+What this does not settle is whether a run acts on the sharper refusal. The
+count says how much of the failure budget goes to calls whose outcome was
+settled before they ran, and the next `h11` or `h6` lane is where the turns
+would show.
