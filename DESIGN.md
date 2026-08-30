@@ -1059,11 +1059,18 @@ and 28,173 machine-written symbols. It passes over nothing in this project.
 A miss it causes says so, since a silent one is the degradation this arc is
 against.
 
-What remains, none of it built: the first index not blocking the first
-search, a size the whole store refuses or degrades at rather than silently
-taking minutes, and a real answer for whole-repo operations that a large
-module makes expensive (`go list ./...`, the coverage sweep, `go test ./...`
-as a gate). None of the efficiency numbers in Next transfer across this
+The first pass no longer blocks the first query either. `Start` set a flag
+and `Refresh` took the walk lock regardless, so any query arriving during a
+cold index waited the whole walk out, which is 14.5 seconds on that tree. A
+query during the first pass now answers from what the store already holds
+and carries `IndexStats.Building`, which `search`, `context`, and a `@`
+mention each say out loud, because an incomplete answer given silently reads
+as an absence from the tree.
+
+What remains, none of it built: a size the whole store refuses or degrades
+at rather than silently taking minutes, and a real answer for whole-repo
+operations that a large module makes expensive (`go list ./...`, the
+coverage sweep, `go test ./...` as a gate). None of the efficiency numbers in Next transfer across this
 boundary, because all of them were measured on the small side of it.
 
 **B. Documentation drifted from the tree, and so did the template.** The

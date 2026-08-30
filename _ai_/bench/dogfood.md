@@ -4838,3 +4838,35 @@ A miss the cap caused now reads differently from a symbol that does not
 exist: `search`'s no-match line names how many files are over the cap and
 sends the caller to `rg`. Without that the cap would be the silent kind of
 degradation this arc exists to remove.
+
+### 2026-08-30 — the first pass and the first query
+
+`Indexer.Start`'s doc said it "absorbs the cold cost in the background so no
+query pays it", and that was true only of a query arriving after it. `Search`
+went through `Refresh`, which took the same mutex the walk holds, so a query
+during a cold index waited the whole walk out: 14.5 seconds on the tree
+above, 1m09s before the cap. The one time a query is certain to arrive during
+the first pass is a fresh checkout, which is the case this was for.
+
+A query during the first pass now answers from what the store already holds
+and carries `IndexStats.Building` saying so. The alternative was to keep
+blocking and shorten the walk, and it loses on the same argument the
+freshness doctrine wins on: the answer has to say which kind of empty it is.
+`search`, `context`, and an unresolved `@` mention each print the reason, so
+a run reads "still being built, retry or use rg" rather than "no matches".
+
+Proved by holding the walk lock and calling `Refresh`: it answers with
+`Building` set, and removing the bypass turns that test into a deadlock
+rather than a failure. A second test holds the lock with the flag clear and
+requires `Refresh` to block, so the flag is the only thing that bypasses it.
+
+The flake this surfaced was a real defect. `hk check --all` failed
+`TestRun_CancellationMidStreamLeavesConsistentState` with `Stop = ""`, and it
+reproduced 2 in 200 under parallel builds. `Loop.Run` does three
+context-taking calls before `drive`, and each returned a bare `Outcome{}`, so
+a cancellation landing during startup came back indistinguishable from an
+ordinary failure to a caller reading `Stop` to decide a thread's state. It
+reports `StopCanceled` now and carries the checkpoint it had already taken.
+The test raced too, budgeting 5ms of wall clock to land inside a 50ms
+stream; it is 200ms against 5 seconds, which is the same test with the race
+removed rather than a widened timeout.
