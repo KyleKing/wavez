@@ -4139,3 +4139,43 @@ refusal compiled in, an `h3` run that never reaches for a stream editor is
 unaffected. Whether it helps a run that does still has no measurement, because
 the task that produced the seven-call sequence was a one-off thread rather
 than a replay task.
+
+### 2026-08-29 — what the 62% of turns called retrieval actually is
+
+`wavez -stats-corpus -stats-since 2026-08-26` reads 64 runs and 1,458 turns:
+13% productive, 62% retrieval, 22% harness, 3% prose. Reading the 64 thread
+logs behind those records says what a retrieval turn holds, which the counts
+alone do not.
+
+**A retrieval turn is one tool call.** 902 retrieval turns carry 937 calls,
+and the histogram of tool sets per turn is 359 shell-only, 296 read-only, 160
+search-only, 54 str_replace-only, and four turns that called two tools. The
+runs serialize everything.
+
+**Reads never batch.** All 417 read calls named exactly one path, though the
+`path` property has advertised a comma-separated list since it shipped. 267
+of those reads sit in a back-to-back run of two or more with nothing between
+them, in 94 sequences. Only 36 turns are strictly savable by batching, since
+one call applies one line range to every path it names and 39 of the 94
+sequences repeat a path.
+
+**A range walk is a jump, not a boundary miss.** The 41 adjacent same-file
+ranged pairs looked like a run reading a window too small and needing its
+neighbor (`thread.go` 360-380 then 380-392). Snapping a range to the
+declaration enclosing it would have answered 2 of the 41: the rest jump
+somewhere else in the file. The fix that suggested itself is not a fix.
+
+**171 shell calls re-ran a check the gates run.** Non-targeted `go
+test`/`go build`/`go vet`, 2.7 per run, and 123 of them after the run had
+changed something but before any gate feedback had ever reached it. 37 of the
+64 runs never received a single gate delivery, so a run edits, hears nothing,
+and spends a turn asking the same question itself.
+
+`Shell.alreadyChecked` exists for exactly this and answered none of them,
+because `guard.ProjectCheck` matches only `./...`. Of the 148 scoped sweeps,
+135 named a package the run had already changed, which is the package set the
+change-triggered gates select. `guard.GoPackageSweep` names those packages
+now and `ChangeGate.Covers` answers only for the ones this run wrote a Go
+file in, so a sweep of an untouched package still runs and `-run` still runs.
+That saves the subprocess rather than the turn: the turn the run spends
+asking is spent either way.
