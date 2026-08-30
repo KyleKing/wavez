@@ -4646,3 +4646,35 @@ pass when the rest of the run checked something.
 The mutation is the test: putting the pass mark back on the abstention branch
 fails `TestRoutines_AbstentionIsNotAPass` on the rendered row, which is what
 says the test is reading the mark rather than the words beneath it.
+
+### 2026-08-30 — three triggers that were only a word in the schema
+
+`schedule`, `thread-start`, and `thread-finish` have been in the `Trigger`
+typealias since routines landed, and `intervalSeconds` beside them, with
+nothing anywhere firing them. A project could write one and watch it never
+run.
+
+The schedule side is a timekeeper that wakes every five seconds and asks what
+is due, each routine holding its own next time rather than sharing a tick, so
+a nightly audit and a five-minute check do not drag each other. Two rules
+carry it. Coming up is not a tick, so an hourly routine runs an hour after
+the daemon starts rather than on every restart, which is what a laptop that
+gets closed and opened would otherwise turn into a run per lid. And the next
+time is set from when the run finished, so a routine that overruns its
+interval delays itself instead of queueing behind itself.
+
+A cadence under 30 seconds is refused at compile rather than clamped. It is
+always a typo in the unit, and failing the config load says so where a
+silently corrected value would not.
+
+The lifecycle side is one interface with two methods, which is the whole of
+what crosses between the daemon (which knows when a turn runs) and the
+routine layer (which knows what a routine is). `thread-start` fires once per
+thread: a second prompt is not a second thread, and a setup routine running
+again mid-conversation is not what the trigger names. `thread-finish` runs on
+the turn's own goroutine, so it holds the thread until it is done and checks
+the tree the run actually left.
+
+Both rules are the mutations that prove the tests: firing start
+unconditionally, and dropping the start call, each fail the daemon test on
+the order it observes over the socket.

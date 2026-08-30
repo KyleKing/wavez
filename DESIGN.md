@@ -1256,8 +1256,13 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
 
 **Also open**, and not competing with the four above:
 
-- Routine triggers on schedule and thread lifecycle, and the Semgrep opt-in
-  routine. The panel marks an abstention now: a step that reported no failure
+- The Semgrep opt-in routine. The other three triggers fire now: `schedule`
+  runs a routine every `intervalSeconds` counted from the end of its last
+  run, refused below 30 seconds at compile because a typo in seconds is a
+  laptop with no CPU left; `thread-start` fires once per thread rather than
+  once per prompt; and `thread-finish` runs on the turn's own goroutine, so
+  it is a step of the run rather than something racing the next prompt. The
+  panel marks an abstention now: a step that reported no failure
   while examining nothing is `StatusAbstained`, which neither passes the run
   nor blocks what depends on it, and a run where every step abstained wears
   its own mark rather than a tick
