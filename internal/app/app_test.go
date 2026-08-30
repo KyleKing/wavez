@@ -41,7 +41,7 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 	if !strings.Contains(a.SystemPrefix, "The store owns SQLite. Gates trigger on change events.") {
 		t.Errorf("SystemPrefix is missing the listed Architecture section: %q", a.SystemPrefix)
 	}
-	if got, want := len(a.Tools.Names()), 14; got != want {
+	if got, want := len(a.Tools.Names()), 15; got != want {
 		t.Errorf("len(Tools.Names()) = %d, want %d: %v", got, want, a.Tools.Names())
 	}
 

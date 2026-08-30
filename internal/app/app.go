@@ -109,7 +109,13 @@ var ReadOnlyTools = []string{"list", "read", "search", "context", "question", "w
 // fast tier loses: a run that needs a shell escalates, which is what
 // escalation is for, and `move` and `str_replace` already reach every file
 // operation the recorded runs performed.
-var FastTierOmits = []string{"shell", "write"}
+//
+// `pty` joins them on the argument rather than on evidence, since it is new
+// and nothing has called it yet: it runs an arbitrary command under a
+// terminal, which is a heavier `shell`, and omitting the lighter one while
+// advertising the heavier would be incoherent. It costs 179 tokens of the
+// 7,168 a fast turn can use.
+var FastTierOmits = []string{"pty", "shell", "write"}
 
 // Prefix is the fixed prefix a thread's turns pay, with the fast tier's
 // narrower tool surface filled in. Both entry points build it from here so
@@ -794,6 +800,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases,
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
 			tools.WithAllowedCommands(d.shellAllow)),
+		tools.NewPTY(d.root, DefaultThreadID, d.permGate),
 		tools.NewSearch(d.indexer),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),
