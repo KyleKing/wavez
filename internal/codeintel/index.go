@@ -35,10 +35,22 @@ type IndexStats struct {
 	SymbolsIndexed int
 }
 
-// skipDirs never descends into these directory names while scanning.
+// skipDirs never descends into these directory names while scanning. They
+// hold a project's dependencies rather than its own code, which the index is
+// for: Go keeps its dependencies outside the tree, so the first Python
+// project the indexer met put 34,934 of its 35,888 symbols in `.venv` and
+// buried the one the run was looking for under pytest and pluggy internals.
 var skipDirs = map[string]bool{
-	".git":         true,
-	"node_modules": true,
+	".git":          true,
+	".mypy_cache":   true,
+	".pytest_cache": true,
+	".ruff_cache":   true,
+	".tox":          true,
+	".venv":         true,
+	"__pycache__":   true,
+	"node_modules":  true,
+	"site-packages": true,
+	"venv":          true,
 }
 
 // Index walks root for files registry claims, reparsing only those whose

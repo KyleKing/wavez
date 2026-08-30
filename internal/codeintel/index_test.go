@@ -205,3 +205,44 @@ func equalInt64Sets(a, b []int64) bool {
 
 	return true
 }
+
+// A project's dependencies are not its code. Go keeps them outside the tree,
+// so the first Python project the indexer met put 34,934 of its 35,888
+// symbols in `.venv`: the symbol a run was looking for was indexed and
+// unreachable under thousands of pytest and pluggy internals.
+func TestIndex_SkipsTheDependencyDirectories(t *testing.T) {
+	t.Parallel()
+	store, ctx := openStore(t)
+	root := t.TempDir()
+	registry := defaultRegistry()
+
+	source := []byte("def only_mine():\n    return 1\n")
+	// Each directory holds a file of its own, so dropping any single entry
+	// from the skip list fails this rather than being covered by another.
+	for _, dir := range []string{
+		".", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".venv",
+		"__pycache__", "node_modules", "site-packages", "venv",
+	} {
+		full := filepath.Join(root, dir)
+		if err := os.MkdirAll(full, 0o750); err != nil {
+			t.Fatalf("creating %s: %v", dir, err)
+		}
+
+		if err := os.WriteFile(filepath.Join(full, "mod.py"), source, 0o600); err != nil {
+			t.Fatalf("writing into %s: %v", dir, err)
+		}
+	}
+
+	stats, err := store.Index(ctx, root, registry)
+	if err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	if stats.FilesIndexed != 1 {
+		t.Errorf("FilesIndexed = %d, want only the project's own file", stats.FilesIndexed)
+	}
+
+	if stats.SymbolsIndexed != 1 {
+		t.Errorf("SymbolsIndexed = %d, want only the project's own symbol", stats.SymbolsIndexed)
+	}
+}
