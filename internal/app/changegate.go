@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -425,4 +426,34 @@ func failureName(f gate.TrimmedFailure) string {
 	}
 
 	return "build"
+}
+
+// Covers reports whether the gates that ran over this run's changes cover
+// every package in pkgs, each named as a directory relative to the module
+// root. A package this run never wrote a Go file in is one the change-
+// triggered gates never selected, so the harness has nothing to say about it
+// and the caller has to run the command itself.
+func (g *ChangeGate) Covers(pkgs []string) bool {
+	if len(pkgs) == 0 {
+		return false
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	dirs := make(map[string]bool, len(g.changed))
+
+	for _, c := range g.changed {
+		if strings.HasSuffix(c.Path, ".go") {
+			dirs[path.Dir(c.Path)] = true
+		}
+	}
+
+	for _, p := range pkgs {
+		if !dirs[p] {
+			return false
+		}
+	}
+
+	return true
 }

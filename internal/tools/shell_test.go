@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,10 +148,21 @@ func TestShell_TrimsLongOutput(t *testing.T) {
 // stubChecks is a Checks that answers however a case needs it to.
 type stubChecks struct {
 	status string
+	covers []string
 	known  bool
 }
 
 func (s stubChecks) Status() (string, bool) { return s.status, s.known }
+
+func (s stubChecks) Covers(pkgs []string) bool {
+	for _, p := range pkgs {
+		if !slices.Contains(s.covers, p) {
+			return false
+		}
+	}
+
+	return len(pkgs) > 0
+}
 
 // The system prompt has told runs not to re-run the project's checks since
 // the gates shipped, and 37 of 278 logged shell calls did it anyway. What
@@ -174,10 +186,30 @@ func TestShellAnswersAGateItAlreadyRan(t *testing.T) {
 			want:    "Not run: this runs tests",
 		},
 		{
-			name:    "one package's tests still run",
+			name:    "a package the gates ran over is answered too",
 			command: "go test ./internal/edit/...",
+			checks: stubChecks{
+				status: "they ran on your changes and passed: go-test",
+				covers: []string{"internal/edit"},
+				known:  true,
+			},
+			want: "Not run: this runs the tests of a package you changed",
+		},
+		{
+			name:    "a package they never ran over still runs",
+			command: "go test ./internal/edit",
 			checks:  stubChecks{status: "they ran on your changes and passed: go-test", known: true},
 			ran:     true,
+		},
+		{
+			name:    "watching one failure still runs",
+			command: "go test -run TestOne ./internal/edit",
+			checks: stubChecks{
+				status: "they ran on your changes and passed: go-test",
+				covers: []string{"internal/edit"},
+				known:  true,
+			},
+			ran: true,
 		},
 		{
 			name:    "a sweep runs when the harness knows nothing yet",

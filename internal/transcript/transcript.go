@@ -225,6 +225,10 @@ type frozenChecks string
 
 func (c frozenChecks) Status() (string, bool) { return string(c), c != "" }
 
+// Covers is false, because a fixture declares one gate state and no change
+// set, so nothing names the packages a scoped sweep would ask about.
+func (frozenChecks) Covers([]string) bool { return false }
+
 func specs(registry *tool.Registry) []llm.ToolSpec {
 	built := registry.Specs()
 	out := make([]llm.ToolSpec, 0, len(built))

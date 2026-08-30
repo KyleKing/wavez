@@ -257,7 +257,7 @@ func (s *Shell) alreadyChecked(command string) (string, bool) {
 		return "", false
 	}
 
-	name, ok := guard.ProjectCheck(command)
+	name, ok := s.checkRerun(command)
 	if !ok {
 		return "", false
 	}
@@ -276,6 +276,24 @@ func (s *Shell) alreadyChecked(command string) (string, bool) {
 	}
 
 	return answer + ". " + advice, true
+}
+
+// checkRerun names the project check command re-runs, when the harness can
+// answer for the whole of what it asks. A sweep of one package is the same
+// report the change-triggered gates ran, but only for a package this run
+// changed: over 64 recorded runs, 148 scoped sweeps went through the shell
+// and 135 named such a package.
+func (s *Shell) checkRerun(command string) (string, bool) {
+	if name, ok := guard.ProjectCheck(command); ok {
+		return name, true
+	}
+
+	pkgs, ok := guard.GoPackageSweep(command)
+	if !ok || !s.deps.checks.Covers(pkgs) {
+		return "", false
+	}
+
+	return "the tests of a package you changed", true
 }
 
 // maxScriptBytes bounds how much of a script the guard reads. A file

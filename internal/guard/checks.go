@@ -173,3 +173,62 @@ func inPlaceFlag(tok string) bool {
 	// -Ilib is an include path whose directory can carry an i.
 	return !strings.HasPrefix(cluster, "I") && strings.ContainsRune(cluster, 'i')
 }
+
+// GoPackageSweep reports the packages a Go command sweeps whole, and whether
+// it sweeps any. It names what ProjectCheck deliberately passes through: a
+// scoped `go test ./internal/x` is the same report the gates run over the
+// changed packages, while `-run` narrows to one failure, which is work the
+// harness cannot do for the caller.
+//
+// The packages come back so the caller can refuse to answer for one the
+// gates never covered. Over 64 recorded runs, 148 scoped sweeps ran through
+// the shell and 135 named a package the run had already changed.
+func GoPackageSweep(command string) ([]string, bool) {
+	for _, seq := range splitSequence(strings.TrimSpace(command)) {
+		if pkgs, ok := goPackageSweepOf(tokenize(seq)); ok {
+			return pkgs, true
+		}
+	}
+
+	return nil, false
+}
+
+// goPackageDir is the directory a `./x/...` or `./x` argument names,
+// relative to the module root, which is how a change's path spells it.
+func goPackageDir(pattern string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(pattern, "./"), "..."), "/")
+}
+
+func goPackageSweepOf(tokens []string) ([]string, bool) {
+	if len(tokens) < minGitTokens {
+		return nil, false
+	}
+
+	if baseName(tokens[0]) == cmdMise && tokens[1] == "exec" {
+		return goPackageSweepOf(afterExec(tokens))
+	}
+
+	if baseName(tokens[0]) != "go" {
+		return nil, false
+	}
+
+	if _, ok := goSweeps[tokens[1]]; !ok {
+		return nil, false
+	}
+
+	var pkgs []string
+
+	for _, tok := range tokens[2:] {
+		if tok == "-run" || strings.HasPrefix(tok, "-run=") {
+			return nil, false
+		}
+
+		if tok == wholeTree || !strings.HasPrefix(tok, "./") {
+			continue
+		}
+
+		pkgs = append(pkgs, goPackageDir(tok))
+	}
+
+	return pkgs, len(pkgs) > 0
+}

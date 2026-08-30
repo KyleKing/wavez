@@ -257,3 +257,35 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 		}
 	})
 }
+
+// The shell answers a scoped sweep from the gates only where they ran, so
+// the package the run never wrote in has to come back false however many
+// others it did write in.
+func TestChangeGateCoversOnlyThePackagesItWroteIn(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil)
+	g.Enqueue(tool.Change{Path: "internal/bench/stats.go", Added: 1})
+	g.Enqueue(tool.Change{Path: "internal/bench/testdata/x.golden", Added: 1})
+
+	tests := map[string]struct {
+		pkgs []string
+		want bool
+	}{
+		"the package it changed":     {pkgs: []string{"internal/bench"}, want: true},
+		"one it did not":             {pkgs: []string{"cmd/wavez"}, want: false},
+		"both together":              {pkgs: []string{"internal/bench", "cmd/wavez"}, want: false},
+		"a package named by no file": {pkgs: []string{"internal/bench/testdata"}, want: false},
+		"nothing at all":             {pkgs: nil, want: false},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := g.Covers(tt.pkgs); got != tt.want {
+				t.Errorf("Covers(%q) = %v, want %v", tt.pkgs, got, tt.want)
+			}
+		})
+	}
+}

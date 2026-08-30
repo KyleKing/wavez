@@ -1,6 +1,7 @@
 package guard_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/guard"
@@ -75,6 +76,45 @@ func TestInPlaceEdit(t *testing.T) {
 			name, got := guard.InPlaceEdit(command)
 			if got != want {
 				t.Errorf("InPlaceEdit(%q) = %q, %v, want %v", command, name, got, want)
+			}
+		})
+	}
+}
+
+// A scoped sweep is what ProjectCheck passes through, so this is the half
+// that names the packages: 148 of them went through the shell over 64
+// recorded runs, and the caller answers only for those it already covered.
+func TestGoPackageSweep(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		command string
+		want    []string
+	}{
+		{command: "go test ./internal/bench", want: []string{"internal/bench"}},
+		{command: "go test ./internal/config/...", want: []string{"internal/config"}},
+		{command: "go build ./cmd/wavez", want: []string{"cmd/wavez"}},
+		{command: "go vet ./internal/edit ./internal/tools", want: []string{"internal/edit", "internal/tools"}},
+		{command: "go test -v ./internal/reduce", want: []string{"internal/reduce"}},
+		{command: "mise exec -- go test ./internal/gate", want: []string{"internal/gate"}},
+		{command: "go test -run TestOne ./internal/tui", want: nil},
+		{command: "go test -run=TestOne ./internal/tui", want: nil},
+		{command: "go test ./...", want: nil},
+		{command: "go doc ./internal/edit", want: nil},
+		{command: "", want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := guard.GoPackageSweep(tt.command)
+			if ok != (len(tt.want) > 0) {
+				t.Fatalf("GoPackageSweep(%q) recognized = %v, want %v (got %q)", tt.command, ok, len(tt.want) > 0, got)
+			}
+
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("GoPackageSweep(%q) = %q, want %q", tt.command, got, tt.want)
 			}
 		})
 	}

@@ -21,6 +21,9 @@ type Leases interface {
 // runs every command the guard allows.
 type Checks interface {
 	Status() (string, bool)
+	// Covers reports whether the gates already ran over every package in
+	// pkgs, each a directory relative to the module root.
+	Covers(pkgs []string) bool
 }
 
 // Changes reports what the current run has written. *app.ChangeGate
