@@ -844,7 +844,14 @@ func buildRegistry(d registryDeps) *tool.Registry {
 	}
 
 	if d.vision != nil {
-		set = append(set, tools.NewLook(d.root, d.scope, d.vision, d.visionModel))
+		look := tools.NewLook(d.root, d.scope, d.vision, d.visionModel)
+		set = append(set, look)
+
+		// Annotating is the user drawing on a picture, so it needs both a
+		// person to ask and a tier that can read what they drew.
+		if d.asker != nil {
+			set = append(set, tools.NewAnnotate(look, d.asker, d.sandboxDir))
+		}
 	}
 
 	if d.web {
