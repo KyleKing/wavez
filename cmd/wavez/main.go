@@ -63,6 +63,7 @@ type options struct {
 	socket              string
 	undo                string
 	stats               string
+	timeline            string
 	statsVs             string
 	statsSince          string
 	replay              string
@@ -135,6 +136,8 @@ func run(args []string) error {
 		"mutate the working copy's changed lines and report the mutants the tests missed")
 	fs.StringVar(&opt.stats, "stats", "",
 		"report what a finished run spent, by thread id or log path")
+	fs.StringVar(&opt.timeline, "timeline", "",
+		"print one line per turn of a finished run, by thread id or log path")
 	fs.StringVar(&opt.statsVs, "stats-vs", "",
 		"with -stats, name a second run the same way to diff against it")
 	fs.StringVar(&opt.replay, "replay", "",
@@ -270,6 +273,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 		return true, undo(ctx, root, opt.undo)
 	case opt.stats != "":
 		return true, statsReport(root, opt.stats, opt.statsVs, opt.jsonOut)
+	case opt.timeline != "":
+		return true, timelineReport(root, opt.timeline)
 	case opt.replay != "":
 		return true, replayRun(ctx, root, opt)
 	case opt.replayReport != "":
@@ -297,7 +302,8 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 // wantsSubcommand reports whether any flag that does one job and exits was
 // given.
 func wantsSubcommand(opt options) bool {
-	return opt.undo != "" || opt.stats != "" || opt.replay != "" || opt.replayReport != "" ||
+	return opt.undo != "" || opt.stats != "" || opt.timeline != "" ||
+		opt.replay != "" || opt.replayReport != "" ||
 		opt.recall != "" || opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus ||
 		opt.models
 }
@@ -698,6 +704,7 @@ Flags:
   -recall <id>           repeat one tool call a finished run made and print the answer now
   -recall-turn <n>       with -recall, the turn to repeat (0 takes the first error)
   -models                list the models ollama has pulled on this machine
+  -timeline <run>        print one line per turn of a run, by thread id
   -stats-corpus          report the rates across every recorded run
   -stats-since <date>    with -stats-corpus, read only runs from this date on
   -preamble-max <n>      with -preamble, fail when the fixed prefix exceeds n tokens

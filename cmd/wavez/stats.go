@@ -9,6 +9,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/bench"
+	"github.com/kyleking/wavez/internal/event"
 )
 
 // errNoThreadLog reports a -stats argument that names no readable log.
@@ -47,21 +48,43 @@ func statsReport(root, arg, baseline string, jsonOut bool) error {
 	return bench.Compare(before, stats, os.Stdout) //nolint:wrapcheck // Compare's error already names the writer
 }
 
+// timelineReport prints one run as a sequence rather than as totals, which
+// is the question `-stats` cannot answer: where in the run the tool calls
+// and gate rounds actually fell.
+func timelineReport(root, arg string) error {
+	events, err := readLog(root, arg)
+	if err != nil {
+		return err
+	}
+
+	return bench.RenderTimeline(os.Stdout, bench.Timeline(events)) //nolint:wrapcheck // the error names the writer
+}
+
 // summarizeLog resolves a thread id or log path to the counts for that run.
 func summarizeLog(root, arg string) (bench.Stats, error) {
+	events, err := readLog(root, arg)
+	if err != nil {
+		return bench.Stats{}, err
+	}
+
+	return bench.Summarize(events), nil
+}
+
+// readLog resolves a thread id or log path to that run's events.
+func readLog(root, arg string) ([]event.Event, error) {
 	path := arg
 	if !strings.HasSuffix(arg, ".jsonl") {
 		path = filepath.Join(app.ThreadLogDir(root), arg+".jsonl")
 	}
 
 	if _, err := os.Stat(path); err != nil {
-		return bench.Stats{}, fmt.Errorf("%w: %s", errNoThreadLog, path)
+		return nil, fmt.Errorf("%w: %s", errNoThreadLog, path)
 	}
 
 	events, err := bench.Read(path)
 	if err != nil {
-		return bench.Stats{}, err //nolint:wrapcheck // bench.Read already names the file and the failure
+		return nil, err //nolint:wrapcheck // bench.Read already names the file and the failure
 	}
 
-	return bench.Summarize(events), nil
+	return events, nil
 }
