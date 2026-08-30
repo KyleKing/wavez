@@ -4124,3 +4124,18 @@ tools is untouched, which the test pins with `sed -n '1,20p'`.
 The detector reads tokens rather than `guard.reInPlace`'s pattern, because
 the flag is bundled as often as it is written alone and `perl -pi -e` is what
 a run reaches for after `sed -i` fails.
+
+### 2026-08-29 — the stream-editor refusal cost nothing, and proved nothing
+
+Two `h3` lanes with the refusal in place (`noseD-1`, `noseD-2`) both finished
+complete in 6 turns at 6/6, against 8 and 7 turns for `out-4` and `out-5` on
+the same task. The spend was $0.0131 and $0.0078 against $0.0162 and $0.0111.
+
+Neither lane recorded a refusal of any kind, so the new check never ran. The
+turn drop belongs to the lanes taking a different route (`noseD-1` spent three
+calls on `search` and edited through `rename` alone), not to the refusal
+steering anything. What these two lanes support is the narrow claim: with the
+refusal compiled in, an `h3` run that never reaches for a stream editor is
+unaffected. Whether it helps a run that does still has no measurement, because
+the task that produced the seven-call sequence was a one-off thread rather
+than a replay task.
