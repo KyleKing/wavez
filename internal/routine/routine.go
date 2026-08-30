@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -74,6 +75,7 @@ var (
 	ErrUnknownAction  = errors.New("unknown action")
 	ErrUnknownRoutine = errors.New("unknown routine")
 	ErrDisabled       = errors.New("routine is disabled")
+	ErrBadInterval    = errors.New("a schedule trigger needs intervalSeconds of at least 30")
 )
 
 // Step is one compiled node: its action is already bound to validated
@@ -150,6 +152,10 @@ func (r *Routine) key() string {
 func Compile(def Definition, reg *Registry) (*Routine, error) {
 	if def.Enabled && len(def.Steps) == 0 {
 		return nil, fmt.Errorf("routine %q: %w", def.Name, ErrNoSteps)
+	}
+
+	if def.Enabled && slices.Contains(def.Triggers, TriggerSchedule) && def.Interval < MinInterval {
+		return nil, fmt.Errorf("routine %q: %w, got %s", def.Name, ErrBadInterval, def.Interval)
 	}
 
 	steps, err := bindSteps(def, reg)

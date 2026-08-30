@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
@@ -68,6 +69,44 @@ func TestRoutines_ListAndRunOverTheSocket(t *testing.T) {
 
 	if rep := cl.recvFor("bad"); rep.Kind != api.RepError {
 		t.Errorf("unknown routine reply = %+v, want an error", rep)
+	}
+}
+
+// lifecycleStub records the order a run's boundaries were reported in.
+type lifecycleStub struct{ seen chan string }
+
+func (l lifecycleStub) ThreadStarted(context.Context)  { l.seen <- "start" }
+func (l lifecycleStub) ThreadFinished(context.Context) { l.seen <- "finish" }
+
+// A routine triggered on a thread rather than on a change needs the daemon
+// to say when a run begins and ends, which is the whole of what crosses
+// between the two.
+func TestRoutines_ThreadLifecycleFiresAroundARun(t *testing.T) {
+	t.Parallel()
+
+	stub := lifecycleStub{seen: make(chan string, 4)}
+	h := newHarness(t, fake.New("local"), withServerOptions(daemon.WithThreadLifecycle(stub)))
+
+	cl := dial(t, h)
+	cl.hello()
+
+	th := cl.newThread([]string{t.TempDir()})
+	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
+
+	cl.send(api.Command{ID: "again", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "more"})
+
+	// start once for the thread, then a finish per run: a thread-start
+	// routine sets up what the thread needs, and a second prompt is not a
+	// second thread.
+	for _, want := range []string{"start", "finish", "finish"} {
+		select {
+		case got := <-stub.seen:
+			if got != want {
+				t.Fatalf("lifecycle reported %q, want %q", got, want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no %q within the deadline", want)
+		}
 	}
 }
 

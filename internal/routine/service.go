@@ -93,6 +93,18 @@ func (s *Service) Run(ctx context.Context, name string) (RunRecord, error) {
 	return rec, nil
 }
 
+// Fire runs every routine t triggers, one at a time, and reports nothing: a
+// routine's outcome is its history entry, and a caller firing a lifecycle
+// trigger has no result to act on.
+func (s *Service) Fire(ctx context.Context, t Trigger) {
+	env := Env{Root: s.root, Selection: gate.Selection{Level: gate.LevelPackage}}
+
+	for _, rt := range s.set().Triggered(t) {
+		//nolint:errcheck // as above: the history entry is the record
+		_, _ = s.runner.Run(ctx, rt, t, env)
+	}
+}
+
 func stepNames(rt *Routine) []string {
 	out := make([]string, 0, len(rt.Steps))
 	for _, s := range rt.Steps {

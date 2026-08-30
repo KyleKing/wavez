@@ -160,6 +160,7 @@ func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler, settingsPa
 			Differ:    vcs.NewJj(),
 			Restorer:  vcs.NewJj(),
 			Routines:  a.Routines,
+			Lifecycle: a.Routines,
 			Prefix:    prefix(a),
 			LogDir:    filepath.Join(root, ".wavez", "threads"),
 			Closer:    a.Close,

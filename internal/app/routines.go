@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/config"
@@ -12,6 +13,11 @@ import (
 )
 
 const routineHistoryFileName = "routines.log"
+
+// scheduleTick is how often the timekeeper looks for a due routine, which
+// bounds how late one can start. It sits well under routine.MinInterval so
+// the shortest cadence a project may declare is still met on time.
+const scheduleTick = 5 * time.Second
 
 // gateBundle is what buildGates assembles: the change-gate runner, the
 // coverage adapter selection reads, the verification round, and the routine
@@ -26,10 +32,11 @@ type gateBundle struct {
 // routineLayer is the project's compiled routines and the pieces that run
 // them.
 type routineLayer struct {
-	set      *routine.Set
-	runner   *routine.Runner
-	service  *RoutineService
-	compiled func() *routine.Set
+	set        *routine.Set
+	runner     *routine.Runner
+	service    *RoutineService
+	timekeeper *routine.Timekeeper
+	compiled   func() *routine.Set
 }
 
 // buildRoutines compiles the project's routines against a registry holding
@@ -70,11 +77,14 @@ func buildRoutines(
 	runner := routine.NewRunner(gate.RealClock{}, resources, history)
 	compiled := func() *routine.Set { return set }
 
+	svc := routine.NewService(root, runner, history, compiled)
+
 	return routineLayer{
-		set:      set,
-		runner:   runner,
-		compiled: compiled,
-		service:  &RoutineService{svc: routine.NewService(root, runner, history, compiled)},
+		set:        set,
+		runner:     runner,
+		compiled:   compiled,
+		service:    &RoutineService{svc: svc},
+		timekeeper: routine.NewTimekeeper(root, runner, compiled, scheduleTick),
 	}, nil
 }
 
@@ -82,6 +92,17 @@ func buildRoutines(
 // daemon lists and runs routines without knowing how one is compiled.
 type RoutineService struct {
 	svc *routine.Service
+}
+
+// ThreadStarted runs the routines a thread's first turn fires.
+func (s *RoutineService) ThreadStarted(ctx context.Context) {
+	s.svc.Fire(ctx, routine.TriggerThreadStart)
+}
+
+// ThreadFinished runs the routines a finished turn fires. It runs on the
+// turn's own goroutine, so what it checks is the tree the run left.
+func (s *RoutineService) ThreadFinished(ctx context.Context) {
+	s.svc.Fire(ctx, routine.TriggerThreadFinish)
 }
 
 // List returns every routine the project has, built-ins included.

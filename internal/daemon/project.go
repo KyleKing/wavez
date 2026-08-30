@@ -35,6 +35,7 @@ type ProjectConfig struct {
 	Differ    Differ
 	Restorer  Restorer
 	Routines  RoutineSource
+	Lifecycle ThreadLifecycle
 	Loop      *agent.Loop
 	Scheduler *sched.Scheduler
 	Leases    *lease.Manager
@@ -59,6 +60,7 @@ func NewProject(root string, cfg ProjectConfig) (*Project, error) {
 	mgr.cycles = cfg.Cycles
 	mgr.defaultDirs = defaultDirs(root)
 	mgr.scheduler = cfg.Scheduler
+	mgr.lifecycle = cfg.Lifecycle
 
 	if err := mgr.reopen(); err != nil {
 		return nil, fmt.Errorf("reopening threads: %w", err)

@@ -138,8 +138,8 @@ hookTimeoutMs: Int = 5000
 
 /// When a routine fires. "change" runs it on the same debounced batch the
 /// gates run on, "manual" only when a client asks, "schedule" every
-/// `intervalSeconds`, and the thread triggers on a thread's first turn
-/// starting and its last one finishing.
+/// `intervalSeconds`, "thread-start" once when a thread runs its first turn,
+/// and "thread-finish" as each run ends, on the run's own goroutine.
 typealias Trigger = "change"|"manual"|"schedule"|"thread-start"|"thread-finish"
 
 /// What happens to a run that arrives while its concurrency key is busy.
@@ -255,7 +255,9 @@ class Routine {
   /// that narrow a "change" trigger. Empty matches every change.
   paths: Listing<String> = new Listing<String> {}
 
-  /// Seconds between runs under the "schedule" trigger. Ignored otherwise.
+  /// Seconds between runs under the "schedule" trigger, at least 30, and
+  /// counted from the end of the last run so a routine never queues behind
+  /// itself. Ignored without that trigger.
   intervalSeconds: Int = 0
 
   steps: Listing<Step> = new Listing<Step> {}

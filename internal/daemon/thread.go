@@ -90,6 +90,9 @@ type managedThread struct {
 	// archived is whether the thread has been put away, folded from the
 	// log so it survives a restart the way nothing else on this cache does.
 	archived bool
+	// started records that the thread has run a turn, so the thread-start
+	// routines fire once rather than on every prompt.
+	started bool
 }
 
 // takeRelease clears and returns the thread's held admission release, nil

@@ -358,6 +358,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	indexer.Start(bgCtx)
 	changeGate.Start(bgCtx)
 	adapter.Start(bgCtx)
+	go bundle.routines.timekeeper.Run(bgCtx)
 
 	return &App{
 		Root:            root,

@@ -98,6 +98,7 @@ type config struct {
 	restorer          Restorer
 	expander          Expander
 	routines          RoutineSource
+	lifecycle         ThreadLifecycle
 	models            ModelStore
 	loader            Loader
 	logDir            string
@@ -311,7 +312,8 @@ func (s *Server) buildDefaultProject(c config) error {
 	p, err := NewProject(c.root, ProjectConfig{
 		Loop: c.loop, Cycles: c.cycles, Expander: c.expander, Scheduler: c.scheduler,
 		Leases: c.leases, Differ: c.differ, Restorer: c.restorer, Routines: c.routines,
-		Prefix: c.prefix, LogDir: c.logDir,
+		Lifecycle: c.lifecycle,
+		Prefix:    c.prefix, LogDir: c.logDir,
 	})
 	if err != nil {
 		return err

@@ -16,9 +16,24 @@ type RoutineSource interface {
 	Run(ctx context.Context, name string) (api.RoutineInfo, error)
 }
 
+// ThreadLifecycle is told when a run starts and when it ends, which is what
+// fires the routines triggered on a thread rather than on a change. The
+// daemon knows when a turn runs and nothing about what a routine is, so
+// this is the whole of what crosses between them.
+type ThreadLifecycle interface {
+	ThreadStarted(ctx context.Context)
+	ThreadFinished(ctx context.Context)
+}
+
 // WithRoutines sets the source the routines panel reads and runs through.
 func WithRoutines(r RoutineSource) Option {
 	return func(c *config) { c.routines = r }
+}
+
+// WithThreadLifecycle sets what the default project tells about a run
+// starting and finishing.
+func WithThreadLifecycle(l ThreadLifecycle) Option {
+	return func(c *config) { c.lifecycle = l }
 }
 
 func (c *conn) handleRoutines(cmd api.Command) {

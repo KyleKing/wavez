@@ -57,6 +57,7 @@ type manager struct {
 	cancelAll context.CancelFunc
 	spend     *spendLedger
 	scheduler *sched.Scheduler
+	lifecycle ThreadLifecycle
 	threads   map[string]*managedThread
 	logDir    string
 	prefix    agent.Prefix
@@ -569,7 +570,11 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 		return
 	}
 
+	m.fireStart(runCtx, mt)
+
 	outcome, err := m.loop.Run(runCtx, mt.th, m.prefix, expanded, route)
+
+	m.fireFinish(runCtx)
 
 	m.toolCalls.Add(int64(outcome.ToolCalls))
 	if outcome.Stop == agent.StopMalformedTool {
@@ -593,6 +598,37 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 
 	m.drainPending(mt) //nolint:contextcheck // the next turn runs against m.ctx, not the finished turn's
 	mt.mu.Unlock()
+}
+
+// fireStart tells the routine layer a thread has begun working, once per
+// thread rather than once per prompt: a thread-start routine sets up what
+// the thread will need, and doing that again mid-conversation is not what
+// the trigger names.
+func (m *manager) fireStart(ctx context.Context, mt *managedThread) {
+	if m.lifecycle == nil {
+		return
+	}
+
+	mt.mu.Lock()
+	first := !mt.started
+	mt.started = true
+	mt.mu.Unlock()
+
+	if first {
+		m.lifecycle.ThreadStarted(ctx)
+	}
+}
+
+// fireFinish tells the routine layer a run ended. It runs on the turn's own
+// goroutine, so a thread-finish routine holds the thread until it is done,
+// which is what makes it a step of the run rather than something racing the
+// next prompt.
+func (m *manager) fireFinish(ctx context.Context) {
+	if m.lifecycle == nil {
+		return
+	}
+
+	m.lifecycle.ThreadFinished(ctx)
 }
 
 // drainPending starts the next queued prompt at the turn boundary, which is
