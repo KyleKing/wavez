@@ -1067,10 +1067,19 @@ and carries `IndexStats.Building`, which `search`, `context`, and a `@`
 mention each say out loud, because an incomplete answer given silently reads
 as an absence from the tree.
 
+Whole-repo operations turned out not to be the problem this arc assumed.
+Measured against `modernc.org/libc` as a module, `go list -json ./...` is
+0.2-0.5s and a rebuild after an edit is 0.64s, while the same two commands
+on this 604-file project are 0.3s and 3.1s. Cost tracks dependency depth
+and cgo rather than module size, and this project's own build gate was the
+slow one: 2.6 of those 3.1 seconds were relinking a binary `go build ./...`
+then discarded. The gate writes them to a per-project directory under the
+user cache instead, which is 0.75s including the `go list` that says whether
+there is anything to link at all.
+
 What remains, none of it built: a size the whole store refuses or degrades
-at rather than silently taking minutes, and a real answer for whole-repo
-operations that a large module makes expensive (`go list ./...`, the
-coverage sweep, `go test ./...` as a gate). None of the efficiency numbers in Next transfer across this
+at rather than silently taking minutes, and the coverage sweep, which is the
+one whole-repo operation still unmeasured on a large module. None of the efficiency numbers in Next transfer across this
 boundary, because all of them were measured on the small side of it.
 
 **B. Documentation drifted from the tree, and so did the template.** The

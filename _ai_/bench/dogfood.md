@@ -4870,3 +4870,41 @@ reports `StopCanceled` now and carries the checkpoint it had already taken.
 The test raced too, budgeting 5ms of wall clock to land inside a 50ms
 stream; it is 200ms against 5 seconds, which is the same test with the race
 removed rather than a widened timeout.
+
+### 2026-08-30 — whole-repo commands, and which project is actually slow
+
+The scale arc assumed `go list ./...` and `go build ./...` are what a large
+module makes expensive. Measured against `modernc.org/libc` as a module
+(1,963 files, 137 MB of Go, eight generated files near 4 MB each) beside this
+604-file, 5 MB project:
+
+| | libc | wavez |
+|---|---|---|
+| `go list -json ./...` | 0.2-0.5s | 0.3s |
+| `go build ./...` after an edit | 0.64s | 3.1s |
+| `go build ./...` with nothing changed | 0.20s | 3.1s |
+
+The small project is five times slower, and it is slower with nothing
+changed at all, so no amount of module size explains it. `go build -v ./...`
+prints nothing and still takes 3.0s, and `go build -o /dev/null ./cmd/wavez`
+takes 3.0s on its own: the whole cost is linking one cgo binary that
+`go build ./...` then throws away. Nothing is left to reuse, so the next run
+links it again.
+
+Writing the binaries somewhere makes the link cacheable, and `go build -o
+<dir> ./...` is 0.44s warm against 3.1s discarded, with byte-identical
+compiler output on a broken tree. `-o` is an error on a module with no main
+package ("go: no main packages to build"), which `TestBuildGateCompiles`
+caught immediately, so the gate lists main packages first at 0.3s and uses
+the plain form when there are none. Total 0.75s against 3.1s, on every gate
+round of every run.
+
+The binaries (58 MB here) go to `<user cache>/wavez/build/<hash of root>`
+rather than into the project. A repository Wavez did not write should not
+gain an untracked directory that its own change detection then has to
+account for, and `.wavez/` is only gitignored in projects that know about
+Wavez.
+
+So the arc loses one item rather than gaining work: `go list` and `go build`
+scale fine, and the coverage sweep is the whole-repo operation still
+unmeasured on a large module.
