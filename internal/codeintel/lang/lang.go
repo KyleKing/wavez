@@ -49,11 +49,13 @@ type Registry struct {
 }
 
 // NewDefaultRegistry builds the registry for every language this build
-// ships: Go and Python.
+// ships: Go, Python, and TypeScript.
 func NewDefaultRegistry() *Registry {
 	r := &Registry{byExt: make(map[string]Language)}
 	r.register(newGo())
 	r.register(newPython())
+	r.register(newTSX())
+	r.register(newTypeScript())
 
 	return r
 }

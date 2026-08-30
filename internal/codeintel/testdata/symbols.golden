@@ -6,3 +6,9 @@ pkgone/greeter.go	type	Greeter	5-7	type Greeter struct {
 pysrc/greeter.py	class	Greeter	4-9	class Greeter:	Says hello to someone by name.
 pysrc/greeter.py	func	greet	7-9	def greet(self, name):	Return a greeting for name.
 pysrc/greeter.py	func	new_greeter	12-14	def new_greeter(prefix):	Build a Greeter with the given prefix.
+tssrc/greeter.ts	class	Greeter	2-9	class Greeter	Says hello to someone by name.
+tssrc/greeter.ts	func	newGreeter	12-14	function newGreeter(prefix: string): Greeter	Build a Greeter with the given prefix.
+tssrc/greeter.ts	method	greet	6-8	greet(name: string): string	Return a greeting for name.
+tssrc/greeter.ts	type	GreetName	22-22	type GreetName = string;	A name a greeter will accept.
+tssrc/greeter.ts	type	GreetSource	17-19	interface GreetSource	The shape a greeting source has to satisfy.
+tssrc/panel.tsx	func	GreetPanel	2-4	function GreetPanel(props: { name: string })	Renders a greeting into a panel.

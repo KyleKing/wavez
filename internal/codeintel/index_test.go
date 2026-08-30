@@ -22,8 +22,8 @@ func TestIndex_Golden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	if stats.FilesIndexed != 2 {
-		t.Fatalf("FilesIndexed = %d, want 2", stats.FilesIndexed)
+	if stats.FilesIndexed != 4 {
+		t.Fatalf("FilesIndexed = %d, want 4", stats.FilesIndexed)
 	}
 
 	results, err := store.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: "greet", Limit: 100})
