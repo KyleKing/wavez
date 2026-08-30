@@ -1681,6 +1681,8 @@ func (r *run) stopBound(ctx context.Context, stop Stop, reason string) (Outcome,
 		return Outcome{}, fmt.Errorf("logging bound: %w", err)
 	}
 	r.verifyAbandoned(ctx)
+	r.checkAbandoned(ctx)
+
 	if err := r.thread.SetState(ctx, event.StateFailed); err != nil {
 		return Outcome{}, fmt.Errorf("setting state: %w", err)
 	}
@@ -1711,6 +1713,33 @@ func (r *run) verifyAbandoned(ctx context.Context) {
 	}); err != nil {
 		return
 	}
+}
+
+// checkAbandoned runs the finish checks over a bounded run's closing prose,
+// for the reason verifyAbandoned exists one layer over: a run that ended on a
+// bound still hands its answer to whoever reads the thread, and a run that
+// struggled enough to hit one is the likelier place for a name it invented.
+// Two plan runs on a foreign repository ended `stagnant` with confident
+// answers that nothing checked, one of them wrong about a file it had never
+// been able to search.
+//
+// Its error is dropped rather than returned, because the run is already over
+// and turning a bounded outcome into a failed one would lose the outcome the
+// caller is waiting for.
+func (r *run) checkAbandoned(ctx context.Context) {
+	if r.answer == "" {
+		return
+	}
+
+	err := r.runFinishChecks(ctx)
+	if err == nil {
+		return
+	}
+
+	// The run has ended, so the log is the only reader left.
+	_, _ = r.thread.Log().Append(event.Event{ //nolint:errcheck // a failed write here has no reader
+		Kind: event.KindError, Text: "finish checks did not run: " + err.Error(),
+	})
 }
 
 // deliveredText names what the run was handed, which is the event the

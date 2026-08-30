@@ -81,3 +81,40 @@ func TestRun_FinishChecksBoundACompletedRunWithoutTellingIt(t *testing.T) {
 		}
 	}
 }
+
+// A run that ended on a bound still hands its answer to whoever reads the
+// thread, and a run that struggled enough to hit one is the likelier place
+// for a name it invented. Two plan runs on a foreign repository ended
+// `stagnant` with confident answers that nothing checked.
+func TestRun_FinishChecksAlsoBoundARunThatDidNotComplete(t *testing.T) {
+	t.Parallel()
+
+	provider := fake.New("deep",
+		fake.Turn{
+			Text:       []string{"Let me check `internal/agent/toolcall.go` next."},
+			StopReason: llm.StopEndTurn,
+		},
+	)
+
+	finisher := &stubFinisher{}
+	loop := agent.New(tiers(fake.New("balanced"), provider),
+		tool.NewRegistry(editing{}), permission.AllowAll(), agent.WithFinisher(finisher))
+
+	outcome, err := loop.Run(context.Background(), newThread(t), basicPrefix(),
+		"Look at a.go", router.Input{Override: router.ChoiceDeep})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if outcome.Stop == agent.StopComplete {
+		t.Fatalf("Stop = %v, want the run bounded rather than completed", outcome.Stop)
+	}
+
+	if finisher.got.Answer == "" {
+		t.Fatalf("Check got %+v, want the closing prose of the bounded run", finisher.got)
+	}
+
+	if len(outcome.FinishFindings) != 1 {
+		t.Errorf("FinishFindings = %v, want the finding the checks reported", outcome.FinishFindings)
+	}
+}
