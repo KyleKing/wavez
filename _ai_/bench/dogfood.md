@@ -4741,3 +4741,25 @@ also what a machine with no display wants, and the prompt names the path
 either way so the flow works with no window in it.
 
 It costs 188 preamble tokens, and the ceiling moves to 2,860 to hold it.
+
+### 2026-08-30 — the key had to shrink before it could persist
+
+Persisting allow-always was on the roadmap as a convenience, and building it
+as written would have been a quiet widening: the approval key for a shell
+command was its first word, so one answer to `curl https://example.com/x`
+approved `curl`. That is harmless while the grant dies with the thread and is
+not harmless the moment it outlives it, which is exactly what persisting it
+does.
+
+The key is the whole command line now, with its spacing normalized. It costs
+a prompt per distinct command instead of per program, and that is what buys
+the bound: the file is a list of things this project may do unattended, and
+it reads as one.
+
+The store is deliberately small. It records nothing but an AllowAlways, since
+a store that could refuse would be a policy engine and the guard in front of
+it already refuses what it refuses. It is exact, never a prefix or a pattern.
+It lives in the project's state directory at 0600. And a file it cannot parse
+is an error rather than an empty store, because re-asking for everything is
+the safe direction but a file quietly ignored forever is not something anyone
+would find out about.

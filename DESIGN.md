@@ -1282,8 +1282,13 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   nor blocks what depends on it, and a run where every step abstained wears
   its own mark rather than a tick
 - Fleet-scale local serving past the slot bound that ships: `--cache-ram`
-  sized against the admission headroom (the `kv-slots` numbers), the
-  trimmed-output recall handle, and allow-always persisted per project
+  sized against the admission headroom (the `kv-slots` numbers). The
+  trimmed-output recall handle ships, as a spill file in the session
+  directory the omission line names. So does allow-always persistence, and
+  narrowing the key had to come first: the key was the command's first word,
+  which expires harmlessly with a thread and would have granted every later
+  `curl` in the project forever once it did not. It is the whole command line
+  now, exact, one prompt per distinct command
 - The timed comparison in `_ai_/bench/timing/`: hosted and `claude -p` rows
   for the four tasks, three samples each, on a machine running nothing else
 - `wavez -timeline <run>` is the sequence the corpus commands cannot show:
