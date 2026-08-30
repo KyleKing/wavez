@@ -657,8 +657,12 @@ carrying layer existed:
 So the first piece of work is the message shape, not a screenshot source: a
 content-part list a provider serializes, a tier that declares whether it
 accepts images, and the router refusing to send one to a tier that does not.
-The z.ai coding plan serves `glm-5.3`, and whether that endpoint accepts
-images at all is unverified and decides whether this costs a second provider.
+The z.ai coding endpoint refuses it. Posting one `image_url` content part
+beside a `text` one to `glm-5.3` there answers
+`messages.content.type is invalid, allowed values: ['text']` (probed
+2026-08-30), and the coding-plan key opens only that endpoint. So every
+visual judgment is a second provider and a second key, and the tier that
+looks at a screenshot is not the tier that does the work.
 
 `internal/reduce` already carries the other half of the problem in its own
 notes, "downscale images", written for a payload that cannot yet exist. An
@@ -1412,8 +1416,6 @@ No:
   `_ai_/research/browser-simulator-automation.md` recommends `chromedp` for
   CDP coverage generated from the protocol spec rather than hand-written. One
   of the two is stale and neither has been built against
-- Perception: whether the z.ai coding endpoint accepts image content at all,
-  which decides whether looking at a screenshot needs a second provider
 - Web search API and version-pinning strategy
 - Snippets: `Tab` completes only in the fullscreen composer, because in the inline composer `Tab` still cycles panels. Whether the inline composer should give up the cycle while insert mode holds text, or a sigil (`:name`, as `@file` already does) should trigger completion in both, is open. Whether an expanded snippet stays editable text or becomes a chip the composer tracks is the same question one layer down
 - Progress estimate: how well a thread's own turn and gate-round durations predict its remaining wall clock, and whether the project's history for the same shape of work improves it enough to be worth storing. Answered on 138 thread logs (`_ai_/demos/progress-estimate`): the remaining run is not predictable (23% within a factor of two at best) and the project's history does not improve on the run's own, so no store. The turn is (54%), which is what the progress line renders

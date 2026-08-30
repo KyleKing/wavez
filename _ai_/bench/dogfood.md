@@ -4340,3 +4340,20 @@ what is actually there is dead code with tests.
 a run that edits nothing passes through every gate untouched. The second run
 was confidently wrong and nothing in the harness could have said so. Gates
 verify edits; an analysis is checked by nobody.
+
+### 2026-08-30 — nothing here can look at anything
+
+`llm.Message.Content` is a `string`, so no image has a shape to arrive in.
+The roadmap promises one in three places written as though the carrying layer
+existed: vision calls in Recordings, "Image and screenshot input (M2)" in
+Mobile, and `screenshot` on the browser session interface. The first piece of
+work is the message shape, not a screenshot source.
+
+The provider question is answered and it is the expensive answer. Posting an
+`image_url` content part beside a `text` one to `glm-5.3` on the z.ai coding
+endpoint returns `messages.content.type is invalid, allowed values:
+['text']`, and a coding-plan key opens only that endpoint. Every visual
+judgment therefore costs a second provider and a second key, which makes the
+split the browser research already recommended the only affordable shape: the
+accessibility tree as the default read path, and a screenshot sent to a
+different model only when text cannot settle the question.
