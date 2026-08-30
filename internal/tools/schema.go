@@ -10,6 +10,7 @@ const (
 	schemaTypeArray   = "array"
 	schemaTypeObject  = "object"
 	propPath          = "path"
+	propQuestion      = "question"
 	propSymbol        = "symbol"
 )
 

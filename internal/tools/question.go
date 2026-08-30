@@ -9,13 +9,13 @@ import (
 )
 
 var questionSchema = buildSchema(map[string]schemaProperty{
-	"question": {
+	propQuestion: {
 		Type: schemaTypeString,
 		Description: "A short, specific question for the user. Ask only when the answer " +
 			"changes what you do next; do not ask for permission to do something the " +
 			"safety gate already covers.",
 	},
-}, "question")
+}, propQuestion)
 
 // Asker answers a question posed to the user. A headless run and the TUI
 // each implement it differently: one may return a fixed default or an
@@ -36,7 +36,7 @@ func NewQuestion(asker Asker) *Question {
 }
 
 // Name implements tool.Tool.
-func (*Question) Name() string { return "question" }
+func (*Question) Name() string { return propQuestion }
 
 // Description implements tool.Tool.
 func (*Question) Description() string {

@@ -325,6 +325,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
 		checks: changeGate, changes: changeGate, shellAllow: cfg.ShellAllow,
 		web: cfg.Web, webSearchURL: cfg.WebSearchURL,
+		vision: visionProvider(ctx, cfg), visionModel: visionModel(cfg),
 	})
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
 	loopOpts := append(append([]agent.Option{}, loopBase...),
@@ -532,6 +533,28 @@ func buildProviders(ctx context.Context, cfg config.Config, options Options) pro
 	return providers{tiers: tiers, supervisor: supervisor}
 }
 
+// visionProvider dials the tier a turn carrying an image goes to, nil where
+// the project named none. It is built here rather than in buildProviders
+// because nothing routes to it: only the `look` tool asks it, and a project
+// without one simply does not offer that tool.
+//
+//nolint:ireturn // openaic.New returns the concrete client the tier is
+func visionProvider(ctx context.Context, cfg config.Config) llm.Provider {
+	if cfg.Vision == nil {
+		return nil
+	}
+
+	return networkTier(ctx, cfg, "vision", *cfg.Vision)
+}
+
+func visionModel(cfg config.Config) string {
+	if cfg.Vision == nil {
+		return ""
+	}
+
+	return cfg.Vision.Model
+}
+
 // networkTier dials a tier served over the network, defaulting to
 // OpenRouter. The key is resolved on first request, not here, so a run that
 // never reaches this tier needs no credential for it.
@@ -735,17 +758,21 @@ func newSessionDir(stateDir string) (string, error) {
 // because the list grew past what a positional signature reads well at, and
 // every field is required.
 type registryDeps struct {
-	indexer    *codeintel.Indexer
-	store      *codeintel.Store
-	scope      *tools.Scope
-	permGate   permission.Gate
-	asker      tools.Asker
-	leases     tools.Leases
-	servers    tools.Servers
-	checks     tools.Checks
-	changes    tools.Changes
-	root       string
-	sandboxDir string
+	indexer  *codeintel.Indexer
+	store    *codeintel.Store
+	scope    *tools.Scope
+	permGate permission.Gate
+	asker    tools.Asker
+	leases   tools.Leases
+	servers  tools.Servers
+	checks   tools.Checks
+	changes  tools.Changes
+	// vision is the tier a `look` call asks, nil where the project named
+	// none, in which case the tool is not offered at all.
+	vision      llm.Provider
+	visionModel string
+	root        string
+	sandboxDir  string
 	// webSearchURL names the search instance the web tools query, empty for
 	// the keyless default, and web offers them at all.
 	webSearchURL string
@@ -782,6 +809,10 @@ func buildRegistry(d registryDeps) *tool.Registry {
 	// terminal and there was nobody on the other end.
 	if d.asker != nil {
 		set = append(set, tools.NewQuestion(d.asker))
+	}
+
+	if d.vision != nil {
+		set = append(set, tools.NewLook(d.root, d.scope, d.vision, d.visionModel))
 	}
 
 	if d.web {
