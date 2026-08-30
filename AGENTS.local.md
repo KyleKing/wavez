@@ -146,6 +146,15 @@ are specific to this codebase and not visible from the code.
   The patch lands as `git apply --reject` into the working tree and jj
   snapshots it, so the `.rej` files arrive in the working copy. Copier
   excludes every git-ignored path from the patch, which is silent
+- `TestPTY_SendsKeystrokesAndReadsWhatTheyDrew` fails under a heavily
+  loaded machine and the cause is in `settle`, not the test. A key's echo is
+  a draw, so the screen is already quiet when the wait after the last key
+  starts, and that wait's quiet check passes at its 250 ms floor whether or
+  not the program has answered. `settle` would have to require a draw during
+  the wait itself rather than a quiet screen, and that costs the full
+  `ptyDrawWait` (15 s) for any final key that legitimately draws nothing.
+  Reproduced once in `hk check --all` and not in 60 parallel runs beside
+  eight `go build -a`, so treat a single failure as this and re-run
 
 ## Go conventions
 

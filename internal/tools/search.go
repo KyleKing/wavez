@@ -265,15 +265,22 @@ var indexedExtensions = strings.Join(lang.NewDefaultRegistry().Indexed(), ", ")
 
 const bytesPerKB = 1024
 
-// tooLargeNote names the files the index passed over for size, so a miss
-// they caused reads differently from a symbol that does not exist.
-func tooLargeNote(stats codeintel.IndexStats) string {
-	if stats.FilesTooLarge == 0 {
-		return ""
+// partialNote names what the index does not cover yet or will never cover,
+// so a miss either one caused reads differently from a symbol that does not
+// exist.
+func partialNote(stats codeintel.IndexStats) string {
+	note := ""
+	if stats.FilesDeferred > 0 {
+		note += fmt.Sprintf(" %d further file(s) have not been read into the index yet; retry in a moment.",
+			stats.FilesDeferred)
 	}
 
-	return fmt.Sprintf(" %d further file(s) are over %d kB and are not indexed at all; rg reaches those.",
-		stats.FilesTooLarge, codeintel.MaxFileBytes/bytesPerKB)
+	if stats.FilesTooLarge > 0 {
+		note += fmt.Sprintf(" %d further file(s) are over %d kB and are not indexed at all; rg reaches those.",
+			stats.FilesTooLarge, codeintel.MaxFileBytes/bytesPerKB)
+	}
+
+	return note
 }
 
 // formatSearchResults distinguishes an empty result from an index that
@@ -299,7 +306,7 @@ func formatSearchResults(results []codeintel.SearchResult, stats codeintel.Index
 		return fmt.Sprintf("no matches for %q across %d indexed files, which are this project's "+
 			"%s files. No other file type is indexed, so a match in one is invisible here: "+
 			"use shell with rg to search those.%s",
-			query, stats.FilesScanned, indexedExtensions, tooLargeNote(stats))
+			query, stats.FilesScanned, indexedExtensions, partialNote(stats))
 	}
 
 	var b strings.Builder

@@ -42,6 +42,10 @@ type IndexStats struct {
 	// exceeding MaxFileBytes. A search miss caused by the cap is otherwise
 	// indistinguishable from a symbol that does not exist.
 	FilesTooLarge int
+	// FilesDeferred is how many new or changed files this pass left for the
+	// next one, having spent MaxIndexBytesPerPass. Unlike FilesTooLarge
+	// these are on their way in rather than excluded.
+	FilesDeferred int
 }
 
 // skipDirs never descends into these directory names while scanning. They
@@ -73,6 +77,15 @@ var skipDirs = map[string]bool{
 // of the bytes, and the trigram index over them is what turns a 2 second
 // index into a 71 second one.
 const MaxFileBytes = 256 << 10
+
+// MaxIndexBytesPerPass bounds how much new or changed source one Index call
+// parses, counting only files it actually reads into the store: an unchanged
+// file costs a hash and never the budget, so every pass advances. It exists
+// because the walk holds a lock for its whole duration, and a first pass long
+// enough to outlive the first edit means the incremental path (236ms on a
+// 244 MB tree) never gets to run at all. At roughly 3 MB of source a second
+// this is about ten seconds of parsing.
+const MaxIndexBytesPerPass = 32 << 20
 
 // Index walks root for files registry claims, reparsing only those whose
 // content hash changed since the last Index call, and removes rows for
@@ -114,6 +127,9 @@ type indexRun struct {
 	registry *lang.Registry
 	existing map[string]File
 	stats    *IndexStats
+	// indexed is how many bytes of new or changed files this pass has
+	// parsed, which is what MaxIndexBytesPerPass bounds.
+	indexed int
 }
 
 // indexScannedFiles writes rows for every file whose content hash is new or
@@ -142,6 +158,12 @@ func (run *indexRun) indexOneFile(ctx context.Context, sf scannedFile) error {
 	prior, existed := run.existing[sf.relPath]
 	if existed && prior.ContentHash == hash {
 		run.stats.FilesUnchanged++
+
+		return nil
+	}
+
+	if run.indexed >= MaxIndexBytesPerPass {
+		run.stats.FilesDeferred++
 
 		return nil
 	}
@@ -177,6 +199,7 @@ func (run *indexRun) indexOneFile(ctx context.Context, sf scannedFile) error {
 	}
 	run.stats.SymbolsIndexed += n
 	run.stats.FilesIndexed++
+	run.indexed += len(content)
 
 	return nil
 }

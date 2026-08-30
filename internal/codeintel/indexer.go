@@ -211,8 +211,25 @@ func (ix *Indexer) Start(ctx context.Context) {
 		defer close(done)
 		defer ix.building.Store(false)
 
+		ix.drainPasses(ctx)
+
 		_, _ = ix.InitEdges(ctx) //nolint:errcheck // see doc comment: the next Refresh reports the same failure
 	}()
+}
+
+// drainPasses walks until nothing is left deferred, since one pass is
+// bounded by MaxIndexBytesPerPass and a large tree needs several. Running
+// them here rather than on the query path is the whole point of the bound:
+// a query during any of them answers from what the store holds instead of
+// paying for a pass. It stops on a pass that indexed nothing, so a file the
+// registry claims and cannot parse cannot spin this forever.
+func (ix *Indexer) drainPasses(ctx context.Context) {
+	for {
+		stats, err := ix.walk(ctx)
+		if err != nil || stats.FilesDeferred == 0 || stats.FilesIndexed == 0 {
+			return
+		}
+	}
 }
 
 // Wait blocks until the work Start began has returned, or until ctx is
