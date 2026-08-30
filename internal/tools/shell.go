@@ -114,6 +114,10 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Result{Content: answer}, nil
 	}
 
+	if refusal, ok := inPlaceEditRefusal(in.Command); ok {
+		return refusal, nil
+	}
+
 	verdict := s.classify(in.Command)
 
 	switch verdict.Verdict {
@@ -152,6 +156,30 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	}
 
 	return tool.Result{Content: formatShellResult(result)}, nil
+}
+
+// inPlaceEditRefusal declines an edit made through a stream editor and
+// names the tool that makes it.
+//
+// A shell rewrite is invisible to everything downstream: it takes no lease
+// the edit tools take, reaches no scope, and lands in no change set, so the
+// gates read the run as having written nothing there. It is also the more
+// expensive way to spell the edit. One run reaching for `sed -i` after
+// `rename` had done the code spent seven shell calls on two comment lines,
+// because BSD sed rejects GNU's spelling of the flag, the guard declined
+// the brace group it tried next, and the `; true` it added to keep going
+// turned each failed edit into a reported success.
+func inPlaceEditRefusal(command string) (tool.Result, bool) {
+	name, ok := guard.InPlaceEdit(command)
+	if !ok {
+		return tool.Result{}, false
+	}
+
+	return tool.Fail(tool.CauseRefused,
+		"Not run: %s writes the file behind the harness, so the change reaches no gate and no "+
+			"checkpoint. str_replace makes the same edit: one call takes an edits array whose "+
+			"entries each name their own path, and replace_all changes every occurrence in a file.",
+		name), true
 }
 
 // alreadyKnown answers a command whose answer the harness is already

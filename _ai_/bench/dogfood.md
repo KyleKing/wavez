@@ -4092,3 +4092,35 @@ that answers all sixteen names above and still reports a name nothing writes.
 The test is the const case, which reproduces: `maxReadFiles` declared in the
 fixture is reported invented under the old lookup and not under the new one,
 while a name nothing declares and nothing writes is reported either way.
+
+## 2026-08-29 — seven shell calls for two comment lines
+
+`h3` asks for every caller updated, tests and comments included, and `rename`
+does the code. What is left is prose inside comments, and the run reached for
+`sed -i`. The whole sequence, from `p-dl1v0yzt74qo`:
+
+1. `sed -i 's/…/…/' cmd/wavez/stats.go && …` — BSD sed reads the next
+   argument as the script, `sed: 1: "cmd/wavez/stats.go": command c expects \
+   followed by text`
+2. the same command with `; true` appended, so the failure came back as
+   `exit code: 0` with the same error on stderr
+3. `grep` to see whether anything had changed, which it had not
+4. `sed -i '' -e … -e …` across several files, `sed: -e: No such file or
+   directory`, again reported as exit 0 because of `echo "exit=$?"`
+5. the same with a `{ …; }` tail, denied by the guard
+6. and 7. two `sed -i ''` calls, one per file, which finally worked
+
+Nothing here is the tool lying: the run masked its own exit status twice,
+which is its mistake to make, and the guard was right about the brace group.
+The turns went to the shell being the wrong place for this.
+
+A shell rewrite also lands nowhere the harness looks. It takes no lease the
+edit tools take, reaches no scope, and joins no change set, so the gates read
+the run as having written nothing there. `sed`, `perl`, and `ruby` writing a
+file back are now refused with the call that does it: `str_replace` takes an
+edits array whose entries each name their own path. Reading with the same
+tools is untouched, which the test pins with `sed -n '1,20p'`.
+
+The detector reads tokens rather than `guard.reInPlace`'s pattern, because
+the flag is bundled as often as it is written alone and `perl -pi -e` is what
+a run reaches for after `sed -i` fails.

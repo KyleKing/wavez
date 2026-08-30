@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -263,5 +264,47 @@ func TestShellAnswersWhatTheRunChanged(t *testing.T) {
 				t.Errorf("missing %q:\n%s", tt.want, res.Content)
 			}
 		})
+	}
+}
+
+// A shell rewrite lands in no change set and no checkpoint, and it is the
+// expensive spelling besides: one run spent seven shell calls putting two
+// comment lines through `sed -i`.
+func TestShell_RefusesAnEditMadeThroughAStreamEditor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "f.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	gate, _ := recordingGate(t, permission.Allow)
+	sh := tools.NewShell(root, t.TempDir(), "thread-1", gate)
+
+	run := func(command string) tool.Result {
+		t.Helper()
+
+		result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": command}))
+		if err != nil {
+			t.Fatalf("Run(%s): %v", command, err)
+		}
+
+		return result
+	}
+
+	result := run("sed -i '' -e 's/before/after/' f.txt")
+	if !result.IsError || !strings.Contains(result.Content, "str_replace") {
+		t.Errorf("Content = %q (IsError=%v), want a refusal naming the tool that edits", result.Content, result.IsError)
+	}
+
+	//nolint:gosec // a fixture under t.TempDir()
+	if body, err := os.ReadFile(path); err != nil || string(body) != "before\n" {
+		t.Errorf("file = %q (err %v), want the edit not to have run", body, err)
+	}
+
+	// Reading with the same tool is not editing with it.
+	if reading := run("sed -n '1,1p' f.txt"); reading.IsError || !strings.Contains(reading.Content, "before") {
+		t.Errorf("a read-only sed was refused: %q", reading.Content)
 	}
 }

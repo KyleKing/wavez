@@ -115,3 +115,61 @@ func VCSInspect(command string) bool {
 
 	return vcsReads[tokens[1]]
 }
+
+// InPlaceEdit reports whether command edits a file in place through a
+// stream editor, and names the one it found. It reads the command's tokens
+// rather than reInPlace's pattern because the flag is bundled as often as
+// it is written alone, and `perl -pi -e` is the spelling a run reaches for.
+//
+// A run reaching for `sed -i` after `rename` had done the code spent seven
+// shell calls on two comment lines: BSD sed rejects GNU's `-i` spelling,
+// the guard declined the brace group it tried next, and the `; true` it
+// added to keep going turned each failed edit into a reported success.
+func InPlaceEdit(command string) (string, bool) {
+	for _, seq := range splitSequence(strings.TrimSpace(command)) {
+		if name, ok := inPlaceEditOf(tokenize(seq)); ok {
+			return name, true
+		}
+	}
+
+	return "", false
+}
+
+func inPlaceEditOf(tokens []string) (string, bool) {
+	if len(tokens) == 0 {
+		return "", false
+	}
+
+	head := baseName(tokens[0])
+	if !inPlaceCommands[head] {
+		return "", false
+	}
+
+	for _, tok := range tokens[1:] {
+		if inPlaceFlag(tok) {
+			return head, true
+		}
+	}
+
+	return "", false
+}
+
+// inPlaceFlag reports whether one argument asks a stream editor to write
+// the file back. Every one of them spells that -i, and they bundle short
+// flags, so `perl -pi -e` and `sed -i.bak` both say it: a single-dash
+// cluster carrying an i is the flag, and i appears in no other short flag
+// these tools take.
+func inPlaceFlag(tok string) bool {
+	if strings.HasPrefix(tok, "--") {
+		return tok == "--in-place" || strings.HasPrefix(tok, "--in-place=")
+	}
+
+	if !strings.HasPrefix(tok, "-") || tok == "-" {
+		return false
+	}
+
+	cluster, _, _ := strings.Cut(tok[1:], "=")
+
+	// -Ilib is an include path whose directory can carry an i.
+	return !strings.HasPrefix(cluster, "I") && strings.ContainsRune(cluster, 'i')
+}

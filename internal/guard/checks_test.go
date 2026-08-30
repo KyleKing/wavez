@@ -48,3 +48,34 @@ func TestProjectCheck(t *testing.T) {
 		})
 	}
 }
+
+// A stream editor writing files back edits behind the harness, and the run
+// that reached for one after `rename` spent seven shell calls on two comment
+// lines.
+func TestInPlaceEdit(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]bool{
+		"sed -i '' -e 's/a/b/' f.go":                   true,
+		"sed -i.bak 's/a/b/' f.go":                     true,
+		"perl -pi -e 's/a/b/' f.go":                    true,
+		"perl --in-place 's/a/b/' f.go":                true,
+		"go build ./... && sed -i '' -e 's/a/b/' f.go": true,
+		"sed -n '1,20p' f.go":                          false,
+		"sed -e 's/a/b/' f.go > g.go":                  false,
+		"perl -e 'print 1'":                            false,
+		"perl -Ilib script.pl":                         false,
+		"grep -i pattern f.go":                         false,
+	}
+
+	for command, want := range tests {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			name, got := guard.InPlaceEdit(command)
+			if got != want {
+				t.Errorf("InPlaceEdit(%q) = %q, %v, want %v", command, name, got, want)
+			}
+		})
+	}
+}
