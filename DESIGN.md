@@ -900,6 +900,9 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of compaction, facing client-side rewriting vs append-only trimming, we trim append-only and summarize residue with a local model, to keep prompt caches valid, accepting more tokens per turn than aggressive rewriting
 - In the context of the fleet Home and a phone client, facing one daemon per root that `w` reconnects between vs one daemon per laptop serving several roots, we chose one daemon per laptop on a user-level socket (`<user config dir>/wavez/d.sock`) that loads a project the first time a request names its root and never unloads it, to keep one address for every client and one API for the fleet, accepting that the memory-aware scheduler is one per laptop and that a project's admission headroom no longer applies per root
 
+- In the context of code shared with the sibling terminal tools, facing a package copied into each one against a shared module, we take [aragonite](https://github.com/KyleKing/aragonite) wherever it already holds the thing and extract into it wherever a second consumer appears, to stop maintaining one behavior in several repositories, accepting a `go.work` pointing at a sibling checkout while a change spans both. Aragonite's rule is that a package earns its place by having a real consumer rather than by being general, which is why its `vcs`, `tui/theme`, `tui/table`, `tui/markdown`, `tui/region`, `cache`, and `transport` came out of gh-repo-dashboard rather than out of a design. This project is the second consumer for several of them and the source for `codeintel`, which aragonite's README already lists as planned. The order is what makes this cheap: take a package when the work touches it anyway, so M4's VCS layer is where `internal/vcs` meets aragonite's `vcs` rather than a migration of its own
+- In the context of a copier-managed render inside a jj repository, facing whether the update procedure needs a jj-shaped variant, we keep `copier update` as written and require the working copy to be committed first, to use the tool as it is, accepting that a non-colocated jj checkout cannot be updated at all. Read from copier 9.17's `run_update` and confirmed here: it refuses a subproject whose VCS is not git, so the `.git` a colocated repo keeps is what makes this work and a bare `jj git clone` without `--colocate` would not. It then refuses a dirty destination, and jj's auto-snapshot puts working-copy changes in front of git as unstaged modifications, so a jj working copy with anything in it fails that check exactly as a git one would. The recovery is `jj commit` and never `git stash`, which would fight the snapshot. The patch lands through `git apply --reject` into the working tree, which jj snapshots on its own, so there is no staging step to lose and the `.rej` files arrive in the working copy where the procedure expects them. One interaction is worth knowing: copier excludes every git-ignored path from the patch, so a file the template renders into an ignored location is skipped without saying so
+
 ## Milestones
 
 Milestones, not version numbers: the released binary's version tracks whatever
@@ -909,7 +912,7 @@ done when its condition holds, and nothing here promises a release number.
 | Milestone | Done when | Ships |
 |---|---|---|
 | M1 Loop | A single-thread edit on wavez or gh-repo-dashboard runs local, gates fire on the change, and the sandbox blocks a write outside the project | Home (single repo), thread view, inbox, palette, diagnostics strip, vim-layer controls, loop, `str_replace` edit tool with fuzzy fallback, `ast-grep` convention gate, code-intelligence store (symbols, FTS, edges via codegraph, coverage) with `search` and `context`, gates for Go (Python if the selection primitive is settled), Seatbelt + guard, router with OpenRouter escalation, `llama-server` runtime with n-gram speculation, `-p`, minimal compaction, ledger |
-| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold. Both hold on the fake-loop harness (`internal/daemon/schedule_test.go`, `internal/cycle`). The fix cycle's refusal has also been watched on a real model run, recorded in `_ai_/bench/dogfood.md`, and the three-thread condition has not | Shipped: pkl routines, DAG runner, Cycles with the fix cycle, leases, schedule view, diagnostics panel, sub-threads and fork, routines panel, memory-aware admission, local model management, `llama-server` timings on the panel, the remote local tier, one daemon per laptop with fleet Home, composer snippets. Left for the ordered list below: PTY recordings, semantic index and similarity notes, repo map, Semgrep routine with capability delta, schedule and thread-lifecycle triggers firing, per-model settings reaching the supervisor |
+| M2 Fleet | Three threads across two directories run concurrently with leases and a visible schedule, and the fix cycle refuses to advance a phase whose condition does not hold. Both hold on the fake-loop harness (`internal/daemon/schedule_test.go`, `internal/cycle`). The fix cycle's refusal has also been watched on a real model run, recorded in `_ai_/bench/dogfood.md`, and the three-thread condition has not | Shipped: pkl routines, DAG runner, Cycles with the fix cycle, leases, schedule view, diagnostics panel, sub-threads and fork, routines panel, memory-aware admission, local model management, `llama-server` timings on the panel, the remote local tier, one daemon per laptop with fleet Home, composer snippets. Left for the ordered list below: recording a PTY session and promoting it to a test, semantic index and similarity notes, repo map, Semgrep routine with capability delta, per-model settings reaching the supervisor. The `pty` tool, the schedule trigger, and the thread-lifecycle triggers have since shipped |
 | M3 Cheaper | The same task costs measurably fewer tokens than M1 on the benchmark harness, and the daily loop runs from Neovim | Benchmark harness on 20-30 replayed commits plus the extreme-ends performance set, Modifiers for Go, Python, TypeScript, intent-edit resolver (Go first, `like` and `add fn`), deterministic compaction, cross-stack contract nodes, own edge resolver where codegraph falls short, `wavez.nvim` with `$EDITOR` prompt handoff and a `wavez lsp` completion server, MCP on demand, context manifest and Ask-a-line |
 | M4 Away | Approve a permission prompt and read a diff from a phone, and undo an agent change through the op log | VCS layer with git and jj, PWA, push, dispatch |
 | M5 Reach | Wavez runs the work that leaves the terminal | Browser recordings. The external benchmark table is cut: see the Benchmark section |
@@ -1019,9 +1022,126 @@ task rather than by reasoning about it.
 **Every lane ends in `_ai_/bench/dogfood.md`**, dated, with what was
 measured and what it did not settle.
 
+### The arcs
+
+Next below is an ordered queue of measured, near-term work, and reading it as
+the roadmap is a mistake this document invited: every item in it is something
+a lane can settle in a session, so the arcs that take many sessions were
+invisible. These are those arcs. They are not ordered against each other,
+each one names what is actually missing rather than a direction, and an item
+graduates into Next when it is small enough to measure.
+
+**A. This runs on a 604-file repository and nothing larger.** Measured
+2026-08-30 against 1,963 Go files and 244 MB of source (`modernc.org/sqlite`
+and `modernc.org/libc`, which carry 14 files over 2 MB each) beside this
+project's own 604 files and 5 MB:
+
+| | wavez | the 244 MB tree |
+|---|---|---|
+| first index | 2.1s | 1m11s |
+| store on disk | 17.6 MB | 428 MB |
+| allocations while indexing | 69 MB | 1.8 GB |
+| `search` latency | 70-110ms | 583ms-1.7s |
+| re-index, nothing changed | 76ms | 167ms |
+
+The shape of that is the finding. Incremental re-indexing scales and nothing
+else does, because the store is byte-bound rather than file-bound: 3.2 times
+the files cost 34 times the index time and 24 times the disk, and the trigram
+FTS over a quarter-gigabyte of source is where both go. A run spends 58% of
+its turns on retrieval, so a second per search is not a slower loop, it is a
+different product. What this arc holds, none of it built: a size the store
+refuses or degrades at rather than silently taking an hour, generated and
+vendored trees out of the index the way `.venv` now is, the first index not
+blocking the first search, a bound on what a single file can contribute, and
+a real answer for whole-repo operations that a large module makes expensive
+(`go list ./...`, the coverage sweep, `go test ./...` as a gate). None of the
+efficiency numbers in Next transfer across this boundary, because all of them
+were measured on the small side of it.
+
+**B. Documentation drifted from the tree, and so did the template.** The
+README describes M2 in progress and names none of `pty`, `look`, `annotate`,
+`-timeline`, archiving, or services. `docs/demo.gif` and the six stills under
+`docs/img/` are from 2026-08-26, which is before the Home viewport, the
+schedule window, the help screen's columns, and every screen the 80x24 sweep
+fixed, so the pictures a reader sees are of defects that are closed. The
+milestone table calls M5 "Reach" in this file and "Proof" in the README. The
+template render is one patch behind (`_commit: v0.12.0`, latest `v0.12.1`).
+A `mise run demo` re-render and a README pass are each an afternoon, and the
+arc is keeping them from drifting again: the demo tape is the only executable
+piece of documentation here, so it is the one worth wiring to a check.
+
+**C. What is shared with the sibling tools is copied instead.**
+[aragonite](https://github.com/KyleKing/aragonite) holds `vcs` (git and jj
+behind one interface), `tui/theme`, `tui/table`, `tui/markdown`,
+`tui/region`, `cache`, and `transport`, extracted from gh-repo-dashboard with
+real consumers. This project has its own `internal/vcs` at 1,035 lines, its
+own theme, and its own table and markdown rendering inside 13,011 lines of
+`internal/tui`. Aragonite's README already lists this project's
+`internal/codeintel` as a planned extraction, so the traffic runs both ways.
+M4's "VCS layer with git and jj" is the forcing move, because that is
+aragonite's `vcs` package described from this side. See the Decisions entry.
+
+**D. The screens have been swept for fitting, not for reading.** Every screen
+renders inside 80x24 and `TestEveryScreen_FitsItsTerminal` holds it there,
+which is a floor rather than a design. The re-rendered `docs/img/home.png`
+says what the floor leaves: at 435 threads, twenty of the twenty-eight rows
+on screen read as `rename-the-exported-function` or `a-project-s-config-is`
+because the name column truncates them all to the same prefix, every spend
+column reads `$0.00`, and a third of the width sits empty to the right of a
+column that is cutting text. Nothing has judged the visual hierarchy, what a
+first-time reader looks at first, whether the state vocabulary is consistent
+across Home, Schedule, and Routines, or how any of it degrades under
+`NO_COLOR` and a monochrome terminal. The instrument exists
+and is not this project's: the `tui-critique` skill drives VHS to capture
+real frames and scores them, and it refuses a critique written from source.
+Views and filters belong to this arc too, since `state:` narrowing on Home is
+the only structured filter anywhere and Schedule, Inbox, and Routines each
+answer a question a filter would sharpen.
+
+**E. Configuration is one file, one schema, and no ceremony, which is right
+until it is not.** `.wavez.pkl` is 347 lines with 27 top-level keys, and a
+key never reaches the process table: `hostedKeyCommand` and a tier's
+`keyCommand` name a command whose stdout is the token, so the file holds no
+secret and neither does the environment. What is missing is everything
+around that. There is no way to tell whether a key command works without
+starting a turn, no report of what a tier resolved to, nothing that says a
+model named in the config is not installed, and model management stops at
+list, check, install, and remove with no way to say which local model a
+project prefers. A config error surfaces as a failed run rather than as a
+line naming the key.
+
+**F. Prompt editing stops at the composer.** It has vim modes, a fullscreen
+toggle, and per-repo and per-user snippets. It has no `$EDITOR` handoff (M3
+lists it), no way to edit and resend a prompt already sent, and no way to see
+or edit what the model was actually given, which is the sidecar transcript
+rather than the event log. The last of those is the one with no workaround:
+`wavez -recall` reads that transcript for one tool call, and a person cannot.
+
+**G. Threads, routing, and services are the ideas nobody else has, and each
+stops one step short.** Threads carry their own history, scheduling, and
+lifecycle, and archiving just gave them an end. Routing picks a tier per turn
+and the fast tier's remit is still unmeasured (item 5 below). Services are
+declared, reference-counted, and held by a step, and nothing yet holds one
+across a thread, exposes what is up, or brings one down when the last thread
+that wanted it finishes. The arc is making each of these reach the thing next
+to it: a routine that starts a service for a thread rather than for a step, a
+route decision that reads the thread's own history, a thread that inherits a
+parent's services.
+
+**H. MCP is decided and unbuilt.** The Decisions entry settles the policy
+with this project's own numbers (a tool costs 121 to 459 preamble tokens
+every turn forever, a CLI costs nothing because `shell` is already
+advertised), so MCP is for what has no command-line form: a service reached
+only over a protocol, or a server whose state persists across calls. What
+exists is the decision. The client, the per-thread connection, the allowlist
+in `.wavez.pkl`, and the accounting that keeps an on-demand tool off the
+preamble until it is connected are all M3 and none of them are written.
+
 ### Next
 
-**Take next**, when nothing else is asked for, in this order. Sources are the
+**Take next**, when nothing else is asked for, in this order. These are the
+measured, near-term items: each one has a number behind it and a lane that
+can settle it. The arcs above are what this list is not. Sources are the
 audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
 (`_ai_/research/2026-08-efficiency-frontier.md`), and the dated rows in
 `_ai_/bench/dogfood.md`, which is where every closed item's evidence lives.
