@@ -4698,3 +4698,21 @@ to no turn, the same population `countGate` counts, because a round the run
 did not see cannot explain what it did next. And the bar is padded in cells
 rather than bytes: `%-*s` counts the block character as three, which stepped
 the duration column by how long each turn was.
+
+### 2026-08-30 — the run that wrote nothing
+
+The generalization pass left one hole open and named it: a run which edits
+nothing is verified by nobody. Every gate reads a change set, and so do four
+of the five finish bounds, so a run that answers a question without writing
+anything passes every check by having nothing to check.
+
+What can be settled deterministically is not whether the answer is right but
+where it came from. For a run that wrote nothing, every existing file its
+closing answer names has to be one the run opened, which `Scope.Read` already
+answers because the edit tools needed it. Reading the file is not proof the
+conclusion is right; not reading it is proof the conclusion came from
+somewhere other than the tree, which is exactly the stylesheet run.
+
+A run that changed something abstains. A search result is a fair source for
+naming a neighboring file in passing, and a bound that fired on every run
+which did so would be noise around the one case it exists for.

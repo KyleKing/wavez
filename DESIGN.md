@@ -1098,10 +1098,16 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      change runs it, and a command, and the ruff loop on calcipy is the same
      change-triggered loop the Go gates give
 
-   What remains open is that a run which edits nothing is verified by nobody.
-   One of those runs reached a confident wrong conclusion about a stylesheet
-   and drafted a correction to the project's notes from it, and no gate could
-   have caught that, because gates read a change set.
+   A run which edits nothing was verified by nobody, since every gate and
+   every other finish bound reads a change set. One such run reached a
+   confident wrong conclusion about a stylesheet and drafted a correction to
+   the project's notes from it. The bound that fits is grounding rather than
+   correctness: for a run that wrote nothing, every existing file its closing
+   answer names must be one the run actually opened. Reading the file does
+   not make the conclusion right, and not reading it proves the conclusion
+   came from somewhere other than the tree. A run that changed something
+   abstains, because a search result is a fair source for naming a neighbor
+   in passing.
 
 3. **`no_match` is the only class in the edit tools that is still live.**
    Since 2026-08-28 `str_replace` runs 94 calls at a 7% error rate, `no_match`
