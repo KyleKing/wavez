@@ -15,8 +15,8 @@ func TestFastTierTakesTheHostedKeyWhenPointedAtAProvider(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		tier    config.Tier
 		hosted  string
+		tier    config.Tier
 		wantKey bool
 	}{
 		{

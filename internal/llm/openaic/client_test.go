@@ -799,3 +799,59 @@ func sentToolSchema(t *testing.T, body []byte) json.RawMessage {
 
 	return sent.Tools[0].Function.Parameters
 }
+
+// An image reaches a model as a content array, and a message without parts
+// must serialize exactly as it always has: a provider's prompt-cache prefix
+// is the bytes, so a text message that started sending `"content": []` would
+// invalidate every cached prefix at once.
+func TestClient_Stream_SendsAnImageAsAContentArray(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan []byte, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading request body: %v", err)
+		}
+		bodies <- body
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+			t.Logf("writing SSE body: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client := newClient(t, srv)
+	req := llm.Request{
+		Model: "m",
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "plain"},
+			{Role: llm.RoleUser, Parts: []llm.Part{
+				{Kind: llm.PartText, Text: "what is this"},
+				{Kind: llm.PartImage, Media: "image/png", Data: []byte{1, 2, 3}},
+			}},
+		},
+	}
+
+	if _, err := collectAll(client, req); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	var got struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(<-bodies, &got); err != nil {
+		t.Fatalf("decoding the request: %v", err)
+	}
+
+	last := len(got.Messages) - 1
+	if want := `{"role":"user","content":"plain"}`; string(got.Messages[last-1]) != want {
+		t.Errorf("text message = %s, want it unchanged at %s", got.Messages[last-1], want)
+	}
+
+	want := `{"role":"user","content":[{"type":"text","text":"what is this"},` +
+		`{"image_url":{"url":"data:image/png;base64,AQID"},"type":"image_url"}]}`
+	if string(got.Messages[last]) != want {
+		t.Errorf("image message = %s, want %s", got.Messages[last], want)
+	}
+}

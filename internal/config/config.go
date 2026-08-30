@@ -157,6 +157,11 @@ type Tier struct {
 	// HostedKeyCommand. Empty means none for the loopback server, and
 	// HostedKeyCommand for any other endpoint.
 	KeyCommand string
+	// Vision says this tier's endpoint accepts image content. It is opt-in
+	// because a tier that cannot is not a degraded answer but a refused
+	// request: z.ai's coding endpoint replies "messages.content.type is
+	// invalid, allowed values: ['text']" and the turn is lost.
+	Vision bool
 }
 
 // LinkPattern is one identifier-linking rule: text matching Pattern renders

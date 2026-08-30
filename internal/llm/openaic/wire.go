@@ -2,7 +2,9 @@ package openaic
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 
 	"github.com/kyleking/wavez/internal/llm"
 )
@@ -78,8 +80,63 @@ type wireJSONSchema struct {
 type wireMessage struct {
 	Role       string         `json:"role"`
 	Content    string         `json:"content,omitempty"`
+	Parts      []wirePart     `json:"-"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
+}
+
+// wirePart is one element of the content array an OpenAI-compatible endpoint
+// accepts in place of a string.
+type wirePart struct {
+	ImageURL *wireImageURL `json:"image_url,omitempty"`
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+}
+
+type wireImageURL struct {
+	URL string `json:"url"`
+}
+
+// textMessage and partsMessage are the two shapes a message serializes to.
+// They are separate types rather than one `any` field so the text shape stays
+// byte-identical to what this client has always sent: a provider's
+// prompt-cache prefix is the bytes, and a message whose empty content started
+// serializing as `[]` would invalidate every cached prefix at once.
+type textMessage struct {
+	Role       string         `json:"role"`
+	Content    string         `json:"content,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
+}
+
+type partsMessage struct {
+	Role       string         `json:"role"`
+	Content    []wirePart     `json:"content"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
+}
+
+// MarshalJSON sends the content array only for a message that has parts.
+func (m wireMessage) MarshalJSON() ([]byte, error) {
+	if len(m.Parts) == 0 {
+		out, err := json.Marshal(textMessage{
+			Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, ToolCalls: m.ToolCalls,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("encoding a message: %w", err)
+		}
+
+		return out, nil
+	}
+
+	out, err := json.Marshal(partsMessage{
+		Role: m.Role, Content: m.Parts, ToolCallID: m.ToolCallID, ToolCalls: m.ToolCalls,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encoding a message with parts: %w", err)
+	}
+
+	return out, nil
 }
 
 type wireToolCall struct {
@@ -224,8 +281,31 @@ func toWireResponseFormat(rf *llm.ResponseFormat) *wireResponseFormat {
 	}
 }
 
+// toWireParts encodes each part the way an OpenAI-compatible endpoint reads
+// it, an image as a base64 data URL.
+func toWireParts(parts []llm.Part) []wirePart {
+	out := make([]wirePart, 0, len(parts))
+
+	for _, p := range parts {
+		if p.Kind == llm.PartImage {
+			out = append(out, wirePart{Type: "image_url", ImageURL: &wireImageURL{
+				URL: "data:" + p.Media + ";base64," + base64.StdEncoding.EncodeToString(p.Data),
+			}})
+
+			continue
+		}
+
+		out = append(out, wirePart{Type: "text", Text: p.Text})
+	}
+
+	return out
+}
+
 func toWireMessage(m llm.Message) wireMessage {
 	wm := wireMessage{Role: string(m.Role), Content: m.Content, ToolCallID: m.ToolCallID}
+	if len(m.Parts) > 0 {
+		wm.Parts = toWireParts(m.Parts)
+	}
 	if len(m.ToolCalls) == 0 {
 		return wm
 	}

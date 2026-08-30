@@ -78,6 +78,7 @@ type pklTier struct {
 	Model      string   `pkl:"model"`
 	BaseURL    string   `pkl:"baseURL"`
 	KeyCommand string   `pkl:"keyCommand"`
+	Vision     bool     `pkl:"vision"`
 }
 
 // pklCycle and pklPhase mirror the Cycle and Phase classes in
@@ -248,6 +249,7 @@ func tierFromPkl(def Tier, p pklTier) Tier {
 	def.BaseURL = p.BaseURL
 	def.KeyCommand = p.KeyCommand
 	def.Thinking = p.Thinking
+	def.Vision = p.Vision
 	def.Overflow = overflowFromPkl(p.Overflow)
 
 	return def

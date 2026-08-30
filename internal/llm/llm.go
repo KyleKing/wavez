@@ -20,12 +20,52 @@ const (
 
 // Message is one entry in a thread's history. History is append-only so a
 // provider's prompt-cache prefix stays valid across turns.
+//
+// Parts carries what Content cannot say. When it is set it is the whole of
+// the message's content and Content is ignored, because a provider sends one
+// or the other and a message that filled both would serialize as whichever
+// the provider happened to prefer.
 type Message struct {
 	Role       Role       `json:"role"`
 	Content    string     `json:"content,omitempty"`
+	Parts      []Part     `json:"parts,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	IsError    bool       `json:"is_error,omitempty"`
+}
+
+// PartKind names what one piece of a message's content is.
+type PartKind string
+
+// Part kinds a message may carry.
+const (
+	PartText  PartKind = "text"
+	PartImage PartKind = "image"
+)
+
+// Part is one piece of a message's content. An image carries its bytes and
+// media type rather than a URL, so the provider decides how to encode it and
+// nothing outside the provider has to know that OpenAI-compatible endpoints
+// want a data URL.
+type Part struct {
+	Kind  PartKind `json:"kind"`
+	Text  string   `json:"text,omitempty"`
+	Media string   `json:"media,omitempty"`
+	Data  []byte   `json:"data,omitempty"`
+}
+
+// HasImage reports whether any message carries an image, which is what a
+// tier that cannot see has to be kept away from.
+func HasImage(messages []Message) bool {
+	for i := range messages {
+		for _, p := range messages[i].Parts {
+			if p.Kind == PartImage {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ToolCall is a model request to run one tool.
