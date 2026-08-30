@@ -4036,3 +4036,28 @@ different words and is left alone, and the test asserts that by sending the
 The check both tools use is one `repeatGuard` now. It takes a key and the
 state the tool observed, and the state is what makes each a check rather than
 a guess: the file's bytes for an anchor, the refusal text for a rename.
+
+## 2026-08-29 — the outline's h3 regression was the lint gate
+
+The pair that made outline reads look like they cost turns on an editing task
+ran while the lint gate was reporting a deleted sibling workspace's findings.
+Four fresh lanes, alternating the current build against a control built from
+the same tree with `outlineMinLines` set past any file:
+
+| lane | turns | input tokens | spend |
+| --- | --- | --- | --- |
+| out-4 | 8 | 32,926 | $0.0162 |
+| ctl-3 | 9 | 32,972 | $0.0155 |
+| out-5 | 7 | 24,189 | $0.0111 |
+| ctl-4 | 12 | 51,475 | $0.0221 |
+
+Every lane passed 6 of 6. Outline runs 7.5 turns to the control's 10.5 and
+28.6k input tokens to 42.2k, which is the same shape `h13` showed and the
+opposite of what the confounded pair said. Two lanes a side is not a strong
+number, and the claim it supports is only that the regression does not
+reproduce.
+
+The other candidate trigger is closed by the corpus rather than by a lane. Of
+the 85 whole-file reads long enough and in a language the outline speaks, 4
+are of a file the run had already edited, so "a file this run has written to
+wants its text" has nothing to trigger on.

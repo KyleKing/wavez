@@ -999,15 +999,19 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    mattered: LogDx-CI's finding is that a weak first payload costs turns
    rather than quality.
 
-   It costs turns where editing rather than finding is the work. `h3` ran 5,
-   5, and 9 turns before and 7 and 13 after, with read bytes rising, because
-   `rename` does that task in one call and the two files it touches are 341
-   and 354 lines. Both lanes still passed 6 of 6. Both also spent turns on lint
-   findings naming a deleted sibling workspace, which the linter's results cache
-   was answering them with, so that pair measures the harness as much as the
-   trigger and is worth re-running now the cache is per root. What is open is
-   whether the trigger should read the run's own history rather than the file's
-   length: a file this run has already written to is one it wants the text of.
+   It looked like it cost turns where editing rather than finding is the
+   work: `h3` ran 7 and 13 turns against 5, 5, and 9 before it. Both of those
+   lanes spent turns on lint findings naming a deleted sibling workspace,
+   which the linter's results cache was answering them with, so they measured
+   the harness. Four fresh lanes with that fixed, alternating a control built
+   from the same tree with the trigger off, run 8 and 7 turns against 9 and
+   12, on 28.6k input tokens against 42.2k and $0.014 against $0.019, 6 of 6
+   checks every lane. The regression does not reproduce.
+
+   Reading the run's own history instead of the file's length was the other
+   candidate trigger, and the corpus closes it: of the 85 whole-file reads
+   that are long enough and in a language the outline speaks, 4 are of a file
+   the run had already edited. There is nothing there to trigger on.
 
 4. **Every path through `rename` on a real rename task refuses.** Six of
    twelve `h3` lanes called it and seven of nine calls came back a refusal,
