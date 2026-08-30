@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/codeintel/lang"
@@ -30,17 +32,16 @@ var readSchema = buildSchema(map[string]schemaProperty{
 	propPath: {
 		Type: schemaTypeString,
 		Description: "File path, relative to the project root, or several separated by commas " +
-			"to read them in one call.",
+			"to read them in one call. A path may carry its own range as " +
+			"\"file.go:120-180\", which is how one call reads a different range of each file.",
 	},
 	"start_line": {
-		Type: schemaTypeInteger,
-		Description: "1-indexed first line to read, inclusive. Omit both start_line and " +
-			"end_line to read the whole file.",
+		Type:        schemaTypeInteger,
+		Description: "First line, inclusive. Omit both lines to read the whole file.",
 	},
 	"end_line": {
-		Type: schemaTypeInteger,
-		Description: "1-indexed last line to read, inclusive. Omit it to read from " +
-			"start_line to the end of the file.",
+		Type:        schemaTypeInteger,
+		Description: "Last line, inclusive. Omit it to read to the end of the file.",
 	},
 }, propPath)
 
@@ -82,9 +83,9 @@ func (*Read) Description() string {
 	return "Read a file, or a 1-indexed inclusive line range of one, from the project. " +
 		"Each line comes back as its line number, a tab, then the text; strip that prefix " +
 		"before reusing a line as an edit anchor or as file content. " +
-		"Prefer search to locate code and read only the range it names; reading whole files " +
-		"to find something spends the context window on lines you will not use. " +
-		"A long file comes back as an outline of its declarations with the line range of each."
+		"Prefer search to locate code and read only the range it names, since reading whole " +
+		"files to find something spends the window on lines you will not use. " +
+		"A long file comes back as an outline of its declarations with each one's range."
 }
 
 // Schema implements tool.Tool.
@@ -135,8 +136,8 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 		return tool.Fail(tool.CauseBadInput, "%d paths in one call, at most %d", len(paths), maxReadFiles), nil
 	}
 	if len(paths) > 1 && (in.StartLine != 0 || in.EndLine != 0) {
-		return tool.Fail(tool.CauseBadInput, "a line range reads one file; drop start_line and end_line, "+
-			"or name one path"), nil
+		return tool.Fail(tool.CauseBadInput, "start_line and end_line read one file; give each path "+
+			"its own range as \"file.go:120-180\", or name one path"), nil
 	}
 
 	if err := in.normalizeRange(); err != nil {
@@ -148,47 +149,98 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 func (r *Read) readAll(paths []string, start, end int) tool.Result {
 	blocks := make([]string, 0, len(paths))
-	for _, p := range paths {
-		abs, err := resolvePath(r.root, p)
+	for _, raw := range paths {
+		p, pStart, pEnd, err := splitRange(raw)
 		if err != nil {
-			return tool.Fail(tool.CauseRefused, "%v", err)
+			return tool.Fail(tool.CauseBadInput, "%v", err)
 		}
 
-		if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
-			names, listErr := dirEntries(abs)
-			if listErr != nil {
-				return tool.Fail(tool.CauseIO, "%v", listErr)
-			}
-
-			blocks = append(blocks, fmt.Sprintf("%s is a directory holding:\n%s", p, strings.Join(names, "\n")))
-
-			continue
+		if pStart == 0 && pEnd == 0 {
+			pStart, pEnd = start, end
 		}
 
-		data, err := os.ReadFile(abs) // #nosec G304 -- abs is resolved and root-checked above
-		if err != nil {
-			return tool.Fail(tool.CauseIO, "reading %s: %v", p, err)
+		block, failure := r.readOne(p, pStart, pEnd)
+		if failure != nil {
+			return *failure
 		}
 
-		if start == 0 && end == 0 {
-			if brief := outline(r.registry, p, data); brief != "" {
-				blocks = append(blocks, brief)
-
-				continue
-			}
-		}
-
-		r.scope.Observe(abs)
-
-		result := rangeResult(p, data, start, end)
-		if result.IsError {
-			return result
-		}
-
-		blocks = append(blocks, result.Content)
+		blocks = append(blocks, block)
 	}
 
 	return tool.Result{Content: strings.Join(blocks, "\n\n")}
+}
+
+// readOne answers for one path, which is a directory listing, an outline, or
+// a line range.
+func (r *Read) readOne(p string, start, end int) (string, *tool.Result) {
+	abs, err := resolvePath(r.root, p)
+	if err != nil {
+		return "", failure(tool.CauseRefused, "%v", err)
+	}
+
+	if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
+		names, listErr := dirEntries(abs)
+		if listErr != nil {
+			return "", failure(tool.CauseIO, "%v", listErr)
+		}
+
+		return fmt.Sprintf("%s is a directory holding:\n%s", p, strings.Join(names, "\n")), nil
+	}
+
+	data, err := os.ReadFile(abs) // #nosec G304 -- abs is resolved and root-checked above
+	if err != nil {
+		return "", failure(tool.CauseIO, "reading %s: %v", p, err)
+	}
+
+	if start == 0 && end == 0 {
+		if brief := outline(r.registry, p, data); brief != "" {
+			return brief, nil
+		}
+	}
+
+	r.scope.Observe(abs)
+
+	result := rangeResult(p, data, start, end)
+	if result.IsError {
+		return "", &result
+	}
+
+	return result.Content, nil
+}
+
+// rangeSuffix is a path's own line range, `file.go:120-180`, `file.go:120-`
+// to the end, or `file.go:120` for the one line. Only a suffix that is
+// entirely digits and dashes is a range, so a path holding a colon is still
+// a path.
+var rangeSuffix = regexp.MustCompile(`^(.*):(\d+)(-(\d*))?$`)
+
+// splitRange separates a path from the range written on it. A path with no
+// range comes back with zeros, which the call's own start_line and end_line
+// then fill.
+func splitRange(raw string) (string, int, int, error) {
+	m := rangeSuffix.FindStringSubmatch(raw)
+	if m == nil {
+		return raw, 0, 0, nil
+	}
+
+	start, err := strconv.Atoi(m[2])
+	if err != nil || start < minLineNum {
+		return "", 0, 0, fmt.Errorf("%w: 1 <= start <= end, got %q", errBadLineRange, raw)
+	}
+
+	switch {
+	case m[3] == "":
+		return m[1], start, start, nil
+	case m[4] == "":
+		return m[1], start, maxInt, nil
+	}
+
+	end, err := strconv.Atoi(m[4])
+	if err != nil || end < start {
+		return "", 0, 0, fmt.Errorf("%w: 1 <= start <= end, got %q", errBadLineRange, raw)
+	}
+
+	return m[1], start, end, nil
 }
 
 // readPaths collects every path one call asked for under key: the

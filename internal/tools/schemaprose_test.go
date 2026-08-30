@@ -50,13 +50,13 @@ func TestTheErrorsCarryWhatTheSchemasStoppedSaying(t *testing.T) {
 			wants: []string{"outside the project root"},
 		},
 		{
-			name: "a line range across several paths says a range reads one file",
+			name: "a line range across several paths names the per-path form",
 			run: func() (tool.Result, error) {
 				return tools.NewRead(root, scope).Run(t.Context(), mustJSON(t, map[string]any{
 					"path": "one.go,dup.go", "start_line": 1, "end_line": 2,
 				}))
 			},
-			wants: []string{"a line range reads one file"},
+			wants: []string{"give each path its own range"},
 		},
 		{
 			name: "an end line before the start is refused",

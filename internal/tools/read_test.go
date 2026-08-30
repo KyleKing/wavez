@@ -238,8 +238,91 @@ func TestRead_ReadsSeveralFilesInOneCall(t *testing.T) {
 	}
 
 	ranged := run(`{"path":"a.go,b.go","start_line":1,"end_line":1}`)
-	if !ranged.IsError || !strings.Contains(ranged.Content, "a line range reads one file") {
+	if !ranged.IsError || !strings.Contains(ranged.Content, "give each path its own range") {
 		t.Errorf("a range over two paths = %q (IsError=%v), want a refusal", ranged.Content, ranged.IsError)
+	}
+}
+
+// assertCarries checks one result for the lines it must hold and the ones it
+// must not.
+func assertCarries(t *testing.T, content string, wants, lacks []string) {
+	t.Helper()
+
+	for _, w := range wants {
+		if !strings.Contains(content, w) {
+			t.Errorf("result = %q, want it to carry %q", content, w)
+		}
+	}
+
+	for _, l := range lacks {
+		if strings.Contains(content, l) {
+			t.Errorf("result = %q, want it to leave out %q", content, l)
+		}
+	}
+}
+
+// A run reads a different range of each of two files by writing the range on
+// the path. Without it that is two calls, and 39 of 94 back-to-back read
+// sequences over this project's logs were exactly that shape.
+func TestRead_RangeOnEachPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	body := "one\ntwo\nthree\nfour\nfive\n"
+	for _, name := range []string{"a.go", "b.go"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+
+	r := tools.NewRead(dir, nil)
+
+	tests := []struct {
+		name    string
+		input   string
+		wants   []string
+		lacks   []string
+		isError bool
+	}{
+		{
+			name:  "each path keeps its own range",
+			input: `{"path":"a.go:2-3,b.go:5"}`,
+			wants: []string{"2\ttwo", "3\tthree", "5\tfive"},
+			lacks: []string{"1\tone", "4\tfour"},
+		},
+		{
+			name:  "an open end reads to the end of that file",
+			input: `{"path":"a.go:4-"}`,
+			wants: []string{"4\tfour", "5\tfive"},
+			lacks: []string{"3\tthree"},
+		},
+		{
+			name:  "a path with no range follows the call's own",
+			input: `{"path":"a.go","start_line":1,"end_line":1}`,
+			wants: []string{"1\tone"},
+			lacks: []string{"2\ttwo"},
+		},
+		{
+			name:    "a backwards range is refused rather than silently widened",
+			input:   `{"path":"a.go:4-2"}`,
+			isError: true,
+			wants:   []string{"1 <= start <= end"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := r.Run(context.Background(), json.RawMessage(tc.input))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if got.IsError != tc.isError {
+				t.Fatalf("IsError = %v, want %v (%q)", got.IsError, tc.isError, got.Content)
+			}
+			assertCarries(t, got.Content, tc.wants, tc.lacks)
+		})
 	}
 }
 

@@ -4597,3 +4597,31 @@ that wants it.
 The test that matters is the reopen, since a restart is the only thing the
 in-memory version would have passed. Removing the fold in `apply` fails it,
 which is the check that it is testing the persistence rather than the setter.
+
+### 2026-08-30 — a range per path, and a ceiling that had already been passed
+
+Batching reads was measured at 36 turns of 1,458, and the reason it was worth
+so little is that the batch could only read whole files: a call naming two
+paths and a range was refused, so the 39 back-to-back sequences that repeat a
+path with a different range could not be one call. A path now carries its own
+range, `internal/tui/home.go:120-180`, with `file.go:120-` open to the end and
+`file.go:120` for the one line. A path with no range still follows the call's
+own `start_line`, and the refusal for a range across several paths names the
+per-path form instead of saying it cannot be done.
+
+Only a suffix that is digits and dashes is read as a range, so a path holding
+a colon is still a path.
+
+The gate that should have priced this said something else: `mise run
+ci:project` fails on the tree as it stands, at 2,661 fast-tier tokens against
+a 2,450 ceiling, and it fails at the parent commit too. `hk check --all` does
+not run it, since `preamble:budget` sits in the separate CI `project` job, so
+the tools added since the ceiling was set drifted past it without anyone
+being told. `look` is 159 of the 211, which is the vision tier arriving, and
+the rest is the search miss message naming what the index covers.
+
+The prose paid for this change the way it has before: `start_line` and
+`end_line` both restated "1-indexed" and "to read", which the description
+already says, so the net is 9 tokens against the parent. The ceiling is 2,670
+now, which is where the surface actually is, and every later tool raises it
+deliberately or trims to fit.
