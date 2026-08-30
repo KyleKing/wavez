@@ -4402,3 +4402,27 @@ Verified end to end rather than by unit test alone: a 64x64 PNG through
 wavez's own serialization to a vision model on OpenRouter came back "Red".
 The scratch test that did it is deleted, since a network test in CI fails for
 reasons that have nothing to do with the change.
+
+### 2026-08-30 — a tool that looks, and the tier it asks
+
+`look` takes a path and a question, sends the image to the vision tier, and
+returns text. The image never reaches the thread's history, which is the whole
+shape rather than an optimization: history is append-only so a provider's
+cache prefix stays valid, so an image put there is re-sent on every later turn
+for the rest of the run. Asked once, answered in words, and the words are what
+the run keeps.
+
+It is registered only where a project configured a vision tier, following the
+rule the `question` tool paid for: a tool nothing can answer costs preamble
+tokens on every turn and a turn each time the model reaches for it. Its own
+cost, from `wavez -preamble`, is 157 tokens across its description and schema.
+
+The tier is a fourth configuration rather than a flag on the three, because
+`router.Tiers` maps a difficulty and seeing is a capability. No routing
+decision can reach a model that a text turn must never go to, and nothing
+routes to this one at all: the `look` tool asks it directly.
+
+What the tool refuses, it refuses before spending a request: a text file, a
+path outside the project, a missing file, and a call with no question. The
+test asserts the request count is zero in each, because a refusal that still
+pays for a turn upstream is not a refusal.
