@@ -45,7 +45,10 @@ func buildRoutines(
 		actions = append(actions, routine.GateAction(g))
 	}
 
-	registry := routine.NewRegistry(append(actions, routine.RunAction(root))...)
+	actions = append(actions, routine.RunAction(root))
+	actions = append(actions, routine.ServiceActions(routine.NewServices(serviceDefs(root, cfg)))...)
+
+	registry := routine.NewRegistry(actions...)
 
 	hash, err := routine.HashFile(filepath.Join(root, config.FileName))
 	if err != nil {
@@ -149,6 +152,29 @@ func failedSteps(rec routine.RunRecord) []string {
 		if s.Status != routine.StatusPass {
 			out = append(out, s.Name+" "+string(s.Status))
 		}
+	}
+
+	return out
+}
+
+// serviceDefs translates the project's declared services into the routine
+// package's own shape, so routines stay independent of the config package.
+// A relative dir is resolved against the project root here, the way `run`
+// resolves its own.
+func serviceDefs(root string, cfg config.Config) []routine.ServiceDef {
+	out := make([]routine.ServiceDef, 0, len(cfg.Services))
+	for _, s := range cfg.Services {
+		dir := s.Dir
+		if dir == "" {
+			dir = "."
+		}
+
+		out = append(out, routine.ServiceDef{
+			Name: s.Name, Up: s.Up, Down: s.Down, Ready: s.Ready,
+			Dir:       filepath.Join(root, filepath.FromSlash(dir)),
+			Timeout:   s.Timeout,
+			ReadyWait: s.ReadyWait,
+		})
 	}
 
 	return out

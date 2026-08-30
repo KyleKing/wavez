@@ -98,6 +98,8 @@ type Config struct {
 	// capability and Tiers maps a difficulty: a text model refuses the whole
 	// request rather than ignoring an image, so no routing decision can
 	// reach one.
+	// Services are the long-running things a routine can hold, by name.
+	Services     []Service
 	Vision       *Tier
 	AstGrepRules []string
 	// Checks are the project's own gate commands, sorted by name so a gate
@@ -203,4 +205,17 @@ type ProjectCheck struct {
 	Name    string
 	Command string
 	Paths   []string
+}
+
+// Service is one long-running thing a routine can hold while it works. It is
+// declared rather than left running because the expensive ones should be up
+// only while something needs them.
+type Service struct {
+	Name      string
+	Dir       string
+	Up        []string
+	Down      []string
+	Ready     []string
+	Timeout   time.Duration
+	ReadyWait time.Duration
 }

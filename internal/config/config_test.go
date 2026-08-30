@@ -407,3 +407,56 @@ vision = new Tier {
 		t.Error("the vision tier replaced balanced, want it separate from the routed three")
 	}
 }
+
+// A compose target is expensive, so it is declared rather than left running
+// and the harness holds it only while a routine needs it.
+func TestLoad_ServicesAreDeclaredWithTheirLifecycle(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, config.FileName), `
+amends ".wavez/Wavez.pkl"
+
+services {
+  ["stack"] = new Service {
+    up = new Listing { "docker"; "compose"; "up"; "-d" }
+    down = new Listing { "docker"; "compose"; "down" }
+    ready = new Listing { "curl"; "-fsS"; "http://localhost:8080/health" }
+    dir = "deploy"
+    readyWaitMs = 60000
+  }
+}
+`)
+
+	loader, err := config.NewLoader(context.Background())
+	if err != nil {
+		t.Fatalf("NewLoader: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := loader.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+
+	cfg, _, err := loader.Load(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.Services) != 1 {
+		t.Fatalf("Services = %+v, want the one the project declared", cfg.Services)
+	}
+
+	got := cfg.Services[0]
+	if got.Name != "stack" || got.Dir != "deploy" {
+		t.Errorf("Service = %+v, want it named and rooted where the project said", got)
+	}
+
+	if len(got.Up) != 4 || got.Up[0] != "docker" {
+		t.Errorf("Up = %q, want the argv unsplit and unshelled", got.Up)
+	}
+
+	if got.ReadyWait != 60*time.Second {
+		t.Errorf("ReadyWait = %s, want 60s", got.ReadyWait)
+	}
+}

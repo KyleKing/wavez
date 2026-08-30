@@ -206,6 +206,31 @@ class Check {
   command: String
 }
 
+/// One long-running service a routine step can bring up and take down.
+class Service {
+  /// Argv that starts it, run from `dir` and never through a shell.
+  up: Listing<String> = new Listing {}
+
+  /// Argv that stops it, run when the last holder releases it.
+  down: Listing<String> = new Listing {}
+
+  /// Argv that exits zero once the service can be used, retried until it
+  /// does. Without one, `up` returning is all the readiness there is, which
+  /// is enough for a program that blocks until it is listening and not
+  /// enough for anything that forks.
+  ready: Listing<String> = new Listing {}
+
+  /// Directory to run all three from, relative to the project root.
+  dir: String = "."
+
+  /// How long one of the three may take.
+  timeoutMs: Int = 300000
+
+  /// How long to keep retrying `ready` before the step that wanted the
+  /// service fails.
+  readyWaitMs: Int = 300000
+}
+
 class Step {
   /// Unique within the routine, and the name other steps put in `parents`.
   name: String
@@ -254,6 +279,13 @@ class Routine {
 /// every `["name"] { ... }` an amending file writes then fails to evaluate
 /// as a `Dynamic`.
 routines: Mapping<String, Routine> = new Mapping<String, Routine> {}
+
+/// Long-running things a routine can hold while it works: a compose target, a
+/// database, a fake API. They are declared rather than left running because
+/// the expensive ones should be up only while something needs them, and the
+/// harness counts holders so two routines share one and the first to finish
+/// does not take it from the second.
+services: Mapping<String, Service> = new Mapping<String, Service> {}
 
 /// One phase of a Cycle: what the model is told to achieve, the tools it may
 /// call, and the condition the harness evaluates before the cycle advances.

@@ -38,6 +38,7 @@ type pklConfig struct {
 	Routines map[string]pklRoutine `pkl:"routines"`
 	Checks   map[string]pklCheck   `pkl:"checks"`
 	Vision   *pklTier              `pkl:"vision"`
+	Services map[string]pklService `pkl:"services"`
 	// A pointer because zero is a meaningful threshold, meaning every turn
 	// overflows, and a plain float cannot tell it from an unset field.
 	OverflowLoad     *float64   `pkl:"overflowLoadPerCore"`
@@ -64,6 +65,16 @@ type pklConfig struct {
 	LocalStartSecs   int        `pkl:"localStartTimeoutSeconds"`
 	LeaseTTLMinutes  int        `pkl:"leaseTtlMinutes"`
 	Web              bool       `pkl:"web"`
+}
+
+// pklService mirrors the Service class in pkl/Wavez.pkl.
+type pklService struct {
+	Dir         string   `pkl:"dir"`
+	Up          []string `pkl:"up"`
+	Down        []string `pkl:"down"`
+	Ready       []string `pkl:"ready"`
+	TimeoutMs   int      `pkl:"timeoutMs"`
+	ReadyWaitMs int      `pkl:"readyWaitMs"`
 }
 
 // pklCheck mirrors the Check class in pkl/Wavez.pkl.
@@ -336,6 +347,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.AstGrepRules = p.AstGrepRules
 	cfg.Checks = projectChecks(p.Checks)
 	cfg.Vision = visionFromPkl(p.Vision)
+	cfg.Services = projectServices(p.Services)
 	cfg.DeadcodeAllow = p.DeadcodeAllow
 	cfg.Cycles = toSpecs(p.Cycles)
 	cfg.Links = toLinkPatterns(p.Links)
@@ -352,6 +364,23 @@ func projectChecks(in map[string]pklCheck) []ProjectCheck {
 	out := make([]ProjectCheck, 0, len(in))
 	for name, c := range in {
 		out = append(out, ProjectCheck{Name: name, Command: c.Command, Paths: c.Paths})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	return out
+}
+
+// projectServices flattens the services mapping, in name order so the action
+// list a registry is built from does not depend on map iteration.
+func projectServices(in map[string]pklService) []Service {
+	out := make([]Service, 0, len(in))
+	for name, s := range in {
+		out = append(out, Service{
+			Name: name, Up: s.Up, Down: s.Down, Ready: s.Ready, Dir: s.Dir,
+			Timeout:   time.Duration(s.TimeoutMs) * time.Millisecond,
+			ReadyWait: time.Duration(s.ReadyWaitMs) * time.Millisecond,
+		})
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
