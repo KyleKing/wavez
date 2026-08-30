@@ -455,3 +455,23 @@ func scanSymbol(row *sql.Row) (Symbol, error) {
 
 	return sym, nil
 }
+
+// DeclaresName reports whether any indexed symbol carries exactly this
+// name. It reads the name index rather than the top of a ranked query,
+// because ranking decides what a limited query returns and cannot be the
+// authority on whether a name exists at all.
+func (s *Store) DeclaresName(ctx context.Context, name string) (bool, error) {
+	var one int
+
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM symbols WHERE name = ? LIMIT 1`, name).Scan(&one)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("looking up symbol %s: %w", name, err)
+	default:
+		return true, nil
+	}
+}

@@ -113,12 +113,13 @@ are specific to this codebase and not visible from the code.
   cannot be rebuilt. Read the sidecar first when a recall's trail is shorter
   than the run was
 - Fuzzy `search` ranks a wider window than it answers with, so what the
-  index scores and what a caller sees are different orders, and
-  `internal/finish` rides on that: its "named symbol is not in the index"
-  check asks for the top five fuzzy hits and looks for an exact name among
-  them. Anything that changes ranking changes what runs are told they
-  invented, which is how six of ten common symbols in this repository were
-  reported missing while indexed
+  index scores and what a caller sees are different orders. Nothing may ask
+  a ranked query whether a name exists: `internal/finish` did, and
+  `codeintel.Store.DeclaresName` is what that question goes through now
+- The index holds functions, methods, and types and nothing else, so a
+  const, a var, a struct field, a pkl key, and a tool name are all absent
+  from it while being written all over the tree. Any check that reads
+  "absent from the index" as "does not exist" is wrong for all five
 - A thread's sidecar ends in `.jsonl` like its event log, so anything
   scanning `.wavez/threads/` has to skip `thread.HistorySuffix`. The daemon
   did not, opened each sidecar as a thread, gave that thread a sidecar of

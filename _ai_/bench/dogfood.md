@@ -4061,3 +4061,34 @@ The other candidate trigger is closed by the corpus rather than by a lane. Of
 the 85 whole-file reads long enough and in a language the outline speaks, 4
 are of a file the run had already edited, so "a file this run has written to
 wants its text" has nothing to trigger on.
+
+## 2026-08-29 — every run ended with a finding it had not earned
+
+Today's window: 16 of 17 runs finished with a finding, every gate having
+passed, and 29 of those findings were `named symbol is not in the index`. The
+names, in order of how often runs were accused of inventing them:
+`UsedFraction`, `Classify`, `maxToolCallsPerTurn`, `Config`, `bench.Read`,
+`ReadLog`, `old_string`, `nolint`, `guard.Env`, `AllowedCommands`,
+`ShellAllow`, `maxReadLines`, `maxReadFiles`, `IsError`, `hookTimeoutMs`,
+`ErrNoChange`.
+
+`Classify` is `internal/guard/guard.go:65`. `Config` is
+`internal/config/config.go:72`. The cause is not the fuzzy ranking the
+comment in AGENTS.local.md points at, and a probe against this project's own
+index says so: `Classify` and `Read` do surface in the top five hits the
+check asked for. What is true is that the index holds functions, methods, and
+types, so a const (`maxReadFiles`), a var (`ErrNoChange`), a struct field
+(`AllowedCommands`, `IsError`), a pkl key (`hookTimeoutMs`), and a tool name
+(`str_replace`) are none of them declarations it can hold, and every run that
+named one was told it had made the name up.
+
+Two changes. `codeintel.Store.DeclaresName` answers the exact question off
+the name index rather than off the top of a ranked query, because ranking
+cannot be the authority on whether a name exists. And a name the index does
+not declare is looked for in the tree's text before it is reported, which is
+what keeps the check to its purpose. Probed against this project's index,
+that answers all sixteen names above and still reports a name nothing writes.
+
+The test is the const case, which reproduces: `maxReadFiles` declared in the
+fixture is reported invented under the old lookup and not under the new one,
+while a name nothing declares and nothing writes is reported either way.

@@ -8,20 +8,23 @@ import (
 	"testing"
 
 	"github.com/kyleking/wavez/internal/codeintel"
+	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/finish"
 )
 
-// stubIndex holds the symbol names a case says the tree has.
+// stubIndex holds the symbol names a case says the tree declares. Search
+// answers for the text of the tree, which this stub does not have, so a
+// name it does not declare is a name nowhere in the project.
 type stubIndex map[string]bool
 
-func (s stubIndex) Search(
-	_ context.Context, q codeintel.SearchQuery,
-) ([]codeintel.SearchResult, error) {
-	if !s[q.Text] {
-		return nil, nil
-	}
+func (s stubIndex) DeclaresName(_ context.Context, name string) (bool, error) {
+	return s[name], nil
+}
 
-	return []codeintel.SearchResult{{Symbol: &codeintel.Symbol{Name: q.Text}}}, nil
+func (stubIndex) Search(
+	_ context.Context, _ codeintel.SearchQuery,
+) ([]codeintel.SearchResult, error) {
+	return nil, nil
 }
 
 // `h1` asked a run to name the file and the function that handle a
@@ -79,5 +82,45 @@ func TestNamedThingsExistCatchesAnInventedAnswer(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The index holds functions, methods, and types, so a run naming a const or
+// a struct field was told it had invented the name: `maxReadFiles`,
+// `ErrNoChange`, `AllowedCommands`, and `IsError` were each reported that
+// way against this project while every one of them is written in it.
+func TestNamedThingsExistReadsPastWhatTheIndexDeclares(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := "package p\n\nconst maxReadFiles = 10\n\nfunc Only() int { return maxReadFiles }\n"
+
+	if err := os.WriteFile(filepath.Join(root, "p.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	store, err := codeintel.Open(t.Context(), filepath.Join(t.TempDir(), "store.db"))
+	if err != nil {
+		t.Fatalf("codeintel.Open: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if cerr := store.Close(); cerr != nil {
+			t.Errorf("Close: %v", cerr)
+		}
+	})
+
+	if _, err = store.Index(t.Context(), root, lang.NewDefaultRegistry()); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	report, err := finish.NamedThingsExist(t.Context(), root,
+		"`Only` reads `maxReadFiles`, and `Invented` is not there.", store)
+	if err != nil {
+		t.Fatalf("NamedThingsExist: %v", err)
+	}
+
+	if len(report.Findings) != 1 || report.Findings[0].Detail != "Invented" {
+		t.Errorf("Findings = %v, want only the name nothing declares and nothing writes", report.Findings)
 	}
 }

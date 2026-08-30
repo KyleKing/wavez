@@ -11,6 +11,7 @@ package finish
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,10 +47,12 @@ func (r Report) String() string {
 	return strings.Join(lines, "\n")
 }
 
-// Index is the symbol lookup the naming check needs. It is the same
-// interface the search tool consumes, so the check reads the index the run
-// itself read.
+// Index is the symbol lookup the naming check needs. DeclaresName answers
+// exactly, and Search is how a name that declares nothing is still looked
+// for in the text, since a config key or a tool name is neither invented
+// nor a symbol.
 type Index interface {
+	DeclaresName(ctx context.Context, name string) (bool, error)
 	Search(ctx context.Context, q codeintel.SearchQuery) ([]codeintel.SearchResult, error)
 }
 
@@ -138,25 +141,38 @@ func missingSymbols(ctx context.Context, answer string, index Index) ([]string, 
 // index would hold.
 const minSymbolLen = 3
 
-// symbolProbeLimit is how many hits the probe asks for. It only needs to
-// know whether any symbol carries the name.
-const symbolProbeLimit = 5
-
+// indexHolds reports whether the project holds the name at all: declared as
+// a symbol, or failing that written somewhere in the tree.
+//
+// The text half is what keeps the check to its purpose, which is a name a
+// run invented. The index holds functions, methods, and types, so a run
+// naming a const, a var, a struct field, a config key, or a tool was told
+// it had made the name up: `maxReadFiles`, `ErrNoChange`, `AllowedCommands`,
+// `IsError`, `hookTimeoutMs`, and `str_replace` were each reported that way,
+// and every one of them is written in this project. A name in neither half
+// is the one the check is for.
 func indexHolds(ctx context.Context, index Index, name string) (bool, error) {
-	results, err := index.Search(ctx, codeintel.SearchQuery{
-		Mode: codeintel.SearchFuzzy, Text: name, Limit: symbolProbeLimit,
-	})
+	declared, err := index.DeclaresName(ctx, name)
 	if err != nil {
 		return false, fmt.Errorf("looking up %s: %w", name, err)
 	}
 
-	for i := range results {
-		if results[i].Symbol != nil && results[i].Symbol.Name == name {
-			return true, nil
-		}
+	if declared {
+		return true, nil
 	}
 
-	return false, nil
+	results, err := index.Search(ctx, codeintel.SearchQuery{
+		Mode: codeintel.SearchLiteral, Text: name, Limit: 1,
+	})
+	if err != nil {
+		if errors.Is(err, codeintel.ErrLiteralTooShort) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("looking for %s in the tree: %w", name, err)
+	}
+
+	return len(results) > 0, nil
 }
 
 // lastSegment is the identifier out of a qualified name, since the index
