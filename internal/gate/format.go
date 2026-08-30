@@ -156,8 +156,9 @@ func (g *FormatGate) formatFiles(files []string) error {
 // pre-pass's.
 func (g *FormatGate) golangciFix(ctx context.Context, lintPath string, files []string) error {
 	//nolint:gosec // files are this gate's own changed-file list
-	cmd := exec.CommandContext(ctx, lintPath, append([]string{"run", "--fix"}, files...)...)
+	cmd := exec.CommandContext(ctx, lintPath, append([]string{"run", "--allow-serial-runners", "--fix"}, files...)...)
 	cmd.Dir = g.repoRoot
+	cmd.Env = lintEnv(g.repoRoot)
 
 	out, err := cmd.CombinedOutput()
 

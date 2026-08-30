@@ -3933,3 +3933,50 @@ What this does not settle is whether a run acts on the sharper refusal. The
 count says how much of the failure budget goes to calls whose outcome was
 settled before they ran, and the next `h11` or `h6` lane is where the turns
 would show.
+
+## 2026-08-29 — the lint gate was reading another checkout's findings
+
+The `h3` outline lanes spent turns explaining away lint findings, and both
+wrote the same thing in their summaries: the linter's output pointed at
+`/tmp/wavez-replay-.../internal/bench/stats.go`, a workspace from an earlier
+lane that had already been deleted, so it could not read the source and could
+not honor the `//nolint` directives sitting on the flagged lines. The 13-turn
+`outline-2` lane read `cmd/wavez/stats.go` whole, edited two comments, and
+re-ran a gate over it, all to answer a finding that was not about its tree.
+
+The cause is golangci-lint's results cache, and a probe outside this project
+proves it. Two byte-identical copies of a one-package module, lint the first,
+delete it, lint the second:
+
+```
+== lint A (/tmp/lintprobe-A-wF6A)
+pkg/a.go:7:15: Error return value of `f.Close` is not checked (errcheck)
+== lint B (/tmp/lintprobe-B-vY1m) after deleting A
+level=warning msg="[runner] Can't process results ... Filename:\"/tmp/lintprobe-A-wF6A/pkg/a.go\" ... no such file or directory"
+../lintprobe-A-wF6A/pkg/a.go:7:15: Error return value of `f.Close` is not checked (errcheck)
+```
+
+The cache is keyed by package content and stores absolute paths, so every
+replay workspace, being a byte-identical `jj` workspace over this repository,
+is answered with the paths of the lane before it. `--fix` runs from the same
+cache, which means the format pass could edit at a position from another tree.
+Giving each root its own cache directory answers the same probe cleanly, so
+both gates now run the linter with `GOLANGCI_LINT_CACHE` under the linted
+repository's `.wavez/`.
+
+The test is the probe: lint one checkout, delete it, lint a byte-identical
+second one, and require the finding to open with `a.go:`. Without the
+environment it opens with `../../<deleted temp dir>/a.go:` and fails, alone and
+in the package's set.
+
+Splitting the caches then surfaced a second one. golangci-lint's file lock is
+one per machine rather than one per cache, so the gate exited with `Error:
+parallel golangci-lint is running` the moment `hk check --all` ran its own lint
+step beside the tests. Two overlapping runs with separate caches reproduce it,
+and `--allow-serial-runners` makes the second wait instead, which is what a
+gate running beside an editor or a CI step needs. Before the flag that abort
+reached a run as a gate failure about nothing it had written.
+
+This is worth more than the turns it costs a lane. Every replay measurement
+here counts checks passed, and a lint gate reading a stale sibling's findings
+makes that count say something about the machine rather than the tree.

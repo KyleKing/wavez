@@ -170,3 +170,33 @@ func TestLintGateLeavesCompileErrorsToTheBuildGate(t *testing.T) {
 		t.Errorf("Reason = %q, want it to name the build gate", result.Reason)
 	}
 }
+
+// Two byte-identical checkouts are what a replay lane makes, and the
+// linter's results cache is keyed by package content and holds absolute
+// paths, so the second was answered with the first's file: findings under a
+// directory already deleted, where no nolint directive could be honored.
+//
+//nolint:paralleltest // same lock as the tests above
+func TestLintGateIsNotAnsweredWithASiblingCheckoutsPaths(t *testing.T) {
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		t.Skip("golangci-lint is not installed")
+	}
+
+	source := "package a\n\nfunc F() (n int) {\n\tn = 1\n\treturn\n}\n"
+
+	first := lintFixture(t, source)
+	runLintGate(t, first)
+
+	if err := os.RemoveAll(first); err != nil {
+		t.Fatalf("removing the first checkout: %v", err)
+	}
+
+	result := runLintGate(t, lintFixture(t, source))
+	if result.Pass || len(result.Failures) != 1 {
+		t.Fatalf("result = %+v, want the naked return reported", result)
+	}
+
+	if frames := result.Failures[0].Frames; !strings.HasPrefix(frames[0], "a.go:") {
+		t.Errorf("frames = %v, want the finding under the checkout that was linted", frames)
+	}
+}

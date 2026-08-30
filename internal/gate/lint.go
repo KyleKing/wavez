@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -77,6 +78,7 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	//nolint:gosec // the arguments are this gate's own changed-file list
 	cmd := exec.CommandContext(ctx, path, slices.Concat(lintArgs, packagesOf(files))...)
 	cmd.Dir = g.repoRoot
+	cmd.Env = lintEnv(g.repoRoot)
 
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -101,9 +103,31 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	}, nil
 }
 
+// lintCache is the linter's results cache, under the state directory of the
+// repository it lints.
+//
+// The linter keys that cache by package content and stores absolute paths
+// in it, so two byte-identical checkouts share entries and the second
+// is answered with the first's paths. A replay workspace over this project
+// was handed findings under a sibling workspace already deleted, where a
+// suppression directive could not be honored and --fix would have edited at
+// a position from another tree.
+const lintCache = ".wavez/cache/golangci-lint"
+
+// lintEnv is the environment the linter runs under from repoRoot.
+func lintEnv(repoRoot string) []string {
+	return append(os.Environ(),
+		"GOLANGCI_LINT_CACHE="+filepath.Join(repoRoot, filepath.FromSlash(lintCache)))
+}
+
 // lintArgs run the linter the way CI does: golangci-lint's default caps
 // hide findings CI then reports, and maxLintFindings is this gate's bound.
-var lintArgs = []string{"run", "--max-issues-per-linter=0", "--max-same-issues=0"}
+//
+// Its file lock is one per machine rather than one per cache, so without
+// --allow-serial-runners a gate that starts while an editor or a CI step is
+// linting exits at once with "parallel golangci-lint is running", which
+// reaches the run as a gate failure about nothing it wrote.
+var lintArgs = []string{"run", "--allow-serial-runners", "--max-issues-per-linter=0", "--max-same-issues=0"}
 
 // packagesOf names the directories a change set's files sit in, since the
 // linter type-checks whatever it is handed: given a file it sees one file

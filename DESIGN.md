@@ -1002,9 +1002,12 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    It costs turns where editing rather than finding is the work. `h3` ran 5,
    5, and 9 turns before and 7 and 13 after, with read bytes rising, because
    `rename` does that task in one call and the two files it touches are 341
-   and 354 lines. Both lanes still passed 6 of 6. What is open is whether the
-   trigger should read the run's own history rather than the file's length: a
-   file this run has already written to is one it wants the text of.
+   and 354 lines. Both lanes still passed 6 of 6. Both also spent turns on lint
+   findings naming a deleted sibling workspace, which the linter's results cache
+   was answering them with, so that pair measures the harness as much as the
+   trigger and is worth re-running now the cache is per root. What is open is
+   whether the trigger should read the run's own history rather than the file's
+   length: a file this run has already written to is one it wants the text of.
 
 4. **Every path through `rename` on a real rename task refuses.** Six of
    twelve `h3` lanes called it and seven of nine calls came back a refusal,
