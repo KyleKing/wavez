@@ -4475,3 +4475,27 @@ that names an operation rather than a policy.
 So the item is not tool work. It is one sandbox decision: whether a
 sandboxed command may create and connect to a unix socket inside its own
 session directory. Everything else about driving a PTY already works.
+
+The narrow version of that decision turns out not to exist. Seatbelt accepts
+a path filter on a unix socket rule and then matches nothing:
+`(allow network-bind (local unix-socket (subpath D)))` and the `require-all`
+spelling both parse and deny every bind, inside D and out, and
+`(allow network-outbound (remote unix-socket (subpath D)))` denies connecting
+to a socket sitting in D. The only grant that works is unscoped:
+
+```
+(allow network-bind (local unix-socket))
+(allow network-outbound (remote unix-socket))
+```
+
+Under those two, tmux creates its server, `send-keys` types into the program,
+and `capture-pane` reads back what it printed, which is a real PTY round trip
+inside the sandbox. It also permits connecting to every other unix socket on
+the machine: the wavez daemon's own, the ssh agent's, Docker's. Path scoping
+is what made that acceptable and Seatbelt does not offer it, so the profile
+is unchanged.
+
+That makes the PTY tool the cheaper option rather than the more expensive
+one. A tool over `creack/pty` opens a pseudo-terminal directly, so the
+harness owns the process and its lifetime, no socket exists to scope, and the
+sandbox stays exactly as tight as it is now.
