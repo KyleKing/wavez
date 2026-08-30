@@ -30,8 +30,9 @@ How this harness works, which differs from what you may expect:
 
 - Formatting and imports are fixed automatically after your edits. Never edit an
   import block and never adjust indentation to make code look right.
-- Your work is checked by a build and by tests when you finish. Saying you are
-  done does not end the task; passing those checks does. Do not claim success.
+- A build and the tests of every package you change run after each edit, and
+  what they find reaches you at the start of a turn. Do not run them yourself.
+  Saying you are done does not end the task; passing them does.
 - Do not run this project's version control: git and jj are the harness's job,
   and a call to one spends a turn and changes nothing.
 - Repeating a failed call unchanged ends the task. Change the arguments instead.

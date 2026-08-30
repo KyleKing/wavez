@@ -4179,3 +4179,31 @@ now and `ChangeGate.Covers` answers only for the ones this run wrote a Go
 file in, so a sweep of an untouched package still runs and `-run` still runs.
 That saves the subprocess rather than the turn: the turn the run spends
 asking is spent either way.
+
+### 2026-08-29 — the prompt said checks run when you finish
+
+`BaseSystem` told every run its work "is checked by a build and by tests when
+you finish", which is a reason to verify mid-task: a run that believes the
+harness only looks at the end has to look for itself. The gates have run on
+every change since the ChangeGate shipped, so the sentence was wrong about
+its own harness.
+
+It now says a build and the tests of every package you change run after each
+edit, that what they find arrives at the start of a turn, and not to run them
+yourself. `wavez -preamble` prices the rewrite at 16 tokens, 800 to 862 in
+the system block.
+
+Eight lanes, alternating a control built from the same tree, four on `h13`
+and four on `h2`:
+
+| arm | lanes | non-targeted go sweeps | mean turns | mean input | mean spend |
+| --- | --- | --- | --- | --- | --- |
+| control | 4 | 8 | 12.0 | 117,170 | $0.0553 |
+| treatment | 4 | 0 | 8.2 | 74,951 | $0.0330 |
+
+Every lane on both sides passed every check. The sweep count is the claim:
+it went to zero in all four treatment lanes and the runs stopped reaching for
+the shell almost entirely (0, 1, 0, 0 calls against 1, 2, 4, 1). The turn
+figure is not a claim, because the control lanes ran 5, 17, 17, and 9 turns
+on two tasks whose baseline is 9 to 11, and four lanes a side cannot separate
+that from the change.
