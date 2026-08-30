@@ -25,7 +25,8 @@ const (
 	ptyCols       = 80
 	ptyRows       = 24
 	ptySettle     = 250 * time.Millisecond
-	ptySettleMax  = 5 * time.Second
+	ptyKeyGap     = 2 * time.Second
+	ptyDrawWait   = 15 * time.Second
 	ptyPoll       = 25 * time.Millisecond
 	ptyMaxKeys    = 40
 	ptyMaxRunTime = 30 * time.Second
@@ -79,8 +80,10 @@ func (*PTY) Name() string { return "pty" }
 func (*PTY) Description() string {
 	return "Run a program under a real terminal, send it keystrokes, and read the screen it " +
 		"drew. Use it for anything that renders rather than prints: a TUI, a full-screen " +
-		"editor, an interactive prompt. The program is stopped when the call returns, so send " +
-		"every key the check needs in one call."
+		"editor, an interactive prompt. What comes back is one 80x24 screen, so output longer " +
+		"than that has scrolled off exactly as it would have on a terminal; use shell for a " +
+		"program whose whole output you need. The program is stopped when the call returns, so " +
+		"send every key the check needs in one call."
 }
 
 // Schema implements tool.Tool.
@@ -171,7 +174,7 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 		return "", fmt.Errorf("opening a terminal for %q: %w", in.Command, err)
 	}
 
-	screen := &ptyScreen{emulator: vt.NewSafeEmulator(ptyCols, ptyRows), started: time.Now()}
+	screen := &ptyScreen{emulator: vt.NewSafeEmulator(ptyCols, ptyRows)}
 	done := make(chan struct{})
 
 	go func() {
@@ -195,7 +198,6 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 // tells a caller the program has stopped drawing.
 type ptyScreen struct {
 	emulator *vt.SafeEmulator
-	started  time.Time
 	last     time.Time
 	mu       sync.Mutex
 }
@@ -217,42 +219,45 @@ func (s *ptyScreen) Write(b []byte) (int, error) {
 // signal available that a program has finished responding: it may exit, or it
 // may sit at a prompt, and both look the same from outside.
 //
-// A program that has drawn nothing at all is measured from when it started,
-// because waiting for a first paint that is never coming is how a program
-// reading its input before printing anything would burn the whole bound.
+// A program that has drawn nothing is never quiet, so a caller waits its
+// whole bound for one: the alternative treated a program still compiling as
+// one that had finished, and killed it before it printed.
 func (s *ptyScreen) quiet(settle time.Duration) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	since := s.last
-	if since.IsZero() {
-		since = s.started
-	}
-
-	return time.Since(since) > settle
+	return !s.last.IsZero() && time.Since(s.last) > settle
 }
 
-// play sends each keystroke once the screen has stopped changing, since a
+// play sends each keystroke and lets the screen settle between them, since a
 // key sent into a program still repainting from the last one is a key the
 // program may never see.
+//
+// Nothing waits before the first key. A terminal buffers what is written to
+// it, so a program reads its input when it is ready, and waiting for a first
+// paint that has not come yet cannot tell a program compiling from one
+// waiting to be typed at.
 func (*PTY) play(ctx context.Context, tty io.Writer, screen *ptyScreen, keys []string) {
-	settle(ctx, screen)
-
 	for _, k := range keys {
 		if _, err := io.WriteString(tty, k); err != nil {
 			return
 		}
 
-		settle(ctx, screen)
+		settle(ctx, screen, ptyKeyGap)
 	}
+
+	settle(ctx, screen, ptyDrawWait)
 }
 
-// settle waits for the screen to stop changing, bounded by ptySettleMax so a
-// program that draws forever still returns something. A fixed sleep was what
-// this replaced: under a loaded machine the program had not drawn at all when
-// the sleep ended, and the call returned a blank screen.
-func settle(ctx context.Context, screen *ptyScreen) {
-	deadline := time.NewTimer(ptySettleMax)
+// settle waits for the screen to be drawn and then stop changing, bounded by
+// bound so a program that draws forever, or never, still returns something.
+//
+// A fixed sleep was what this replaced, twice. Under a loaded machine the
+// program had not drawn when the sleep ended and the call returned a blank
+// screen; then `go run` spent its first seconds compiling and was killed
+// before it printed anything at all.
+func settle(ctx context.Context, screen *ptyScreen, bound time.Duration) {
+	deadline := time.NewTimer(bound)
 	defer deadline.Stop()
 
 	tick := time.NewTicker(ptyPoll)

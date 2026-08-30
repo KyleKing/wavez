@@ -111,3 +111,24 @@ func TestPTY_RefusesWhatItCannotRun(t *testing.T) {
 		})
 	}
 }
+
+// A program that spends seconds before it prints must not be killed for
+// being quiet: `go run` compiles first, and a fixed wait before the first
+// read returned a blank screen and reported the tool broken.
+func TestPTY_WaitsForAProgramThatStartsSlowly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gate, _ := recordingGate(t, permission.Allow)
+
+	res, err := tools.NewPTY(root, "t", gate).Run(t.Context(), mustJSON(t, map[string]any{
+		"command": "sleep 1; echo LATE",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(res.Content, "LATE") {
+		t.Errorf("gave up before the program printed:\n%q", res.Content)
+	}
+}
