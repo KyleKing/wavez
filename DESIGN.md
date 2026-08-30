@@ -973,10 +973,15 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      never got a delivery at all. `alreadyChecked` answers those now for a
      package the run changed, which saves the subprocess and not the turn
 
-   What is unmeasured is the one that would save the turn: whether a run
-   told at the start that the gates run build and tests on every change
-   stops asking. That is preamble spent on every task, and
-   `wavez -preamble` prices it.
+   The one that saves the turn was a sentence already there and wrong.
+   `BaseSystem` said work "is checked by a build and by tests when you
+   finish", which tells a run the harness only looks at the end, so it looks
+   itself. It now says the build and the changed packages' tests run after
+   each edit and reach the run at the start of a turn, for 16 preamble
+   tokens. Eight lanes alternating a control over `h13` and `h2` ran 8
+   non-targeted go sweeps on the control side and 0 on the treatment side,
+   every lane passing every check. Turns fell 12.0 to 8.2 and that is not a
+   claim: the control lanes ran 5, 17, 17, and 9.
 
 2. **`no_match` is still the largest class in the edit tools, and
    `ambiguous` is the one that grew.** From `wavez -stats-corpus`, which is
