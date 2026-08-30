@@ -4426,3 +4426,22 @@ What the tool refuses, it refuses before spending a request: a text file, a
 path outside the project, a missing file, and a call with no question. The
 test asserts the request count is zero in each, because a refusal that still
 pays for a turn upstream is not a refusal.
+
+The first real use is `look` on `docs/img/home.png`, a screenshot of this
+project's own Home screen, through the configured `glm-4.6v` tier. One call,
+3 turns, $0.017, and the structure came back exactly right: five columns named
+`thread`, `state`, `turns`, `age`, and `spend`, the ranges in each, and the
+status line character for character, `[enter]open [n]new [v]goal [/]filter
+[S]sort [i]inbox [s]chedule [w]scope [D]diag [q]quit [?]help [:]palette
+[R]routines`.
+
+Two small-text readings were wrong, and they are the interesting half. The
+title `wavez · wavez · mem 10.7G/16.0G` came back as `dave@chavez · mem
+10.7G/16.0G`, and `393 of 393 threads · by recent` came back as `993 thread of
+993 threads`. Neither is a hedge in the answer: both were stated as read.
+
+So the split the browser research recommends is not only about cost. This tier
+is reliable for what an image is for, layout and arrangement and whether a
+screen looks right, and unreliable for glyphs small enough to guess at. The
+tool's own description now says so, because a run that asks it to read a
+version string will be answered confidently and wrongly.

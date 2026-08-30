@@ -69,9 +69,10 @@ func (*Look) Name() string { return "look" }
 // Description implements tool.Tool.
 func (*Look) Description() string {
 	return "Look at an image file and answer one question about it. Use it for what only " +
-		"an image can settle: what a screenshot shows, whether a rendered layout is right, " +
-		"what an error dialog says. The answer is text; the image is not kept, so ask for " +
-		"everything you need from it in one call."
+		"an image can settle: whether a rendered layout is right, what a screen is showing, " +
+		"where something sits relative to something else. The answer is text and the image " +
+		"is not kept, so ask for everything you need in one call. Do not trust it for exact " +
+		"small text, which it misreads: read the source instead when the wording matters."
 }
 
 // Schema implements tool.Tool.
