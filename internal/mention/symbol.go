@@ -103,6 +103,10 @@ func writeSymbolLines(b *strings.Builder, sym *codeintel.Symbol) {
 // and a query that matched nothing are both "not found", a model narrows a
 // reference that could not have matched anything.
 func missReason(ref string, stats codeintel.IndexStats, near []string) string {
+	if stats.Building != "" {
+		return fmt.Sprintf("no file at %s and %s; left as literal text", ref, stats.Building)
+	}
+
 	if stats.FilesScanned == 0 {
 		return fmt.Sprintf("no file at %s and the code index covers no files in this project, "+
 			"so a symbol cannot resolve here; left as literal text, use shell with rg", ref)

@@ -191,6 +191,8 @@ func formatBundle(
 
 	if len(bundle.Symbols) == 0 && len(bundle.Neighbors) == 0 && len(bundle.Tests) == 0 {
 		switch {
+		case stats.Building != "":
+			return "no context: " + stats.Building
 		case stats.FilesScanned == 0:
 			return "no context: the code index covers no files in this project, " +
 				"so context cannot answer here. Use shell with rg, or read, instead"

@@ -23,6 +23,11 @@ type IndexStats struct {
 	// different depending on which it is, so the reason has to travel with
 	// the stats rather than be inferred from a zero count.
 	EdgesUnavailable string
+	// Building carries why this answer may be incomplete, empty when the
+	// index is current. It is set while the first pass is still walking the
+	// tree, since an incomplete answer given without saying so reads as an
+	// absence from the tree.
+	Building string
 	// MatchesTotal is how many rows the query matched before Limit cut the
 	// result set, so a caller can tell a complete answer from a page of one.
 	// It belongs to the query rather than the index, and travels here

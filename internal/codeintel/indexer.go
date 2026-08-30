@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/kyleking/wavez/internal/codeintel/lang"
 )
@@ -34,7 +35,12 @@ type Indexer struct {
 	started   chan struct{}
 	lastEdges EdgeStats
 	copied    bool
-	mu        sync.Mutex
+	// building is set while Start's first pass is running. A query that
+	// arrives during it answers from what the store already holds and says
+	// so, rather than waiting out a walk of a tree it has never seen: on a
+	// 244 MB checkout that first pass is 14.5 seconds.
+	building atomic.Bool
+	mu       sync.Mutex
 	// edgesMu is held across `codegraph init`, so it must never be taken
 	// with mu or a build would block every query the tree scan serves.
 	edgesMu sync.Mutex
@@ -62,6 +68,19 @@ func NewIndexer(store *Store, root string, registry *lang.Registry, opts ...Inde
 // Refresh brings the index in step with the tree and reports what it found.
 // Concurrent callers serialize rather than scanning twice.
 func (ix *Indexer) Refresh(ctx context.Context) (IndexStats, error) {
+	if ix.building.Load() {
+		return IndexStats{Building: buildingNote}, nil
+	}
+
+	return ix.walk(ctx)
+}
+
+// buildingNote is what a caller is told when the first pass is still
+// running, worded for a model reading a tool result.
+const buildingNote = "the code index is still being built for the first time, so it covers " +
+	"only part of this project right now; retry in a moment, or use shell with rg for a complete answer"
+
+func (ix *Indexer) walk(ctx context.Context) (IndexStats, error) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 
@@ -125,6 +144,9 @@ func (ix *Indexer) Search(ctx context.Context, q SearchQuery) ([]SearchResult, I
 // building one, this reports that through EdgeStats.Unavailable instead of
 // blocking behind it.
 func (ix *Indexer) RefreshEdges(ctx context.Context) (EdgeStats, error) {
+	if ix.building.Load() {
+		return EdgeStats{Unavailable: buildingNote}, nil
+	}
 	if reason := ix.edges.buildingReason(); reason != "" {
 		return EdgeStats{Unavailable: reason}, nil
 	}
@@ -144,7 +166,7 @@ func (ix *Indexer) refreshAndCopy(
 	ctx context.Context,
 	copyEdges func(context.Context, *Store) (EdgeStats, error),
 ) (EdgeStats, error) {
-	stats, err := ix.Refresh(ctx)
+	stats, err := ix.walk(ctx)
 	if err != nil {
 		return EdgeStats{}, err
 	}
@@ -183,9 +205,11 @@ func (ix *Indexer) Start(ctx context.Context) {
 	ix.mu.Lock()
 	ix.started = done
 	ix.mu.Unlock()
+	ix.building.Store(true)
 
 	go func() {
 		defer close(done)
+		defer ix.building.Store(false)
 
 		_, _ = ix.InitEdges(ctx) //nolint:errcheck // see doc comment: the next Refresh reports the same failure
 	}()

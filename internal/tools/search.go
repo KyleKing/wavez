@@ -282,6 +282,10 @@ func tooLargeNote(stats codeintel.IndexStats) string {
 // retrying.
 func formatSearchResults(results []codeintel.SearchResult, stats codeintel.IndexStats, query string) string {
 	if len(results) == 0 {
+		if stats.Building != "" {
+			return "no matches: " + stats.Building
+		}
+
 		if stats.EdgesUnavailable != "" {
 			return fmt.Sprintf("no matches: the call graph is unavailable (%s), so graph mode "+
 				"cannot answer here. Use mode=fuzzy, or shell with rg, instead", stats.EdgesUnavailable)
