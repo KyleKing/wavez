@@ -4625,3 +4625,24 @@ The prose paid for this change the way it has before: `start_line` and
 already says, so the net is 9 tokens against the parent. The ceiling is 2,670
 now, which is where the surface actually is, and every later tool raises it
 deliberately or trims to fit.
+
+### 2026-08-30 — a routine that checked nothing wore a tick
+
+The gates have abstained since M1, and the routines that wrap them reported a
+step which examined nothing as a pass, so a routine whose every step found
+nothing to look at rendered with the same mark as one that ran the suite.
+That is the failure the abstention rule exists to prevent, one layer up from
+where it was written.
+
+A step that reports no failure while examining nothing is `StatusAbstained`
+now. Three consequences, and the middle one is the one worth stating: it does
+not block what depends on it, because finding nothing to check is not finding
+a problem, and stopping the run there would hide the steps that do have
+something to say. A run is a pass when nothing failed and at least one step
+examined something, so a run of nothing but abstentions is not one. The panel
+carries `◌` for it and the history line says which step abstained, beside a
+pass when the rest of the run checked something.
+
+The mutation is the test: putting the pass mark back on the abstention branch
+fails `TestRoutines_AbstentionIsNotAPass` on the rendered row, which is what
+says the test is reading the mark rather than the words beneath it.

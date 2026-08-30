@@ -1256,9 +1256,11 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
 
 **Also open**, and not competing with the four above:
 
-- Routine triggers on schedule and thread lifecycle, the Semgrep opt-in
-  routine, and the routines panel marking an abstention distinctly from a
-  pass
+- Routine triggers on schedule and thread lifecycle, and the Semgrep opt-in
+  routine. The panel marks an abstention now: a step that reported no failure
+  while examining nothing is `StatusAbstained`, which neither passes the run
+  nor blocks what depends on it, and a run where every step abstained wears
+  its own mark rather than a tick
 - Fleet-scale local serving past the slot bound that ships: `--cache-ram`
   sized against the admission headroom (the `kv-slots` numbers), the
   trimmed-output recall handle, and allow-always persisted per project
