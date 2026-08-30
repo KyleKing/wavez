@@ -1271,9 +1271,11 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   trimmed-output recall handle, and allow-always persisted per project
 - The timed comparison in `_ai_/bench/timing/`: hosted and `claude -p` rows
   for the four tasks, three samples each, on a machine running nothing else
-- A run timeline a human can read. The corpus commands are numbers, and this
-  is one page per run: turns as bars, tool calls colored by outcome, gate
-  rounds, and escalation points
+- `wavez -timeline <run>` is the sequence the corpus commands cannot show:
+  one line per turn, a bar scaled to the run's longest turn, the tools each
+  turn called with the cause on every failure, and the gate deliveries,
+  gate escalations, and tier changes beside them. What is left is a version
+  a person can page through rather than scroll
 - What the fast tier's remit actually is. Holding the tools, the prompt, and
   the task fixed on `e2` and varying only the tier, the hosted model passed
   3 of 3 checks on all three runs while the fast tier reached 3 of 3 about

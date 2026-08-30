@@ -4678,3 +4678,23 @@ the tree the run actually left.
 Both rules are the mutations that prove the tests: firing start
 unconditionally, and dropping the start call, each fail the daemon test on
 the order it observes over the socket.
+
+### 2026-08-30 — the same log, read as a sequence
+
+`-stats` answers what a run spent and cannot answer where it spent it.
+`-timeline <run>` prints one line per turn: a bar scaled to the run's own
+longest turn, the tools that turn called with the cause on each failure, and
+what the harness did beside them.
+
+Reading it over the corpus finds shapes the totals hide. One 80-turn run ends
+with six identical `go test ./internal/thread && echo "✅ ..."` shell calls at
+7 to 8 seconds each, which reads as a run that had finished and could not say
+so. Another spends 5m11s of a 37-turn run in one `shell` call, on the turn
+whose note says `balanced failed, moved up`, so the tier change and the
+minutes are the same event rather than two.
+
+Two details are load-bearing. A gate round the run was never handed belongs
+to no turn, the same population `countGate` counts, because a round the run
+did not see cannot explain what it did next. And the bar is padded in cells
+rather than bytes: `%-*s` counts the block character as three, which stepped
+the duration column by how long each turn was.
