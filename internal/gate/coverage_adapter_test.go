@@ -77,6 +77,50 @@ func TestCoverageAdapterIncompleteBuildStaysUnready(t *testing.T) {
 	}
 }
 
+// A build that runs out of budget defers the rest rather than measuring a
+// large module for an hour, and the map it leaves behind is resumable: the
+// next build takes the tests the first one never reached.
+func TestCoverageAdapterBudgetDefersTheRestAndResumes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repoRoot := copyFixtureModule(t, "covmod")
+	store := openTestStore(t)
+	manifestPath := filepath.Join(t.TempDir(), "manifest.json")
+
+	spent := gate.NewCoverageAdapter(store, repoRoot, manifestPath, 2, gate.WithCoverageBudget(0))
+
+	stats, err := spent.Refresh(ctx)
+	if err != nil {
+		t.Fatalf("Refresh with no budget: %v", err)
+	}
+
+	if stats.Ran != 0 || stats.Deferred != stats.Considered {
+		t.Fatalf("Ran = %d, Deferred = %d of %d considered, want every test deferred",
+			stats.Ran, stats.Deferred, stats.Considered)
+	}
+
+	if spent.CoverageReady() {
+		t.Fatal("CoverageReady after a build that measured nothing = true, want false")
+	}
+
+	resumed := gate.NewCoverageAdapter(store, repoRoot, manifestPath, 2)
+
+	stats, err = resumed.Refresh(ctx)
+	if err != nil {
+		t.Fatalf("Refresh with a budget: %v", err)
+	}
+
+	if stats.Ran != stats.Considered || stats.Deferred != 0 {
+		t.Fatalf("Ran = %d, Deferred = %d of %d, want the deferred tests taken",
+			stats.Ran, stats.Deferred, stats.Considered)
+	}
+
+	if !resumed.CoverageReady() {
+		t.Error("CoverageReady after the resumed build = false, want true")
+	}
+}
+
 // TestCoverageMapDrivesLineLevelSelection is the end-to-end path DESIGN.md
 // ships in M1: a built map resolves a change to the tests that cover it,
 // the go-test gate runs exactly those, and the gate log records the level

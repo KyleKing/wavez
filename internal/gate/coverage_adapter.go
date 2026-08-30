@@ -65,6 +65,7 @@ type CoverageAdapter struct {
 	repoRoot     string
 	manifestPath string
 	workers      int
+	budget       time.Duration
 	// runMu holds one Refresh at a time; mu guards the readiness cache and
 	// is never held across a test run.
 	runMu    sync.Mutex
@@ -80,6 +81,22 @@ type CoverageOption func(*CoverageAdapter)
 // what keeps a map that failed to build visible instead of silent.
 func WithCoverageLog(l *Log) CoverageOption {
 	return func(a *CoverageAdapter) { a.log = l }
+}
+
+// DefaultCoverageBudget bounds how long one build spends measuring tests.
+// The cost floor is per test and not per byte: a trivial test in a two-file
+// module, with its instrumented binary already built, still costs 0.49s of
+// `go test` process and staleness checking, and this project's 689 tests
+// average 3.8 worker-seconds each. So a module large enough turns the first
+// build into an hour nobody asked for. A build that runs out of budget
+// stops feeding tests, leaves the map incomplete (which holds selection at
+// importer level, as an unbuilt map already does), and resumes from the
+// manifest on the next start rather than beginning again.
+const DefaultCoverageBudget = 10 * time.Minute
+
+// WithCoverageBudget replaces DefaultCoverageBudget.
+func WithCoverageBudget(d time.Duration) CoverageOption {
+	return func(a *CoverageAdapter) { a.budget = d }
 }
 
 // WithCoverageResources makes the build compete for the process's shared
@@ -100,7 +117,10 @@ func NewCoverageAdapter(
 		workers = 1
 	}
 
-	a := &CoverageAdapter{store: store, repoRoot: repoRoot, manifestPath: manifestPath, workers: workers}
+	a := &CoverageAdapter{
+		store: store, repoRoot: repoRoot, manifestPath: manifestPath,
+		workers: workers, budget: DefaultCoverageBudget,
+	}
 	for _, opt := range opts {
 		opt(a)
 	}
@@ -123,6 +143,10 @@ type RefreshStats struct {
 	Ran        int
 	Skipped    int
 	Failed     int
+	// Deferred is how many tests the budget stopped this build from
+	// reaching. They are not lost: the map stays incomplete and the next
+	// build takes them.
+	Deferred int
 }
 
 // Start builds the map in the background and returns immediately, the way
@@ -212,8 +236,14 @@ func (a *CoverageAdapter) Refresh(ctx context.Context) (RefreshStats, error) {
 		return stats, err
 	}
 
-	results, failed := runCoverageJobs(ctx, a.repoRoot, modulePath, toRun, a.workers, a.resources)
-	stats.Ran = len(toRun)
+	plan := coveragePlan{
+		repoRoot: a.repoRoot, modulePath: modulePath, jobs: toRun,
+		res: a.resources, workers: a.workers, budget: a.budget,
+	}
+
+	results, failed, started := runCoverageJobs(ctx, plan)
+	stats.Ran = started
+	stats.Deferred = len(toRun) - started
 	stats.Failed = failed
 
 	if err := a.recordResults(ctx, man, results); err != nil {
@@ -308,6 +338,9 @@ func (a *CoverageAdapter) record(start time.Time, stats RefreshStats, err error)
 
 	reason := fmt.Sprintf("considered %d, ran %d, skipped %d, failed %d",
 		stats.Considered, stats.Ran, stats.Skipped, stats.Failed)
+	if stats.Deferred > 0 {
+		reason += fmt.Sprintf(", deferred %d to the next build for want of time", stats.Deferred)
+	}
 	if err != nil {
 		reason = "build failed: " + err.Error()
 	}
@@ -473,26 +506,38 @@ type coverageResult struct {
 	rows []codeintel.CoverageRow
 }
 
-func runCoverageJobs(
-	ctx context.Context, repoRoot, modulePath string, jobs []goTestJob, workers int, res *ResourceSet,
-) ([]coverageResult, int) {
+// coveragePlan is one build's worth of work, bundled so the runner takes
+// one argument rather than six.
+type coveragePlan struct {
+	res        *ResourceSet
+	repoRoot   string
+	modulePath string
+	jobs       []goTestJob
+	budget     time.Duration
+	workers    int
+}
+
+// runCoverageJobs measures each test in the plan, stopping once the budget
+// is spent, and reports the results, the failures, and how many tests it
+// actually started.
+func runCoverageJobs(ctx context.Context, plan coveragePlan) ([]coverageResult, int, int) {
 	jobCh := make(chan goTestJob)
 	resCh := make(chan coverageResult)
 
-	var failed int
+	var failed, started int
 
 	var failedMu sync.Mutex
 
 	var wg sync.WaitGroup
 
-	for range workers {
+	for range plan.workers {
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
 
 			for j := range jobCh {
-				rows, err := runCoverageJob(ctx, repoRoot, modulePath, j, res)
+				rows, err := runCoverageJob(ctx, plan.repoRoot, plan.modulePath, j, plan.res)
 				if err != nil {
 					failedMu.Lock()
 					failed++
@@ -506,12 +551,19 @@ func runCoverageJobs(
 		}()
 	}
 
-	go func() {
-		for _, j := range jobs {
-			jobCh <- j
-		}
+	deadline := time.Now().Add(plan.budget)
 
-		close(jobCh)
+	go func() {
+		defer close(jobCh)
+
+		for _, j := range plan.jobs {
+			if time.Now().After(deadline) {
+				return
+			}
+
+			jobCh <- j
+			started++
+		}
 	}()
 
 	go func() {
@@ -524,7 +576,7 @@ func runCoverageJobs(
 		results = append(results, r)
 	}
 
-	return results, failed
+	return results, failed, started
 }
 
 // runCoverageJob takes the shared `go test` resource for one test only, so
