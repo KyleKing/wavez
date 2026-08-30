@@ -1052,8 +1052,14 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
 
    - Batching reads is worth 36 turns of 1,458. All 417 reads named one path
      though the schema has advertised a comma-separated list since it
-     shipped, but one call applies one range to every path, and 39 of the 94
-     back-to-back read sequences repeat a path
+     shipped, and 39 of the 94 back-to-back read sequences repeat a path
+     with a different range, which the batch could not express. A path
+     carries its own range now (`home.go:120-180`), and the refusal for a
+     call-level range across several paths names that form. It cost 9
+     tokens net, because `start_line` and `end_line` were restating the
+     description; the ceiling that should have priced it had already been
+     passed, at 2,661 against 2,450, since `preamble:budget` runs in the CI
+     `project` job and not in `hk check --all`. It is 2,670 now
    - Snapping a range to its enclosing declaration is worth nothing. It
      would have answered 2 of the 41 adjacent same-file ranged pairs, since
      a follow-up read jumps elsewhere in the file rather than missing a
