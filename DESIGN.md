@@ -983,15 +983,26 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    every lane passing every check. Turns fell 12.0 to 8.2 and that is not a
    claim: the control lanes ran 5, 17, 17, and 9.
 
-2. **`no_match` is still the largest class in the edit tools, and
-   `ambiguous` is the one that grew.** From `wavez -stats-corpus`, which is
-   what these counts have to come from: over the whole corpus `str_replace`
-   runs 559 calls at a 30% error rate, `no_match` 70, `bad_input` 41,
-   `ambiguous` 39, `malformed` 11, `repeat` 4. Split at 2026-08-26 with
+2. **`no_match` is the only class in the edit tools that is still live.**
+   Since 2026-08-28 `str_replace` runs 94 calls at a 7% error rate, `no_match`
+   5 and `ambiguous` 2, and `rename` 12 calls with no failure at all. Every
+   other class the whole-window counts below name is closed. The 16
+   `bad_input` results were one shape, `replace_all` sent as `"True"`, which
+   `coerceQuotedBool` has read as a boolean since 2026-08-25: every one of
+   them was recorded on 08-26 by a binary built before that, so the count is
+   a stale population rather than a live rate. `repeat` and `malformed` have
+   not appeared since. Read the window before reading the totals.
+
+   The window that follows is what the item was written from, when
+   `no_match` was the largest class and `ambiguous` the one that grew. From
+   `wavez -stats-corpus`, which is what these counts have to come from:
+   over the whole corpus `str_replace` runs 559 calls at a 30% error rate,
+   `no_match` 70, `bad_input` 41, `ambiguous` 39, `malformed` 11, and
+   `repeat` 4. Split at 2026-08-26 with
    `-stats-since`, the 264 calls before it erred 28% with `no_match` 39 and
    `ambiguous` 11, and the 295 after erred 31% with `no_match` 31 and
    `ambiguous` 28. So `no_match` fell from 14.8% of calls to 10.5% and
-   `ambiguous` rose from 4.2% to 9.5%, and both are live.
+   `ambiguous` rose from 4.2% to 9.5%.
 
    The largest single shape inside them is a re-send: 15 of the 91 recent
    `str_replace` failures repeat an input that already failed in the same run,

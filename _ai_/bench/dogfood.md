@@ -4207,3 +4207,21 @@ the shell almost entirely (0, 1, 0, 0 calls against 1, 2, 4, 1). The turn
 figure is not a claim, because the control lanes ran 5, 17, 17, and 9 turns
 on two tasks whose baseline is 9 to 11, and four lanes a side cannot separate
 that from the change.
+
+### 2026-08-29 — a closed error class the corpus still counts
+
+`str_replace`'s 25 `bad_input` results over the 08-26 window are 16 of one
+shape, `replace_all` sent as the string `"True"`. `coerceQuotedBool` has
+rewritten a quoted boolean into the boolean it names since 2026-08-25, case
+folded, and it decodes that exact recorded input today. All 16 were recorded
+on 08-26 by a binary built before that commit.
+
+The live window says so too: over the 27 runs since 08-28 there are 321 tool
+calls and 16 errors, `str_replace` at 7% with `no_match` 5 and `ambiguous` 2,
+`rename` at 0 of 12, and no `bad_input`, `malformed`, or `repeat` at all. The
+whole-corpus rate of 30% is a population that spans every fix since.
+
+The lesson is about the instrument rather than the tool: a corpus keyed by
+task and label carries no build, so a fix and the runs that predate it read
+as one rate. `wavez -stats-since` is the only thing separating them, and it
+has to be used before a class is treated as open.
