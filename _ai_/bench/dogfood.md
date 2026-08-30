@@ -4549,3 +4549,27 @@ seconds, with the reader given time to drain before the terminal closes. Four co
 in `FastTierOmits` on the argument rather than on evidence: it runs an
 arbitrary command under a terminal, which is a heavier `shell`, and omitting
 the lighter one while advertising the heavier would be incoherent.
+
+### 2026-08-30 — a service is declared so it can be off
+
+A `services` mapping in `.wavez.pkl` names what a routine can bring up and
+take down: an argv to start, one to stop, one that exits zero when it is
+ready, and where to run all three. A step holds one with `service.up` and
+releases it with `service.down`, which are two actions rather than one with a
+direction, because a field left out must never mean "stop".
+
+The holds are counted, and that is the reason the feature exists rather than
+a refinement of it. A service is worth declaring precisely because it is
+expensive, so it should be up only while something needs it: two routines
+wanting the same database must not start it twice, and the first of them to
+finish must not take it from the second. The test is that shape directly, two
+`up` calls producing one start and the stop landing only after the second
+`down`.
+
+A failed `up` releases its own hold. Otherwise a service that would not start
+would stay claimed by the attempt that failed, and the next caller would find
+it held and never try.
+
+`Names` and `Holding` came out before the commit. Both were written for a
+panel that does not exist, and `wavez -deadcode` said so: an orphan is wired
+up or deleted, and a second caller is what earns an accessor back.
