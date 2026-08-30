@@ -292,6 +292,8 @@ func (*PTY) play(ctx context.Context, tty io.Writer, screen *ptyScreen, exited <
 // blank screen; then `go run` spent its first seconds compiling and was
 // killed before it printed anything at all.
 func settle(ctx context.Context, screen *ptyScreen, exited <-chan struct{}, bound time.Duration) {
+	entered := time.Now()
+
 	deadline := time.NewTimer(bound)
 	defer deadline.Stop()
 
@@ -307,7 +309,12 @@ func settle(ctx context.Context, screen *ptyScreen, exited <-chan struct{}, boun
 		case <-deadline.C:
 			return
 		case <-tick.C:
-			if screen.quiet(ptySettle) {
+			// The quiet window has to be one this wait watched. Measuring it
+			// from the last draw alone returned at once whenever the screen
+			// had already been still for longer, which is what a keystroke
+			// leaves behind: its echo is a draw, the echo settles, and the
+			// next wait was over before the program had answered.
+			if time.Since(entered) >= ptySettle && screen.quiet(ptySettle) {
 				return
 			}
 		}

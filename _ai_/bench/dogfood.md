@@ -4531,6 +4531,11 @@ by running rather than by reading:
   last line under load, because closing the terminal discards what the
   program wrote and nothing has read yet. The reader gets its chance first
   now
+- and the wait still returned early, for a reason no timing change could
+  fix: quiet was measured from the last draw, so a window that had already
+  passed satisfied it. A keystroke leaves exactly that behind, since its own
+  echo is a draw that settles before the program answers. A wait now has to
+  watch a quiet window itself, not find one
 
 What settles it: nothing waits before the first keystroke, because a terminal
 buffers what is written to it and a program reads when it is ready, so there
@@ -4538,7 +4543,7 @@ is no way to tell a program that is compiling from one waiting to be typed
 at. After the keys, the wait ends when the program exits, which is the
 precise signal for anything one-shot, and falls back to the screen being
 drawn and then going quiet for a program that stays up, bounded at 15
-seconds, with the reader given time to drain before the terminal closes. Three consecutive whole-pipeline runs pass, which is the load the flake needed.
+seconds, with the reader given time to drain before the terminal closes. Four consecutive whole-pipeline runs pass, which is the load the flake needed.
 
 `wavez -preamble` prices it at 179 tokens, and it joins `shell` and `write`
 in `FastTierOmits` on the argument rather than on evidence: it runs an
