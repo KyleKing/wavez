@@ -16,6 +16,7 @@ type FinishChecker struct {
 	index  finish.Index
 	cov    finish.Coverage
 	differ Differ
+	opened finish.Opened
 	root   string
 }
 
@@ -23,8 +24,10 @@ type FinishChecker struct {
 // map makes the checks that need it abstain rather than fail, since a
 // workspace that never built one would otherwise fail every run for the
 // workspace's reason.
-func NewFinishChecker(root string, index finish.Index, cov finish.Coverage, differ Differ) *FinishChecker {
-	return &FinishChecker{root: root, index: index, cov: cov, differ: differ}
+func NewFinishChecker(
+	root string, index finish.Index, cov finish.Coverage, differ Differ, opened finish.Opened,
+) *FinishChecker {
+	return &FinishChecker{root: root, index: index, cov: cov, differ: differ, opened: opened}
 }
 
 // Check implements agent.Finisher.
@@ -61,7 +64,8 @@ func (c *FinishChecker) Check(ctx context.Context, f agent.Finish) ([]string, er
 		return nil, err //nolint:wrapcheck // the check already names the file that failed
 	}
 
-	reports = append(reports, tested, c.substance(ctx, f, changed))
+	reports = append(reports, tested, c.substance(ctx, f, changed),
+		finish.AnswerReadsWhatItNames(c.root, f.Answer, changed, c.opened))
 
 	return findings(reports), nil
 }

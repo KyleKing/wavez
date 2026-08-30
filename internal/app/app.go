@@ -336,7 +336,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
 	loopOpts := append(append([]agent.Option{}, loopBase...),
 		agent.WithVerifier(verifier), agent.WithReviewer(reviewer), agent.WithChangeGate(changeGate),
-		agent.WithFinisher(NewFinishChecker(root, store, store, vcs.NewJj())))
+		agent.WithFinisher(NewFinishChecker(root, store, store, vcs.NewJj(), scope)))
 	loop := agent.New(providers, registry, permGate, loopOpts...)
 
 	sweeper, cycles, err := buildCycles(cfg)
