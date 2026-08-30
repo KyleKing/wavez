@@ -78,7 +78,11 @@ func (r *Runner) execute(ctx context.Context, rt *Routine, trigger Trigger, env 
 		wg.Wait()
 
 		for _, i := range wave {
-			if records[i].Status != StatusPass {
+			// An abstention does not block what depends on it: the step
+			// found nothing to check, which is not the same as finding a
+			// problem, and stopping the run there would hide the steps that
+			// do have something to say.
+			if records[i].Status != StatusPass && records[i].Status != StatusAbstained {
 				failed[rt.Steps[i].Name] = true
 			}
 		}
@@ -111,6 +115,8 @@ func (r *Runner) runStep(ctx context.Context, step Step, env Env) StepRecord {
 	case err != nil:
 		rec.Status = StatusError
 		rec.Error = err.Error()
+	case outcome.Pass && outcome.Examined == 0:
+		rec.Status = StatusAbstained
 	case outcome.Pass:
 		rec.Status = StatusPass
 		rec.Examined = outcome.Examined
@@ -133,12 +139,21 @@ func parentFailed(step Step, failed map[string]bool) bool {
 	return false
 }
 
+// allPassed reports a run that checked something and found nothing wrong.
+// An abstained step neither passes nor fails it, but a run where every step
+// abstained checked nothing and is not a pass.
 func allPassed(records []StepRecord) bool {
+	passed := false
+
 	for _, rec := range records {
-		if rec.Status != StatusPass {
+		switch rec.Status {
+		case StatusPass:
+			passed = true
+		case StatusAbstained:
+		case StatusFail, StatusSkipped, StatusCanceled, StatusError:
 			return false
 		}
 	}
 
-	return true
+	return passed
 }

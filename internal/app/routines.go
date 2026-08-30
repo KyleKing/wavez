@@ -128,11 +128,12 @@ func routineInfo(info routine.Info) api.RoutineInfo {
 	runs := make([]api.RoutineRun, 0, len(info.Runs))
 	for _, r := range info.Runs {
 		runs = append(runs, api.RoutineRun{
-			Started:  r.Timestamp,
-			Trigger:  string(r.Trigger),
-			Duration: r.Duration,
-			Pass:     r.Pass,
-			Failed:   failedSteps(r),
+			Started:   r.Timestamp,
+			Trigger:   string(r.Trigger),
+			Duration:  r.Duration,
+			Pass:      r.Pass,
+			Failed:    failedSteps(r),
+			Abstained: stepsWithStatus(r, routine.StatusAbstained),
 		})
 	}
 
@@ -149,8 +150,20 @@ func failedSteps(rec routine.RunRecord) []string {
 	var out []string
 
 	for _, s := range rec.Steps {
-		if s.Status != routine.StatusPass {
+		if s.Status != routine.StatusPass && s.Status != routine.StatusAbstained {
 			out = append(out, s.Name+" "+string(s.Status))
+		}
+	}
+
+	return out
+}
+
+func stepsWithStatus(rec routine.RunRecord, status routine.Status) []string {
+	var out []string
+
+	for _, s := range rec.Steps {
+		if s.Status == status {
+			out = append(out, s.Name)
 		}
 	}
 

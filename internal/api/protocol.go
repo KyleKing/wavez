@@ -302,9 +302,13 @@ type RoutineRun struct {
 	Trigger string    `json:"trigger"`
 	// Failed names the steps that did not pass, so a client can say what
 	// broke without carrying every step's trimmed output.
-	Failed   []string      `json:"failed,omitempty"`
-	Duration time.Duration `json:"duration"`
-	Pass     bool          `json:"pass"`
+	Failed []string `json:"failed,omitempty"`
+	// Abstained names the steps that ran and examined nothing. They are
+	// neither a pass nor a failure, and a run that only abstained must not
+	// read as one that checked something.
+	Abstained []string      `json:"abstained,omitempty"`
+	Duration  time.Duration `json:"duration"`
+	Pass      bool          `json:"pass"`
 }
 
 // PendingInfo is one row in the inbox: a permission prompt or a question.

@@ -191,6 +191,73 @@ func TestRunner_RunsWavesInOrderAndSkipsChildrenOfAFailedStep(t *testing.T) {
 	assert.NotContains(t, rec.seen(), "after-bad")
 }
 
+// A step that reported no failure while examining nothing has said nothing
+// about the tree, so it neither passes the run nor stops what depends on it.
+func TestRunner_AbstainsWhenAStepExaminedNothing(t *testing.T) {
+	t.Parallel()
+
+	var rec recorder
+
+	reg := routine.NewRegistry(
+		stubAction("ok", nil, func(_ context.Context, label string) (routine.Outcome, error) {
+			rec.note(label)
+
+			return routine.Outcome{Pass: true, Examined: 1}, nil
+		}),
+		stubAction("nothing", nil, func(_ context.Context, label string) (routine.Outcome, error) {
+			rec.note(label)
+
+			return routine.Outcome{Pass: true}, nil
+		}),
+	)
+
+	tests := []struct {
+		name     string
+		routine  routine.Definition
+		wantPass bool
+	}{
+		{
+			name:    "a run where every step abstained is not a pass",
+			routine: def("quiet", step("looked", "nothing")),
+		},
+		{
+			name: "an abstention does not stop what depends on it",
+			routine: def("mixed",
+				step("looked", "nothing"),
+				step("after", "ok", "looked"),
+			),
+			wantPass: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt, err := routine.Compile(tc.routine, reg)
+			require.NoError(t, err)
+
+			runner := routine.NewRunner(gate.RealClock{}, gate.NewResourceSet(), nil)
+
+			got, err := runner.Run(context.Background(), rt, routine.TriggerManual, routine.Env{})
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantPass, got.Pass)
+
+			status := map[string]routine.Status{}
+			for _, s := range got.Steps {
+				status[s.Name] = s.Status
+			}
+
+			assert.Equal(t, routine.StatusAbstained, status["looked"])
+			if tc.wantPass {
+				assert.Equal(t, routine.StatusPass, status["after"],
+					"a step whose parent abstained still runs")
+			}
+		})
+	}
+}
+
 func TestRunner_SerializesStepsSharingAResourceKey(t *testing.T) {
 	t.Parallel()
 

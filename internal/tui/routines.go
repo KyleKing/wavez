@@ -142,9 +142,23 @@ func routineMark(r api.RoutineInfo, ascii bool) string {
 		return markIdle(ascii)
 	case r.Runs[len(r.Runs)-1].Pass:
 		return markPass(ascii)
+	case len(r.Runs[len(r.Runs)-1].Failed) == 0:
+		return markAbstain(ascii)
 	default:
 		return markFail(ascii)
 	}
+}
+
+// markAbstain is what a run that examined nothing gets. It is deliberately
+// not the pass mark: a routine whose steps all found nothing to check has
+// said nothing about the tree, and a tick beside it reads as coverage that
+// does not exist.
+func markAbstain(ascii bool) string {
+	if ascii {
+		return "--"
+	}
+
+	return "◌"
 }
 
 func markDisabled(ascii bool) string {
@@ -211,15 +225,18 @@ func (m Model) routineHistory(r api.RoutineInfo) []string {
 }
 
 func runOutcome(run api.RoutineRun) string {
-	if run.Pass {
+	switch {
+	case len(run.Failed) > 0:
+		return strings.Join(run.Failed, ", ")
+	case len(run.Abstained) > 0 && run.Pass:
+		return "pass, " + strings.Join(run.Abstained, ", ") + " abstained"
+	case len(run.Abstained) > 0:
+		return "abstained: " + strings.Join(run.Abstained, ", ")
+	case run.Pass:
 		return "pass"
-	}
-
-	if len(run.Failed) == 0 {
+	default:
 		return "fail"
 	}
-
-	return strings.Join(run.Failed, ", ")
 }
 
 // duration renders a run's wall time in the compact form the panel's rows

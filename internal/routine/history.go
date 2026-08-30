@@ -20,6 +20,11 @@ const (
 	// StatusFail is a step whose action reported a failure, trimmed the
 	// same way a gate failure is.
 	StatusFail Status = "fail"
+	// StatusAbstained is a step that ran, reported no failure, and examined
+	// nothing. It is not a pass: a check that looked at nothing has said
+	// nothing about the tree, and reporting it as a pass is how a routine
+	// comes to stand for work it never did.
+	StatusAbstained Status = "abstained"
 	// StatusSkipped is a step whose parent did not pass, so it never ran.
 	StatusSkipped Status = "skipped"
 	// StatusCanceled is a step stopped by a newer run taking its
@@ -49,7 +54,9 @@ type RunRecord struct {
 	Trigger   Trigger       `json:"trigger"`
 	Steps     []StepRecord  `json:"steps"`
 	Duration  time.Duration `json:"duration"`
-	Pass      bool          `json:"pass"`
+	// Pass is a run whose steps all passed. A run holding an abstention is
+	// not one, since the abstained step examined nothing.
+	Pass bool `json:"pass"`
 }
 
 const historyFilePerm = 0o600

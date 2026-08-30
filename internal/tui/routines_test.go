@@ -86,6 +86,29 @@ func TestRoutines_HistoryExpandsUnderTheCursor(t *testing.T) {
 	assert.Contains(t, out, "9.0s")
 }
 
+// A routine whose steps examined nothing must not carry the pass mark: a
+// tick beside it reads as coverage that does not exist.
+func TestRoutines_AbstentionIsNotAPass(t *testing.T) {
+	t.Parallel()
+
+	m := newSized(t, tui.Options{NoColor: true}, 100, 30)
+	m = apply(t, m,
+		tea.KeyPressMsg{Code: 'R', Text: "R"},
+		api.Reply{Kind: api.RepRoutines, Routines: []api.RoutineInfo{{
+			Name: "lint-changed", Triggers: []string{"change"}, Enabled: true,
+			Runs: []api.RoutineRun{{
+				Started: fixedNow().Add(-time.Minute), Trigger: "change",
+				Duration: 40 * time.Millisecond, Abstained: []string{"lint"},
+			}},
+		}}},
+		tea.KeyPressMsg{Code: 'h', Text: "h"},
+	)
+
+	out := m.View().Content
+	assert.Contains(t, out, "abstained: lint")
+	assert.NotContains(t, out, "ok lint-changed", "an abstention does not wear the pass mark")
+}
+
 func TestRoutines_EmptyState(t *testing.T) {
 	t.Parallel()
 
