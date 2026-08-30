@@ -4939,3 +4939,40 @@ skips what was measured and takes what was not. Proved by running one build
 with a zero budget (every test deferred, map unready) and a second with the
 default (every test taken, map ready), and the mutation that pushes the
 deadline an hour out turns that first assertion red.
+
+### 2026-08-30 — bounding one index pass
+
+The remaining scale item was a store that degrades rather than silently
+taking minutes. The reason it matters is the walk lock: `Index` holds it for
+its whole duration, so a first pass long enough to outlive the first edit
+means the incremental path, 236ms on the 244 MB tree, never gets to run at
+all. Bounding the pass is what puts a ceiling on that.
+
+One pass parses at most `MaxIndexBytesPerPass` (32 MB), counting only files
+it actually reads into the store. That last part is what makes it terminate:
+an unchanged file costs a content hash and never the budget, so pass two
+starts where pass one stopped. Measured on the 244 MB corpus:
+
+| | files indexed | unchanged | deferred | time |
+|---|---|---|---|---|
+| pass 1 | 1,194 | 0 | 717 | 9.7s |
+| pass 2 | 717 | 1,194 | 0 | 5.0s |
+
+14.7s against 14.5s unbounded, so the bound costs nothing and buys a lock
+released in the middle. `Start` drains the passes itself and holds `Building`
+across all of them, so a query never pays for one, and it stops on a pass
+that indexed nothing so an unparseable file cannot spin it.
+
+`search`'s no-match line now separates the two kinds of gap it can have:
+files not read yet (retry in a moment) and files over `MaxFileBytes` (rg
+reaches those, this index never will).
+
+`hk check --all` failed once during this on
+`TestPTY_SendsKeystrokesAndReadsWhatTheyDrew`, and the cause is in `settle`
+rather than the test. A key's echo is a draw, so the screen is already quiet
+when the wait after the last key begins, and that wait's quiet check passes
+at its 250ms floor whether or not the program answered. Fixing it means
+requiring a draw during the wait rather than a quiet screen, which costs the
+full `ptyDrawWait` of 15s for any final key that legitimately draws nothing.
+That trade is not this lane's to make, so it is written down in
+AGENTS.local.md and left.

@@ -1087,8 +1087,20 @@ leaves the map incomplete, which holds selection at importer level exactly
 as an unbuilt map already does. Nothing is lost, because the manifest makes
 the next build resume from where this one stopped.
 
-What remains, unbuilt: a size the whole store refuses or degrades at rather
-than silently taking minutes. None of the efficiency numbers in Next transfer across this
+The last one is in too, and it degrades rather than refuses. One `Index`
+call parses at most `MaxIndexBytesPerPass` (32 MB) of new or changed source,
+counting only what it reads into the store, so an unchanged file costs a hash
+and never the budget and every pass therefore advances. `Start` runs passes
+until nothing is deferred and holds `Building` across all of them, so the
+query path never pays for one. On the 244 MB tree that is two passes, 9.7s
+and 5.0s, against 14.5s unbounded, which is the same total with the walk lock
+released in between. The reason to bound it at all is that lock: a first pass
+long enough to outlive the first edit means the 236ms incremental path never
+gets to run.
+
+Arc A's measurable items are closed. What is left in it is a question rather
+than a task: whether an index bounded this way is the right answer for a tree
+a hundred times this size, which needs a corpus that big to say. None of the efficiency numbers in Next transfer across this
 boundary, because all of them were measured on the small side of it.
 
 **B. Documentation drifted from the tree, and so did the template.** The
