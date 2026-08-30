@@ -351,7 +351,10 @@ func TestRun_PrefixStableAcrossTurns(t *testing.T) {
 func TestRun_CancellationMidStreamLeavesConsistentState(t *testing.T) {
 	t.Parallel()
 
-	turn := fake.Turn{Text: []string{"slow response"}, StopReason: llm.StopEndTurn, Delay: 50 * time.Millisecond}
+	// The deadline has to clear Run's startup and still land inside the
+	// stream. A 5ms budget against a 50ms delay did neither on a loaded
+	// machine, and canceling during startup is a different path.
+	turn := fake.Turn{Text: []string{"slow response"}, StopReason: llm.StopEndTurn, Delay: 5 * time.Second}
 	local := fake.New("local", turn)
 	hosted := fake.New("hosted")
 
@@ -359,7 +362,7 @@ func TestRun_CancellationMidStreamLeavesConsistentState(t *testing.T) {
 	reg := tool.NewRegistry(echoTool{name: "echo"})
 	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
 	out, err := loop.Run(ctx, th, basicPrefix(), "do it", router.Input{})

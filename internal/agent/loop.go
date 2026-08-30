@@ -545,14 +545,14 @@ func (l *Loop) Run(
 
 	checkpoint, err := l.captureCheckpoint(ctx)
 	if err != nil {
-		return Outcome{}, err
+		return startupOutcome(ctx, ""), err
 	}
 
 	if err := th.AppendUser(ctx, prompt); err != nil {
-		return Outcome{}, fmt.Errorf("appending prompt: %w", err)
+		return startupOutcome(ctx, checkpoint), fmt.Errorf("appending prompt: %w", err)
 	}
 	if err := th.SetState(ctx, event.StateWorking); err != nil {
-		return Outcome{}, fmt.Errorf("setting state: %w", err)
+		return startupOutcome(ctx, checkpoint), fmt.Errorf("setting state: %w", err)
 	}
 
 	start := l.options.Clock.Now()
@@ -572,6 +572,19 @@ func (l *Loop) Run(
 	r.outcome.ThreadSpendUSD = r.priorSpend
 
 	return r.drive(ctx)
+}
+
+// startupOutcome carries what a failure before the first turn can still say.
+// A cancellation that lands during startup is a cancellation, and a caller
+// reading Stop to decide a thread's state must not read it as an ordinary
+// failure.
+func startupOutcome(ctx context.Context, checkpoint string) Outcome {
+	out := Outcome{Checkpoint: checkpoint}
+	if ctx.Err() != nil {
+		out.Stop = StopCanceled
+	}
+
+	return out
 }
 
 // standingGoal is the thread's goal when the history about to be sent does
