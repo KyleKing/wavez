@@ -313,3 +313,31 @@ func TestReportNamesTheTierThatDidTheWork(t *testing.T) {
 		t.Errorf("a run that stayed on its pinned tier needs no note:\n%s", out.String())
 	}
 }
+
+// A check no run has ever passed is a defect in the check: h11 asked for
+// "overlap" in a Go test file, where the language capitalizes it, and four
+// runs in a row were reported partial for work that was correct.
+func TestNeverPassedCountsOneTaskVersion(t *testing.T) {
+	t.Parallel()
+
+	const check = "a_test.go:overlap"
+
+	rec := func(hash string, pass bool) replay.Record {
+		return replay.Record{
+			Run:    replay.Run{Task: "h11", TaskHash: hash},
+			Checks: []replay.CheckResult{{Check: check, Pass: pass}},
+		}
+	}
+
+	now := rec("new", false)
+	recs := []replay.Record{rec("old", true), rec("new", false), rec("new", false), now}
+
+	runs, passed := replay.NeverPassed(recs, now, check)
+	if runs != 3 || passed != 0 {
+		t.Errorf("NeverPassed = %d of %d, want 0 of 3: the passing run answered a different task", passed, runs)
+	}
+
+	if runs, passed = replay.NeverPassed(recs, rec("old", true), check); runs != 1 || passed != 1 {
+		t.Errorf("NeverPassed on the old version = %d of %d, want 1 of 1", passed, runs)
+	}
+}

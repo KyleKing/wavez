@@ -114,13 +114,35 @@ func replayRun(ctx context.Context, root string, opt options) error {
 		rec.Task, rec.Label, rec.Stop, rec.Stats.Turns,
 		replay.TierMix(rec.Stats.TierTurns), rec.CheckSummary(), rec.SpendUSD)
 
-	for _, c := range rec.Checks {
-		if !c.Pass {
-			fmt.Fprintf(os.Stderr, "  failed: %s (%s)\n", c.Check, c.Note)
-		}
-	}
+	reportFailedChecks(root, rec)
 
 	return runErr
+}
+
+// reportFailedChecks prints each check the run missed, and says when no run
+// of this task version has ever passed one. A check that cannot be
+// satisfied reports every run as partial and puts the fault on the run,
+// which is how `h11` reported four runs partial for work that was correct.
+// A records file that cannot be read costs the annotation and nothing else.
+func reportFailedChecks(root string, rec replay.Record) {
+	recs, err := replay.Load(filepath.Join(root, replay.DefaultRecordsPath))
+	if err != nil {
+		recs = nil
+	}
+
+	for _, c := range rec.Checks {
+		if c.Pass {
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "  failed: %s (%s)\n", c.Check, c.Note)
+
+		if runs, passed := replay.NeverPassed(recs, rec, c.Check); passed == 0 && runs > 1 {
+			fmt.Fprintf(os.Stderr,
+				"    no run of this task version has passed this check (%d of %d): read the check before the run\n",
+				runs, runs)
+		}
+	}
 }
 
 // replayWorkspacePrefix names the workspaces this harness creates, which

@@ -180,3 +180,34 @@ func ForTask(recs []Record, task string) []Record {
 
 	return out
 }
+
+// NeverPassed reports the number of runs of this task version that were
+// checked against check and the number that satisfied it.
+//
+// A check no run has ever passed is a defect in the check often enough to
+// be worth saying out loud: `h11` asked for the word "overlap" in a Go test
+// file, where the language capitalizes it, so four runs in a row were
+// reported partial for work that was correct.
+func NeverPassed(recs []Record, r Record, check string) (int, int) {
+	runs, passed := 0, 0
+
+	for i := range recs {
+		if recs[i].Task != r.Task || recs[i].TaskHash != r.TaskHash {
+			continue
+		}
+
+		for _, c := range recs[i].Checks {
+			if c.Check != check {
+				continue
+			}
+
+			runs++
+
+			if c.Pass {
+				passed++
+			}
+		}
+	}
+
+	return runs, passed
+}

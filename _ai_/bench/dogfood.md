@@ -3980,3 +3980,39 @@ reached a run as a gate failure about nothing it had written.
 This is worth more than the turns it costs a lane. Every replay measurement
 here counts checks passed, and a lint gate reading a stale sibling's findings
 makes that count say something about the machine rather than the tree.
+
+## 2026-08-29 — three h11 lanes, and a check that could never pass
+
+The open question from the repeat-refusal lane was whether a run acts on the
+sharper refusal. Three `h11` lanes say it never had to: `str_replace` ran 2, 2,
+and 3 calls with no errors at all, so the refusal did not fire once. What the
+lanes do show is the before and after of everything that landed this session,
+on the same task version:
+
+| lane | stop | turns | str_replace calls | errors |
+| --- | --- | --- | --- | --- |
+| entityfix | complete | 27 | 7 | 6 |
+| clean | stagnant | 8 | 3 | 3 |
+| repeat-1 | complete | 11 | 2 | 0 |
+| repeat-2 | complete | 16 | 2 | 0 |
+| repeat-3 | complete | 16 | 3 | 0 |
+
+That is a composite of five lanes' worth of change (the rename put-back, the
+`orRename` advice, outline reads, the lint gate, and the repeat refusal), not a
+measurement of any one of them, and the repeat refusal is the one it cannot be
+evidence for, because a refusal that never fires changes nothing. The question
+stays open and wants a lane whose first anchor misses.
+
+The lanes did settle something else. All four runs at this version of `h11`
+failed the same check, `internal/tools/str_replace_test.go:overlap`, and three
+of them had done the task correctly:
+`TestStrReplace_OverlappingEditsNameThePair`,
+`TestStrReplace_OverlapErrorNamesEdits`. The check asked for a lowercase word
+in a place where Go capitalizes it, and the file it reads holds no lowercase
+`overlap` at all, so no run could ever have passed it. It now reads `Overlap`,
+which changes the task hash a second time, so `h11` rows compare only within a
+hash.
+
+A check nobody can pass is worse than a missing one: it reports every run as
+partial and puts the fault on the run. Worth a sweep of the other tasks for the
+same shape.
