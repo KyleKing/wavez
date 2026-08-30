@@ -4262,3 +4262,36 @@ surface needed a change.
 template wrappers into a gitignored directory, so a fresh clone cannot import
 its own package until `types-for-jinja wrapper` has run. The harness has no
 notion of a project that must be generated before it can be checked.
+
+### 2026-08-29 — a Python project gets gates
+
+With the build gate abstaining, a Python edit reached the model with nothing
+behind it: `go-test`, `lint`, and `format` all abstain on a change set holding
+no Go file, which is correct and leaves the harness's whole differentiator
+inert. A project can now declare its own checks, each a name, the globs whose
+change runs it, and a command line.
+
+Two defects surfaced building it, one of them from the test rather than from
+reading:
+
+- `fileLineRe`, which decides whether a failure names a file the run changed,
+  matched `\.go` only. A ruff error on the file a run had just edited was
+  therefore attributed to nothing, and `attributed()` would have told the run
+  "none of this names a file this run changed", which is the opposite of the
+  truth. It matches any extension now, and a match still has to name a changed
+  file before it becomes a frame, so widening it cannot invent one
+- the first version of the test asserted the command's output reached the
+  model without asserting where. It passed while every line fell into
+  `Context` rather than `Frames`, which is the difference between a failure
+  the run is told to fix and one it is told to judge
+
+End to end on a scratch clone of calcipy, with one declared check running
+`uv run ruff check calcipy tests` on `*.py`: asked to insert `import json`
+above the module docstring, the run made the edit, the gate ran and failed,
+the failure reached the run naming `undocumented-public-module`,
+`module-import-not-at-top-of-file`, `unsorted-imports`, and `unused-import`,
+and the run reverted its own edit and said why. Nine turns, $0.013, and the
+tree ended clean. The gate log records ruff examining the change six times
+across the session, failing twice.
+
+That is the same loop the Go gates get, on a language none of them speak.
