@@ -57,7 +57,7 @@ func (t *typescript) Extract(src []byte) ([]Symbol, error) {
 			StartLine: span.StartLine,
 			EndLine:   span.EndLine,
 			Signature: signatureBefore(src, n, typescriptBody(kind, n)),
-			Doc:       leadingComments(src, documented(n), "comment", stripJSDoc),
+			Doc:       leadingComments(src, documented(n), stripJSDoc),
 		}, true
 	})
 }

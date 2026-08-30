@@ -52,7 +52,7 @@ func goFuncSymbol(src []byte, kind string, n *tree_sitter.Node) (Symbol, bool) {
 		StartLine: span.StartLine,
 		EndLine:   span.EndLine,
 		Signature: signatureBefore(src, n, body),
-		Doc:       leadingComments(src, n, "comment", stripGoComment),
+		Doc:       leadingComments(src, n, stripGoComment),
 	}, true
 }
 
@@ -82,7 +82,7 @@ func goTypeSymbol(src []byte, n *tree_sitter.Node) (Symbol, bool) {
 		StartLine: span.StartLine,
 		EndLine:   span.EndLine,
 		Signature: strings.TrimSpace(n.Utf8Text(src)),
-		Doc:       leadingComments(src, n, "comment", stripGoComment),
+		Doc:       leadingComments(src, n, stripGoComment),
 	}, true
 }
 

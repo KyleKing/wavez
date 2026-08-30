@@ -1,0 +1,7 @@
+{# The preview pane a search result renders into. #}
+<div class="search-content" id="search-results-container">
+  {% for result in results %}
+    <div class="search-result">{{ result.path }}</div>
+  {% endfor %}
+  <div class="search-preview" id="search-preview"></div>
+</div>

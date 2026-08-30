@@ -1,0 +1,9 @@
+/* Highlight matches. */
+.search-highlight {
+	background: var(--color-accent);
+}
+
+.search-result__path,
+.search-result__first-line {
+	color: inherit;
+}

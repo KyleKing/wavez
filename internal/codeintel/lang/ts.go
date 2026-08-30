@@ -69,14 +69,17 @@ func signatureBefore(src []byte, decl, body *tree_sitter.Node) string {
 	return strings.TrimSpace(string(src[decl.StartByte():body.StartByte()]))
 }
 
+// commentNode is the node kind every grammar here spells a comment with.
+const commentNode = "comment"
+
 // leadingComments collects comment siblings immediately above n with no
 // blank line between them (the doc-comment convention), in source order,
 // joined with newlines and stripped of comment markers.
-func leadingComments(src []byte, n *tree_sitter.Node, commentKind string, strip func(string) string) string {
+func leadingComments(src []byte, n *tree_sitter.Node, strip func(string) string) string {
 	var lines []string
 	expectEndLine := int(n.StartPosition().Row) - 1
 	sib := n.PrevSibling()
-	for sib != nil && sib.Kind() == commentKind && int(sib.EndPosition().Row) == expectEndLine {
+	for sib != nil && sib.Kind() == commentNode && int(sib.EndPosition().Row) == expectEndLine {
 		lines = append([]string{strip(strings.TrimSpace(sib.Utf8Text(src)))}, lines...)
 		expectEndLine = int(sib.StartPosition().Row) - 1
 		sib = sib.PrevSibling()

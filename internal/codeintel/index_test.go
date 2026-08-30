@@ -22,8 +22,8 @@ func TestIndex_Golden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	if stats.FilesIndexed != 4 {
-		t.Fatalf("FilesIndexed = %d, want 4", stats.FilesIndexed)
+	if stats.FilesIndexed != 6 {
+		t.Fatalf("FilesIndexed = %d, want 6", stats.FilesIndexed)
 	}
 
 	results, err := store.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: "greet", Limit: 100})
@@ -244,5 +244,40 @@ func TestIndex_SkipsTheDependencyDirectories(t *testing.T) {
 
 	if stats.SymbolsIndexed != 1 {
 		t.Errorf("SymbolsIndexed = %d, want only the project's own symbol", stats.SymbolsIndexed)
+	}
+}
+
+// The yak-shears miss, reproduced: a literal search for a class sitting in a
+// stylesheet answered "no matches" because the index held no stylesheet, and
+// the run read absence from the index as absence from the tree.
+func TestIndex_FindsTextInAStylesheetAndATemplate(t *testing.T) {
+	t.Parallel()
+	store, ctx := openStore(t)
+
+	if _, err := store.Index(ctx, fixtureDir, defaultRegistry()); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	tests := map[string]string{
+		"a class in a stylesheet":   "search-highlight",
+		"an id in a template":       "search-results-container",
+		"a jinja tag is still text": "endfor",
+	}
+
+	for name, query := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			results, err := store.Search(ctx, codeintel.SearchQuery{
+				Mode: codeintel.SearchLiteral, Text: query, Limit: 10,
+			})
+			if err != nil {
+				t.Fatalf("Search(%q): %v", query, err)
+			}
+
+			if len(results) == 0 {
+				t.Fatalf("Search(%q) found nothing, want the file holding it", query)
+			}
+		})
 	}
 }

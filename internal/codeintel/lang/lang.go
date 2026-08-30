@@ -18,6 +18,10 @@ const (
 	KindMethod = "method"
 	KindType   = "type"
 	KindClass  = "class"
+	// KindRule is one CSS rule, named by its selectors.
+	KindRule = "rule"
+	// KindElement is one markup element carrying an id.
+	KindElement = "element"
 )
 
 // Symbol is one extracted declaration: a function, method, type, or class.
@@ -49,10 +53,13 @@ type Registry struct {
 }
 
 // NewDefaultRegistry builds the registry for every language this build
-// ships: Go, Python, and TypeScript.
+// ships: Go, Python, TypeScript, and the markup and styles a web project is
+// mostly made of.
 func NewDefaultRegistry() *Registry {
 	r := &Registry{byExt: make(map[string]Language)}
+	r.register(newCSS())
 	r.register(newGo())
+	r.register(newHTML())
 	r.register(newPython())
 	r.register(newTSX())
 	r.register(newTypeScript())
