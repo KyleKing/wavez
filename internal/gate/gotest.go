@@ -143,7 +143,13 @@ func ParseGoTestJSON(r io.Reader) (GoTestSummary, error) {
 	return summary, nil
 }
 
-var fileLineRe = regexp.MustCompile(`([\w./-]+\.go):(\d+)`)
+// fileLineRe finds a `path.ext:line` reference in a line of output, which is
+// how every checker here names where it found something. The extension is not
+// pinned to Go: a project's own check reports its own language, and pinning it
+// meant a ruff error on the file a run had just edited reached that run as
+// naming nothing it changed. A match still has to name a changed file before
+// it becomes a frame, so widening what is recognized cannot invent one.
+var fileLineRe = regexp.MustCompile(`([\w./-]+\.\w+):(\d+)`)
 
 // TrimFailure drops every output line of failure that does not reference
 // one of changedFiles. Frames are matched by base name because both the

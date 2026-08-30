@@ -95,6 +95,11 @@ fullRunCadence: Int = 20
 /// Glob patterns for ast-grep convention rule files.
 astGrepRules: Listing<String> = new Listing {}
 
+/// Checks this project runs on its own changes, by name. Every built-in gate
+/// speaks Go, so a project in another language reaches the model with nothing
+/// behind its edits until it declares one here.
+checks: Mapping<String, Check> = new Mapping {}
+
 /// Functions `wavez -deadcode` should not report, as `package.Function`
 /// globs. A function no main reaches is not always a mistake: functional
 /// options and test seams are reachable only from tests by design, and the
@@ -177,6 +182,19 @@ class Tier {
   /// beside it. Null keeps every turn on `baseURL` however loaded the
   /// machine is, which is right for a tier already served over the network.
   overflow: Tier?
+}
+
+/// One check a project runs on its own changes.
+class Check {
+  /// Globs whose change runs this check, matched against the whole path and
+  /// then against the base name, so `*.py` names every Python file. An empty
+  /// list runs the check on every change.
+  paths: Listing<String> = new Listing {}
+
+  /// The command line, run through `sh -c` from the project root. A non-zero
+  /// exit is the failure the model is handed, trimmed to the lines naming a
+  /// file the run changed.
+  command: String
 }
 
 class Step {

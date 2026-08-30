@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/apple/pkl-go/pkl"
@@ -35,6 +36,7 @@ const (
 // Field names and defaults mirror pkl/Wavez.pkl exactly.
 type pklConfig struct {
 	Routines map[string]pklRoutine `pkl:"routines"`
+	Checks   map[string]pklCheck   `pkl:"checks"`
 	// A pointer because zero is a meaningful threshold, meaning every turn
 	// overflows, and a plain float cannot tell it from an unset field.
 	OverflowLoad     *float64   `pkl:"overflowLoadPerCore"`
@@ -61,6 +63,12 @@ type pklConfig struct {
 	LocalStartSecs   int        `pkl:"localStartTimeoutSeconds"`
 	LeaseTTLMinutes  int        `pkl:"leaseTtlMinutes"`
 	Web              bool       `pkl:"web"`
+}
+
+// pklCheck mirrors the Check class in pkl/Wavez.pkl.
+type pklCheck struct {
+	Command string   `pkl:"command"`
+	Paths   []string `pkl:"paths"`
 }
 
 // pklTier mirrors the Tier class in pkl/Wavez.pkl.
@@ -312,6 +320,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.ExtraDirs = p.ExtraDirs
 	cfg.ShellAllow = p.ShellAllow
 	cfg.AstGrepRules = p.AstGrepRules
+	cfg.Checks = projectChecks(p.Checks)
 	cfg.DeadcodeAllow = p.DeadcodeAllow
 	cfg.Cycles = toSpecs(p.Cycles)
 	cfg.Links = toLinkPatterns(p.Links)
@@ -320,4 +329,17 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.Routines = routineDefinitions(p.Routines)
 
 	return cfg
+}
+
+// projectChecks flattens the checks mapping, in name order so the gate list
+// a run assembles does not depend on map iteration.
+func projectChecks(in map[string]pklCheck) []ProjectCheck {
+	out := make([]ProjectCheck, 0, len(in))
+	for name, c := range in {
+		out = append(out, ProjectCheck{Name: name, Command: c.Command, Paths: c.Paths})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+
+	return out
 }

@@ -92,8 +92,11 @@ type Config struct {
 	// Cycles are the phased ways of working this project defines, beside the
 	// ones wavez ships. A definition here replaces a built-in of the same
 	// name outright.
-	Cycles        []cycle.Spec
-	AstGrepRules  []string
+	Cycles       []cycle.Spec
+	AstGrepRules []string
+	// Checks are the project's own gate commands, sorted by name so a gate
+	// order does not depend on map iteration.
+	Checks        []ProjectCheck
 	DeadcodeAllow []string
 	// Links are this project's identifier-to-URL patterns (PR numbers, issue
 	// keys, ticket ids), matched against transcript and -p output text and
@@ -185,4 +188,13 @@ func Defaults(root string) Config {
 		LocalStartTimeout:   DefaultLocalStartTimeout,
 		Web:                 false,
 	}
+}
+
+// ProjectCheck is one command a project runs on its own changes. Every gate
+// wavez ships speaks Go, so this is how a project in another language gets a
+// change-triggered check at all.
+type ProjectCheck struct {
+	Name    string
+	Command string
+	Paths   []string
 }

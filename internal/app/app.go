@@ -877,8 +877,14 @@ func buildGates(
 	// fit a per-edit run. Measured on this repo at 1.18 s worst case for a
 	// multi-file change, which is why it is here and not in the verification
 	// round with the slower checks.
+	// The project's own checks run beside the built-in ones, in both the
+	// per-edit set and the verification round, because a project in another
+	// language has nothing else behind its edits.
+	projectChecks := gate.NewCommandGates(root, commandChecks(cfg.Checks))
+
 	gates := append(conventionGates(gate.NewFormatGate(root), convention),
 		gate.NewLintGate(root), gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root))
+	gates = append(gates, projectChecks...)
 
 	routines, err := buildRoutines(root, stateDir, cfg, resources,
 		append(append([]gate.Gate(nil), gates...), gate.NewBuildGate(root)))
@@ -900,6 +906,7 @@ func buildGates(
 	verifyGates := append(conventionGates(gate.NewFormatGate(root), convention),
 		gate.NewBuildGate(root), gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root),
 		gate.NewFailToPassGate(root, jj, jj))
+	verifyGates = append(verifyGates, projectChecks...)
 	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources)
 
 	return gateBundle{runner: runner, adapter: adapter, verifier: verifier, routines: routines}, nil
@@ -1020,4 +1027,15 @@ func (a *App) Close() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// commandChecks translates the project's configured checks into the gate
+// package's own shape, so gates stay independent of the config package.
+func commandChecks(checks []config.ProjectCheck) []gate.CommandCheck {
+	out := make([]gate.CommandCheck, 0, len(checks))
+	for _, c := range checks {
+		out = append(out, gate.CommandCheck{Name: c.Name, Command: c.Command, Paths: c.Paths})
+	}
+
+	return out
 }
