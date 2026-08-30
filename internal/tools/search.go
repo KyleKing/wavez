@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/kyleking/wavez/internal/codeintel"
+	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -255,6 +256,13 @@ func literalMissReason(query string) string {
 	return fmt.Sprintf("no literal match for %q. The closest names the index holds", query)
 }
 
+// indexedExtensions names what the index can hold, for an absence that would
+// otherwise read as an absence from the tree. A run investigating a web
+// project was told "no matches for search-highlight across 149 indexed files"
+// for a rule sitting in main.css, concluded the CSS did not style the class,
+// and proposed correcting the project's own notes to say so.
+var indexedExtensions = strings.Join(lang.NewDefaultRegistry().Indexed(), ", ")
+
 // formatSearchResults distinguishes an empty result from an index that
 // covers nothing. Reporting both as "no results" told a model to narrow a
 // query that could not have matched anything, and it spent four turns
@@ -271,7 +279,10 @@ func formatSearchResults(results []codeintel.SearchResult, stats codeintel.Index
 				"so search cannot answer here. Use shell with rg, or read, instead"
 		}
 
-		return fmt.Sprintf("no matches for %q across %d indexed files", query, stats.FilesScanned)
+		return fmt.Sprintf("no matches for %q across %d indexed files, which are this project's "+
+			"%s files. No other file type is indexed, so a match in one is invisible here: "+
+			"use shell with rg to search those.",
+			query, stats.FilesScanned, indexedExtensions)
 	}
 
 	var b strings.Builder

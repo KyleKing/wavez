@@ -72,6 +72,16 @@ func TestSearch(t *testing.T) {
 			wantContent: `no matches for "Goodbye" across 1 indexed files`,
 		},
 		{
+			// A miss is an absence from the index, never from the tree. A run
+			// investigating a web project read one as the second and proposed
+			// correcting the project's notes to match its mistake.
+			name:        "a miss says a file type the index does not hold is invisible to it",
+			sources:     indexed,
+			mode:        "fuzzy",
+			query:       "Goodbye",
+			wantContent: "No other file type is indexed",
+		},
+		{
 			name:        "a hit comes back without any indexing having been asked for",
 			sources:     indexed,
 			mode:        "fuzzy",

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 )
 
 // Kind values Language implementations use for Symbol.Kind, kept as
@@ -61,6 +62,19 @@ func (r *Registry) register(l Language) {
 	for _, ext := range l.Extensions() {
 		r.byExt[ext] = l
 	}
+}
+
+// Indexed is every file extension some registered Language handles, sorted,
+// so a caller reporting an absence can say what the index could have held.
+func (r *Registry) Indexed() []string {
+	out := make([]string, 0, len(r.byExt))
+	for ext := range r.byExt {
+		out = append(out, ext)
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 // Claims reports whether some registered Language handles path's
