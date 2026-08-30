@@ -23,10 +23,16 @@ run = "jj git fetch"
 description = "Fetch from GitHub and rebase local work onto the latest main"
 run = "jj git fetch && jj rebase -d 'trunk()'"
 
+# `jj git push` fires no git hook, so every pre-push guard hk installs is inert
+# here. This task is what runs them.
+[tasks."jj:verify"]
+description = "Run the pre-push checks hk would have run, which jj never fires"
+run = "hk check --all"
+
 [tasks."jj:push"]
-description = "Sync with GitHub, advance main to the working copy's parent, and push it"
+description = "Sync with GitHub, run the pre-push checks, advance main to the working copy's parent, and push it"
 depends = ["jj:sync"]
-run = "jj bookmark set main -r @- && jj git push -b main"
+run = ["mise run jj:verify", "jj bookmark set main -r @- && jj git push -b main"]
 
 [tasks."jj:status"]
 description = "Show main's ahead/behind vs GitHub, unpushed local commits, and the working-copy diff"

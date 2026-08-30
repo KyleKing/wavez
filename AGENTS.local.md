@@ -134,6 +134,10 @@ are specific to this codebase and not visible from the code.
   and doc comments on exported symbols. [AGENTS.md](AGENTS.md#go-conventions) keeps
   the full list for a human reader, and a rule that moves into the linter comes out
   of the section below
+- `jj git push` fires no git hook, so every guard `hk` installs on pre-push
+  (`ci`, `verify-released`, `commitizen-branch`) is inert in this checkout.
+  `mise run jj:push` runs them as `jj:verify` before it pushes, and a push
+  made any other way has run none of them
 
 ## Go conventions
 
