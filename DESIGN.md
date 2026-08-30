@@ -642,6 +642,40 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 - One `browser.Session` interface (click, read accessibility tree, screenshot, record) with two backends. Default is `go-rod` on a fresh profile, so an injected page finds no ambient credentials and deny-by-default mutation and the egress allowlist live in Wavez's process. `browser-control` (extension plus local WebSocket relay on the real profile) is a per-thread opt-in for tasks that need a logged-in session, never the default. Kitesurf runs only inside Workers and is out
 - Vision calls only for visual judgments. Chrome 136+ refuses `--remote-debugging-port` on the default profile, so those two backends are the only routes
 
+### Perception (unscheduled, and blocking three things that are scheduled)
+
+Nothing in this project can look at anything. `llm.Message.Content` is a
+`string`, so there is no shape in which an image reaches a model, and the
+three places the roadmap already promises one are each written as though the
+carrying layer existed:
+
+- Recordings above says "Vision calls only for visual judgments"
+- Mobile says "Image and screenshot input (M2)"
+- The browser session interface lists `screenshot` beside `click` and `read
+  accessibility tree`
+
+So the first piece of work is the message shape, not a screenshot source: a
+content-part list a provider serializes, a tier that declares whether it
+accepts images, and the router refusing to send one to a tier that does not.
+The z.ai coding plan serves `glm-5.3`, and whether that endpoint accepts
+images at all is unverified and decides whether this costs a second provider.
+
+`internal/reduce` already carries the other half of the problem in its own
+notes, "downscale images", written for a payload that cannot yet exist. An
+image is worth hundreds of times a line of text, so a screenshot that reaches
+history and stays there is a compaction problem before it is a perception
+one, and the rule that a visual judgment is asked once and answered in text
+is what keeps it out.
+
+Two things a person does today that this does not describe. Driving an
+interactive program under a PTY is written here only as recording and
+promotion to a test, which is a different job from watching a program and
+reacting to it, and it is the job [AGENTS.md](AGENTS.md) already prescribes
+by hand with `tmux send-keys` and `capture-pane` for every TUI change.
+Annotating a screenshot, drawing on the thing being discussed rather than
+describing it in prose, appears nowhere at all, and it is the cheapest way to
+make a visual judgment specific enough to act on.
+
 ### Neovim (M3)
 
 Minimal on purpose. The daily loop is send, open, review, jump. Nothing else until those four are worn in.
@@ -839,6 +873,18 @@ something once the harness replays a fixed task set against a fixed tool
 surface. So the benchmark harness comes first, the efficiency work runs
 against it, and the machine probes and the Claude Code comparison wait until
 the loop underneath them has stopped moving.
+
+**A layer that only ever met one project has only ever been tested against
+its shape.** Wavez ran on a Python repository for the first time on
+2026-08-29 and four defects came out of one afternoon: the build gate ran
+`go build ./...` unconditionally, the index walked `.venv` and gave 97% of
+its symbols to dependencies, a search miss reported absence from the index as
+absence from the tree, and a project in another language had no gate at all.
+None of them is a missing feature. Each is a Go assumption that reached a
+layer nobody thought of as language-specific, and stayed invisible because
+every measurement here was taken on the one repository that satisfies it. So
+a milestone is done when its condition holds on a project this harness did
+not write, and `_ai_/bench/dogfood.md` records which project that was.
 
 **The loop is both the product and the tool.** Work on Wavez runs through
 Wavez wherever the task is inside what it can already do. Every defect worth
@@ -1362,6 +1408,12 @@ No:
 - Monorepo per-package test commands in M1 or later
 - How the scheduler surfaces a deep DAG without a graph widget (current answer: one row per thread, drill in)
 - Whether Ask-a-line threads persist across sessions as review comments do
+- Browser backend: the Recordings section names `go-rod` as the default, and
+  `_ai_/research/browser-simulator-automation.md` recommends `chromedp` for
+  CDP coverage generated from the protocol spec rather than hand-written. One
+  of the two is stale and neither has been built against
+- Perception: whether the z.ai coding endpoint accepts image content at all,
+  which decides whether looking at a screenshot needs a second provider
 - Web search API and version-pinning strategy
 - Snippets: `Tab` completes only in the fullscreen composer, because in the inline composer `Tab` still cycles panels. Whether the inline composer should give up the cycle while insert mode holds text, or a sigil (`:name`, as `@file` already does) should trigger completion in both, is open. Whether an expanded snippet stays editable text or becomes a chip the composer tracks is the same question one layer down
 - Progress estimate: how well a thread's own turn and gate-round durations predict its remaining wall clock, and whether the project's history for the same shape of work improves it enough to be worth storing. Answered on 138 thread logs (`_ai_/demos/progress-estimate`): the remaining run is not predictable (23% within a factor of two at best) and the project's history does not improve on the run's own, so no store. The turn is (54%), which is what the progress line renders
