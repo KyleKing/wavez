@@ -444,6 +444,8 @@ type fakeClient struct {
 	sent        []sentMsg
 	restores    []restoreCall
 	routes      []routeCall
+	archives    []archiveCall
+	archiveView []bool
 	thinks      []thinkCall
 	ranRoutines []string
 	canceled    []string
@@ -452,6 +454,11 @@ type fakeClient struct {
 	scopes      []bool
 	listed      int
 	resets      int
+}
+
+type archiveCall struct {
+	threadID string
+	archived bool
 }
 
 type routeCall struct {
@@ -528,6 +535,18 @@ func (f *fakeClient) think(threadID string, thinking *bool) tea.Cmd {
 
 func (f *fakeClient) route(threadID string, override router.Choice) tea.Cmd {
 	f.routes = append(f.routes, routeCall{threadID: threadID, override: override})
+
+	return nil
+}
+
+func (f *fakeClient) archive(threadID string, archived bool) tea.Cmd {
+	f.archives = append(f.archives, archiveCall{threadID: threadID, archived: archived})
+
+	return nil
+}
+
+func (f *fakeClient) setArchiveView(archived bool) tea.Cmd {
+	f.archiveView = append(f.archiveView, archived)
 
 	return nil
 }

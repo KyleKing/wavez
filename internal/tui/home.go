@@ -37,6 +37,9 @@ type homeState struct {
 	// fleet requests every loaded project's threads instead of just the
 	// launch root's, toggled by `w` without restarting.
 	fleet bool
+	// archived reads the archived threads instead of the working ones,
+	// toggled by `z`.
+	archived bool
 }
 
 func newHomeState(th theme) homeState {
@@ -283,8 +286,8 @@ func (m Model) homeActionKey(msg tea.KeyPressMsg, s string, rows []api.ThreadInf
 		return m, nil
 	case "s":
 		return m.openSchedule()
-	case "w":
-		return m.toggleScope()
+	case "w", "z":
+		return m.toggleList(s)
 	case "v":
 		if len(rows) > 0 {
 			return m.togglePeek(rows[m.cappedCursor(len(rows))].ID)
@@ -324,6 +327,8 @@ func (m Model) homeSelectionKey(s string, rows []api.ThreadInfo) (Model, tea.Cmd
 		}
 	case "*":
 		return m.selectAll(rows), nil
+	case "A":
+		return m.archiveSelection(rows)
 	}
 
 	return m, nil
@@ -394,6 +399,71 @@ func (m Model) toggleScope() (Model, tea.Cmd) {
 	}
 
 	return m, m.client.setScope(m.home.fleet)
+}
+
+// toggleList switches which threads Home is asking for: `w` between one
+// project and the fleet, `z` between the working list and the archive.
+func (m Model) toggleList(key string) (Model, tea.Cmd) {
+	if key == "z" {
+		return m.toggleArchiveView()
+	}
+
+	return m.toggleScope()
+}
+
+// toggleArchiveView switches Home between the working threads and the
+// archived ones. The selection is dropped with the list it was made over,
+// since a row that crossed the line is no longer on screen to unmark.
+func (m Model) toggleArchiveView() (Model, tea.Cmd) {
+	m.home.archived = !m.home.archived
+	m.home.cursor, m.home.offset = 0, 0
+	m.home.selected = map[string]bool{}
+
+	if m.client == nil {
+		return m, nil
+	}
+
+	return m, m.client.setArchiveView(m.home.archived)
+}
+
+// archiveSelection moves every selected row across the archive line, or the
+// cursor row when nothing is selected, and re-lists so the rows that moved
+// leave the screen. In the archived view it restores instead, because the
+// key acts on what is in front of the reader.
+func (m Model) archiveSelection(rows []api.ThreadInfo) (Model, tea.Cmd) {
+	ids := m.selectedIDs(rows)
+	if len(ids) == 0 || m.client == nil {
+		return m, nil
+	}
+
+	cmds := make([]tea.Cmd, 0, len(ids)+1)
+	for _, id := range ids {
+		cmds = append(cmds, m.client.archive(id, !m.home.archived))
+	}
+
+	m.home.selected = map[string]bool{}
+	cmds = append(cmds, m.client.setArchiveView(m.home.archived))
+
+	return m, tea.Batch(cmds...)
+}
+
+// selectedIDs is the selection in the order the rows are shown, falling
+// back to the cursor row so a key that acts on a selection still acts
+// without one.
+func (m Model) selectedIDs(rows []api.ThreadInfo) []string {
+	var ids []string
+
+	for i := range rows {
+		if m.home.selected[rows[i].ID] {
+			ids = append(ids, rows[i].ID)
+		}
+	}
+
+	if len(ids) == 0 && len(rows) > 0 {
+		ids = append(ids, rows[m.cappedCursor(len(rows))].ID)
+	}
+
+	return ids
 }
 
 // togglePeek expands or collapses a row. Events only flow for a subscribed
@@ -613,6 +683,10 @@ func (m Model) homeEmpty() string {
 		return "no threads match · esc clears the filter"
 	}
 
+	if m.home.archived {
+		return "nothing archived · press z for the working list"
+	}
+
 	return "no threads yet · press n to start one"
 }
 
@@ -620,7 +694,12 @@ func (m Model) homeEmpty() string {
 // filter that narrows 853 rows to 6 in silence is indistinguishable from a
 // daemon that lost them.
 func (m Model) homeStatus(shown int) string {
-	parts := []string{fmt.Sprintf("%d of %d threads", shown, len(m.threads))}
+	kind := "threads"
+	if m.home.archived {
+		kind = "archived threads"
+	}
+
+	parts := []string{fmt.Sprintf("%d of %d %s", shown, len(m.threads), kind)}
 
 	if q := strings.TrimSpace(m.home.filterInput.Value()); q != "" {
 		parts = append(parts, "matching "+q)
@@ -954,6 +1033,8 @@ func homeHints(filtering bool) []hint {
 		{"i", labelInbox, "open pending prompts"},
 		{"s", "schedule", "open the schedule"},
 		{"w", "scope", "show every project's threads"},
+		{"A", "archive", "put the selected threads away, or bring them back"},
+		{"z", "archived", "read the archived threads instead of the working ones"},
 		{"D", "diag", "open the diagnostics panel"},
 		{"q", labelQuit, ""},
 		{"?", labelHelp, ""},

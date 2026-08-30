@@ -436,6 +436,36 @@ func (m *manager) setOverride(threadID string, override router.Choice) error {
 	return nil
 }
 
+// setArchived puts threadID away, or brings it back. It appends to the
+// thread's own log rather than holding the position in memory, since the
+// point of archiving is that a restart still shows the shorter list.
+//
+// A thread with a turn in flight is refused: hiding a run that is still
+// working is how a run goes missing.
+func (m *manager) setArchived(threadID string, archived bool) error {
+	mt, ok := m.get(threadID)
+	if !ok {
+		return ErrThreadNotFound
+	}
+
+	mt.mu.Lock()
+	running := mt.running
+	mt.mu.Unlock()
+
+	if running && archived {
+		return fmt.Errorf("%w: %s is working", ErrThreadBusy, threadID)
+	}
+
+	if _, err := mt.th.Log().Append(event.Event{
+		Kind:   event.KindArchive,
+		Detail: map[string]any{"archived": archived},
+	}); err != nil {
+		return fmt.Errorf("recording archive for %s: %w", threadID, err)
+	}
+
+	return mt.sync()
+}
+
 // setThinking turns a hybrid model's reasoning trace on or off for
 // threadID's next turn, or restores the served model's own default when
 // thinking is nil. Measured on qwen3:8b through llama-server: replying "OK"

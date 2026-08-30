@@ -194,7 +194,7 @@ func (c *conn) handle(cmd api.Command) {
 			root = ""
 		}
 
-		threads, err := c.srv.listThreads(root)
+		threads, err := c.srv.listThreads(root, cmd.Archived)
 		if err != nil {
 			c.reply(cmd.ID, errorReply(err.Error()))
 
@@ -232,6 +232,8 @@ func (c *conn) handleThreadCommand(cmd api.Command) bool {
 		c.handleRoute(cmd)
 	case api.CmdThink:
 		c.handleThink(cmd)
+	case api.CmdArchive:
+		c.handleArchive(cmd)
 	default:
 		return false
 	}
@@ -375,6 +377,24 @@ func (c *conn) handleRoute(cmd api.Command) {
 		return
 	}
 	if err := p.mgr.setOverride(cmd.ThreadID, cmd.Override); err != nil {
+		c.reply(cmd.ID, errorReply(err.Error()))
+
+		return
+	}
+
+	mt, ok := p.mgr.get(cmd.ThreadID)
+	if !ok {
+		return
+	}
+	c.replyThreadInfo(cmd.ID, p, mt)
+}
+
+func (c *conn) handleArchive(cmd api.Command) {
+	p, ok := c.projectForThread(cmd)
+	if !ok {
+		return
+	}
+	if err := p.mgr.setArchived(cmd.ThreadID, cmd.Archived); err != nil {
 		c.reply(cmd.ID, errorReply(err.Error()))
 
 		return

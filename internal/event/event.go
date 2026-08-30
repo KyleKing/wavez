@@ -41,6 +41,11 @@ const (
 	// judgment, and these are bounds the harness settles with the index,
 	// the coverage map, and the task's own words.
 	KindFinish Kind = "finish"
+	// KindArchive records a thread being taken out of the working list, or
+	// put back. Detail["archived"] carries which. It is not a State: an
+	// archived thread keeps the lifecycle position it reached, and archiving
+	// says whether anyone is still looking at it.
+	KindArchive Kind = "archive"
 	// KindReview records a model's judgment of a run's diff against its task.
 	// It is deliberately not KindGate: a review objection never fails a run,
 	// and counting it as one would report it as a run that failed a check.

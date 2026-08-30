@@ -13,19 +13,22 @@ import (
 // still have to fetch: listing has no business paying to load a project
 // nobody has created a thread in yet, so an unloaded root answers empty
 // rather than an error.
-func (s *Server) listThreads(root string) ([]api.ThreadInfo, error) {
+// A list answers one side of the archive line at a time, so the working
+// list stays the size a person reads however many threads a project has
+// accumulated.
+func (s *Server) listThreads(root string, archived bool) ([]api.ThreadInfo, error) {
 	if root != "" {
 		p, ok := s.lookupProject(root)
 		if !ok {
 			return nil, nil
 		}
 
-		return threadsForProject(p)
+		return threadsForProject(p, archived)
 	}
 
 	var out []api.ThreadInfo
 	for _, p := range s.projectsSnapshot() {
-		infos, err := threadsForProject(p)
+		infos, err := threadsForProject(p, archived)
 		if err != nil {
 			return nil, err
 		}
@@ -35,16 +38,22 @@ func (s *Server) listThreads(root string) ([]api.ThreadInfo, error) {
 	return out, nil
 }
 
-func threadsForProject(p *Project) ([]api.ThreadInfo, error) {
+func threadsForProject(p *Project, archived bool) ([]api.ThreadInfo, error) {
 	infos, err := p.mgr.list()
 	if err != nil {
 		return nil, fmt.Errorf("listing threads in %s: %w", p.root, err)
 	}
+
+	out := infos[:0]
 	for i := range infos {
+		if infos[i].Archived != archived {
+			continue
+		}
 		infos[i].Root = p.root
+		out = append(out, infos[i])
 	}
 
-	return infos, nil
+	return out, nil
 }
 
 // aggregateFleetStats merges every loaded project's fleetStats: sums add,

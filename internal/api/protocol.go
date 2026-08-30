@@ -61,6 +61,10 @@ const (
 	// CmdRunRoutine runs one routine by name and answers with that
 	// routine's refreshed row, the completed run included.
 	CmdRunRoutine CommandKind = "run_routine"
+	// CmdArchive takes a thread out of the working list, or puts it back
+	// when Archived is false. It hides nothing the log holds: the thread
+	// keeps its events, its state, and its transcript.
+	CmdArchive CommandKind = "archive"
 )
 
 // Command is one request. ID correlates the Reply and is chosen by the client.
@@ -123,6 +127,9 @@ type Command struct {
 	// discard, since destroying uncommitted work without asking is worse
 	// than leaving it.
 	Confirm bool `json:"confirm,omitempty"`
+	// Archived is the position archive moves ThreadID to, and asks list for
+	// the archived threads instead of the working ones.
+	Archived bool `json:"archived,omitempty"`
 	// AllRoots asks list for every loaded project's threads, overriding
 	// both Root and the client's own default root. A daemon now serves
 	// several projects over one socket, so this is the fleet scope's way
@@ -272,6 +279,9 @@ type ThreadInfo struct {
 	Context  int           `json:"context"`
 	Window   int           `json:"window"`
 	Seq      uint64        `json:"seq"`
+	// Archived is whether the thread has been put away. A client's default
+	// list is the threads it is false for.
+	Archived bool `json:"archived,omitempty"`
 }
 
 // RoutineInfo is one row in the routines panel: what fires the routine,

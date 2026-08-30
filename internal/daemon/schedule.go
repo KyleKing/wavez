@@ -60,6 +60,12 @@ func (s *Server) schedule(ctx context.Context) (api.Schedule, error) {
 			return api.Schedule{}, err
 		}
 		for i := range infos {
+			// An archived thread is one nobody is watching, so it costs a
+			// lane on a screen that is about what is running now.
+			if infos[i].Archived {
+				continue
+			}
+
 			lane, err := s.lane(infos[i], leases, now)
 			if err != nil {
 				return api.Schedule{}, err

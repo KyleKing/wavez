@@ -30,6 +30,7 @@ type threadClient interface {
 	cancel(threadID string) tea.Cmd
 	restoreTo(threadID, checkpoint string, confirm bool) tea.Cmd
 	route(threadID string, override router.Choice) tea.Cmd
+	archive(threadID string, archived bool) tea.Cmd
 	think(threadID string, thinking *bool) tea.Cmd
 	newThread(prompt, model, parent, cycle string, dirs []string) tea.Cmd
 }
@@ -41,6 +42,11 @@ type machineClient interface {
 	// (fleet false) and the whole fleet (fleet true), and issues the new
 	// request immediately rather than waiting for the next poll.
 	setScope(fleet bool) tea.Cmd
+	// setArchiveView switches Home's list request between the working
+	// threads and the archived ones, which are two lists rather than one
+	// list with a column: a project accumulates threads faster than anyone
+	// retires them.
+	setArchiveView(archived bool) tea.Cmd
 	schedule() tea.Cmd
 	routines() tea.Cmd
 	runRoutine(name string) tea.Cmd
@@ -57,9 +63,10 @@ const flushInterval = 16 * time.Millisecond
 // replies into a running tea.Program, coalescing bursts on a fixed tick so a
 // stream of token events costs one redraw instead of one per event.
 type bridge struct {
-	client *api.Client
-	prog   *tea.Program
-	fleet  atomic.Bool
+	client   *api.Client
+	prog     *tea.Program
+	fleet    atomic.Bool
+	archived atomic.Bool
 }
 
 // newBridge starts forwarding c's pushed replies into prog and returns a
@@ -110,13 +117,39 @@ func (b *bridge) setScope(fleet bool) tea.Cmd {
 	return b.list()
 }
 
+// setArchiveView stores which side of the archive line Home is reading, for
+// this request and for every poll after it, the way setScope does.
+func (b *bridge) setArchiveView(archived bool) tea.Cmd {
+	b.archived.Store(archived)
+
+	return b.list()
+}
+
+func (b *bridge) archive(threadID string, archived bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		reply, err := b.client.Do(ctx, api.Command{
+			Kind: api.CmdArchive, ThreadID: threadID, Archived: archived,
+		})
+		if err != nil {
+			return connErrMsg{err: err}
+		}
+
+		return reply
+	}
+}
+
 // list issues a list request for whichever scope setScope last stored.
 func (b *bridge) list() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
 
-		reply, err := b.client.Do(ctx, api.Command{Kind: api.CmdList, AllRoots: b.fleet.Load()})
+		reply, err := b.client.Do(ctx, api.Command{
+			Kind: api.CmdList, AllRoots: b.fleet.Load(), Archived: b.archived.Load(),
+		})
 		if err != nil {
 			return connErrMsg{err: err}
 		}

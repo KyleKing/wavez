@@ -87,6 +87,9 @@ type managedThread struct {
 	processed uint64
 	mu        sync.Mutex
 	running   bool
+	// archived is whether the thread has been put away, folded from the
+	// log so it survives a restart the way nothing else on this cache does.
+	archived bool
 }
 
 // takeRelease clears and returns the thread's held admission release, nil
@@ -137,6 +140,7 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 		Override:   mt.override,
 		Step:       mt.step,
 		State:      mt.state,
+		Archived:   mt.archived,
 		Checkpoint: mt.baseline,
 		Seq:        mt.th.Log().Head(),
 		LastEvent:  mt.lastAt,
@@ -202,6 +206,9 @@ func (mt *managedThread) apply(ev event.Event) {
 		if len(mt.samples) > laneSamples {
 			mt.samples = mt.samples[len(mt.samples)-laneSamples:]
 		}
+	}
+	if v, ok := archivedFromEvent(ev); ok {
+		mt.archived = v
 	}
 	if v, ok := usageFromEvent(ev); ok {
 		mt.usage.add(v)
@@ -273,6 +280,17 @@ func (mt *managedThread) turnMean() time.Duration {
 	}
 
 	return mt.turnStart.Sub(mt.runStart) / time.Duration(mt.turns)
+}
+
+// archivedFromEvent reads the position a KindArchive event moves a thread to.
+func archivedFromEvent(ev event.Event) (bool, bool) {
+	if ev.Kind != event.KindArchive {
+		return false, false
+	}
+
+	v, ok := ev.Detail["archived"].(bool)
+
+	return v, ok
 }
 
 // compactionFromEvent reads the saving a compaction pass recorded on its own
