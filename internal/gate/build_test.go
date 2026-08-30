@@ -40,6 +40,21 @@ func TestBuildGateMissingImportTrimsToChangedFile(t *testing.T) {
 	}
 }
 
+// Writing the binaries rather than discarding them is what keeps the link
+// out of every run, and `-o` is an error on a module with no main package.
+// Both shapes have to pass, and the library-only one is the default fixture
+// every other case here uses.
+func TestBuildGateCompilesAModuleWithAMainPackage(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := buildFixture(t, "package main\n\nfunc main() { _ = 1 }\n")
+
+	result := runBuildGate(t, repoRoot)
+	if !result.Pass {
+		t.Fatalf("Pass = false, want true: %+v", result)
+	}
+}
+
 func buildFixture(t *testing.T, source string) string {
 	t.Helper()
 
