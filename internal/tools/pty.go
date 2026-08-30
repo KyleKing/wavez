@@ -176,20 +176,26 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 
 	screen := &ptyScreen{emulator: vt.NewSafeEmulator(ptyCols, ptyRows)}
 	done := make(chan struct{})
+	exited := make(chan struct{})
 
 	go func() {
 		defer close(done)
 		_, _ = io.Copy(screen, tty) //nolint:errcheck // the copy ends when the program does
 	}()
 
-	p.play(ctx, tty, screen, in.Keys)
+	go func() {
+		defer close(exited)
+		_ = cmd.Wait() //nolint:errcheck // the status says nothing the screen does not
+	}()
+
+	p.play(ctx, tty, screen, exited, in.Keys)
 
 	// Killing the program is what ends the reader for one that would
 	// otherwise sit at a prompt. A program that already exited is past this.
 	_ = cmd.Process.Kill() //nolint:errcheck // best effort: the program may have exited already
 	_ = tty.Close()        //nolint:errcheck // as above
 	<-done
-	_ = cmd.Wait() //nolint:errcheck // the exit status of a killed program says nothing
+	<-exited
 
 	return strings.TrimRight(screen.emulator.Render(), " \n"), nil
 }
@@ -237,26 +243,31 @@ func (s *ptyScreen) quiet(settle time.Duration) bool {
 // it, so a program reads its input when it is ready, and waiting for a first
 // paint that has not come yet cannot tell a program compiling from one
 // waiting to be typed at.
-func (*PTY) play(ctx context.Context, tty io.Writer, screen *ptyScreen, keys []string) {
+func (*PTY) play(ctx context.Context, tty io.Writer, screen *ptyScreen, exited <-chan struct{}, keys []string) {
 	for _, k := range keys {
 		if _, err := io.WriteString(tty, k); err != nil {
 			return
 		}
 
-		settle(ctx, screen, ptyKeyGap)
+		settle(ctx, screen, exited, ptyKeyGap)
 	}
 
-	settle(ctx, screen, ptyDrawWait)
+	settle(ctx, screen, exited, ptyDrawWait)
 }
 
 // settle waits for the screen to be drawn and then stop changing, bounded by
 // bound so a program that draws forever, or never, still returns something.
 //
-// A fixed sleep was what this replaced, twice. Under a loaded machine the
-// program had not drawn when the sleep ended and the call returned a blank
-// screen; then `go run` spent its first seconds compiling and was killed
-// before it printed anything at all.
-func settle(ctx context.Context, screen *ptyScreen, bound time.Duration) {
+// A program that exits is the precise signal and is taken first. Quiet alone
+// was not enough: a terminal echoes a keystroke, which is a draw, so a call
+// that typed into a program went quiet on its own echo and killed the program
+// before it answered.
+//
+// A fixed sleep was what all of this replaced, twice. Under a loaded machine
+// the program had not drawn when the sleep ended and the call returned a
+// blank screen; then `go run` spent its first seconds compiling and was
+// killed before it printed anything at all.
+func settle(ctx context.Context, screen *ptyScreen, exited <-chan struct{}, bound time.Duration) {
 	deadline := time.NewTimer(bound)
 	defer deadline.Stop()
 
@@ -266,6 +277,8 @@ func settle(ctx context.Context, screen *ptyScreen, bound time.Duration) {
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-exited:
 			return
 		case <-deadline.C:
 			return
