@@ -642,22 +642,28 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 - One `browser.Session` interface (click, read accessibility tree, screenshot, record) with two backends. Default is `go-rod` on a fresh profile, so an injected page finds no ambient credentials and deny-by-default mutation and the egress allowlist live in Wavez's process. `browser-control` (extension plus local WebSocket relay on the real profile) is a per-thread opt-in for tasks that need a logged-in session, never the default. Kitesurf runs only inside Workers and is out
 - Vision calls only for visual judgments. Chrome 136+ refuses `--remote-debugging-port` on the default profile, so those two backends are the only routes
 
-### Perception (unscheduled, and blocking three things that are scheduled)
+### Perception (the layer exists, nothing produces an image yet)
 
-Nothing in this project can look at anything. `llm.Message.Content` is a
-`string`, so there is no shape in which an image reaches a model, and the
-three places the roadmap already promises one are each written as though the
-carrying layer existed:
+`llm.Message` carries `Parts`, an image goes as bytes and a media type so the
+provider decides the encoding, and a tier declares `vision` because an
+endpoint that cannot see refuses the whole request. The text path is
+byte-identical on the wire, and a 64x64 PNG through this serialization to a
+vision model on OpenRouter came back naming its colour.
+
+What is left is a source and a budget. No tool produces an image, so nothing
+reaches a model yet, and the smallest source is `read` on a `.png`: a person
+takes screenshots already, and reviewing one needs no browser and no PTY.
+That means `tool.Result` carrying parts, which is the next ripple.
+
+These three still read as though nothing had been built, and each is a
+consumer of the layer above rather than a separate problem:
 
 - Recordings above says "Vision calls only for visual judgments"
 - Mobile says "Image and screenshot input (M2)"
 - The browser session interface lists `screenshot` beside `click` and `read
   accessibility tree`
 
-So the first piece of work is the message shape, not a screenshot source: a
-content-part list a provider serializes, a tier that declares whether it
-accepts images, and the router refusing to send one to a tier that does not.
-The z.ai coding endpoint refuses it. Posting one `image_url` content part
+The z.ai coding endpoint refuses an image. Posting one `image_url` content part
 beside a `text` one to `glm-5.3` there answers
 `messages.content.type is invalid, allowed values: ['text']` (probed
 2026-08-30), and the coding-plan key opens only that endpoint. So every
@@ -669,7 +675,8 @@ notes, "downscale images", written for a payload that cannot yet exist. An
 image is worth hundreds of times a line of text, so a screenshot that reaches
 history and stays there is a compaction problem before it is a perception
 one, and the rule that a visual judgment is asked once and answered in text
-is what keeps it out.
+is what keeps it out. `Part.Data` is bytes for exactly that reason: a
+downscale is a rewrite of the part, not a second fetch.
 
 Two things a person does today that this does not describe. Driving an
 interactive program under a PTY is written here only as recording and
