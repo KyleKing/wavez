@@ -4357,3 +4357,38 @@ judgment therefore costs a second provider and a second key, which makes the
 split the browser research already recommended the only affordable shape: the
 accessibility tree as the default read path, and a screenshot sent to a
 different model only when text cannot settle the question.
+
+### 2026-08-30 — the index reaches four more file types, and a message can carry an image
+
+`.ts` and `.tsx` are indexed, which M3 has listed since it was written while
+no TypeScript grammar was ever added: `ts.go` in the lang package is
+tree-sitter helpers, not TypeScript. Two defects showed up in the first golden
+regeneration rather than in review. Every exported symbol indexed with no doc
+comment, because `export` wraps the declaration and the comment is the
+export's sibling rather than the declaration's, which in TypeScript is very
+nearly every symbol in a file. And a type alias's signature stopped before the
+`=`, because the walker takes the body as the end of a signature and an alias
+has none.
+
+`.css`, `.html`, and `.jinja` follow, which is the yak-shears miss closed at
+the source. Indexing them is the larger half by itself: file content goes to
+the text index whether or not a symbol comes out, so a literal search now
+reaches a rule in a stylesheet and a tag inside a template. The test is that
+failure reproduced, and removing the CSS registration fails it.
+
+The HTML grammar has to be pinned at `v0.23.2`. Resolving it as `@latest` took
+`v0.20.3`, which dragged `go-tree-sitter` and the Go and Python grammars back
+from `v0.25.0` and broke the build.
+
+**A message can carry an image.** `llm.Message` gained `Parts`, an image
+carries bytes and a media type rather than a URL so the provider decides the
+encoding, and a tier declares `vision` because an endpoint that cannot see
+refuses the whole request rather than ignoring the image. The text path is
+byte-identical on the wire, which the test pins: a provider's prompt-cache
+prefix is the bytes, and a message whose empty content started serializing as
+`[]` would invalidate every cached prefix at once.
+
+Verified end to end rather than by unit test alone: a 64x64 PNG through
+wavez's own serialization to a vision model on OpenRouter came back "Red".
+The scratch test that did it is deleted, since a network test in CI fails for
+reasons that have nothing to do with the change.
