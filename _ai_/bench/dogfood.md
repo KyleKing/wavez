@@ -4794,3 +4794,47 @@ Checked before claiming it: the live `.wavez/index.db` is 47 MB against the
 17.6 MB a fresh index of the same tree writes, and `VACUUM` recovers 3 MB of
 that, so the difference is the edges and coverage the probe did not build
 rather than bloat.
+
+### 2026-08-30 — a cap on what one file contributes
+
+Above says the store is byte-bound and 2.6% of the files carry 68% of the
+bytes. So the question is what those files are. On the 244 MB tree, 1,767 of
+1,963 files carry `// Code generated ... DO NOT EDIT.`, which is a corpus
+that proves nothing on its own since it is a C-to-Go translation end to end.
+The evidence is in the repositories on this laptop instead. The largest
+source file in each of the twelve nearby checkouts, above 100 kB: a 3.7 MB
+OpenAPI-generated TypeScript client, a 783 kB generated schema module, a
+634 kB test file, two pytest expected-output fixtures at 337 kB and 260 kB,
+and three lookup tables holding FIPS-to-MSA mappings. Not one of them is
+something a run looks for by name. The largest hand-written file across all
+of them is 89 kB, and this project's own largest is `internal/agent/loop.go`
+at 67 kB.
+
+So the bound is on bytes and not on the generated marker, because a generated
+file inside a project (protobuf types, sqlc queries, mocks) is exactly what a
+run does search for, while a 256 kB one never is. `MaxFileBytes` is 256 kB,
+nearly three times the largest hand-written file seen. `vendor` joins the
+skip list beside `.venv` and `node_modules` on the same argument.
+
+One probe, both configurations, same machine and same five queries:
+
+| | uncapped | 256 kB cap |
+|---|---|---|
+| files indexed | 1,963 | 1,911 (52 passed over) |
+| symbols | 38,946 | 10,773 |
+| first index | 1m09s | 14.5s |
+| re-index, nothing changed | 447ms | 236ms |
+| `search`, mean of five | 412ms | 31ms |
+| store on disk | 428 MB | 140 MB |
+| allocations | 1.8 GB | 338 MB |
+
+Search is 13 times faster, which is the number that mattered, and the cold
+index is 4.8 times faster. It costs 28,173 symbols, every one of them in a
+machine-written file. On this project the cap passes over nothing at all and
+the probe reproduces the row above it exactly (604 files, 2.1s, 17.6 MB),
+which is what says the two measurements are comparable.
+
+A miss the cap caused now reads differently from a symbol that does not
+exist: `search`'s no-match line names how many files are over the cap and
+sends the caller to `rg`. Without that the cap would be the silent kind of
+degradation this arc exists to remove.

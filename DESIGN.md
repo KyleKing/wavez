@@ -1049,14 +1049,22 @@ else does, because the store is byte-bound rather than file-bound: 3.2 times
 the files cost 34 times the index time and 24 times the disk, and the trigram
 FTS over a quarter-gigabyte of source is where both go. A run spends 58% of
 its turns on retrieval, so at a second per search this is a different product
-rather than a slower one. What this arc holds, none of it built: a size the store
-refuses or degrades at rather than silently taking an hour, generated and
-vendored trees out of the index the way `.venv` now is, the first index not
-blocking the first search, a bound on what a single file can contribute, and
-a real answer for whole-repo operations that a large module makes expensive
-(`go list ./...`, the coverage sweep, `go test ./...` as a gate). None of the
-efficiency numbers in Next transfer across this boundary, because all of them
-were measured on the small side of it.
+rather than a slower one. The bound on one file is in. `MaxFileBytes` is 256 kB and `vendor`
+joins the skip list, on the evidence that every source file above 100 kB in
+the twelve checkouts on this laptop is generated or a data table, while the
+largest hand-written one is 89 kB. On the same probe and machine that cuts
+the first index from 1m09s to 14.5s, `search` from 412ms to 31ms, the store
+from 428 MB to 140 MB, and allocations from 1.8 GB to 338 MB, for 52 files
+and 28,173 machine-written symbols. It passes over nothing in this project.
+A miss it causes says so, since a silent one is the degradation this arc is
+against.
+
+What remains, none of it built: the first index not blocking the first
+search, a size the whole store refuses or degrades at rather than silently
+taking minutes, and a real answer for whole-repo operations that a large
+module makes expensive (`go list ./...`, the coverage sweep, `go test ./...`
+as a gate). None of the efficiency numbers in Next transfer across this
+boundary, because all of them were measured on the small side of it.
 
 **B. Documentation drifted from the tree, and so did the template.** The
 README describes M2 in progress and names none of `pty`, `look`, `annotate`,
