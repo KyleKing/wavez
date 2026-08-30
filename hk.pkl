@@ -117,7 +117,10 @@ local linters = new Mapping<String, Step> {
 //   is the one Python check worth keeping because a stray breakpoint is cheap to
 //   catch and expensive to ship.
 // - check-toml has no builtin and needs none: tombi-format parses every TOML
-//   file before formatting it, so TOML that fails to parse fails there.
+//   file before formatting it, so TOML that fails to parse fails there. It is
+//   also the only TOML formatter here: toml-sort collapses arrays and respaces
+//   inline tables the other way round, so running both leaves every TOML file
+//   rewritten by whichever ran last.
 // - destroyed-symlinks has no hk equivalent, so a symlink committed as a regular
 //   file after a checkout without symlink support goes unnoticed. check-symlinks
 //   covers only broken symlinks. `hk builtins | grep -i symlink` on a future
