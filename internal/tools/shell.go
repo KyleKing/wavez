@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -155,7 +156,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Result{}, fmt.Errorf("shell: %w", err)
 	}
 
-	return tool.Result{Content: formatShellResult(result)}, nil
+	return tool.Result{Content: s.formatShellResult(result)}, nil
 }
 
 // inPlaceEditRefusal declines an edit made through a stream editor and
@@ -301,6 +302,13 @@ func (s *Shell) checkRerun(command string) (string, bool) {
 // would put an unbounded string through the classifier.
 const maxScriptBytes = 64 * 1024
 
+// Modes for the overflow directory and the files in it. Both are the
+// harness's own, never the model's, so neither is group- or world-readable.
+const (
+	overflowDirPerm = 0o700
+	overflowPerm    = 0o600
+)
+
 // classify judges the command, then judges the contents of every project
 // script it would run and takes the worst of them.
 //
@@ -376,24 +384,55 @@ func approvalKey(command string) string {
 	return fields[0]
 }
 
-func formatShellResult(result sandbox.Result) string {
+func (s *Shell) formatShellResult(result sandbox.Result) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "exit code: %d\n", result.ExitCode)
-	fmt.Fprintf(&b, "stdout:\n%s", trimOutput(result.Stdout))
+	fmt.Fprintf(&b, "stdout:\n%s", trimOutput(result.Stdout, s.spill))
 
 	if result.Stderr != "" {
-		fmt.Fprintf(&b, "\nstderr:\n%s", trimOutput(result.Stderr))
+		fmt.Fprintf(&b, "\nstderr:\n%s", trimOutput(result.Stderr, s.spill))
 	}
 
 	return b.String()
+}
+
+// spill writes the whole of a trimmed output where the run can read the part
+// that was cut, and returns the path to name in its place, empty where it
+// could not be kept.
+//
+// Saying only how many lines were dropped tells a run that something is
+// missing and gives it no way to get it: the middle of a 900-line test
+// failure is where the assertion is, and recovering it meant running the
+// command again with different arguments. It goes in the session directory,
+// which is already inside the project root so `read` reaches it, already
+// ignored by version control, and already discarded with the session. The
+// name is the content's hash, so one output written twice is one file.
+func (s *Shell) spill(text string) string {
+	rel, err := filepath.Rel(s.root, s.sessionTmp)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+
+	if err := os.MkdirAll(s.sessionTmp, overflowDirPerm); err != nil {
+		return ""
+	}
+
+	sum := sha256.Sum256([]byte(text))
+	name := fmt.Sprintf("out-%x.txt", sum[:8])
+
+	if err := os.WriteFile(filepath.Join(s.sessionTmp, name), []byte(text), overflowPerm); err != nil {
+		return ""
+	}
+
+	return filepath.ToSlash(filepath.Join(rel, name))
 }
 
 // trimOutput reduces s to what names a failure, then caps whatever survives
 // at shellHeadLines/shellTailLines. The reducer is what makes the cap safe:
 // head and tail alone put the fixed windows at the two ends of a verbose test
 // run, which is exactly where the assertion is not.
-func trimOutput(s string) string {
+func trimOutput(s string, spill func(string) string) string {
 	if s == "" {
 		return "(empty)"
 	}
@@ -411,8 +450,21 @@ func trimOutput(s string) string {
 
 	out := make([]string, 0, shellHeadLines+shellTailLines+1)
 	out = append(out, head...)
-	out = append(out, fmt.Sprintf("... [%d lines omitted] ...", dropped))
+	out = append(out, omittedLine(dropped, spill, s))
 	out = append(out, tail...)
 
 	return strings.Join(out, "\n")
+}
+
+// omittedLine names what was cut and, where the whole output could be kept,
+// where to read it.
+func omittedLine(dropped int, spill func(string) string, whole string) string {
+	if spill != nil {
+		if at := spill(whole); at != "" {
+			return fmt.Sprintf("... [%d lines omitted; the whole output is in %s, "+
+				"read it with a line range for the rest] ...", dropped, at)
+		}
+	}
+
+	return fmt.Sprintf("... [%d lines omitted] ...", dropped)
 }

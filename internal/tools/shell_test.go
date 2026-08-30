@@ -340,3 +340,52 @@ func TestShell_RefusesAnEditMadeThroughAStreamEditor(t *testing.T) {
 		t.Errorf("a read-only sed was refused: %q", reading.Content)
 	}
 }
+
+// Saying only how many lines were dropped tells a run that something is
+// missing and gives it no way to get it, and the middle of a long test
+// failure is where the assertion is.
+func TestShell_KeepsTheWholeOutputOfATrimmedCommand(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	// The session directory lives under the project root in production,
+	// which is what lets `read` reach what is kept there.
+	session := filepath.Join(root, ".wavez", "sessions", "session-1")
+	if err := os.MkdirAll(session, 0o700); err != nil {
+		t.Fatalf("creating the session dir: %v", err)
+	}
+
+	gate, _ := recordingGate(t, permission.Allow)
+	sh := tools.NewShell(root, session, "t", gate)
+
+	res, err := sh.Run(t.Context(), mustJSON(t, map[string]any{"command": "seq 1 400"}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(res.Content, "lines omitted") {
+		t.Fatalf("Content did not trim 400 lines:\n%s", res.Content)
+	}
+
+	_, rest, found := strings.Cut(res.Content, "the whole output is in ")
+	if !found {
+		t.Fatalf("the omission named no file to read:\n%s", res.Content)
+	}
+
+	rel, _, _ := strings.Cut(rest, ",")
+
+	//nolint:gosec // the path comes from this test through the tool it is testing
+	body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatalf("reading the kept output at %s: %v", rel, err)
+	}
+
+	// 200 is in neither the head nor the tail the result kept.
+	if !strings.Contains(string(body), "\n200\n") {
+		t.Errorf("the kept output is missing the middle of the command's own output")
+	}
+
+	if !strings.Contains(res.Content, "\n1\n") || !strings.Contains(res.Content, "400") {
+		t.Errorf("Content = %q, want the first and last lines still inline", res.Content)
+	}
+}
