@@ -1211,8 +1211,12 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    match count, and `y`/`n`/`a` answer every selected row that has a prompt
    pending. Enter applies the filter, which the footer had advertised and
    the input swallowed, and without which `*` could never reach what a
-   filter narrowed to. What is left on this screen is archiving a
-   selection, which needs a thread state the daemon does not carry yet.
+   filter narrowed to. Archiving followed: `A` moves the selection, or the
+   cursor row when nothing is selected, and `z` reads the archive as its
+   own list rather than as a column on the working one. The position is a
+   `KindArchive` event on the thread's own log, so it survives a restart,
+   and a thread with a turn in flight is refused, since hiding a run that
+   is still working is how a run goes missing.
 
    The thread screen has had the same pass. Pressing `g` and then esc used
    to leave the goal overlay on screen forever, because esc popped the

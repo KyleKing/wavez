@@ -4573,3 +4573,27 @@ it held and never try.
 `Names` and `Holding` came out before the commit. Both were written for a
 panel that does not exist, and `wavez -deadcode` said so: an orphan is wired
 up or deleted, and a second caller is what earns an accessor back.
+
+### 2026-08-30 — the archive is a second list, not a column
+
+Home's pass left one item open, and it was the one that needed the daemon
+rather than the renderer: a 393-thread list is mostly threads nobody is
+looking at any more, and nothing could put one away. `A` archives the
+selection, or the cursor row when nothing is selected, and `z` reads the
+archive.
+
+Two decisions carry the shape. The position is a `KindArchive` event on the
+thread's own log rather than a field on the daemon's cache, because a routing
+pin can be forgotten across a restart and an archive that comes back is worse
+than no archive at all. And a list answers one side of the line at a time, so
+the working list stays the size a person reads however many threads a project
+accumulates: the alternative, one list with a column, keeps paying for the
+rows it is trying to hide.
+
+Archiving a thread with a turn in flight is refused. Hiding a run that is
+still working is how a run goes missing, and there is no reading of the key
+that wants it.
+
+The test that matters is the reopen, since a restart is the only thing the
+in-memory version would have passed. Removing the fold in `apply` fails it,
+which is the check that it is testing the persistence rather than the setter.
