@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/edit"
@@ -97,16 +96,15 @@ type StrReplace struct {
 	scope *Scope
 	// refused records each anchor this run has already been refused, against
 	// the file's bytes at the time. See repeatedRefusal.
-	refused map[string][32]byte
+	refused *repeatGuard
 	root    string
 	deps    deps
-	mu      sync.Mutex
 }
 
 // NewStrReplace builds a StrReplace tool scoped to root, checking each edit
 // against scope.
 func NewStrReplace(root string, scope *Scope, opts ...Option) *StrReplace {
-	return &StrReplace{root: root, scope: scope, deps: newDeps(opts), refused: map[string][32]byte{}}
+	return &StrReplace{root: root, scope: scope, deps: newDeps(opts), refused: newRepeatGuard()}
 }
 
 // Name implements tool.Tool.
@@ -387,9 +385,6 @@ func (s *StrReplace) repeatedRefusal(edits []edit.FileEdit, before [][]byte, res
 		return result
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	repeat := false
 
 	for i, e := range edits {
@@ -400,12 +395,9 @@ func (s *StrReplace) repeatedRefusal(edits []edit.FileEdit, before [][]byte, res
 		sum := sha256.Sum256(before[i])
 
 		for _, pair := range e.Pairs {
-			key := e.Path + "\x00" + pair.OldString
-			if was, seen := s.refused[key]; seen && was == sum {
+			if s.refused.Repeated(e.Path+"\x00"+pair.OldString, sum) {
 				repeat = true
 			}
-
-			s.refused[key] = sum
 		}
 	}
 
@@ -413,12 +405,10 @@ func (s *StrReplace) repeatedRefusal(edits []edit.FileEdit, before [][]byte, res
 		return result
 	}
 
-	result.Content = "you already sent this old_string for this file and it was refused, and the file has " +
-		"not changed since, so it cannot match now either. Act on what the refusal said rather than " +
-		"re-sending it:\n\n" + result.Content
-	result.Cause = tool.CauseRepeat
-
-	return result
+	return leadWithRepeat(result,
+		"you already sent this old_string for this file and it was refused, and the file has "+
+			"not changed since, so it cannot match now either. Act on what the refusal said rather "+
+			"than re-sending it:")
 }
 
 // dedupeNotes keeps the first of each distinct note, since one batch can

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,13 +73,19 @@ type Rename struct {
 	index   SymbolSearch
 	servers Servers
 	scope   *Scope
+	// refused records each call this run has already been refused, against
+	// the refusal it was given. See repeatedCall.
+	refused *repeatGuard
 	root    string
 	deps    deps
 }
 
 // NewRename builds a Rename tool rooted at root.
 func NewRename(root string, index SymbolSearch, servers Servers, scope *Scope, opts ...Option) *Rename {
-	return &Rename{root: root, index: index, servers: servers, scope: scope, deps: newDeps(opts)}
+	return &Rename{
+		root: root, index: index, servers: servers, scope: scope,
+		deps: newDeps(opts), refused: newRepeatGuard(),
+	}
 }
 
 // Name implements tool.Tool.
@@ -118,12 +125,12 @@ func (r *Rename) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 
 	decl, err := r.locateOrPutBack(ctx, in)
 	if err != nil {
-		return failWith(err), nil
+		return r.repeatedCall(in, failWith(err)), nil
 	}
 
 	edits, err := r.ask(ctx, decl, in.To)
 	if err != nil {
-		return failWith(err), nil
+		return r.repeatedCall(in, failWith(err)), nil
 	}
 
 	if len(edits) == 0 {
@@ -131,6 +138,32 @@ func (r *Rename) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 	}
 
 	return r.apply(ctx, in, edits)
+}
+
+// repeatedCall answers a call this run has already been refused with the
+// same words, which is a call whose outcome was settled before it ran.
+//
+// Two `h3` lanes sent an identical bare `rename` and were told each time
+// that three packages declare the name and which path argument narrows it,
+// one of them after that sentence had been rewritten to carry the argument
+// verbatim, and both only stopped when the loop's own detector caught two
+// in a row. The refusal is the state here: it names the declarations the
+// index holds, so identical words mean the tool would answer the same way,
+// and a run that narrowed the call or changed the tree gets different words
+// and is left alone.
+func (r *Rename) repeatedCall(in renameInput, result tool.Result) tool.Result {
+	if !result.IsError {
+		return result
+	}
+
+	key := in.Symbol + "\x00" + in.To + "\x00" + in.Path
+	if !r.refused.Repeated(key, sha256.Sum256([]byte(result.Content))) {
+		return result
+	}
+
+	return leadWithRepeat(result,
+		"you already sent this rename and it was refused with exactly this, so sending it again "+
+			"cannot answer it. Act on what the refusal said rather than re-sending it:")
 }
 
 // locateOrPutBack finds the declaration to rename from, putting the old name

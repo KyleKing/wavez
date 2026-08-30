@@ -12,6 +12,7 @@ import (
 	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/codeintel/lang"
 	"github.com/kyleking/wavez/internal/lsp"
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -261,5 +262,49 @@ func TestRenameFinishesAHandEditedDeclaration(t *testing.T) {
 
 	if got := read(t, root, "c/c.go"); !strings.Contains(got, "func Alpha()") {
 		t.Errorf("an unrelated function of the same name was renamed:\n%s", got)
+	}
+}
+
+// A bare rename of a name two packages declare is refused with the path
+// argument that resolves it, and one lane answered that by re-sending the
+// identical call until the loop's own detector stopped it.
+func TestRenameRefusesACallItAlreadyRefused(t *testing.T) {
+	t.Parallel()
+
+	_, rn := renameProject(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), renameBudget)
+	defer cancel()
+
+	call := func(input string) tool.Result {
+		t.Helper()
+
+		res, err := rn.Run(ctx, []byte(input))
+		if err != nil {
+			t.Fatalf("Run(%s): %v", input, err)
+		}
+
+		return res
+	}
+
+	const bare = `{"symbol":"Alpha","to":"Beta"}`
+
+	if first := call(bare); first.Cause == tool.CauseRepeat {
+		t.Fatalf("the first call reads as a repeat: %s", first.Content)
+	}
+
+	second := call(bare)
+	if second.Cause != tool.CauseRepeat {
+		t.Errorf("Cause = %q, want %q: %s", second.Cause, tool.CauseRepeat, second.Content)
+	}
+	if !strings.Contains(second.Content, "already sent this rename") ||
+		!strings.Contains(second.Content, "declares Alpha") {
+		t.Errorf("the repeat does not lead with what to do and keep the refusal: %s", second.Content)
+	}
+
+	// The call the refusal asked for is a different call and is answered.
+	narrowed := call(`{"symbol":"Alpha","to":"Beta","path":"a"}`)
+	if narrowed.IsError {
+		t.Errorf("the narrowed call was refused: %s", narrowed.Content)
 	}
 }

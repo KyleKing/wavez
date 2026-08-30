@@ -1015,8 +1015,10 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    declare `Read`, and two lanes answered that by re-sending the identical
    call until the loop detector stopped them, one of them after the refusal
    had been rewritten to carry the exact `path` argument that resolves it.
-   So that is a repeat the tool should refuse the way `str_replace` refuses
-   one, rather than a sentence to keep rewriting. The other shape is order:
+   That is now refused the way `str_replace` refuses one: the refusal itself
+   is the state, so a call refused with the same words is answered with what
+   to do ahead of them, and a call the run narrowed gets different words and
+   is left alone. Both tools share the guard. The other shape is order:
    a lane that hand-edits the declaration first puts the symbol beyond
    `rename`, which starts from the declaration, and `str_replace`'s
    ambiguous refusal was pointing at `rename` at exactly that moment. The

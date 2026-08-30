@@ -4016,3 +4016,23 @@ hash.
 A check nobody can pass is worse than a missing one: it reports every run as
 partial and puts the fault on the run. Worth a sweep of the other tasks for the
 same shape.
+
+## 2026-08-29 — rename refuses the call it just refused
+
+The other half of the same shape. Two `h3` lanes sent an identical bare
+`rename`, were told each time that three packages declare `Read` and which
+`path` argument narrows it, and only stopped when the loop's own detector
+caught two in a row. One of them read that sentence after it had been
+rewritten to carry the argument verbatim.
+
+`rename` now keys on the call and records the refusal it was given. A call
+refused with the same words is answered with what to do ahead of them, which
+is safe for the same reason the anchor check is: the refusal names the
+declarations the index holds, so identical words mean the tool would answer
+identically. A run that narrows the call, or one whose tree changed, gets
+different words and is left alone, and the test asserts that by sending the
+`path` the refusal asked for and expecting the rename to apply.
+
+The check both tools use is one `repeatGuard` now. It takes a key and the
+state the tool observed, and the state is what makes each a check rather than
+a guess: the file's bytes for an anchor, the refusal text for a rename.
