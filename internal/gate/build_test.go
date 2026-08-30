@@ -69,3 +69,29 @@ func runBuildGate(t *testing.T, repoRoot string) gate.Result {
 
 	return result
 }
+
+// A project that is not a Go module is not a broken build. Pointed at a
+// Python repository this gate reported the Go toolchain's complaint that the
+// directory contains no main module as a failure, and the run answered that
+// error rather than the task it was given.
+func TestBuildGateAbstainsOutsideAGoModule(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.py"), []byte("def f():\n    return 1\n"), 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	result := runBuildGate(t, root)
+	if !result.Pass || result.Examined != 0 {
+		t.Fatalf("Pass = %v, Examined = %d, want an abstention: %+v", result.Pass, result.Examined, result)
+	}
+
+	if len(result.Failures) > 0 {
+		t.Errorf("Failures = %+v, want none", result.Failures)
+	}
+
+	if !strings.Contains(result.Reason, "go.mod") {
+		t.Errorf("Reason = %q, want it to name go.mod", result.Reason)
+	}
+}

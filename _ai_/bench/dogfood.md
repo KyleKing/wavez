@@ -4225,3 +4225,40 @@ The lesson is about the instrument rather than the tool: a corpus keyed by
 task and label carries no build, so a fix and the runs that predate it read
 as one rate. `wavez -stats-since` is the only thing separating them, and it
 has to be used before a class is treated as open.
+
+### 2026-08-29 — pointing the harness at a Python project
+
+Every number in this repository was measured by wavez on wavez. The first
+question that asks is whether any of it is about the harness rather than about
+this one tree, so the harness went at two of the sibling Python projects in a
+scratch clone of each.
+
+**A run cannot start on an unconfigured project.** The model tiers, the base
+URLs, and the keychain commands all live in the project's own `.wavez.pkl`, so
+a repository that has never been configured authenticates as nobody and the
+first turn comes back `401`. Writing that file by hand is the whole of
+onboarding, and nothing reads a user-level default.
+
+**Then the build gate derailed every run.** `BuildGate` ran `go build ./...`
+unconditionally, and its doc comment said so on purpose: it never narrows, so
+it "can never abstain". On a Python tree that is a gate failure carrying the
+Go toolchain's complaint about a missing main module, and the run answered it.
+A read-only `-plan` run asking where calcipy defines its ruff task spent four
+turns explaining the Go error and stopped `verify_failed` without answering.
+
+It was the only gate that broke. Running all four against the Python tree by
+hand: `go-test` abstained with "no changed Go file", `lint` with "the change
+set holds no Go files", `format` examined nothing, and only `build` failed.
+The three that scope themselves to the changed Go files were already right.
+`BuildGate` now abstains when the project root holds no `go.mod`, and the same
+question re-run answered correctly in 3 turns and 3 tool calls for $0.004,
+naming the file, both functions, their line ranges, and the command.
+
+**What works unchanged.** Python is already in the codeintel registry, so
+`search`, `read`, and the long-file outline all speak it. Nothing in the tool
+surface needed a change.
+
+**What is bootstrapping rather than harness.** yak-shears generates its typed
+template wrappers into a gitignored directory, so a fresh clone cannot import
+its own package until `types-for-jinja wrapper` has run. The harness has no
+notion of a project that must be generated before it can be checked.
