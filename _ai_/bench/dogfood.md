@@ -4445,3 +4445,33 @@ is reliable for what an image is for, layout and arrangement and whether a
 screen looks right, and unreliable for glyphs small enough to guess at. The
 tool's own description now says so, because a run that asks it to read a
 version string will be answered confidently and wrongly.
+
+### 2026-08-30 — the PTY item is blocked by the sandbox, not by missing tools
+
+[AGENTS.md](../../AGENTS.md) tells a human to drive every TUI change by hand
+with `tmux new -d`, `send-keys`, and `capture-pane`, and the roadmap carries
+PTY work as M2's last unshipped item. The CLI-before-MCP decision predicts a
+run can already do this through `shell`, so it was worth checking rather than
+building a tool for it.
+
+The guard agrees: `tmux` classifies as `needs_approval`, which `shellAllow`
+or `-allow-all` settles. The sandbox does not. Seatbelt's `(deny network*)`
+covers unix domain sockets, so tmux cannot create its server socket anywhere,
+including inside the project:
+
+- the default socket: `error connecting to /private/tmp/tmux-501/default
+  (Operation not permitted)`
+- `tmux -S ./tmux.sock`: `error creating ./tmux.sock (Operation not
+  permitted)`
+- `TMPDIR="$PWD/tmuxtmp"`: back to the default socket, same denial
+
+A run asked to drive an interactive program tried six variants across eight
+tool calls, each a reasonable idea, then fell back to piping stdin, which is
+not a PTY and which it said so about: "the environment forbids tmux from
+running, which is the honest limit of what I can report." That last part is
+the run behaving well. The eight calls before it are the cost of a denial
+that names an operation rather than a policy.
+
+So the item is not tool work. It is one sandbox decision: whether a
+sandboxed command may create and connect to a unix socket inside its own
+session directory. Everything else about driving a PTY already works.
