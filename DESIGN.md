@@ -951,7 +951,7 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    the trails rather than inferred: `rename` used to be unreachable on this
    task and is now reached by half the lanes, where seven of nine calls
    refuse, so the runs that finish are the ones that grind or escalate
-   instead. That is item 4, and it is now the thing holding this task rather
+   instead. That is item 5, and it is now the thing holding this task rather
    than retrieval.
 
    Reading the 64 thread logs behind the 08-26 corpus says what a retrieval
@@ -983,7 +983,31 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    every lane passing every check. Turns fell 12.0 to 8.2 and that is not a
    claim: the control lanes ran 5, 17, 17, and 9.
 
-2. **`no_match` is the only class in the edit tools that is still live.**
+2. **Nothing here has been measured on a project it did not write.** Pointed
+   at two sibling Python repositories, four defects surfaced that this tree
+   could not show, three of them fixed and recorded in
+   `_ai_/bench/dogfood.md`:
+
+   - `BuildGate` ran `go build ./...` unconditionally, so every run on a
+     non-Go project answered a Go toolchain error instead of the task. It
+     abstains without a `go.mod` now
+   - the index walked `.venv`, which put 97% of a Python project's symbols in
+     its dependencies. Go keeps those outside the tree, so `skipDirs` had
+     never needed more than `.git` and `node_modules`
+   - a search miss said "no matches across 149 indexed files" for a string in
+     a `.css` file the index never held, and a run read that as the string
+     not existing. It names what the index covers now
+   - a project in another language had no gate at all, since every built-in
+     one speaks Go. `checks` in `.wavez.pkl` declares a name, the globs whose
+     change runs it, and a command, and the ruff loop on calcipy is the same
+     change-triggered loop the Go gates give
+
+   What remains open is that a run which edits nothing is verified by nobody.
+   One of those runs reached a confident wrong conclusion about a stylesheet
+   and drafted a correction to the project's notes from it, and no gate could
+   have caught that, because gates read a change set.
+
+3. **`no_match` is the only class in the edit tools that is still live.**
    Since 2026-08-28 `str_replace` runs 94 calls at a 7% error rate, `no_match`
    5 and `ambiguous` 2, and `rename` 12 calls with no failure at all. Every
    other class the whole-window counts below name is closed. The 16
@@ -1029,7 +1053,7 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    identifiers at once, which is a text edit rather than a rename, and
    `replace_all` is what the refusal already offers them.
 
-3. **What a run reads after it has found the right file.** A whole-file read
+4. **What a run reads after it has found the right file.** A whole-file read
    past 300 lines comes back as the package clause, the imports, and every
    declaration with the range that reads its body. Over this project's thread
    logs that answers 28% of whole-file reads and cuts 58% of their bytes, for
@@ -1053,7 +1077,7 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    that are long enough and in a language the outline speaks, 4 are of a file
    the run had already edited. There is nothing there to trigger on.
 
-4. **Every path through `rename` on a real rename task refuses.** Six of
+5. **Every path through `rename` on a real rename task refuses.** Six of
    twelve `h3` lanes called it and seven of nine calls came back a refusal,
    in two shapes. A bare call is ambiguous, because three packages here
    declare `Read`, and two lanes answered that by re-sending the identical
@@ -1079,7 +1103,7 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    ahead of the first edit against preamble spent on every task to serve one
    shape of task.
 
-5. **Home is the screen a person actually reads, and it was the least
+6. **Home is the screen a person actually reads, and it was the least
    measured.** A pass over it with a real 393-thread list found the list
    rendering every row with no viewport, so `G` moved a cursor below the
    fold and the key hints sat off-screen; a name column fixed at 20
