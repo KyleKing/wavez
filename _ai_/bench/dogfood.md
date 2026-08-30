@@ -4716,3 +4716,28 @@ somewhere other than the tree, which is exactly the stylesheet run.
 A run that changed something abstains. A search result is a fair source for
 naming a neighboring file in passing, and a bound that fired on every run
 which did so would be noise around the one case it exists for.
+
+### 2026-08-30 — annotation, pointing the other way
+
+The roadmap read annotation as the harness drawing on an image so an answer
+could name a region. Asked which was actually wanted, the answer was the
+opposite direction: a way for the person to mark up a picture the run is
+looking at, "sort of like the question tool, but for images".
+
+That turns out to need almost nothing new. `annotate` copies the image into
+the session directory, opens the copy in whatever the platform views images
+with, and then blocks on the same `Asker` the `question` tool uses, so the
+pending prompt, the inbox row, and the answer path are all the ones that
+already exist. When the user answers, the saved copy goes to the vision tier
+with a prompt that says the image has been marked by hand, and the result
+carries their words above what the marks show.
+
+Three details are the design. The copy is what gets edited, so answering
+never modifies the project's own image. A file that comes back byte for byte
+identical is reported as unmarked rather than described as though it carried
+something, because a person who answered without drawing has still answered.
+And the viewer is injectable: the tests pass one that opens nothing, which is
+also what a machine with no display wants, and the prompt names the path
+either way so the flow works with no window in it.
+
+It costs 188 preamble tokens, and the ceiling moves to 2,860 to hold it.

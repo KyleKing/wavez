@@ -670,9 +670,18 @@ and `tool.Result` therefore carries no parts and needs none.
 Two sources exist. A person takes screenshots already, which is what `look`
 reads today, and `pty` runs a program on a pseudo-terminal and returns the
 screen it drew, resolved from the byte stream by a terminal emulator rather
-than scraped from it. A page in a browser is the third and is unbuilt, and
-annotation is what would make an answer name a region rather than describe
-one.
+than scraped from it. A page in a browser is the third and is unbuilt.
+
+Annotation is the direction nobody expected to be the useful one: rather than
+the harness drawing a region on an image, `annotate` hands the image to the
+person. It is `question` for pictures. A copy opens in whatever the platform
+views images with, the run blocks on the same pending prompt a question uses,
+and what comes back is the vision tier's reading of the saved file beside the
+user's own words. A layout that is wrong is faster to point at than to
+describe, and a mark drawn where it is meant carries what a coordinate read
+off by hand does not. The copy is what gets edited, so answering never
+modifies the project's own image, and a file that comes back byte for byte is
+reported as unmarked rather than described as though it carried something.
 
 These three still read as though nothing had been built, and each is a
 consumer of the layer above rather than a separate problem:
