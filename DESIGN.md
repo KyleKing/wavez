@@ -650,10 +650,16 @@ endpoint that cannot see refuses the whole request. The text path is
 byte-identical on the wire, and a 64x64 PNG through this serialization to a
 vision model on OpenRouter came back naming its colour.
 
-What is left is a source and a budget. No tool produces an image, so nothing
-reaches a model yet, and the smallest source is `read` on a `.png`: a person
-takes screenshots already, and reviewing one needs no browser and no PTY.
-That means `tool.Result` carrying parts, which is the next ripple.
+`look` is the first consumer: a path and a question in, text out, the image
+never entering the thread's history. That last part is the design rather than
+a saving. History is append-only so a provider's cache prefix stays valid, so
+an image placed in it is re-sent on every later turn for the rest of the run,
+and `tool.Result` therefore carries no parts and needs none.
+
+What is left is a source. A person takes screenshots already, which is what
+`look` reads today; a program under a PTY and a page in a browser are the two
+that would produce their own, and annotation is what makes an answer name a
+region rather than describe one.
 
 These three still read as though nothing had been built, and each is a
 consumer of the layer above rather than a separate problem:
