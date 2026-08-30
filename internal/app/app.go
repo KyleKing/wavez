@@ -296,13 +296,11 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	}
 	stateDir, store, gateLog, sandboxDir, prefix := st.dir, st.store, st.gateLog, st.sandboxDir, st.prefix
 
-	// One `go list` per App, shared by test selection and by the blast-radius
-	// signal on every permission prompt. A nil graph drops selection to
-	// LevelPackage and renders blast as unknown.
-	graph, err := gate.BuildImportGraph(ctx, root)
-	if err != nil {
-		graph = nil
+	if permGate, err = persistingGate(permGate, stateDir); err != nil {
+		return nil, err
 	}
+
+	graph := importGraph(ctx, root)
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 	scope := tools.NewScope(options.StrictScope)
@@ -393,6 +391,32 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		PlanSystem:      planSystemPrefix(prefix),
 		threadLogDir:    filepath.Join(stateDir, threadLogDirName),
 	}, nil
+}
+
+// importGraph is one `go list` per App, shared by test selection and by the
+// blast-radius signal on every permission prompt. A nil graph drops
+// selection to LevelPackage and renders blast as unknown, which is what a
+// project the command cannot describe gets.
+func importGraph(ctx context.Context, root string) *gate.ImportGraph {
+	graph, err := gate.BuildImportGraph(ctx, root)
+	if err != nil {
+		return nil
+	}
+
+	return graph
+}
+
+// persistingGate wraps gate so this project's allow-always answers outlive
+// the threads that gave them.
+//
+//nolint:ireturn // a Gate is what New holds
+func persistingGate(ask permission.Gate, stateDir string) (permission.Gate, error) {
+	approvals, err := permission.OpenStore(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the approval store: %w", err)
+	}
+
+	return permission.Persisting(ask, approvals), nil
 }
 
 // projectState is what New opens on disk before it can assemble anything

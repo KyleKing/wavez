@@ -79,6 +79,35 @@ func TestShell_NeedsApprovalConsultsGateAndDenyBlocksExec(t *testing.T) {
 	}
 }
 
+// An allow-always answer can outlive the thread that gave it, so the key it
+// is remembered under has to name the action rather than the program: two
+// different commands starting with the same word are two approvals.
+func TestShell_ApprovalKeyNamesTheWholeCommand(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "does-not-exist")
+
+	var keys []string
+
+	gate := permission.GateFunc(func(_ context.Context, req permission.Request) (permission.Decision, error) {
+		keys = append(keys, req.Key)
+
+		return permission.Deny, nil
+	})
+
+	sh := tools.NewShell(root, root, "thread-1", gate)
+	for _, cmd := range []string{"rm -rf  $A", "rm -rf $B"} {
+		if _, err := sh.Run(context.Background(), mustJSON(t, map[string]any{"command": cmd})); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	}
+
+	want := []string{"rm -rf $A", "rm -rf $B"}
+	if len(keys) != len(want) || keys[0] != want[0] || keys[1] != want[1] {
+		t.Fatalf("keys = %q, want %q", keys, want)
+	}
+}
+
 func TestShell_AllowRunsWithoutConsultingGate(t *testing.T) {
 	t.Parallel()
 

@@ -375,13 +375,16 @@ func (s *Shell) classifyScript(rel string) guard.Result {
 	}
 }
 
+// approvalKey is what one allow-always answer covers: the whole command
+// line with its spacing normalized, not the program it starts with.
+//
+// The program was the key until an approval could outlive the thread that
+// gave it. Approving one `curl https://example.com/x` would then have
+// approved every later `curl` in the project, forever, which is a far wider
+// grant than the answer was given for. The narrow key costs a prompt per
+// distinct command instead of per program, and that is what buys the bound.
 func approvalKey(command string) string {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
-		return command
-	}
-
-	return fields[0]
+	return strings.Join(strings.Fields(command), " ")
 }
 
 func (s *Shell) formatShellResult(result sandbox.Result) string {
