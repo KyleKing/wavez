@@ -636,6 +636,17 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 
 ### Recordings (M2 PTY, M5 browser)
 
+The driving half of the PTY work is done and is a tool rather than a session:
+`pty` runs one command on a pseudo-terminal, plays keystrokes into it, and
+returns the screen. tmux through the shell was the obvious alternative and the
+sandbox refuses it, because Seatbelt counts a unix socket in the network
+family and its path filters do not match one, so the only grant that works
+allows connecting to every socket on the machine. Owning the terminal turns
+out to be the smaller change as well as the safer one: nothing outlives the
+call, so no session lifetime has to be tracked.
+
+What is left below is the recording half, which is a different job.
+
 - Every PTY session and browser step the agent drives is logged as an action, selector or command, and result
 - Replay runs the same steps and diffs the observed result. Steps carry confirm and falsify expectations from `_ai_/notes/code-in-the-loop-adrs.md` ADR 0006 rather than raw sleeps
 - Promotion writes a test file from a per-language template. Discard is the default after the routine that produced it succeeds
@@ -656,10 +667,12 @@ a saving. History is append-only so a provider's cache prefix stays valid, so
 an image placed in it is re-sent on every later turn for the rest of the run,
 and `tool.Result` therefore carries no parts and needs none.
 
-What is left is a source. A person takes screenshots already, which is what
-`look` reads today; a program under a PTY and a page in a browser are the two
-that would produce their own, and annotation is what makes an answer name a
-region rather than describe one.
+Two sources exist. A person takes screenshots already, which is what `look`
+reads today, and `pty` runs a program on a pseudo-terminal and returns the
+screen it drew, resolved from the byte stream by a terminal emulator rather
+than scraped from it. A page in a browser is the third and is unbuilt, and
+annotation is what would make an answer name a region rather than describe
+one.
 
 These three still read as though nothing had been built, and each is a
 consumer of the layer above rather than a separate problem:
