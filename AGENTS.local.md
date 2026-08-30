@@ -138,6 +138,14 @@ are specific to this codebase and not visible from the code.
   (`ci`, `verify-released`, `commitizen-branch`) is inert in this checkout.
   `mise run jj:push` runs them as `jj:verify` before it pushes, and a push
   made any other way has run none of them
+- `copier update` reads this checkout through git, so the colocated `.git` is
+  what makes it work at all and a `jj git clone` without `--colocate` could
+  not be updated. It refuses a dirty destination, and jj's auto-snapshot puts
+  working-copy changes in front of git as unstaged modifications, so commit
+  with `jj commit` first and never `git stash`, which fights the snapshot.
+  The patch lands as `git apply --reject` into the working tree and jj
+  snapshots it, so the `.rej` files arrive in the working copy. Copier
+  excludes every git-ignored path from the patch, which is silent
 
 ## Go conventions
 

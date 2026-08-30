@@ -1048,8 +1048,8 @@ The shape of that is the finding. Incremental re-indexing scales and nothing
 else does, because the store is byte-bound rather than file-bound: 3.2 times
 the files cost 34 times the index time and 24 times the disk, and the trigram
 FTS over a quarter-gigabyte of source is where both go. A run spends 58% of
-its turns on retrieval, so a second per search is not a slower loop, it is a
-different product. What this arc holds, none of it built: a size the store
+its turns on retrieval, so at a second per search this is a different product
+rather than a slower one. What this arc holds, none of it built: a size the store
 refuses or degrades at rather than silently taking an hour, generated and
 vendored trees out of the index the way `.venv` now is, the first index not
 blocking the first search, a bound on what a single file can contribute, and

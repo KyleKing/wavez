@@ -4763,3 +4763,34 @@ It lives in the project's state directory at 0600. And a file it cannot parse
 is an error rather than an empty store, because re-asking for everything is
 the safe direction but a file quietly ignored forever is not something anyone
 would find out about.
+
+### 2026-08-30 — what happens on a codebase this project did not write
+
+Every efficiency number here was taken on one 604-file, 5 MB repository. The
+first measurement on a large tree was 1,963 Go files and 244 MB of source
+(`modernc.org/sqlite` and `modernc.org/libc`, 14 files over 2 MB each),
+indexed through `codeintel.Indexer.Refresh` with a throwaway store:
+
+| | wavez | the 244 MB tree |
+|---|---|---|
+| first index | 2.1s | 1m11s |
+| store on disk | 17.6 MB | 428 MB |
+| allocations while indexing | 69 MB | 1.8 GB |
+| `search` latency (fuzzy and literal) | 70-110ms | 583ms-1.7s |
+| re-index, nothing changed | 76ms | 167ms |
+
+3.2 times the files cost 34 times the index time and 24 times the disk, so
+the store is byte-bound rather than file-bound, and the trigram FTS over a
+quarter-gigabyte is where both go. The one number that holds is incremental
+re-indexing at 167ms, which says the change path is fine and the cold path is
+not.
+
+Search is the one that decides something. A run spends 58% of its turns on
+retrieval, and every one of them costs 70ms here and up to 1.7s there. The
+turn count would not move and the wall clock would, which is the failure mode
+none of the corpus commands can see, since they count turns and tokens.
+
+Checked before claiming it: the live `.wavez/index.db` is 47 MB against the
+17.6 MB a fresh index of the same tree writes, and `VACUUM` recovers 3 MB of
+that, so the difference is the edges and coverage the probe did not build
+rather than bloat.
