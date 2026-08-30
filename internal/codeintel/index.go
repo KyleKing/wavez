@@ -33,6 +33,10 @@ type IndexStats struct {
 	FilesUnchanged int
 	FilesRemoved   int
 	SymbolsIndexed int
+	// FilesTooLarge is how many claimed files the scan passed over for
+	// exceeding MaxFileBytes. A search miss caused by the cap is otherwise
+	// indistinguishable from a symbol that does not exist.
+	FilesTooLarge int
 }
 
 // skipDirs never descends into these directory names while scanning. They
@@ -50,20 +54,32 @@ var skipDirs = map[string]bool{
 	"__pycache__":   true,
 	"node_modules":  true,
 	"site-packages": true,
+	"vendor":        true,
 	"venv":          true,
 }
+
+// MaxFileBytes is the largest claimed file the index will read. Above it a
+// file is machine-written every time it was measured: an OpenAPI-generated
+// TypeScript client at 3.7 MB, ccgo's C-to-Go output at 4 MB a file, a
+// pytest expected-output fixture at 337 kB. The largest hand-written source
+// file across the repositories sampled was 89 kB, so this leaves nearly
+// three times that. It matters because the store is byte-bound rather than
+// file-bound: on a 137 MB tree the 2.6% of files above this cap carry 68%
+// of the bytes, and the trigram index over them is what turns a 2 second
+// index into a 71 second one.
+const MaxFileBytes = 256 << 10
 
 // Index walks root for files registry claims, reparsing only those whose
 // content hash changed since the last Index call, and removes rows for
 // files that no longer exist. A re-index of an unchanged tree issues no
 // write statements at all.
 func (s *Store) Index(ctx context.Context, root string, registry *lang.Registry) (IndexStats, error) {
-	found, err := scanFiles(root, registry)
+	found, tooLarge, err := scanFiles(root, registry)
 	if err != nil {
 		return IndexStats{}, err
 	}
 
-	var stats IndexStats
+	stats := IndexStats{FilesTooLarge: tooLarge}
 	err = s.withWrite(ctx, func(tx *sql.Tx) error {
 		existing, err := loadExistingFiles(ctx, tx)
 		if err != nil {
@@ -182,8 +198,13 @@ type scannedFile struct {
 	absPath string
 }
 
-func scanFiles(root string, registry *lang.Registry) ([]scannedFile, error) {
-	var found []scannedFile
+// scanFiles lists the files registry claims under root, and separately
+// counts those it passed over for exceeding MaxFileBytes.
+func scanFiles(root string, registry *lang.Registry) ([]scannedFile, int, error) {
+	var (
+		found    []scannedFile
+		tooLarge int
+	)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walking %s: %w", path, err)
@@ -198,6 +219,15 @@ func scanFiles(root string, registry *lang.Registry) ([]scannedFile, error) {
 		if !registry.Claims(path) {
 			return nil
 		}
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", path, err)
+		}
+		if info.Size() > MaxFileBytes {
+			tooLarge++
+
+			return nil
+		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return fmt.Errorf("relativizing %s: %w", path, err)
@@ -210,10 +240,10 @@ func scanFiles(root string, registry *lang.Registry) ([]scannedFile, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("scanning %s: %w", root, err)
+		return nil, 0, fmt.Errorf("scanning %s: %w", root, err)
 	}
 
-	return found, nil
+	return found, tooLarge, nil
 }
 
 func contentHash(content []byte) string {

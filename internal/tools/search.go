@@ -263,6 +263,19 @@ func literalMissReason(query string) string {
 // and proposed correcting the project's own notes to say so.
 var indexedExtensions = strings.Join(lang.NewDefaultRegistry().Indexed(), ", ")
 
+const bytesPerKB = 1024
+
+// tooLargeNote names the files the index passed over for size, so a miss
+// they caused reads differently from a symbol that does not exist.
+func tooLargeNote(stats codeintel.IndexStats) string {
+	if stats.FilesTooLarge == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(" %d further file(s) are over %d kB and are not indexed at all; rg reaches those.",
+		stats.FilesTooLarge, codeintel.MaxFileBytes/bytesPerKB)
+}
+
 // formatSearchResults distinguishes an empty result from an index that
 // covers nothing. Reporting both as "no results" told a model to narrow a
 // query that could not have matched anything, and it spent four turns
@@ -281,8 +294,8 @@ func formatSearchResults(results []codeintel.SearchResult, stats codeintel.Index
 
 		return fmt.Sprintf("no matches for %q across %d indexed files, which are this project's "+
 			"%s files. No other file type is indexed, so a match in one is invisible here: "+
-			"use shell with rg to search those.",
-			query, stats.FilesScanned, indexedExtensions)
+			"use shell with rg to search those.%s",
+			query, stats.FilesScanned, indexedExtensions, tooLargeNote(stats))
 	}
 
 	var b strings.Builder

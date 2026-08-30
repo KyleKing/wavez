@@ -1,6 +1,7 @@
 package codeintel_test
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -221,7 +222,7 @@ func TestIndex_SkipsTheDependencyDirectories(t *testing.T) {
 	// from the skip list fails this rather than being covered by another.
 	for _, dir := range []string{
 		".", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".venv",
-		"__pycache__", "node_modules", "site-packages", "venv",
+		"__pycache__", "node_modules", "site-packages", "vendor", "venv",
 	} {
 		full := filepath.Join(root, dir)
 		if err := os.MkdirAll(full, 0o750); err != nil {
@@ -244,6 +245,57 @@ func TestIndex_SkipsTheDependencyDirectories(t *testing.T) {
 
 	if stats.SymbolsIndexed != 1 {
 		t.Errorf("SymbolsIndexed = %d, want only the project's own symbol", stats.SymbolsIndexed)
+	}
+}
+
+// A file over the cap is passed over rather than indexed, and one that
+// grows past it after being indexed has its rows removed like a deletion.
+func TestIndex_PassesOverAFileOverTheSizeCap(t *testing.T) {
+	t.Parallel()
+	store, ctx := openStore(t)
+	root := t.TempDir()
+	registry := defaultRegistry()
+	path := filepath.Join(root, "mod.py")
+
+	small := []byte("def only_mine():\n    return 1\n")
+	if err := os.WriteFile(path, small, 0o600); err != nil {
+		t.Fatalf("writing small: %v", err)
+	}
+
+	stats, err := store.Index(ctx, root, registry)
+	if err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	if stats.FilesIndexed != 1 || stats.FilesTooLarge != 0 {
+		t.Fatalf("indexed=%d toolarge=%d, want the small file indexed", stats.FilesIndexed, stats.FilesTooLarge)
+	}
+
+	padding := bytes.Repeat([]byte("# padding\n"), codeintel.MaxFileBytes/10+1)
+	if err := os.WriteFile(path, append(small, padding...), 0o600); err != nil {
+		t.Fatalf("writing large: %v", err)
+	}
+
+	stats, err = store.Index(ctx, root, registry)
+	if err != nil {
+		t.Fatalf("Index after growth: %v", err)
+	}
+
+	if stats.FilesTooLarge != 1 {
+		t.Errorf("FilesTooLarge = %d, want the grown file counted", stats.FilesTooLarge)
+	}
+
+	if stats.FilesRemoved != 1 {
+		t.Errorf("FilesRemoved = %d, want the grown file's rows dropped", stats.FilesRemoved)
+	}
+
+	results, err := store.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: "only_mine", Limit: 5})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Errorf("Search found %d results in a file over the cap, want none", len(results))
 	}
 }
 
