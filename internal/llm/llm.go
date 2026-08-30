@@ -54,20 +54,6 @@ type Part struct {
 	Data  []byte   `json:"data,omitempty"`
 }
 
-// HasImage reports whether any message carries an image, which is what a
-// tier that cannot see has to be kept away from.
-func HasImage(messages []Message) bool {
-	for i := range messages {
-		for _, p := range messages[i].Parts {
-			if p.Kind == PartImage {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // ToolCall is a model request to run one tool.
 type ToolCall struct {
 	ID    string          `json:"id"`

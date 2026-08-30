@@ -31,6 +31,14 @@ deep: Tier = new { model = "qwen/qwen3-coder-30b-a3b-instruct" }
 /// returns one provider's key.
 hostedKeyCommand: String = ""
 
+/// The tier a turn carrying an image goes to. It is separate from fast,
+/// balanced, and deep because seeing is a capability rather than a
+/// difficulty: a text model refuses the whole request rather than ignoring
+/// the image, so no routing decision can reach one. Unset means this project
+/// cannot look at anything, and a tool that would produce an image says so
+/// instead of sending it.
+vision: Tier?
+
 /// Base URL of a SearxNG instance the web search tool queries, such as
 /// "http://searx.example:8888". Empty searches through DuckDuckGo's HTML
 /// endpoint, which needs no key and no service and breaks whenever their
@@ -95,6 +103,11 @@ fullRunCadence: Int = 20
 /// Glob patterns for ast-grep convention rule files.
 astGrepRules: Listing<String> = new Listing {}
 
+/// Checks this project runs on its own changes, by name. Every built-in gate
+/// speaks Go, so a project in another language reaches the model with nothing
+/// behind its edits until it declares one here.
+checks: Mapping<String, Check> = new Mapping {}
+
 /// Functions `wavez -deadcode` should not report, as `package.Function`
 /// globs. A function no main reaches is not always a mistake: functional
 /// options and test seams are reachable only from tests by design, and the
@@ -142,6 +155,7 @@ class Tier {
   /// Model name sent in the request.
   model: String
 
+
   /// OpenAI-compatible endpoint root (e.g. "https://m4.tailnet.ts.net/v1").
   /// Empty means the tier's default: the llama-server on localPort for the
   /// fast tier, OpenRouter for the others. A tier pointed at another machine
@@ -177,6 +191,19 @@ class Tier {
   /// beside it. Null keeps every turn on `baseURL` however loaded the
   /// machine is, which is right for a tier already served over the network.
   overflow: Tier?
+}
+
+/// One check a project runs on its own changes.
+class Check {
+  /// Globs whose change runs this check, matched against the whole path and
+  /// then against the base name, so `*.py` names every Python file. An empty
+  /// list runs the check on every change.
+  paths: Listing<String> = new Listing {}
+
+  /// The command line, run through `sh -c` from the project root. A non-zero
+  /// exit is the failure the model is handed, trimmed to the lines naming a
+  /// file the run changed.
+  command: String
 }
 
 class Step {

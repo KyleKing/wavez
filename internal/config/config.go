@@ -92,7 +92,13 @@ type Config struct {
 	// Cycles are the phased ways of working this project defines, beside the
 	// ones wavez ships. A definition here replaces a built-in of the same
 	// name outright.
-	Cycles       []cycle.Spec
+	Cycles []cycle.Spec
+	// Vision is the tier a turn carrying an image goes to, nil where the
+	// project configured none. It sits outside Tiers because seeing is a
+	// capability and Tiers maps a difficulty: a text model refuses the whole
+	// request rather than ignoring an image, so no routing decision can
+	// reach one.
+	Vision       *Tier
 	AstGrepRules []string
 	// Checks are the project's own gate commands, sorted by name so a gate
 	// order does not depend on map iteration.
@@ -157,11 +163,6 @@ type Tier struct {
 	// HostedKeyCommand. Empty means none for the loopback server, and
 	// HostedKeyCommand for any other endpoint.
 	KeyCommand string
-	// Vision says this tier's endpoint accepts image content. It is opt-in
-	// because a tier that cannot is not a degraded answer but a refused
-	// request: z.ai's coding endpoint replies "messages.content.type is
-	// invalid, allowed values: ['text']" and the turn is lost.
-	Vision bool
 }
 
 // LinkPattern is one identifier-linking rule: text matching Pattern renders

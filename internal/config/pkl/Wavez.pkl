@@ -31,6 +31,14 @@ deep: Tier = new { model = "qwen/qwen3-coder-30b-a3b-instruct" }
 /// returns one provider's key.
 hostedKeyCommand: String = ""
 
+/// The tier a turn carrying an image goes to. It is separate from fast,
+/// balanced, and deep because seeing is a capability rather than a
+/// difficulty: a text model refuses the whole request rather than ignoring
+/// the image, so no routing decision can reach one. Unset means this project
+/// cannot look at anything, and a tool that would produce an image says so
+/// instead of sending it.
+vision: Tier?
+
 /// Base URL of a SearxNG instance the web search tool queries, such as
 /// "http://searx.example:8888". Empty searches through DuckDuckGo's HTML
 /// endpoint, which needs no key and no service and breaks whenever their
@@ -147,11 +155,6 @@ class Tier {
   /// Model name sent in the request.
   model: String
 
-  /// Whether this tier's endpoint accepts image content. Off by default,
-  /// because an endpoint that does not accept one refuses the whole request
-  /// rather than ignoring the image: Z.AI's coding endpoint answers
-  /// "messages.content.type is invalid, allowed values: ['text']".
-  vision: Boolean = false
 
   /// OpenAI-compatible endpoint root (e.g. "https://m4.tailnet.ts.net/v1").
   /// Empty means the tier's default: the llama-server on localPort for the

@@ -663,12 +663,21 @@ consumer of the layer above rather than a separate problem:
 - The browser session interface lists `screenshot` beside `click` and `read
   accessibility tree`
 
-The z.ai coding endpoint refuses an image. Posting one `image_url` content part
-beside a `text` one to `glm-5.3` there answers
-`messages.content.type is invalid, allowed values: ['text']` (probed
-2026-08-30), and the coding-plan key opens only that endpoint. So every
-visual judgment is a second provider and a second key, and the tier that
-looks at a screenshot is not the tier that does the work.
+The provider is the one already configured. `glm-5.3` on the z.ai coding
+endpoint refuses an image with
+`messages.content.type is invalid, allowed values: ['text']`, and `glm-4.6v`
+on that same endpoint and the same key answers one (probed 2026-08-30). That
+model is not in the endpoint's own `/models` listing, which reports the text
+models only, so the name is the thing that works rather than the thing
+advertised. On the general `/api/paas/v4` root the same model answers
+"Insufficient balance", so the coding plan is what covers it.
+
+So the tier that looks at a screenshot is not the tier that does the work,
+and it is a fourth tier rather than a flag on the three: seeing is a
+capability, `Tiers` maps a difficulty, and no routing decision can reach a
+model a text turn must never go to. `config.Vision` is that tier, nil where a
+project named none, and reasoning is off on it because the answer otherwise
+arrives in `reasoning_content` with `content` empty.
 
 `internal/reduce` already carries the other half of the problem in its own
 notes, "downscale images", written for a payload that cannot yet exist. An

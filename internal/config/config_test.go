@@ -353,3 +353,57 @@ func assertCompiles(t *testing.T, root string, defs map[string]routine.Definitio
 		t.Errorf("MatchesPath does not honor the routine's path globs")
 	}
 }
+
+// Seeing is a capability rather than a difficulty, so the tier that looks at
+// an image sits outside the three a routing decision picks between. A project
+// that names none cannot look at anything, which is what a tool asks before
+// it produces an image rather than after the request is refused.
+func TestLoad_VisionTierIsSeparateFromTheRoutedThree(t *testing.T) {
+	t.Parallel()
+
+	loader, err := config.NewLoader(context.Background())
+	if err != nil {
+		t.Fatalf("NewLoader: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := loader.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+
+	bare := t.TempDir()
+	if cfg, _, err := loader.Load(context.Background(), bare); err != nil {
+		t.Fatalf("Load: %v", err)
+	} else if cfg.Vision != nil {
+		t.Errorf("Vision = %+v with no config, want nil", cfg.Vision)
+	}
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, config.FileName), `
+amends ".wavez/Wavez.pkl"
+
+vision = new Tier {
+  model = "glm-4.6v"
+  baseURL = "https://api.z.ai/api/coding/paas/v4"
+  keyCommand = "security find-generic-password -w -s wavez-zai"
+  thinking = false
+}
+`)
+
+	cfg, _, err := loader.Load(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.Vision == nil {
+		t.Fatal("Vision = nil, want the configured tier")
+	}
+
+	if cfg.Vision.Model != "glm-4.6v" || cfg.Vision.KeyCommand == "" {
+		t.Errorf("Vision = %+v, want the model and key command it named", cfg.Vision)
+	}
+
+	if cfg.Tiers.Balanced.Model == "glm-4.6v" {
+		t.Error("the vision tier replaced balanced, want it separate from the routed three")
+	}
+}

@@ -53,6 +53,23 @@ fast = new {
   }
 }
 
+// The tier a turn carrying an image goes to. The coding plan serves it on the
+// same endpoint and the same key as the text tiers: `glm-5.3` there refuses an
+// image with "messages.content.type is invalid, allowed values: ['text']",
+// and `glm-4.6v` answers one. It is not listed by that endpoint's /models,
+// which reports only the text models, so the name is the thing that works
+// rather than the thing advertised.
+//
+// Reasoning is off because it is on by default here and puts the answer in
+// `reasoning_content` with `content` empty: the same question came back as
+// four completion tokens with it disabled.
+vision = new Tier {
+  model = "glm-4.6v"
+  baseURL = zaiBase
+  keyCommand = zaiKey
+  thinking = false
+}
+
 // Served window for the fast tier, which is also what a turn is routed
 // against. It has to be the smaller of the two endpoints: a turn sized for
 // z.ai's window would not fit the llama-server this laptop starts, and the

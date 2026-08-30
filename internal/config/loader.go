@@ -37,6 +37,7 @@ const (
 type pklConfig struct {
 	Routines map[string]pklRoutine `pkl:"routines"`
 	Checks   map[string]pklCheck   `pkl:"checks"`
+	Vision   *pklTier              `pkl:"vision"`
 	// A pointer because zero is a meaningful threshold, meaning every turn
 	// overflows, and a plain float cannot tell it from an unset field.
 	OverflowLoad     *float64   `pkl:"overflowLoadPerCore"`
@@ -78,7 +79,6 @@ type pklTier struct {
 	Model      string   `pkl:"model"`
 	BaseURL    string   `pkl:"baseURL"`
 	KeyCommand string   `pkl:"keyCommand"`
-	Vision     bool     `pkl:"vision"`
 }
 
 // pklCycle and pklPhase mirror the Cycle and Phase classes in
@@ -249,10 +249,22 @@ func tierFromPkl(def Tier, p pklTier) Tier {
 	def.BaseURL = p.BaseURL
 	def.KeyCommand = p.KeyCommand
 	def.Thinking = p.Thinking
-	def.Vision = p.Vision
 	def.Overflow = overflowFromPkl(p.Overflow)
 
 	return def
+}
+
+// visionFromPkl reads the tier a turn carrying an image goes to. Like an
+// overflow endpoint it has no default to overlay, because a project naming
+// one names all of it.
+func visionFromPkl(p *pklTier) *Tier {
+	if p == nil || p.Model == "" {
+		return nil
+	}
+
+	t := tierFromPkl(Tier{}, *p)
+
+	return &t
 }
 
 // overflowFromPkl reads a tier's overflow endpoint, which has no default to
@@ -323,6 +335,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.ShellAllow = p.ShellAllow
 	cfg.AstGrepRules = p.AstGrepRules
 	cfg.Checks = projectChecks(p.Checks)
+	cfg.Vision = visionFromPkl(p.Vision)
 	cfg.DeadcodeAllow = p.DeadcodeAllow
 	cfg.Cycles = toSpecs(p.Cycles)
 	cfg.Links = toLinkPatterns(p.Links)

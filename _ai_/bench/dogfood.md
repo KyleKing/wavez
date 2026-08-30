@@ -4349,14 +4349,24 @@ existed: vision calls in Recordings, "Image and screenshot input (M2)" in
 Mobile, and `screenshot` on the browser session interface. The first piece of
 work is the message shape, not a screenshot source.
 
-The provider question is answered and it is the expensive answer. Posting an
-`image_url` content part beside a `text` one to `glm-5.3` on the z.ai coding
-endpoint returns `messages.content.type is invalid, allowed values:
-['text']`, and a coding-plan key opens only that endpoint. Every visual
-judgment therefore costs a second provider and a second key, which makes the
-split the browser research already recommended the only affordable shape: the
-accessibility tree as the default read path, and a screenshot sent to a
-different model only when text cannot settle the question.
+The provider question is answered, and the first answer was wrong for the
+reason a single probe usually is: it tested one model name. `glm-5.3` on the
+z.ai coding endpoint refuses an image with `messages.content.type is invalid,
+allowed values: ['text']`, and that is a property of the model rather than of
+the endpoint. `glm-4.6v` on the same endpoint with the same key reads a 64x64
+red square and says so. It does not appear in that endpoint's `/models`
+listing, which returns the ten text models and no vision variant, so a
+capability check by listing would have concluded the same wrong thing twice.
+On the general `/api/paas/v4` root the same model answers "Insufficient
+balance", so the coding plan is what covers it.
+
+Reasoning is on by default there and puts the answer in `reasoning_content`
+with `content` empty, which reads as an empty completion. With
+`thinking: disabled` the same question is four completion tokens.
+
+The split the browser research recommends still holds, for cost rather than
+for provider count: the accessibility tree as the default read path, and a
+screenshot sent to the vision tier only when text cannot settle the question.
 
 ### 2026-08-30 — the index reaches four more file types, and a message can carry an image
 
