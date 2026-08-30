@@ -954,6 +954,30 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    instead. That is item 4, and it is now the thing holding this task rather
    than retrieval.
 
+   Reading the 64 thread logs behind the 08-26 corpus says what a retrieval
+   turn holds. It holds one tool call: 902 retrieval turns carry 937 calls,
+   and four of them called two tools. So the number counts round trips, and
+   anything that cuts it has to remove a question rather than shorten an
+   answer. Three candidates measured, in `_ai_/bench/dogfood.md`:
+
+   - Batching reads is worth 36 turns of 1,458. All 417 reads named one path
+     though the schema has advertised a comma-separated list since it
+     shipped, but one call applies one range to every path, and 39 of the 94
+     back-to-back read sequences repeat a path
+   - Snapping a range to its enclosing declaration is worth nothing. It
+     would have answered 2 of the 41 adjacent same-file ranged pairs, since
+     a follow-up read jumps elsewhere in the file rather than missing a
+     boundary
+   - 171 shell calls re-ran a check the gates run, 2.7 per run, and 123 came
+     after a change with no gate feedback yet delivered. 37 of the 64 runs
+     never got a delivery at all. `alreadyChecked` answers those now for a
+     package the run changed, which saves the subprocess and not the turn
+
+   What is unmeasured is the one that would save the turn: whether a run
+   told at the start that the gates run build and tests on every change
+   stops asking. That is preamble spent on every task, and
+   `wavez -preamble` prices it.
+
 2. **`no_match` is still the largest class in the edit tools, and
    `ambiguous` is the one that grew.** From `wavez -stats-corpus`, which is
    what these counts have to come from: over the whole corpus `str_replace`
