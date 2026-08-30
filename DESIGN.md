@@ -1077,9 +1077,18 @@ then discarded. The gate writes them to a per-project directory under the
 user cache instead, which is 0.75s including the `go list` that says whether
 there is anything to link at all.
 
-What remains, none of it built: a size the whole store refuses or degrades
-at rather than silently taking minutes, and the coverage sweep, which is the
-one whole-repo operation still unmeasured on a large module. None of the efficiency numbers in Next transfer across this
+The coverage sweep is bounded now. Its cost floor is per test rather than
+per byte: a trivial test in a two-file module, instrumented binary already
+built, still costs 0.49s of `go test` process and staleness checking, and
+this project's 689 tests average 3.8 worker-seconds each, so a large enough
+module turns the first build into an hour nobody asked for. One build spends
+at most `DefaultCoverageBudget` (10 minutes), then stops feeding tests and
+leaves the map incomplete, which holds selection at importer level exactly
+as an unbuilt map already does. Nothing is lost, because the manifest makes
+the next build resume from where this one stopped.
+
+What remains, unbuilt: a size the whole store refuses or degrades at rather
+than silently taking minutes. None of the efficiency numbers in Next transfer across this
 boundary, because all of them were measured on the small side of it.
 
 **B. Documentation drifted from the tree, and so did the template.** The

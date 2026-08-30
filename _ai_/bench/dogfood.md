@@ -4908,3 +4908,34 @@ Wavez.
 So the arc loses one item rather than gaining work: `go list` and `go build`
 scale fine, and the coverage sweep is the whole-repo operation still
 unmeasured on a large module.
+
+### 2026-08-30 — what the coverage sweep costs per test
+
+The sweep runs `go test -run ^One$ -count=1 -coverprofile` once per test,
+because per-test attribution is what the map is for and one run cannot give
+it. So its cost is per test and does not care how large the module is.
+
+Measured with the instrumented binary already built: 1.0-1.3s per test in
+this project's own packages, and 0.49s for a trivial test in a two-file
+module. That 0.49s is the floor, and it is `go test`'s process start and
+staleness check rather than anything the test does. Against it, this
+project's recorded 249s for 522 tests at 8 workers is 3.8 worker-seconds a
+test, so real tests cost about eight times the floor.
+
+Extrapolating, 5,000 tests is 5 minutes of floor and closer to 40 minutes of
+real time on the same 8 workers, spent on a first start with nothing to show
+until it finishes. That is the shape this arc exists to remove.
+
+One build takes at most `DefaultCoverageBudget`, 10 minutes, which clears
+this project's own build with headroom. Past it the feeder stops handing out
+tests, the workers drain what they hold, and `finish` leaves the map
+incomplete because tests without a manifest entry already make it so. An
+incomplete map holds selection at importer level, which is what an unbuilt
+map does, so the degradation is the one already designed for rather than a
+new one. `RefreshStats.Deferred` and the gate log say how many were left.
+
+Nothing is lost, because the manifest is the resume point: the next build
+skips what was measured and takes what was not. Proved by running one build
+with a zero budget (every test deferred, map unready) and a second with the
+default (every test taken, map ready), and the mutation that pushes the
+deadline an hour out turns that first assertion red.
