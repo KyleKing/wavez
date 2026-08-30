@@ -4295,3 +4295,48 @@ tree ended clean. The gate log records ruff examining the change six times
 across the session, failing twice.
 
 That is the same loop the Go gates get, on a language none of them speak.
+
+### 2026-08-29 — the same question three times on a foreign repo
+
+One prompt against a scratch clone of yak-shears, asking whether its own
+`NEXT_STEPS.md` claim that search previews highlight nothing is still true.
+The same prompt ran three times, once after each fix:
+
+| run | turns | outcome | spend |
+| --- | --- | --- | --- |
+| before | 20 (cap) | no answer at all | $0.074 |
+| index fixed | 16 | an answer, wrong in its central claim | $0.070 |
+| search message fixed | 18 | correct, and every particular verified by hand | $0.119 |
+
+**The index was 97% other people's code.** 34,934 of 35,888 symbols came from
+`.venv`, across 2,149 dependency files against 149 of the project's own. Go
+keeps dependencies outside the tree, so `skipDirs` held `.git` and
+`node_modules` and had never needed more. The first run spent all 20 turns on
+retrieval, 18 searches of which 5 returned nothing, and never answered.
+
+**Then the search tool reported an absence it could not know.** Asked for
+`search-highlight` under `main.css`, it answered "no matches for
+"search-highlight" across 149 indexed files" for a rule sitting at line 2690.
+The index holds `.go` and `.py`, so the CSS was never in it. The run read that
+as the string not existing, concluded the stylesheet had no rule, and drafted
+an edit correcting the project's own notes to say so. A miss now says which
+file types the index holds and that a match in any other is invisible to it.
+
+This is the trap [AGENTS.local.md](../../AGENTS.local.md) already names for
+symbols, one level down: absent from the index is not absent from the tree,
+and on a Go repo the difference almost never shows because nearly every file
+is `.go`.
+
+**The third run's answer, checked line by line.** `highlightTextNodes` in
+`static/js/search.js` wraps matches in `.search-highlight` on every preview
+render, `main.css:2690` styles it, and the preview does highlight.
+`highlight_content` at `yak_shears/_yak/services.py:509` is a second,
+server-side implementation with no caller outside `tests/test_services.py`,
+and `tests/e2e/test_search.py` asserts on `.search-highlight` zero times. So
+the roadmap item is wrong in both directions: highlighting is not missing, and
+what is actually there is dead code with tests.
+
+**What has no gate.** All three runs were `-plan`, so they made no edits, and
+a run that edits nothing passes through every gate untouched. The second run
+was confidently wrong and nothing in the harness could have said so. Gates
+verify edits; an analysis is checked by nobody.
