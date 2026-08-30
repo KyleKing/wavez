@@ -4499,3 +4499,44 @@ That makes the PTY tool the cheaper option rather than the more expensive
 one. A tool over `creack/pty` opens a pseudo-terminal directly, so the
 harness owns the process and its lifetime, no socket exists to scope, and the
 sandbox stays exactly as tight as it is now.
+
+### 2026-08-30 — a terminal the harness owns
+
+The `pty` tool runs a command on a pseudo-terminal, sends keystrokes, and
+returns the screen. It exists because the sandbox cannot be opened narrowly
+enough for tmux, and it turns out to be the better answer anyway: no socket
+exists to scope, and the harness owns the process rather than a server it
+does not track. The program is killed when the call returns, so nothing
+outlives it.
+
+The screen is not the byte stream. `vt.SafeEmulator` resolves one from the
+other, which is the whole point for a TUI: a program repaints by moving the
+cursor, so the stream holds every frame and the screen holds the last. The
+test pins that by writing `aaa` and then addressing the cursor back over it,
+and asserting the result holds `Xaa` and no `aaa` at all.
+
+Three timing designs were wrong before one was right, and every one was found
+by running rather than by reading:
+
+- a fixed 300ms sleep passed alone and failed in the full package run, where
+  the program had not drawn at all when the sleep ended
+- waiting for the screen to go quiet, measured from the program's start when
+  it had drawn nothing, killed `go run ./cmd/wavez -h` while it was still
+  compiling. A real run reported the tool returned no screen, which is what
+  sent me back to it
+- quiet alone stayed flaky under the full suite, because a terminal echoes a
+  keystroke and an echo is a draw: a call that typed into a program went
+  quiet on its own echo and killed the program before it answered
+
+What settles it: nothing waits before the first keystroke, because a terminal
+buffers what is written to it and a program reads when it is ready, so there
+is no way to tell a program that is compiling from one waiting to be typed
+at. After the keys, the wait ends when the program exits, which is the
+precise signal for anything one-shot, and falls back to the screen being
+drawn and then going quiet for a program that stays up, bounded at 15
+seconds. Four consecutive runs of the package and three under `-race` pass.
+
+`wavez -preamble` prices it at 179 tokens, and it joins `shell` and `write`
+in `FastTierOmits` on the argument rather than on evidence: it runs an
+arbitrary command under a terminal, which is a heavier `shell`, and omitting
+the lighter one while advertising the heavier would be incoherent.
