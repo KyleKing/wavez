@@ -28,6 +28,7 @@ const (
 	ptyKeyGap     = 2 * time.Second
 	ptyDrawWait   = 15 * time.Second
 	ptyPoll       = 25 * time.Millisecond
+	ptyDrain      = 2 * time.Second
 	ptyMaxKeys    = 40
 	ptyMaxRunTime = 30 * time.Second
 )
@@ -190,6 +191,8 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 
 	p.play(ctx, tty, screen, exited, in.Keys)
 
+	drain(done, exited)
+
 	// Killing the program is what ends the reader for one that would
 	// otherwise sit at a prompt. A program that already exited is past this.
 	_ = cmd.Process.Kill() //nolint:errcheck // best effort: the program may have exited already
@@ -198,6 +201,27 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 	<-exited
 
 	return strings.TrimRight(screen.emulator.Render(), " \n"), nil
+}
+
+// drain gives the reader time to finish once the program has exited, before
+// the terminal is closed under it. Closing the master discards whatever the
+// program wrote and nothing has read yet, which is how a one-shot program's
+// last line went missing under a loaded machine while passing every time on
+// an idle one.
+func drain(done, exited <-chan struct{}) {
+	select {
+	case <-exited:
+	default:
+		return
+	}
+
+	timer := time.NewTimer(ptyDrain)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+	case <-timer.C:
+	}
 }
 
 // ptyScreen is the emulator with the time of its last write, which is what

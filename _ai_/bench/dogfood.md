@@ -4527,6 +4527,10 @@ by running rather than by reading:
 - quiet alone stayed flaky under the full suite, because a terminal echoes a
   keystroke and an echo is a draw: a call that typed into a program went
   quiet on its own echo and killed the program before it answered
+- ending the wait on process exit was right and still dropped the program's
+  last line under load, because closing the terminal discards what the
+  program wrote and nothing has read yet. The reader gets its chance first
+  now
 
 What settles it: nothing waits before the first keystroke, because a terminal
 buffers what is written to it and a program reads when it is ready, so there
@@ -4534,7 +4538,7 @@ is no way to tell a program that is compiling from one waiting to be typed
 at. After the keys, the wait ends when the program exits, which is the
 precise signal for anything one-shot, and falls back to the screen being
 drawn and then going quiet for a program that stays up, bounded at 15
-seconds. Four consecutive runs of the package and three under `-race` pass.
+seconds, with the reader given time to drain before the terminal closes. Three consecutive whole-pipeline runs pass, which is the load the flake needed.
 
 `wavez -preamble` prices it at 179 tokens, and it joins `shell` and `write`
 in `FastTierOmits` on the argument rather than on evidence: it runs an
