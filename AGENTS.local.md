@@ -146,15 +146,14 @@ are specific to this codebase and not visible from the code.
   The patch lands as `git apply --reject` into the working tree and jj
   snapshots it, so the `.rej` files arrive in the working copy. Copier
   excludes every git-ignored path from the patch, which is silent
-- `TestPTY_SendsKeystrokesAndReadsWhatTheyDrew` fails under a heavily
-  loaded machine and the cause is in `settle`, not the test. A key's echo is
-  a draw, so the screen is already quiet when the wait after the last key
-  starts, and that wait's quiet check passes at its 250 ms floor whether or
-  not the program has answered. `settle` would have to require a draw during
-  the wait itself rather than a quiet screen, and that costs the full
-  `ptyDrawWait` (15 s) for any final key that legitimately draws nothing.
-  Reproduced once in `hk check --all` and not in 60 parallel runs beside
-  eight `go build -a`, so treat a single failure as this and re-run
+- A pty in canonical mode echoes a keystroke the moment it is written, so
+  the screen is quiet on that echo before the program has been scheduled:
+  measured, the echo lands at 0 ms and an answer at 407 ms. `settle` reads a
+  draw as the program's only when it is not the echo of the key just sent
+  (`ptyScreen.note`), which is why `expect` must be called before every
+  write to the tty. A key drawing nothing beyond its echo holds the call for
+  `ptyAnswerWait` (2 s), and that window is measured from the write so the
+  two waits one key gets do not each spend it
 
 ## Go conventions
 

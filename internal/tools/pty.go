@@ -19,12 +19,14 @@ import (
 )
 
 // Bounds on one pty call. The screen is the default terminal a TUI is
-// written for, and the settle is what a program gets to repaint after each
-// key before the next one is sent.
+// written for, the settle is what a program gets to repaint after each key
+// before the next one is sent, and the answer wait is how long a key that
+// draws nothing beyond its echo holds the call.
 const (
 	ptyCols       = 80
 	ptyRows       = 24
 	ptySettle     = 250 * time.Millisecond
+	ptyAnswerWait = 2 * time.Second
 	ptyKeyGap     = 2 * time.Second
 	ptyDrawWait   = 15 * time.Second
 	ptyPoll       = 25 * time.Millisecond
@@ -225,16 +227,80 @@ func drain(done, exited <-chan struct{}) {
 }
 
 // ptyScreen is the emulator with the time of its last write, which is what
-// tells a caller the program has stopped drawing.
+// tells a caller the program has stopped drawing, and enough about the last
+// keystroke to tell the program's drawing from the terminal's own.
 type ptyScreen struct {
+	last time.Time
+	// sent is when the last keystroke was written, zero before the first.
+	sent     time.Time
 	emulator *vt.SafeEmulator
-	last     time.Time
-	mu       sync.Mutex
+	// echo is what the line discipline still owes back for that keystroke.
+	echo []byte
+	// answer records a draw that was not that echo, which is the only
+	// evidence the program itself reacted.
+	answer bool
+	mu     sync.Mutex
+}
+
+// expect records the keystroke just written so its echo does not read as an
+// answer. A terminal in canonical mode writes the keystroke back with \r
+// mapped to \r\n; one in raw mode writes nothing back, and there the next
+// draw fails to match and answers as it should.
+func (s *ptyScreen) expect(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.echo = []byte(strings.ReplaceAll(key, "\r", "\r\n"))
+	s.answer = false
+	s.sent = time.Now()
+}
+
+// note consumes whatever of b the terminal still owed as echo and reads the
+// rest as the program answering. The echo can arrive split across writes or
+// joined to the answer, so it is matched byte by byte rather than whole.
+func (s *ptyScreen) note(b []byte) {
+	n := 0
+	for n < len(b) && n < len(s.echo) && b[n] == s.echo[n] {
+		n++
+	}
+
+	s.echo = s.echo[n:]
+
+	if n < len(b) {
+		s.echo = nil
+		s.answer = true
+	}
+}
+
+// answered reports whether the program has drawn anything the terminal did
+// not echo on its behalf.
+func (s *ptyScreen) answered() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.answer
+}
+
+// awaited reports whether the last keystroke has had its window to be
+// answered. A key a program ignores draws nothing beyond its echo, and
+// waiting the whole draw bound for an answer that is not coming is what
+// would make every such call slow. Measured from the write rather than from
+// the wait, so the two waits one key gets do not each spend the window.
+//
+// It is false before the first keystroke, which is what leaves a program
+// that has yet to draw at all waiting its whole bound: that one may still
+// be starting up.
+func (s *ptyScreen) awaited() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return !s.sent.IsZero() && time.Since(s.sent) >= ptyAnswerWait
 }
 
 func (s *ptyScreen) Write(b []byte) (int, error) {
 	s.mu.Lock()
 	s.last = time.Now()
+	s.note(b)
 	s.mu.Unlock()
 
 	n, err := s.emulator.Write(b)
@@ -245,8 +311,8 @@ func (s *ptyScreen) Write(b []byte) (int, error) {
 	return n, nil
 }
 
-// quiet reports whether nothing has been drawn for settle, which is the only
-// signal available that a program has finished responding: it may exit, or it
+// quiet reports whether nothing has been drawn for settle, which is what
+// says a program that answered has finished answering: it may exit, or it
 // may sit at a prompt, and both look the same from outside.
 //
 // A program that has drawn nothing is never quiet, so a caller waits its
@@ -269,6 +335,8 @@ func (s *ptyScreen) quiet(settle time.Duration) bool {
 // waiting to be typed at.
 func (*PTY) play(ctx context.Context, tty io.Writer, screen *ptyScreen, exited <-chan struct{}, keys []string) {
 	for _, k := range keys {
+		screen.expect(k)
+
 		if _, err := io.WriteString(tty, k); err != nil {
 			return
 		}
@@ -282,10 +350,10 @@ func (*PTY) play(ctx context.Context, tty io.Writer, screen *ptyScreen, exited <
 // settle waits for the screen to be drawn and then stop changing, bounded by
 // bound so a program that draws forever, or never, still returns something.
 //
-// A program that exits is the precise signal and is taken first. Quiet alone
-// was not enough: a terminal echoes a keystroke, which is a draw, so a call
-// that typed into a program went quiet on its own echo and killed the program
-// before it answered.
+// A program that exits is the precise signal and is taken first. Otherwise
+// the program has to have answered before quiet means anything, since a
+// terminal echoes a keystroke and a screen still on that echo says only that
+// the terminal is done.
 //
 // A fixed sleep was what all of this replaced, twice. Under a loaded machine
 // the program had not drawn when the sleep ended and the call returned a
@@ -309,11 +377,21 @@ func settle(ctx context.Context, screen *ptyScreen, exited <-chan struct{}, boun
 		case <-deadline.C:
 			return
 		case <-tick.C:
-			// The quiet window has to be one this wait watched. Measuring it
-			// from the last draw alone returned at once whenever the screen
-			// had already been still for longer, which is what a keystroke
-			// leaves behind: its echo is a draw, the echo settles, and the
-			// next wait was over before the program had answered.
+			// Quiet alone cannot end this wait. A terminal echoes a keystroke
+			// the moment it is written, so the screen goes still on that echo
+			// within the settle window while the program has not been
+			// scheduled yet: measured under a pty, the echo landed at 0 ms and
+			// the answer at 407 ms, and the wait was over at 275 ms.
+			if !screen.answered() {
+				if screen.awaited() {
+					return
+				}
+
+				continue
+			}
+
+			// The quiet window has to be one this wait watched, or a screen
+			// already still for longer than it ends the wait on arrival.
 			if time.Since(entered) >= ptySettle && screen.quiet(ptySettle) {
 				return
 			}

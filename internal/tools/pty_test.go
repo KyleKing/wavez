@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/tool"
@@ -68,6 +69,64 @@ func TestPTY_SendsKeystrokesAndReadsWhatTheyDrew(t *testing.T) {
 		t.Errorf("the keystroke did not reach the program:\n%s", res.Content)
 	}
 }
+
+// A terminal echoes a keystroke the moment it is written, so the screen is
+// already still when the wait after that key begins. This is the flake that
+// behavior caused, made deterministic: a wait that ends on the echo kills the
+// program before it answers. Measured under a pty, the echo lands at 0 ms,
+// and two waits of one settle window each carry a wait that ends on it to
+// about 525 ms, so the answer here lands past that.
+func TestPTY_WaitsForTheProgramRatherThanItsOwnEcho(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gate, _ := recordingGate(t, permission.Allow)
+	p := tools.NewPTY(root, "t", gate)
+
+	res, err := p.Run(t.Context(), mustJSON(t, map[string]any{
+		"command": `sh -c 'read -r name; sleep 0.9; echo "hello $name"'`,
+		"keys":    []string{"wavez\r"},
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(res.Content, "hello wavez") {
+		t.Errorf("the wait ended on the echo, not on the answer:\n%s", res.Content)
+	}
+}
+
+// A key a program ignores draws nothing beyond its echo, and the wait for an
+// answer that is not coming must not cost the whole draw bound. The program
+// here reads a key, prints nothing, and holds the terminal open, so the only
+// thing that can end the call is that bound.
+func TestPTY_DoesNotWaitTheDrawBoundForAKeyThatDrawsNothing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gate, _ := recordingGate(t, permission.Allow)
+	p := tools.NewPTY(root, "t", gate)
+
+	start := time.Now()
+
+	if _, err := p.Run(t.Context(), mustJSON(t, map[string]any{
+		"command": `sh -c 'read -r ignored; sleep 30'`,
+		"keys":    []string{"x\r"},
+	})); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Two waits follow the last key and each honors the answer window, so
+	// the window being measured from the write rather than from the wait is
+	// what keeps this at the 2.0s measured here instead of twice that.
+	if elapsed := time.Since(start); elapsed > drawBoundSpent {
+		t.Errorf("a key that drew nothing took %v, which is the draw bound rather than the answer window", elapsed)
+	}
+}
+
+// drawBoundSpent is above every path this test can legitimately take and
+// below the draw bound, so only a wait that spent that bound trips it.
+const drawBoundSpent = 8 * time.Second
 
 func TestPTY_RefusesWhatItCannotRun(t *testing.T) {
 	t.Parallel()
