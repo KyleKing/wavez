@@ -903,6 +903,8 @@ Y-statement form: in the context of, facing, we decided, to achieve, accepting.
 - In the context of code shared with the sibling terminal tools, facing a package copied into each one against a shared module, we take [aragonite](https://github.com/KyleKing/aragonite) wherever it already holds the thing and extract into it wherever a second consumer appears, to stop maintaining one behavior in several repositories, accepting a `go.work` pointing at a sibling checkout while a change spans both. Aragonite's rule is that a package earns its place by having a real consumer rather than by being general, which is why its `vcs`, `tui/theme`, `tui/table`, `tui/markdown`, `tui/region`, `cache`, and `transport` came out of gh-repo-dashboard rather than out of a design. This project is the second consumer for several of them and the source for `codeintel`, which aragonite's README already lists as planned. The order is what makes this cheap: take a package when the work touches it anyway, so M4's VCS layer is where `internal/vcs` meets aragonite's `vcs` rather than a migration of its own
 - In the context of a copier-managed render inside a jj repository, facing whether the update procedure needs a jj-shaped variant, we keep `copier update` as written and require the working copy to be committed first, to use the tool as it is, accepting that a non-colocated jj checkout cannot be updated at all. Read from copier 9.17's `run_update` and confirmed here: it refuses a subproject whose VCS is not git, so the `.git` a colocated repo keeps is what makes this work and a bare `jj git clone` without `--colocate` would not. It then refuses a dirty destination, and jj's auto-snapshot puts working-copy changes in front of git as unstaged modifications, so a jj working copy with anything in it fails that check exactly as a git one would. The recovery is `jj commit` and never `git stash`, which would fight the snapshot. The patch lands through `git apply --reject` into the working tree, which jj snapshots on its own, so there is no staging step to lose and the `.rej` files arrive in the working copy where the procedure expects them. One interaction is worth knowing: copier excludes every git-ignored path from the patch, so a file the template renders into an ignored location is skipped without saying so
 
+- In the context of a run with nobody at the keyboard, facing whether unattended should also mean a wider ceiling, we keep the two separate, so unattended decides where a question is delivered and the permission mode decides what may run unasked, to stop "nobody is watching" from reading as "everything is approved", accepting that an unattended run parks on the first question it cannot answer. openworker draws the same line (`coworker/unattended.py` changes routing and not the autonomy ceiling) and adds that an unattended run never self-approves. Allow-always persistence is where this leaks here, because a grant made interactively survives into a later unattended run; that is the accepted tradeoff for one user on one laptop and is worth naming rather than discovering
+
 ## Milestones
 
 Milestones, not version numbers: the released binary's version tracks whatever
@@ -1488,6 +1490,55 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   it inherited, so the remaining candidate is diffing the package's issue
   count against the count at the run's start
 
+- Risk as a declared property of a tool rather than a call each tool
+  remembers to make. `shell`, `pty`, and `web_fetch` each ask the gate
+  themselves and the edit tools ask nothing, so whether a call is gated is a
+  fact about who remembered rather than about what the tool does.
+  openworker declares one of read, egress, write_local, exec, or external
+  per tool and reads that in one place (`coworker/risk.py`), with the rule
+  that a user override may tighten a built-in and never loosen one, because
+  dropping a write to a read would switch off path scoping and the mode gate
+  in the same step. Here that puts `str_replace`, `write`, `delete`, and
+  `rename` on the same footing as `shell` and gives `-strict-scope`
+  somewhere to live that is not the edit tools' own code. The measurement
+  comes first: how many prompts a write class raises over the replay corpus,
+  since the reason edits are ungated is that gating each one would prompt on
+  every turn
+- The files that govern the guard sit inside what the guard protects.
+  `.wavez/approvals.jsonl` holds every allow-always answer and `.wavez.pkl`
+  carries `shellAllow` and the argv each routine step runs, both under the
+  project root where containment passes any write and the edit tools reach
+  the gate not at all. One appended line widens what every later run may do
+  without a prompt. openworker floors this: `protected_paths()` is
+  unwritable in any mode through any tool, and a second list covers files
+  that execute on a later innocuous command (`.git/hooks/`,
+  `.github/workflows/`). This checkout carries both of those plus `hk.pkl`
+  and `.config/mise/conf.d/`. The work is a path list and one check in the
+  edit path, and it is the rare case where a fence is worth its cost,
+  because the escalation it stops is silent and permanent
+- Two routes onto the allowlist vouch for a command nobody read. `xargs` is
+  on `defaultAllowed` and runs whatever follows it, and `mise run <task>`
+  classifies as "the mise task" while the task body lives in
+  `.config/mise/conf.d/*.toml` and is never read the way `classifyScript`
+  reads a project script. openworker separates the two cases:
+  `_ARG_EXECUTORS` (xargs, env, timeout, nohup, sudo, npx, uvx) can never be
+  vouched for by a prefix rule, and `_IMPLICIT_TARGETS` names the file a
+  command runs without mentioning (`make` to Makefile, `npm` to
+  package.json). The second is what transfers, because `mise run` is how
+  this project runs everything and `classifyScript` already exists to read
+  what it would find
+- The search query is the outbound channel the Safety section says the
+  network rule does not cover. `web_fetch` prompts on a host no search in
+  the thread returned and `web_search` prompts never, so a model-chosen
+  string reaches a third-party instance on every call. openworker classifies
+  `web_search` as egress for that reason: the destination is fixed and the
+  query is free text the model wrote. The other half is that `WebSearch.Run`
+  adds every result URL to `seen`, so a poisoned result set pre-approves its
+  own hosts for the fetch that follows. Neither is worth fencing blind, and
+  what to measure is how many distinct hosts a real run fetches and how
+  often a search precedes a fetch, since a prompt per search would be the
+  whole tool
+
 **Closed**, newest first, each with its lane dated in
 `_ai_/bench/dogfood.md`:
 
@@ -1601,6 +1652,11 @@ Grouped by rough priority. Each stays out until the milestone that would use it,
 
 Likely later:
 
+- Recording which turns ingested content authored off this machine, before anything reads it. openworker's `session_facts.py` marks a tool result as ingesting by category (web, mcp, connector), writes the fact to the audit log, and has nothing consume it, on the argument that recording it now makes the later question ("would this fact have changed a verdict?") answerable by replaying a shadow run instead of re-arguing it. `web.Untrusted` already marks the content here, so what is missing is the per-turn fact and something to replay it with, and `-recall` plus the replay corpus are that. Cheap, and worth nothing until a decision exists that would read it
+- What the run itself created, as a fact on the approval prompt. openworker's `provenance.py` records that a file was written or downloaded this session so `python scripts/setup.py` can be judged when neither the human nor a reviewer is shown its contents. The shell tool here reads the script instead, which is strictly stronger, so what transfers is the narrower fact: a script this run wrote a minute ago and a script that has been in the tree for a year deserve different prompts, and the run already tracks what it created for `-strict-scope`
+- A dead-letter record for background work. openworker's `unrouted.py` keeps a capped, durable list of inbound messages with nowhere to go and background turns that errored, as a visibility surface rather than a queue nothing redelivers from. The watchers section already names the failure it covers, that a watcher which silently stops polling is worse than one never written, and a poll erroring on a timer with nobody watching is that failure. Waits on the first watcher
+- Suspend and resume instead of poll. openworker's `selfwake.py` gives a session a timer wake and a wake on completion of a backgrounded job, so an idle agent costs nothing and the scheduler tick resumes it. The 3 minute watcher interval is a poll because the GitHub cases are external, and the local half (a thread waiting on a gate, a build, or another thread's lease) is a completion wake the scheduler already knows the timing of
+
 - Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-intelligence store exists (M3). Built once and removed: scoring a pending action against the whole run's change set put the answer on the wrong surface. A permission prompt asks about one command, so only the guard's verdict and the paths that command touches belong on it, while capability delta, file count, and blast radius describe the diff and answer a different question at a different time. The regex capability list was the other half of the problem: a `net/http` import in a Go repo reads as "network capability introduced", so the score sat at its top band permanently and the band decided nothing. Whatever replaces it renders per surface, and any capability signal parses rather than greps
 - A symlink inside the project that points out of it passes the guard's containment test, which compares paths lexically and never resolves them. `sandbox.Exec` already realpaths every path entering the Seatbelt profile for the same reason, so the technique is in the repo and the guard does not use it. Doing so would make a verdict depend on filesystem state, which is the invariant the `Env` argument exists to protect, so the resolution belongs in the caller beside the script reading
 - Expansion wider than the four names the guard knows. A shell resolves every variable, and this resolves the ones a destructive command usually hides a path behind; the rest fail closed, which is correct and noisy, since `rm -rf $BUILD_DIR` prompts every time. The fix is not a longer list but real resolution: either a parser that tracks assignments earlier in the same command line, or asking a shell to expand without executing and classifying the result. Both read state, so both belong behind the `Env` argument rather than inside the guard
@@ -1624,6 +1680,8 @@ Maybe:
 
 No:
 
+- A model reviewer that clears approvals. openworker runs one (`coworker/reviewer.py`) under invariants worth recording so the idea is not re-argued from its weakest form: it may only turn "ask the human" into "go ahead" and never "blocked" into "go ahead", it fails closed to unsure on any parse, timeout, or provider error, it judges one action per request so a verdict cannot land on the wrong call, and it is never shown page text or file contents, so untrusted input can address the agent and never the judge. That is a careful design and it still puts a model where the measurement belongs, which is the decision this project made when the finish checks replaced the model reviewer. The half worth keeping is the input rule: anything that ever advises the gate here sees the guard's verdict and the user's own words, never a tool result
+- Personas, connector fleets, and teams. openworker's shape is one assistant reaching 25+ third-party services across a whole workday, and each of those is an account, a token, and a scope. One user on one laptop in one checkout is the constraint that pays for the deterministic layer here, and a Slack connector spends it
 - A git backend beside the jj one. jj's git interop already covers GitHub, and two backends would double the surface for no gain
 - KiteSurf as the browser backend (Workers only). browser-control as the default backend (real profile, allow-by-default filter in a third-party relay), kept as an opt-in behind the same interface
 - Wish/SSH for remote access (2026 CVEs)
@@ -1648,6 +1706,8 @@ No:
 - `codegraph`'s SQLite schema is its own and may change. Wavez copies rows into its store rather than querying theirs
 - `internal/app`'s `TestHostedKeyErrorsOnFirstHostedRequest` failed once inside a full-suite run and then did not reproduce in 36 runs of that package. It was reported as a pre-existing `t.TempDir` cleanup race, and neither half of that is verified, so it stays recorded rather than closed
 - Bubble Tea v2 broke imports and APIs in February 2026 (`charm.land/...` paths, `View() tea.View`, `tea.KeyPressMsg`, FPS-capped cell-diff renderer), so Crush-era snippets need translation. The scroll-performance regression tracked as bubbletea#1724 did not reproduce: the spike found no scroll stall at 100 events/s and rolled its own virtualized transcript because `bubbles/v2` viewport and list do not fit a live-growing log
+
+- The claim that model output never becomes a policy input holds for the guard and not for the store behind it. `.wavez/approvals.jsonl` is written by the gate and read by it on the next run, it sits under the project root, and the edit tools do not consult the gate, so an edit to it is a grant. The same shape covers `.wavez.pkl`, which carries `shellAllow` and the argv every routine step runs, and `.wavez.pkl` is also injected into every turn. Nothing has been observed doing this and nothing stops it either
 
 ## Open questions
 
