@@ -1,3 +1,74 @@
+## v0.16.0 (2026-08-31)
+
+### Feat
+
+- **gate**: record a lint finding on a neighbor instead of dropping it
+- **guard**: refuse every tool write to the files that govern the guard
+- **search**: say when a project is too large for the file-text index
+- **codeintel**: bound one index pass so a large tree still reaches the incremental path
+- **gate**: bound one coverage build and let the next take what it deferred
+- **codeintel**: answer from what is indexed while the first pass is still walking
+- **codeintel**: pass over vendored trees and files no human wrote
+- **annotate**: hand an image to the user to mark up and read what they drew
+- **permission**: narrow the approval key and persist allow-always per project
+- **finish**: check that a run which wrote nothing read what it names
+- **bench**: print a run as one line per turn with -timeline
+- **routine**: fire the schedule and thread-lifecycle triggers
+- **routines**: mark a step that examined nothing as an abstention
+- **read**: give each path in a batched read its own line range
+- **home**: archive threads and read the archive as its own list
+- **routine**: declare a service and hold it only while a step needs it
+- **tools**: drive a program under a real terminal and read what it drew
+- **shell**: keep the whole output of a trimmed command where the run can read it
+- **tools**: look at an image and answer one question about it
+- **config**: give a turn that carries an image its own tier
+- **codeintel**: index stylesheets and markup templates
+- **llm**: carry image content parts, and say which tiers accept them
+- **codeintel**: index TypeScript and TSX
+- **gate**: let a project declare its own change-triggered checks
+- **tools**: outline a long file instead of returning its text
+- **tui**: give a key its phrase, and fold the help list into columns
+- **tui**: fold a transcript row to its headline and keep the body for the expansion
+- **tui**: select Home rows with space and `*`, and answer a selection at once
+- **tui**: filter Home by state with a `state:` term in the query
+- **agent**: shadow-price the GLM tiers at z.ai pay-per-use rates
+- **llm**: serve the network tiers from z.ai instead of OpenRouter
+
+### Fix
+
+- **guard**: protect every file mise loads a config or a task body from
+- **pty**: wait for the program to answer a key rather than for its own echo
+- **search**: scope a query in the index rather than filtering its answer
+- **agent**: report a cancellation that lands during a run's startup as one
+- **pty**: make each wait watch its own quiet window
+- **pty**: let the reader drain before closing the terminal under it
+- **pty**: end the wait when the program exits, not on its own echo
+- **pty**: wait for a slow program to draw before reading its screen
+- **agent**: run the finish checks on a run that ended on a bound
+- **search**: say a miss is an absence from the index, not from the tree
+- **codeintel**: keep a project's dependencies out of the index
+- **gate**: abstain from the build gate outside a Go module
+- **prompt**: say the gates run on every change, not at the finish
+- **shell**: answer a package sweep the gates already ran over
+- **shell**: refuse an in-place stream edit and name the tool that makes it
+- **finish**: stop reporting a const, a field, or a config key as invented
+- **tools**: refuse a rename already refused with the same words
+- **replay**: say when no run of a task version has ever passed a check
+- **gate**: give the linter a cache per root and let it wait for the lock
+- **tools**: refuse an anchor already refused for a file that has not changed
+- **gate**: match a lint finding by shape and path suffix, not by substring
+- **tools**: finish a rename whose declaration a run already hand-edited
+- **tui**: window the schedule list and let a lane name take the row
+- **gate**: lint the packages a change touches, not the files alone
+- **tui**: size the transcript from the rows around it, so the footer stays on screen
+- **tui**: close the goal overlay on esc instead of popping the screen under it
+- **llm**: send z.ai one schema branch, since GLM answers a composed one with {}
+
+### Perf
+
+- **codeintel**: stat before hashing, and drop file text from the index of a large tree
+- **gate**: keep the build gate from relinking the binary every run
+
 ## v0.15.2 (2026-08-27)
 
 ### Fix
