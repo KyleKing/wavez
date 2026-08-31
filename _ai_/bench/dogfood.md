@@ -4976,3 +4976,64 @@ requiring a draw during the wait rather than a quiet screen, which costs the
 full `ptyDrawWait` of 15s for any final key that legitimately draws nothing.
 That trade is not this lane's to make, so it is written down in
 AGENTS.local.md and left.
+
+### 2026-08-30 — the index against a 114 MB checkout
+
+Everything above was measured on this repository (604 files, 5 MB) or on a
+tree of machine-translated C. Neither says what happens on a real large
+application, so this one is
+[getsentry/sentry](https://github.com/getsentry/sentry) at depth 1: 17,597
+source files and 114 MB, Python and TSX in roughly equal parts. It is public,
+it is the same language mix as the largest tree this is aimed at, and it is
+larger on both axes, so it bounds rather than approximates.
+
+| | this repo | the corpus, before | the corpus, after |
+|---|---|---|---|
+| first index | 2.2s | 1m20.6s | 34.9s |
+| re-index, unchanged | 62ms | 1.212s | 239ms |
+| `search` | 2ms | 225-435ms | 7-31ms |
+| store on disk | 17.6 MB | 419.8 MB | 87.9 MB |
+
+Three findings, each measured separately rather than as one change.
+
+The re-index was reading and hashing all 114 MB to learn that nothing had
+moved, and `Search` calls `Index` first, so a run paid it per query. The
+`files` table has recorded `mtime` and `size` since v1 and never read them
+back. Comparing those before reading takes it to 204ms on its own. The hash
+stays the authority whenever either field moved, so a same-length rewrite is
+still caught by its timestamp; what the gate cannot see is a write that
+restores both the nanosecond mtime and the byte count, which takes deliberate
+effort.
+
+The store was 93% full-text index: `fts_data` 251 MB and `fts_content`
+139 MB of 419.8 MB, against 17.9 MB of symbols. Trigram postings run about
+3.5x the source they cover, so that is structural rather than a leak.
+Dropping the whole-file rows takes the store to 87.9 MB, the cold index to
+32.5s, and a search from 435ms to 41ms. What they buy is substring search
+inside files, and `rg` answers the same three queries across the same 114 MB
+in 0.45-0.62s, from a tool already advertised, at no index cost. So
+`MaxContentIndexBytes` is 16 MB of claimed source: under it the arithmetic
+reverses and file text is worth indexing, over it the index holds symbols and
+paths and `search` says so rather than answering "no matches" about something
+plainly in the tree. Crossing the threshold drops the stale whole-file rows
+in the same pass, because a partial content index answers confidently from
+whichever files happened to be indexed first.
+
+Symbol search is intact, which is the point of all of it:
+`OrganizationMemberSerializer`, `useApiQuery`, and `get_project` each rank
+their own definition first, in 7 to 31ms.
+
+What is left is the walk. 239ms per query is `WalkDir` plus one `lstat` per
+claimed file. Splitting the stats across eight goroutines gives 193ms, which
+is 19% for real concurrency and a stat-error path that reads as a size
+refusal, so it was measured and thrown away: the traversal is the floor, not
+the stats. Going under it means not walking on the query path, which means a
+filesystem watcher with a periodic full walk behind it for the events a
+watcher drops. That observes the tree the way re-walking does, which is what
+the freshness rule actually asks for, unlike a cache or a TTL. Unbuilt, and
+239ms is the number that would justify it.
+
+`TestScale` is the harness. It skips without `WAVEZ_SCALE_ROOT`, asserts
+nothing about wall-clock time because the machine is as much of the
+measurement as the tree is, and fails only when a query stops finding its own
+definition. [docs/scale.md](../../docs/scale.md) is the design.

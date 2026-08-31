@@ -1098,9 +1098,18 @@ released in between. The reason to bound it at all is that lock: a first pass
 long enough to outlive the first edit means the 236ms incremental path never
 gets to run.
 
-Arc A's measurable items are closed. What is left in it is a question rather
-than a task: whether an index bounded this way is the right answer for a tree
-a hundred times this size, which needs a corpus that big to say. None of the efficiency numbers in Next transfer across this
+That question has an answer now, measured against a 17,597-file, 114 MB
+public checkout rather than a synthetic one. Three things had to change: a
+stat decides whether a file is worth reading (the `files` table recorded
+`mtime` and `size` and never read them back, so every query re-hashed the
+whole tree), whole file text leaves the trigram index above
+`MaxContentIndexBytes` because it was 390 MB of a 420 MB store to beat `rg`
+by less than a second, and a file no human wrote stays out. That is 1m20.6s
+to 34.9s cold, 1.212s to 239ms per query, 435ms to 26ms per search, and
+419.8 MB to 87.9 MB on disk, with symbol queries still resolving to their own
+declarations. [docs/scale.md](docs/scale.md) carries the design, the corpus,
+and the one thing left on the walk, which is a filesystem watcher worth
+239ms. None of the efficiency numbers in Next transfer across this
 boundary, because all of them were measured on the small side of it.
 
 **B. Documentation drifted from the tree, and so did the template.** The
