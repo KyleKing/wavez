@@ -490,6 +490,15 @@ and what a failing poll does all get decided before the first watcher ships. A w
 silently stops polling is worse than one that was never written, because the absence of an
 alert reads as the absence of the event.
 
+
+A notification is a nudge and the queue is the truth. swarm-forge makes its
+tmux wake-ups deliberately lossy: one only prompts an idle agent to check a
+durable inbox, and a busy agent ignores it. That is the rule a poll has to
+follow here, because a watcher whose poll result *is* the message loses the
+event whenever the poll is missed, while one that writes a proposal into the
+Inbox and then nudges cannot. It is also what would make a completion wake
+safe to build, since a missed wake costs a delay and never an event.
+
 ### Cycles (M2)
 
 A Cycle is a named, reusable, phased way of working on a class of problem, defined in `.wavez.pkl` beside routines. Routines are deterministic DAGs with no model in them; a Cycle is the opposite arrangement, model work in each phase with a deterministic check between. The fix cycle is the first one: reproduce, fix, generalize. Others are expected (red-green-refactor for a feature, inventory-transform-verify for a migration), which is why the concept is named rather than the one process being hard-coded.
@@ -1494,15 +1503,15 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   `sysinfo.Memory`. That is the tier rather than the tool surface, and the
   candidate routing signals are plan mode, a Cycle phase declaring its
   shape, and the run's own tool history
-- The `lint` gate now runs over the packages a change touches, which is
-  what stopped it abstaining on every multi-file package, and a finding is
-  matched by shape and by path suffix, which is what stopped it reporting the
-  linter's own `level=warning` lines while dropping every real finding under a
-  symlinked root. So it reads a neighbor and says nothing about it: work
-  displaced out of a run's own files is linted and then filtered away.
-  Reporting a package-level finding as the run's own would blame it for what
-  it inherited, so the remaining candidate is diffing the package's issue
-  count against the count at the run's start
+- A `lint` finding on a neighbor is an advisory rather than dropped. The
+  gate lints whole packages and kept only what named a changed file, so work
+  displaced out of a run's own files was linted and then discarded, and CI
+  was the first place it surfaced. An advisory reaches the gate log and never
+  the model, which is what keeps a run from being blamed for what it
+  inherited. What that leaves open is telling the two apart, which needs the
+  package's findings as they stood when the run started: the gate is handed a
+  batch's change set and no run identity, so a baseline has nowhere to live
+  yet
 
 - Risk as a declared property of a tool rather than a call each tool
   remembers to make. `shell`, `pty`, and `web_fetch` each ask the gate
@@ -1732,7 +1741,7 @@ Likely later:
 - Merge-then-monitor: join merges against Sentry or health metrics after the fact to label outcomes. Separate tool, not a pre-merge gate
 - Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the M4 VCS layer
 - Ask-a-line threads persisted like review comments. Depends on diff anchors (M3)
-- An audit round before a run's work is accepted, read out of unclebob/swarm-forge (`swarmforge/scripts/swarm_handoff.bb`). A first submission never lands: it returns `AUDIT_REQUIRED`, and the resubmission passes only where it is byte-identical to the first, which is what makes re-reading the requirements the cheapest way through instead of re-sending. The half that transfers here is narrower than the mechanism, because a gate failure followed by a fix already re-runs the gates: what goes unchecked is a lane that answers a gate finding by changing nothing, and the diff between two consecutive attempts answers that without a protocol. Read, not measured, and the audit counter has an obvious failure mode where a run learns to resend rather than to re-read
+- An audit round before a run's work is accepted, read out of [swarm-forge](https://github.com/unclebob/swarm-forge) (`swarmforge/scripts/swarm_handoff.bb`). A first submission never lands: it prints `AUDIT_REQUIRED` with the requirement-to-evidence reading it wants, and stores an audit token bound to a sha256 of the draft plus the invocation it was granted for (task id, type, recipients, commit, base commit). `invalidate-changed-invocation-audits!` deletes that token the moment any of those differ, so a candidate that changed has to be audited again and an unchanged resend is exactly what passes. The half that transfers here is narrower than the mechanism, because a gate failure followed by a fix already re-runs the gates: what goes unchecked is a lane that answers a gate finding by changing nothing, and the diff between two consecutive attempts answers that without a protocol. Read, not measured, and the fingerprint is what makes that failure mode structural rather than obvious: the protocol can tell that work changed and never that it was reconsidered, so resending is the one move it always rewards
 - Reconciling what a run says it touched against what it did, read out of sodiumsun/agenttrail (`bin/agenttrail.mjs`, `parsePlan` and `touchComponents`). It keeps the declared and the observed pictures side by side and refuses to make them agree, on the rule that a component whose files are being written is live whatever its checkbox says. `attributed()` now answers the narrow version (a gate batch naming no file the run changed says so), and the wider one is a bound the finish checks would own rather than a separate surface. Read, not measured
 
 Maybe:

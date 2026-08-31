@@ -200,3 +200,37 @@ func TestLintGateIsNotAnsweredWithASiblingCheckoutsPaths(t *testing.T) {
 		t.Errorf("frames = %v, want the finding under the checkout that was linted", frames)
 	}
 }
+
+// The gate lints whole packages and used to keep only the findings naming a
+// changed file, so a finding on a neighbor was linted and then dropped: the
+// run passed every round and CI reported it. It is an advisory now, which
+// puts it in the gate log without blaming the run for what it may have
+// inherited.
+//
+//nolint:paralleltest // same lock as the tests above
+func TestLintGateRecordsANeighborsFindingRatherThanDroppingIt(t *testing.T) {
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		t.Skip("golangci-lint is not installed")
+	}
+
+	root := lintFixtureWithSibling(t,
+		"package a\n\nfunc F() int { return G() }\n",
+		"package a\n\nfunc G() (n int) {\n\tn = 1\n\treturn\n}\n")
+
+	result := runLintGate(t, root)
+	if result.Reason != "" {
+		t.Fatalf("gate abstained on a package that compiles: %+v", result)
+	}
+
+	if !result.Pass || len(result.Failures) != 0 {
+		t.Fatalf("result = %+v, want the run's own files to pass", result)
+	}
+
+	if len(result.Advisories) != 1 {
+		t.Fatalf("advisories = %+v, want the neighbor's naked return recorded", result.Advisories)
+	}
+
+	if frames := result.Advisories[0].Frames; len(frames) != 1 || !strings.Contains(frames[0], "b.go") {
+		t.Errorf("advisory = %q, want it to name b.go", frames)
+	}
+}

@@ -91,15 +91,15 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			fmt.Errorf("%s run: %w: %s", lintTool, err, strings.TrimSpace(string(out)))
 	}
 
-	failures := lintFailures(out, rc.Changes)
-	if len(failures) == 0 {
+	failures, advisories, sawFinding := lintFailures(out, rc.Changes)
+	if !sawFinding && len(failures) == 0 {
 		return Abstained(g.Name(), rc.Selection.Level,
 			"the change does not compile, which the build gate reports"), nil
 	}
 
 	return Result{
 		Gate: g.Name(), Level: rc.Selection.Level, Examined: len(files),
-		Failures: failures,
+		Failures: failures, Advisories: advisories, Pass: len(failures) == 0,
 	}, nil
 }
 
@@ -153,11 +153,24 @@ func packagesOf(files []string) []string {
 	return out
 }
 
-// lintFailures turns the linter's output into one failure per finding, so a
-// model reads which rule it broke and where rather than a wall of report.
+// lintFailures splits the linter's output three ways: the findings on the
+// run's own files, which fail the gate; the findings elsewhere in the
+// packages it linted, which do not; and whether the output held a finding
+// at all, which is what separates a linter that reported nothing about the
+// change from one that could not run.
+//
 // A finding always names its own file and line, so unlike a compiler or a
-// test there is nothing to trim: every line is already about the change.
-func lintFailures(out []byte, changes []tool.Change) []TrimmedFailure {
+// test there is nothing to trim: every line is already about some file.
+//
+// The gate lints whole packages because the linter type-checks whatever it
+// is handed, so it reads a neighbor on every run and used to discard what
+// it found there. A run that makes a sibling file stop compiling cleanly
+// then passed every round and failed in CI. A neighbor's finding is an
+// advisory rather than a failure because the gate cannot say whether this
+// run caused it: telling the run would blame it for what it inherited, and
+// separating the two needs the package's findings as they stood when the
+// run started, which no gate is handed today.
+func lintFailures(out []byte, changes []tool.Change) ([]TrimmedFailure, []TrimmedFailure, bool) {
 	changed := changedPaths(changes)
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 
@@ -166,30 +179,38 @@ func lintFailures(out []byte, changes []tool.Change) []TrimmedFailure {
 	// the change. The build gate reports the error in the same round.
 	for _, line := range lines {
 		if strings.HasSuffix(strings.TrimSpace(line), typecheckSuffix) {
-			return nil
+			return nil, nil, false
 		}
 	}
 
-	var findings []string
+	var mine, neighbors []string
 
 	for _, line := range lines {
-		if namesAChangedFile(line, changed) {
-			findings = append(findings, strings.TrimSpace(line))
+		switch {
+		case namesAChangedFile(line, changed):
+			mine = append(mine, strings.TrimSpace(line))
+		case findingLine.MatchString(strings.TrimSpace(line)):
+			neighbors = append(neighbors, strings.TrimSpace(line))
 		}
 	}
 
+	if len(mine) == 0 && len(neighbors) == 0 {
+		return []TrimmedFailure{{Test: lintGateName, Context: headOf(lines)}}, nil, false
+	}
+
+	return bounded(mine), bounded(neighbors), true
+}
+
+// bounded is one TrimmedFailure holding at most maxLintFindings of
+// findings, saying how many it left out.
+func bounded(findings []string) []TrimmedFailure {
 	if len(findings) == 0 {
-		return []TrimmedFailure{{Test: lintGateName, Context: headOf(lines)}}
+		return nil
 	}
 
-	dropped := 0
-	if len(findings) > maxLintFindings {
-		dropped = len(findings) - maxLintFindings
-		findings = findings[:maxLintFindings]
-	}
-
-	if dropped > 0 {
-		findings = append(findings, fmt.Sprintf("(%d more not shown)", dropped))
+	if dropped := len(findings) - maxLintFindings; dropped > 0 {
+		findings = append(slices.Clone(findings[:maxLintFindings]),
+			fmt.Sprintf("(%d more not shown)", dropped))
 	}
 
 	return []TrimmedFailure{{Test: lintGateName, Frames: findings}}
