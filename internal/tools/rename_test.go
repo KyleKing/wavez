@@ -69,7 +69,7 @@ func renameProject(t *testing.T) (string, *tools.Rename) {
 		}
 	})
 
-	return root, tools.NewRename(root, indexer, pool, tools.NewScope(false))
+	return root, tools.NewRename(root, indexer, pool, tools.NewScope(root, false))
 }
 
 func TestRenameRewritesEveryPackageThatUsesTheSymbol(t *testing.T) {

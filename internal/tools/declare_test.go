@@ -38,7 +38,7 @@ func Free() uint64 { return 1 }
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 
-	return root, tools.NewDeclare(root, indexer, tools.NewScope(false))
+	return root, tools.NewDeclare(root, indexer, tools.NewScope(root, false))
 }
 
 // Replacing a declaration through str_replace costs its text twice, once as

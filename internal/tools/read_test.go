@@ -350,7 +350,7 @@ func TestRead_OutlinesALongFileAndReadsAShortOneWhole(t *testing.T) {
 	write(t, filepath.Join(dir, "long.go"), long.String())
 	write(t, filepath.Join(dir, "short.go"), "package p\n\nfunc Only() {}\n")
 
-	r := tools.NewRead(dir, tools.NewScope(false))
+	r := tools.NewRead(dir, tools.NewScope(dir, false))
 
 	read := func(args string) string {
 		t.Helper()

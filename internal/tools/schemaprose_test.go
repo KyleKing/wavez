@@ -24,7 +24,7 @@ func TestTheErrorsCarryWhatTheSchemasStoppedSaying(t *testing.T) {
 	seed(t, root, "dup.go", "package a\n\nvar x = 1\nvar y = 2\nvar x = 3\n")
 	seed(t, root, "one.go", "package a\n")
 
-	scope := tools.NewScope(false)
+	scope := tools.NewScope(root, false)
 
 	tests := []struct {
 		run   func() (tool.Result, error)
@@ -179,7 +179,7 @@ func registrySpecs(t *testing.T) []tool.Spec {
 	t.Helper()
 
 	root := t.TempDir()
-	scope := tools.NewScope(false)
+	scope := tools.NewScope(root, false)
 
 	return tool.NewRegistry(
 		tools.NewList(root),
@@ -199,7 +199,7 @@ func TestStrReplaceNamesWhyAnAnchorCouldNotMatch(t *testing.T) {
 	root := t.TempDir()
 	seed(t, root, "a.go", "package a\n\nfunc F() int {\n\treturn 1\n}\n")
 
-	scope := tools.NewScope(false)
+	scope := tools.NewScope(root, false)
 	sr := tools.NewStrReplace(root, scope)
 
 	unread, err := sr.Run(t.Context(), mustJSON(t, map[string]any{
@@ -248,7 +248,7 @@ func TestStrReplaceSendsAWholeDeclarationToDeclare(t *testing.T) {
 	root := t.TempDir()
 	seed(t, root, "a.go", "package a\n\nfunc (m Memory) Used() int {\n\treturn 1\n}\n")
 
-	res, err := tools.NewStrReplace(root, tools.NewScope(false)).Run(t.Context(),
+	res, err := tools.NewStrReplace(root, tools.NewScope(root, false)).Run(t.Context(),
 		mustJSON(t, map[string]any{
 			"path":       "a.go",
 			"old_string": "func (m Memory) Used() int {\n\treturn 9\n}",

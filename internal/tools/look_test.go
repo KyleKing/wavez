@@ -26,7 +26,7 @@ func TestLook_AnswersInTextAndSendsTheImageOnce(t *testing.T) {
 	}
 
 	provider := fake.New("vision", fake.Turn{Text: []string{"A red ", "square."}})
-	look := tools.NewLook(root, tools.NewScope(false), provider, "glm-4.6v")
+	look := tools.NewLook(root, tools.NewScope(root, false), provider, "glm-4.6v")
 
 	result, err := look.Run(t.Context(), mustJSON(t, map[string]any{
 		"path": "shot.png", "question": "what is this",
@@ -101,7 +101,7 @@ func TestLook_RefusesWhatItCannotLookAt(t *testing.T) {
 			t.Parallel()
 
 			provider := fake.New("vision")
-			look := tools.NewLook(root, tools.NewScope(false), provider, "glm-4.6v")
+			look := tools.NewLook(root, tools.NewScope(root, false), provider, "glm-4.6v")
 
 			result, err := look.Run(t.Context(), mustJSON(t, tt.input))
 			if err != nil {

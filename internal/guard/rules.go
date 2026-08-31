@@ -79,7 +79,7 @@ func isForkBomb(cmd string) bool {
 
 // classifyCommand gathers every rule that matches cmd and returns the worst
 // of them: a command can trip more than one pattern (rm -rf on a .git path
-// is both a scoped delete and a git-internals write), and picking only the
+// is both a scoped delete and a write to a protected path), and picking only the
 // first match risks under-reporting the real severity.
 func classifyCommand(cmd string, env Env) finding {
 	raw := tokenize(cmd)
@@ -129,7 +129,7 @@ func classifyCommand(cmd string, env Env) finding {
 			Verdict: NeedsApproval, Reason: "kills processes by name across the whole user", Fragment: cmd,
 		})
 	}
-	if reason, hit := gitInternalsWrite(tokens); hit {
+	if reason, hit := writesProtected(tokens, env); hit {
 		candidates = append(candidates, finding{Verdict: Refuse, Reason: reason, Fragment: cmd})
 	}
 
@@ -404,39 +404,42 @@ func jjDiscards(name, sub string) (string, bool) {
 	}
 }
 
-func gitInternalsWrite(tokens []string) (string, bool) {
+// writesProtected refuses a shell command whose target is one of the files
+// that decide what a later command may run. It reads the same list the edit
+// tools do, so a run cannot reach through the shell what `write` refuses.
+//
+// It sees only the writers it names and a redirect, which is a floor rather
+// than a complete account of what can write a file: a shell can reach one
+// through an interpreter or an editor this never sees. The list is where
+// the guarantee lives, and this keeps the obvious route from being open.
+func writesProtected(tokens []string, env Env) (string, bool) {
 	writers := map[string]bool{"rm": true, "mv": true, "cp": true, "tee": true, "truncate": true}
-	name := baseName(tokens[0])
-	isWriter := writers[name]
+	isWriter := writers[baseName(tokens[0])]
 
 	for i, tok := range tokens {
 		if tok == ">" || tok == ">>" {
 			isWriter = true
 			continue
 		}
-		if !isWriter {
+		if !isWriter || i == 0 {
 			continue
 		}
-		if i == 0 {
-			continue
-		}
-		if touchesGitDir(tok) {
-			return "writes directly to .git internals", true
+		if where := protectedTarget(tok, env.ProjectRoot); where != "" {
+			return "writes " + where + ", which " + ReasonProtected, true
 		}
 	}
 
 	return "", false
 }
 
-func touchesGitDir(path string) bool {
-	clean := filepath.ToSlash(filepath.Clean(path))
-	for _, part := range strings.Split(clean, "/") {
-		if part == ".git" {
-			return true
-		}
+// protectedTarget answers for a command-line token, which is relative to
+// the project root when it is not absolute.
+func protectedTarget(tok, root string) string {
+	if filepath.IsAbs(tok) {
+		return ProtectedWrite(root, tok)
 	}
 
-	return false
+	return protectedRel(filepath.ToSlash(filepath.Clean(tok)))
 }
 
 func classifyChmodChown(cmd string, tokens []string, env Env) finding {

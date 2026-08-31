@@ -78,11 +78,20 @@ func TestClassify_RM(t *testing.T) {
 		{name: "rm without force is not destructive", command: "rm -r /repo/build", wantVerdict: guard.Allow},
 		{
 			name: "writes to git internals", command: "rm -rf /repo/.git/hooks",
-			wantVerdict: guard.Refuse, wantReason: "git internals",
+			wantVerdict: guard.Refuse, wantReason: "writes .git/",
 		},
 		{
 			name: "redirect into git internals", command: "echo x > /repo/.git/config",
-			wantVerdict: guard.Refuse, wantReason: "git internals",
+			wantVerdict: guard.Refuse, wantReason: "writes .git/",
+		},
+		{
+			name:        "redirect into a mise task body",
+			command:     "echo x >> .config/mise/conf.d/p.toml",
+			wantVerdict: guard.Refuse, wantReason: "writes .config/mise/conf.d/",
+		},
+		{
+			name: "tee into a workflow", command: "echo x | tee .github/workflows/ci.yml",
+			wantVerdict: guard.Refuse, wantReason: "writes .github/workflows/",
 		},
 	})
 }

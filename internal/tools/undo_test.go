@@ -86,7 +86,7 @@ func TestUndoRestoresOnlyWhatTheRunWrote(t *testing.T) {
 			root := t.TempDir()
 			write(t, filepath.Join(root, "a.go"), original)
 
-			scope := tools.NewScope(false)
+			scope := tools.NewScope(root, false)
 			c.edit(t, root, scope)
 
 			res, err := tools.NewUndo(root, scope).

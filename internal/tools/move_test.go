@@ -45,7 +45,7 @@ func Beta() string { return "beta" }
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 
-	return root, tools.NewMove(root, indexer, tools.NewScope(false))
+	return root, tools.NewMove(root, indexer, tools.NewScope(root, false))
 }
 
 // Splitting a file is otherwise a block rewrite at both ends, and block

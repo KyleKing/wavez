@@ -49,7 +49,7 @@ func Gamma() string { return "gamma" }
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
 
-	return root, tools.NewDelete(root, indexer, nil, tools.NewScope(false))
+	return root, tools.NewDelete(root, indexer, nil, tools.NewScope(root, false))
 }
 
 func TestDeleteTakesTheDocCommentWithIt(t *testing.T) {
@@ -354,7 +354,7 @@ func TestDeleteRefusesWhatIsStillUsed(t *testing.T) {
 	})
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
-	del := tools.NewDelete(root, indexer, pool, tools.NewScope(false))
+	del := tools.NewDelete(root, indexer, pool, tools.NewScope(root, false))
 
 	ctx, cancel := context.WithTimeout(t.Context(), renameBudget)
 	defer cancel()

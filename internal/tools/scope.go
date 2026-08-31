@@ -6,11 +6,18 @@ import (
 	"os"
 	"sort"
 	"sync"
+
+	"github.com/kyleking/wavez/internal/guard"
 )
 
 // ErrOutOfScope reports an edit to a file the run has neither read nor
 // created.
 var ErrOutOfScope = errors.New("file was never read or created by this run")
+
+// ErrProtected reports an edit to a file that decides what a later command
+// may run. Unlike ErrOutOfScope it holds in every mode, because approving
+// it would be approving every command it goes on to permit.
+var ErrProtected = errors.New("this file " + guard.ReasonProtected)
 
 // Scope records which files a run has looked at, so an edit to a file it
 // never opened can be told apart from an ordinary one.
@@ -38,18 +45,20 @@ type Scope struct {
 	// wrote it, which is the only thing a run may undo. Reverting further
 	// than that would discard work this run never made.
 	origin map[string]origin
+	root   string
 	clock  int
 	mu     sync.Mutex
 	strict bool
 }
 
-// NewScope builds a Scope. A strict Scope refuses an out-of-scope edit; a
-// permissive one records it and allows it.
-func NewScope(strict bool) *Scope {
+// NewScope builds a Scope over the project rooted at root. A strict Scope
+// refuses an out-of-scope edit; a permissive one records it and allows it.
+// Both refuse a protected path.
+func NewScope(root string, strict bool) *Scope {
 	return &Scope{
 		seen: map[string]bool{}, strayed: map[string]bool{},
 		readAt: map[string]int{}, wroteAt: map[string]int{},
-		origin: map[string]origin{}, strict: strict,
+		origin: map[string]origin{}, root: root, strict: strict,
 	}
 }
 
@@ -169,6 +178,10 @@ func (s *Scope) Edit(abs string) error {
 		return nil
 	}
 
+	if err := s.Protected(abs); err != nil {
+		return err
+	}
+
 	s.snapshotOnce(abs)
 
 	s.mu.Lock()
@@ -182,6 +195,22 @@ func (s *Scope) Edit(abs string) error {
 
 	if s.strict {
 		return fmt.Errorf("%w: %s", ErrOutOfScope, abs)
+	}
+
+	return nil
+}
+
+// Protected reports whether abs is one of the files that decide what a
+// later command may run without asking, which no tool may write in any
+// mode. Tools that create a file rather than edit one call it directly,
+// since they never reach Edit.
+func (s *Scope) Protected(abs string) error {
+	if s == nil {
+		return nil
+	}
+
+	if where := guard.ProtectedWrite(s.root, abs); where != "" {
+		return fmt.Errorf("%w (%s)", ErrProtected, where)
 	}
 
 	return nil

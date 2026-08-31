@@ -207,7 +207,7 @@ func gateFeedback(f Fixture) []string {
 // registryFor is the file-level tool surface, which is every tool a fixture
 // can drive without an index, a language server, or a daemon.
 func registryFor(root, sessionTmp, checks string) *tool.Registry {
-	scope := tools.NewScope(false)
+	scope := tools.NewScope(root, false)
 
 	return tool.NewRegistry(
 		tools.NewList(root),

@@ -92,6 +92,10 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Fail(tool.CauseRefused, "%v", err), nil
 	}
 
+	if err := w.scope.Protected(abs); err != nil {
+		return tool.Fail(tool.CauseRefused, "%v", err), nil
+	}
+
 	release, err := w.deps.hold(ctx, abs)
 	if err != nil {
 		return tool.Fail(tool.CauseConflict, "%v", err), nil

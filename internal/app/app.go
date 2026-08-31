@@ -303,7 +303,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	graph := importGraph(ctx, root)
 
 	indexer := codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
-	scope := tools.NewScope(options.StrictScope)
+	scope := tools.NewScope(root, options.StrictScope)
 	leases := lease.New(root, lease.WithTTL(cfg.LeaseTTL))
 	scheduler := options.Scheduler
 	if scheduler == nil {

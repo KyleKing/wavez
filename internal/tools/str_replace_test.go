@@ -953,7 +953,7 @@ func TestStrReplace_ShowsTheTextRatherThanAskingForAReread(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	scope := tools.NewScope(false)
+	scope := tools.NewScope(dir, false)
 	scope.Observe(path)
 
 	s := tools.NewStrReplace(dir, scope)
@@ -1017,7 +1017,7 @@ func TestStrReplace_RefusesAnAnchorItAlreadyRefusedForAnUnchangedFile(t *testing
 	path := filepath.Join(dir, "file.go")
 	write(t, path, "package p\n\nfunc a() { x := 1 }\n")
 
-	s := tools.NewStrReplace(dir, tools.NewScope(false))
+	s := tools.NewStrReplace(dir, tools.NewScope(dir, false))
 	miss := map[string]any{"path": "file.go", "old_string": "func b()", "new_string": "func c()"}
 
 	first := runEdit(t, s, miss)
