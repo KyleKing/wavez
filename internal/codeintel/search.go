@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
 )
@@ -49,7 +50,12 @@ type SearchQuery struct {
 	Mode SearchMode
 	// Text is the fuzzy match string in SearchFuzzy, or the edges.src/dst
 	// seed key in SearchGraph.
-	Text  string
+	Text string
+	// Path narrows the search to one file or directory relative to the
+	// project root, empty for the whole project. It is applied in the query
+	// rather than to the answer, so the limit and the match count both
+	// describe the scope asked for.
+	Path  string
 	Limit int
 }
 
@@ -222,7 +228,7 @@ func truncateLine(line string) string {
 // establishing what a count would have told it.
 func (s *Store) CountMatches(ctx context.Context, q SearchQuery) (int, error) {
 	if q.Mode == SearchLiteral {
-		rows, err := s.literalRows(ctx, q.Text, 0)
+		rows, err := s.literalRows(ctx, q, 0)
 
 		return len(rows), err
 	}
@@ -231,9 +237,12 @@ func (s *Store) CountMatches(ctx context.Context, q SearchQuery) (int, error) {
 		return 0, nil
 	}
 
+	scope, scopeArgs := scopeFilter(q.Path)
+
 	var total int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM fts WHERE fts MATCH ?`, ftsQuery(q.Text)).Scan(&total)
+		`SELECT count(*) FROM fts WHERE fts MATCH ?`+scope,
+		append([]any{ftsQuery(q.Text)}, scopeArgs...)...).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("counting matches for %q: %w", q.Text, err)
 	}
@@ -280,9 +289,13 @@ func (s *Store) fuzzyRows(ctx context.Context, q SearchQuery) ([]fuzzyRow, error
 		scan = fuzzyScan
 	}
 
+	scope, scopeArgs := scopeFilter(q.Path)
+	args := append([]any{ftsQuery(q.Text)}, scopeArgs...)
+
+	//nolint:gosec // scope is scopeFilter's own constant clause; every value it matches is bound
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ? ORDER BY rank, kind, ref_id LIMIT ?`,
-		ftsQuery(q.Text), scan)
+		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ?`+scope+` ORDER BY rank, kind, ref_id LIMIT ?`,
+		append(args, scan)...)
 	if err != nil {
 		return nil, fmt.Errorf("fuzzy search %q: %w", q.Text, err)
 	}
@@ -347,20 +360,66 @@ func literalQuery(text string) string {
 	return `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
 }
 
+// scopeFilter is the SQL restricting fts rows to one file or directory, and
+// the arguments it binds. An empty scope returns an empty clause.
+//
+// It has to run in the query rather than over the answer: the fuzzy path
+// ranks a fixed window and truncates it before returning, so filtering
+// afterwards drops the rows a scope asked for in favor of rows it did not.
+// Measured on this repository, `Read` scoped to internal/tui answered "no
+// matches" while the directory held several, and `Result` scoped to
+// internal/gate answered with one of the dozens there.
+func scopeFilter(scope string) (string, []any) {
+	clean := cleanScope(scope)
+	if clean == "" {
+		return "", nil
+	}
+
+	prefix := clean + "/"
+
+	// A symbol row's ref_id names symbols.id and a path or file row's names
+	// files.id, so each reaches files.path by a different route.
+	const clause = ` AND ((kind = 'symbol' AND ref_id IN (
+		SELECT symbols.id FROM symbols JOIN files ON files.id = symbols.file_id
+		WHERE files.path = ? OR substr(files.path, 1, length(?)) = ?))
+	OR (kind <> 'symbol' AND ref_id IN (
+		SELECT id FROM files WHERE path = ? OR substr(path, 1, length(?)) = ?)))`
+
+	return clause, []any{clean, prefix, prefix, clean, prefix, prefix}
+}
+
+// cleanScope normalizes a caller's path to the spelling files.path holds,
+// reporting "" for anything that names the project root.
+func cleanScope(scope string) string {
+	if scope == "" {
+		return ""
+	}
+
+	clean := filepath.Clean(filepath.ToSlash(scope))
+	if clean == "." || clean == "/" {
+		return ""
+	}
+
+	return strings.TrimPrefix(clean, "/")
+}
+
 // literalRows returns the candidates holding text exactly. A limit of 0
 // means every one of them, which is how CountMatches asks. The trigram
 // tokenizer folds case, so the SQL match is a superset and the filter here
 // is what makes the mode literal.
-func (s *Store) literalRows(ctx context.Context, text string, limit int) ([]literalRow, error) {
-	if len([]rune(text)) < minLiteralLength {
-		return nil, fmt.Errorf("%w: %q is shorter than %d characters", ErrLiteralTooShort, text, minLiteralLength)
+func (s *Store) literalRows(ctx context.Context, q SearchQuery, limit int) ([]literalRow, error) {
+	if len([]rune(q.Text)) < minLiteralLength {
+		return nil, fmt.Errorf("%w: %q is shorter than %d characters", ErrLiteralTooShort, q.Text, minLiteralLength)
 	}
 
+	scope, scopeArgs := scopeFilter(q.Path)
+
+	//nolint:gosec // scope is scopeFilter's own constant clause; every value it matches is bound
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ? ORDER BY rank, kind, ref_id`,
-		literalQuery(text))
+		`SELECT kind, ref_id, text FROM fts WHERE fts MATCH ?`+scope+` ORDER BY rank, kind, ref_id`,
+		append([]any{literalQuery(q.Text)}, scopeArgs...)...)
 	if err != nil {
-		return nil, fmt.Errorf("literal search %q: %w", text, err)
+		return nil, fmt.Errorf("literal search %q: %w", q.Text, err)
 	}
 	defer func() { _ = rows.Close() }() //nolint:errcheck // read-only cursor, nothing actionable on close failure
 
@@ -372,7 +431,7 @@ func (s *Store) literalRows(ctx context.Context, text string, limit int) ([]lite
 			return nil, fmt.Errorf("scanning fts row: %w", err)
 		}
 
-		if !strings.Contains(row.text, text) {
+		if !strings.Contains(row.text, q.Text) {
 			continue
 		}
 
@@ -391,7 +450,7 @@ func (s *Store) literalRows(ctx context.Context, text string, limit int) ([]lite
 }
 
 func (s *Store) searchLiteral(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
-	rows, err := s.literalRows(ctx, q.Text, q.Limit)
+	rows, err := s.literalRows(ctx, q, q.Limit)
 	if err != nil {
 		return nil, err
 	}

@@ -215,3 +215,87 @@ func Read(path string, limit int) ([]string, error) { return nil, nil }
 		t.Errorf("fuzzy Read ranked %v, want the symbol named Read above the names that only share letters", names)
 	}
 }
+
+// TestSearch_ScopeAppliesBeforeTheLimit is the regression for a scope
+// applied to the answer rather than to the query: the store ranks a window
+// and truncates it, so a caller filtering afterwards loses every row the
+// scope wanted that the global order buried.
+func TestSearch_ScopeAppliesBeforeTheLimit(t *testing.T) {
+	t.Parallel()
+	store, ctx := openStore(t)
+	if _, err := store.Index(ctx, fixtureDir, defaultRegistry()); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		scope   string
+		want    string
+		results bool
+	}{
+		{name: "directory", scope: "pysrc", want: "pysrc/", results: true},
+		{name: "trailing separator", scope: "pysrc/", want: "pysrc/", results: true},
+		{name: "dot relative", scope: "./pysrc", want: "pysrc/", results: true},
+		{name: "single file", scope: "tssrc/greeter.ts", want: "tssrc/greeter.ts", results: true},
+		{name: "project root", scope: ".", want: "", results: true},
+		{name: "absent directory", scope: "nowhere", want: "", results: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			q := codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: "greet", Path: tc.scope, Limit: 1}
+			results, err := store.Search(ctx, q)
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			if got := len(results) > 0; got != tc.results {
+				t.Fatalf("Search(path=%q) returned %d results, want any = %v", tc.scope, len(results), tc.results)
+			}
+
+			assertUnder(t, results, tc.scope, tc.want)
+
+			total, err := store.CountMatches(ctx, q)
+			if err != nil {
+				t.Fatalf("CountMatches: %v", err)
+			}
+			if (total > 0) != tc.results {
+				t.Errorf("CountMatches(path=%q) = %d, want any = %v", tc.scope, total, tc.results)
+			}
+		})
+	}
+}
+
+// TestSearch_LiteralScopeAppliesBeforeTheLimit covers the literal path,
+// which reads its own rows and so needs the scope of its own.
+func TestSearch_LiteralScopeAppliesBeforeTheLimit(t *testing.T) {
+	t.Parallel()
+	store, ctx := openStore(t)
+	if _, err := store.Index(ctx, fixtureDir, defaultRegistry()); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	q := codeintel.SearchQuery{Mode: codeintel.SearchLiteral, Text: "greet", Path: "pysrc", Limit: 1}
+	results, err := store.Search(ctx, q)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("literal search scoped to pysrc returned nothing")
+	}
+
+	assertUnder(t, results, "pysrc", "pysrc/")
+}
+
+func assertUnder(t *testing.T, results []codeintel.SearchResult, scope, want string) {
+	t.Helper()
+
+	for i := range results {
+		file := results[i].File
+		if results[i].Symbol != nil {
+			file = results[i].Symbol.FilePath
+		}
+
+		if !strings.HasPrefix(file, want) {
+			t.Errorf("Search(path=%q) returned %s, which is outside the scope", scope, file)
+		}
+	}
+}

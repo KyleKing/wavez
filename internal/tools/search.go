@@ -92,36 +92,6 @@ type searchInput struct {
 	Limit int    `json:"limit"`
 }
 
-// scopeTo narrows results to a file or directory. The index answers for the
-// whole project, and a caller who already knows where to look was otherwise
-// reaching for `grep -n pattern one/file.go`: measured over the thread logs,
-// 106 of 278 shell calls were a search the shell could scope and this tool
-// could not.
-func scopeTo(results []codeintel.SearchResult, path string) []codeintel.SearchResult {
-	if path == "" {
-		return results
-	}
-
-	out := make([]codeintel.SearchResult, 0, len(results))
-
-	for i := range results {
-		if under(fileOf(results[i]), path) {
-			out = append(out, results[i])
-		}
-	}
-
-	return out
-}
-
-// fileOf is the path a result belongs to, whichever shape it has.
-func fileOf(r codeintel.SearchResult) string {
-	if r.Symbol != nil {
-		return r.Symbol.FilePath
-	}
-
-	return r.File
-}
-
 // Run implements tool.Tool.
 func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, error) {
 	if err := ctx.Err(); err != nil {
@@ -148,33 +118,33 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 	results, stats, err := s.index.Search(ctx, codeintel.SearchQuery{
 		Mode:  codeintel.SearchMode(in.Mode),
 		Text:  in.Query,
+		Path:  in.Path,
 		Limit: in.Limit,
 	})
 	if err != nil {
 		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
-	scoped := scopeTo(results, in.Path)
-	if len(scoped) > 0 || !worthRetryingAsFuzzy(in) {
-		return tool.Result{Content: formatSearchResults(scoped, stats, in.Query)}, nil
+	if len(results) > 0 || !worthRetryingAsFuzzy(in) {
+		return tool.Result{Content: formatSearchResults(results, stats, in.Query, in.Path)}, nil
 	}
 
 	retried, stats, err := s.index.Search(ctx, codeintel.SearchQuery{
 		Mode:  codeintel.SearchFuzzy,
 		Text:  fuzzyRetryText(in.Query),
+		Path:  in.Path,
 		Limit: in.Limit,
 	})
 	if err != nil {
 		return tool.Fail(tool.CauseUpstream, "%v", err), nil
 	}
 
-	scoped = scopeTo(retried, in.Path)
-	if len(scoped) == 0 {
-		return tool.Result{Content: formatSearchResults(scoped, stats, in.Query)}, nil
+	if len(retried) == 0 {
+		return tool.Result{Content: formatSearchResults(retried, stats, in.Query, in.Path)}, nil
 	}
 
 	return tool.Result{Content: fmt.Sprintf("%s:\n%s",
-		literalMissReason(in.Query), formatSearchResults(scoped, stats, in.Query))}, nil
+		literalMissReason(in.Query), formatSearchResults(retried, stats, in.Query, in.Path))}, nil
 }
 
 // fuzzyRetryText is what a literal miss searches for instead. The index
@@ -289,10 +259,12 @@ func partialNote(stats codeintel.IndexStats) string {
 }
 
 // formatSearchResults distinguishes an empty result from an index that
-// covers nothing. Reporting both as "no results" told a model to narrow a
-// query that could not have matched anything, and it spent four turns
-// retrying.
-func formatSearchResults(results []codeintel.SearchResult, stats codeintel.IndexStats, query string) string {
+// covers nothing, and a miss inside scope from a miss across the project.
+// Reporting both as "no results" told a model to narrow a query that could
+// not have matched anything, and it spent four turns retrying.
+func formatSearchResults(
+	results []codeintel.SearchResult, stats codeintel.IndexStats, query, scope string,
+) string {
 	if len(results) == 0 {
 		if stats.Building != "" {
 			return "no matches: " + stats.Building
@@ -306,6 +278,12 @@ func formatSearchResults(results []codeintel.SearchResult, stats codeintel.Index
 		if stats.FilesScanned == 0 {
 			return "no matches: the code index covers no files in this project, " +
 				"so search cannot answer here. Use shell with rg, or read, instead"
+		}
+
+		if scope != "" {
+			return fmt.Sprintf("no matches for %q under %s. The index covers %d files across the "+
+				"whole project, which are its %s files; drop path to search all of them.%s",
+				query, scope, stats.FilesScanned, indexedExtensions, partialNote(stats))
 		}
 
 		return fmt.Sprintf("no matches for %q across %d indexed files, which are this project's "+
