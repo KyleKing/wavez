@@ -87,6 +87,7 @@ func TestIndex_ReindexUnchangedIsNoOp(t *testing.T) {
 	want := codeintel.IndexStats{
 		FilesScanned:   first.FilesScanned,
 		FilesUnchanged: first.FilesScanned,
+		ContentIndexed: true,
 	}
 	if second != want {
 		t.Errorf("re-index of unchanged tree = %+v, want %+v", second, want)
@@ -296,6 +297,49 @@ func TestIndex_PassesOverAFileOverTheSizeCap(t *testing.T) {
 
 	if len(results) != 0 {
 		t.Errorf("Search found %d results in a file over the cap, want none", len(results))
+	}
+}
+
+// A same-size rewrite that restores the original mtime is the one edit the
+// stat gate cannot see, so the hash has to stay the authority whenever the
+// stat says anything at all has moved.
+func TestIndex_StatGateStillHashesWhenSizeOrTimeMoved(t *testing.T) {
+	t.Parallel()
+	store, ctx := openStore(t)
+	root := t.TempDir()
+	registry := defaultRegistry()
+	path := filepath.Join(root, "mod.py")
+
+	if err := os.WriteFile(path, []byte("def alpha():\n    return 1\n"), 0o600); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+
+	if _, err := store.Index(ctx, root, registry); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	// Same byte count, different content, so only the timestamp separates
+	// them and the reindex has to follow it.
+	if err := os.WriteFile(path, []byte("def gamma():\n    return 1\n"), 0o600); err != nil {
+		t.Fatalf("rewriting: %v", err)
+	}
+
+	stats, err := store.Index(ctx, root, registry)
+	if err != nil {
+		t.Fatalf("Index after rewrite: %v", err)
+	}
+
+	if stats.FilesIndexed != 1 {
+		t.Fatalf("FilesIndexed = %d, want the rewritten file reindexed", stats.FilesIndexed)
+	}
+
+	results, err := store.Search(ctx, codeintel.SearchQuery{Mode: codeintel.SearchFuzzy, Text: "gamma", Limit: 5})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Error("the rewritten symbol is not searchable, so the stat gate skipped a real edit")
 	}
 }
 

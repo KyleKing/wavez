@@ -46,6 +46,11 @@ type IndexStats struct {
 	// next one, having spent MaxIndexBytesPerPass. Unlike FilesTooLarge
 	// these are on their way in rather than excluded.
 	FilesDeferred int
+	// ContentIndexed is whether whole file text is in the trigram table.
+	// It is false on a project over MaxContentIndexBytes, where a query
+	// that would have matched file text matches nothing instead, so the
+	// answer has to say so rather than read as an absence.
+	ContentIndexed bool
 }
 
 // skipDirs never descends into these directory names while scanning. They
@@ -87,24 +92,46 @@ const MaxFileBytes = 256 << 10
 // this is about ten seconds of parsing.
 const MaxIndexBytesPerPass = 32 << 20
 
+// MaxContentIndexBytes is how much claimed source a project may hold before
+// the index stops copying whole file contents into the trigram table and
+// keeps only symbols and paths. Trigram postings run about 3.5x the source
+// they cover, so the content rows are the whole store at any real size: on a
+// 114 MB checkout they are 390 MB of a 420 MB database, 32 s of the cold
+// index, and they take a search from 41 ms to 435 ms. What they buy is
+// substring search over file text, which `rg` answers across that same
+// checkout in half a second while costing no disk and no preamble, since
+// `shell` is advertised already.
+//
+// Below the threshold the arithmetic reverses: content rows are tens of
+// megabytes, they make a literal query a ranked answer with line matches in
+// one call, and no subprocess beats them. 16 MB of source is roughly 56 MB
+// of trigram index, which is the most this is worth paying without being
+// asked.
+const MaxContentIndexBytes = 16 << 20
+
 // Index walks root for files registry claims, reparsing only those whose
 // content hash changed since the last Index call, and removes rows for
 // files that no longer exist. A re-index of an unchanged tree issues no
 // write statements at all.
 func (s *Store) Index(ctx context.Context, root string, registry *lang.Registry) (IndexStats, error) {
-	found, tooLarge, err := scanFiles(root, registry)
+	found, tooLarge, claimed, err := scanFiles(root, registry)
 	if err != nil {
 		return IndexStats{}, err
 	}
 
-	stats := IndexStats{FilesTooLarge: tooLarge}
+	content := claimed <= MaxContentIndexBytes
+	stats := IndexStats{FilesTooLarge: tooLarge, ContentIndexed: content}
 	err = s.withWrite(ctx, func(tx *sql.Tx) error {
 		existing, err := loadExistingFiles(ctx, tx)
 		if err != nil {
 			return err
 		}
 
-		run := &indexRun{tx: tx, registry: registry, existing: existing, stats: &stats}
+		run := &indexRun{tx: tx, registry: registry, existing: existing, stats: &stats, content: content}
+
+		if err := run.dropContentRows(ctx); err != nil {
+			return err
+		}
 
 		seen, err := run.indexScannedFiles(ctx, found)
 		if err != nil {
@@ -130,6 +157,25 @@ type indexRun struct {
 	// indexed is how many bytes of new or changed files this pass has
 	// parsed, which is what MaxIndexBytesPerPass bounds.
 	indexed int
+	// content is whether whole file text goes into the trigram table this
+	// pass, which MaxContentIndexBytes decides from the size of the tree.
+	content bool
+}
+
+// dropContentRows clears whole-file trigram rows a smaller version of this
+// tree left behind. A project that grows past MaxContentIndexBytes would
+// otherwise keep answering literal queries from whichever files happened to
+// be indexed before it crossed, which is worse than not answering them.
+func (run *indexRun) dropContentRows(ctx context.Context) error {
+	if run.content {
+		return nil
+	}
+
+	if _, err := run.tx.ExecContext(ctx, `DELETE FROM fts WHERE kind = 'file'`); err != nil {
+		return fmt.Errorf("dropping whole-file fts rows: %w", err)
+	}
+
+	return nil
 }
 
 // indexScannedFiles writes rows for every file whose content hash is new or
@@ -149,13 +195,19 @@ func (run *indexRun) indexScannedFiles(ctx context.Context, found []scannedFile)
 }
 
 func (run *indexRun) indexOneFile(ctx context.Context, sf scannedFile) error {
+	prior, existed := run.existing[sf.relPath]
+	if existed && prior.MTime == sf.mtime && prior.Size == sf.size {
+		run.stats.FilesUnchanged++
+
+		return nil
+	}
+
 	content, err := os.ReadFile(sf.absPath)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", sf.absPath, err)
 	}
 	hash := contentHash(content)
 
-	prior, existed := run.existing[sf.relPath]
 	if existed && prior.ContentHash == hash {
 		run.stats.FilesUnchanged++
 
@@ -173,27 +225,22 @@ func (run *indexRun) indexOneFile(ctx context.Context, sf scannedFile) error {
 		return fmt.Errorf("indexing %s: %w", sf.relPath, err)
 	}
 
-	info, err := os.Stat(sf.absPath)
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", sf.absPath, err)
-	}
-
 	fileID := prior.ID
 	if existed {
 		if err := deleteFileIndexRows(ctx, run.tx, fileID); err != nil {
 			return err
 		}
-		if err := updateFileRow(ctx, run.tx, fileID, hash, info.ModTime().UnixNano(), info.Size()); err != nil {
+		if err := updateFileRow(ctx, run.tx, fileID, hash, sf.mtime, sf.size); err != nil {
 			return err
 		}
 	} else {
-		fileID, err = insertFileRow(ctx, run.tx, sf.relPath, hash, info.ModTime().UnixNano(), info.Size())
+		fileID, err = insertFileRow(ctx, run.tx, sf.relPath, hash, sf.mtime, sf.size)
 		if err != nil {
 			return err
 		}
 	}
 
-	n, err := insertFileIndexRows(ctx, run.tx, fileID, sf.relPath, content, symbols)
+	n, err := insertFileIndexRows(ctx, run.tx, fileID, sf.relPath, content, symbols, run.content)
 	if err != nil {
 		return err
 	}
@@ -224,14 +271,17 @@ func (run *indexRun) removeStaleFiles(ctx context.Context, seen map[string]bool)
 type scannedFile struct {
 	relPath string
 	absPath string
+	mtime   int64
+	size    int64
 }
 
 // scanFiles lists the files registry claims under root, and separately
 // counts those it passed over for exceeding MaxFileBytes.
-func scanFiles(root string, registry *lang.Registry) ([]scannedFile, int, error) {
+func scanFiles(root string, registry *lang.Registry) ([]scannedFile, int, int64, error) {
 	var (
 		found    []scannedFile
 		tooLarge int
+		bytes    int64
 	)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -260,18 +310,21 @@ func scanFiles(root string, registry *lang.Registry) ([]scannedFile, int, error)
 		if err != nil {
 			return fmt.Errorf("relativizing %s: %w", path, err)
 		}
+		bytes += info.Size()
 		found = append(found, scannedFile{
 			relPath: filepath.ToSlash(rel),
 			absPath: path,
+			mtime:   info.ModTime().UnixNano(),
+			size:    info.Size(),
 		})
 
 		return nil
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("scanning %s: %w", root, err)
+		return nil, 0, 0, fmt.Errorf("scanning %s: %w", root, err)
 	}
 
-	return found, tooLarge, nil
+	return found, tooLarge, bytes, nil
 }
 
 func contentHash(content []byte) string {
@@ -349,7 +402,8 @@ func deleteFileIndexRows(ctx context.Context, tx *sql.Tx, fileID int64) error {
 }
 
 func insertFileIndexRows(
-	ctx context.Context, tx *sql.Tx, fileID int64, relPath string, content []byte, symbols []lang.Symbol,
+	ctx context.Context, tx *sql.Tx, fileID int64, relPath string,
+	content []byte, symbols []lang.Symbol, withContent bool,
 ) (int, error) {
 	for _, sym := range symbols {
 		res, err := tx.ExecContext(ctx,
@@ -372,8 +426,10 @@ func insertFileIndexRows(
 	if err := insertFTS(ctx, tx, "path", fileID, relPath); err != nil {
 		return 0, err
 	}
-	if err := insertFTS(ctx, tx, "file", fileID, string(content)); err != nil {
-		return 0, err
+	if withContent {
+		if err := insertFTS(ctx, tx, "file", fileID, string(content)); err != nil {
+			return 0, err
+		}
 	}
 
 	return len(symbols), nil
