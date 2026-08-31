@@ -1,6 +1,7 @@
 package codeintel
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -111,4 +112,65 @@ func TestIndexRun_DefersOnceThePassBudgetIsSpent(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A project that grows past MaxContentIndexBytes has to lose the whole-file
+// rows a smaller version of it left behind, or a literal query keeps being
+// answered from whichever files happened to be indexed before it crossed,
+// which reads as a complete answer and is not one.
+func TestIndex_CrossingTheContentThresholdDropsTheFileRows(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	dir := t.TempDir()
+	root := filepath.Join(dir, "tree")
+
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		t.Fatalf("creating the tree: %v", err)
+	}
+
+	source := "def alpha():\n    return \"a distinctive phrase\"\n"
+	if err := os.WriteFile(filepath.Join(root, "mod.py"), []byte(source), 0o600); err != nil {
+		t.Fatalf("writing: %v", err)
+	}
+
+	store, err := Open(ctx, filepath.Join(dir, "index.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = store.Close() //nolint:errcheck // best-effort cleanup, the test already reported any real failure
+	})
+
+	reg := lang.NewDefaultRegistry()
+	if _, err := store.Index(ctx, root, reg); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	if n := countFileRows(ctx, t, store); n != 1 {
+		t.Fatalf("whole-file fts rows = %d under the threshold, want 1", n)
+	}
+
+	err = store.withWrite(ctx, func(tx *sql.Tx) error {
+		return (&indexRun{tx: tx}).dropContentRows(ctx)
+	})
+	if err != nil {
+		t.Fatalf("dropContentRows: %v", err)
+	}
+
+	if n := countFileRows(ctx, t, store); n != 0 {
+		t.Errorf("whole-file fts rows = %d over the threshold, want none", n)
+	}
+}
+
+func countFileRows(ctx context.Context, t *testing.T, store *Store) int {
+	t.Helper()
+
+	var n int
+	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM fts WHERE kind = 'file'`).Scan(&n); err != nil {
+		t.Fatalf("counting whole-file fts rows: %v", err)
+	}
+
+	return n
 }

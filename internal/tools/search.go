@@ -270,6 +270,11 @@ const bytesPerKB = 1024
 // exist.
 func partialNote(stats codeintel.IndexStats) string {
 	note := ""
+	if !stats.ContentIndexed && stats.FilesScanned > 0 {
+		note += " This project is too large for the file-text index, so only symbol names and paths" +
+			" are searchable here; use shell with rg for anything inside a file."
+	}
+
 	if stats.FilesDeferred > 0 {
 		note += fmt.Sprintf(" %d further file(s) have not been read into the index yet; retry in a moment.",
 			stats.FilesDeferred)
