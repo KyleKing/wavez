@@ -5151,3 +5151,15 @@ never sees, so nothing blames a run for what it inherited. Telling the two
 apart needs the package's findings as they stood when the run started, and
 the gate is handed a batch's change set with no run identity, so a baseline
 has nowhere to live yet.
+
+## 2026-08-30: what the Go format hook costs at commit time
+
+`golangci-lint fmt` runs only the formatters `.golangci.toml` configures and
+typechecks nothing, so it measured 0.3s on this tree against a cold build
+cache and the same 0.3s warm. `golangci-lint run` typechecks, which measured
+2.1s warm and 17.8s cold, which is why the hook formats and leaves the
+linting to pre-push and CI.
+
+The step is in [my_go_template](https://github.com/KyleKing/my_go_template)
+now, so the numbers live here rather than in the comment: they were measured
+on this checkout and a freshly rendered project would report its own.
