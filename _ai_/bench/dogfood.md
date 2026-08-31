@@ -5037,3 +5037,48 @@ the freshness rule actually asks for, unlike a cache or a TTL. Unbuilt, and
 nothing about wall-clock time because the machine is as much of the
 measurement as the tree is, and fails only when a query stops finding its own
 definition. [docs/scale.md](../../docs/scale.md) is the design.
+
+## 2026-08-30: a scoped search was answering from the wrong rows
+
+`search` took `path` and applied it to the answer. The store ranks a 200-row
+window, truncates it to the limit, and the tool then dropped whatever fell
+outside the scope, so a scope competed for the leftovers of a global order.
+Measured against this repository's own index: `Read` scoped to
+`internal/tui` answered "no matches for \"Read\" across 606 indexed files",
+`Result` scoped to `internal/gate` answered with 1 of the dozens there and
+reported "of 498 that matched" from the whole project, and literal
+`context.Context` scoped to `internal/gate` answered "no literal match" about
+a directory built on it.
+
+`SearchQuery` carries the scope now and the SQL binds it, so the limit and
+the count both describe what was asked for. The same three queries return 5
+of 264, 5 of 77, and 5 of 82. A scoped miss names the scope rather than
+reporting the project's file count as if it had searched all of it.
+
+The cost, on the 17,397-file corpus: 43ms unscoped against 93ms scoped, for a
+search plus a count. The scope resolves through `files.path` and then
+`idx_symbols_file`, and 50ms at 1.7x the largest tree this has to serve is
+the price of an answer that is about the directory asked for.
+
+## 2026-08-30: the pty wait was ending on the terminal's own echo
+
+`TestPTY_SendsKeystrokesAndReadsWhatTheyDrew` failed twice under load and the
+cause was in `settle`. Traced with `TIOCOUTQ` and `FIONREAD` polled on the
+pty master beside a byte log: the echo of `wavez\r` came back as `wavez\r\n`
+at 0ms, and a program sleeping 400ms before answering wrote at 407ms. Both
+ioctls read 0 the whole time, so the kernel offers no signal for whether the
+program has consumed the input, and the discriminator had to come from the
+bytes.
+
+It is there: the line discipline echoes exactly what was written, with `\r`
+mapped to `\r\n`. `ptyScreen.note` consumes that echo byte by byte, so
+anything left over is the program drawing, and `settle` will not read quiet
+as an answer until something is. A key that draws nothing beyond its echo
+holds the call for `ptyAnswerWait` (2s), measured from the write rather than
+from the wait so the two waits one key gets do not each spend it.
+
+The unfixed code tolerated about 525ms, not 250ms, because two settles run
+back to back and each honors its own 250ms window. That is why the failure
+needed a loaded machine, and why the regression test answers at 900ms: it
+fails at 0.51s without the gate and passes at 1.2s with it. 20 runs beside
+six `go build -a` at load average 62 were green.
