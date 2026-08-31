@@ -56,3 +56,25 @@ func TestProtectedWrite_SaysNothingAboutAPathOutsideTheRoot(t *testing.T) {
 		t.Errorf("ProtectedWrite outside the root = %q, want %q", got, "")
 	}
 }
+
+// `mise run <task>` names a task and never the file its body sits in, and
+// mise loads a project config from nine filenames and a file task from
+// five directories. `mise config ls` in this checkout is the source for
+// the list; a spelling missing from it is a task body a run can write and
+// then run, past a guard that reads neither.
+func TestProtectedWrite_CoversEveryFileMiseRunsFrom(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	for _, rel := range []string{
+		".config/mise.toml", ".config/mise/conf.d/p.toml", ".config/mise/config.toml",
+		".config/mise/tasks/deploy", ".mise-tasks/deploy", ".mise.local.toml", ".mise.toml",
+		".mise/config.toml", ".mise/tasks/deploy", "mise-tasks/deploy", "mise.local.toml",
+		"mise.toml", "mise/config.toml", "mise/tasks/deploy",
+	} {
+		if guard.ProtectedWrite(root, filepath.Join(root, filepath.FromSlash(rel))) == "" {
+			t.Errorf("ProtectedWrite(%s) is unprotected; `mise run` would execute what a tool wrote there", rel)
+		}
+	}
+}

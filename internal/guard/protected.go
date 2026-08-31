@@ -16,18 +16,32 @@ var repoInternals = []string{".git", ".jj"}
 // what a later command may do without asking: the approvals themselves, the
 // config carrying `shellAllow` and each routine's argv, and the three
 // places a body runs off an otherwise innocuous command (`git commit`,
-// `mise run`, a push).
+// `mise run`, a push). Every filename mise loads a project config or a file
+// task from is here, because `mise run` names a task and never the file the
+// task body sits in: covering one spelling and not the rest would read as a
+// fence while leaving the same command open.
 //
 // Their names are only meaningful at the root, so a fixture under testdata
 // spelled `hk.pkl` is ordinary work and is left alone.
 var rootProtected = []string{
 	".config/mise.toml",
 	".config/mise/conf.d",
+	".config/mise/config.toml",
+	".config/mise/tasks",
 	".github/workflows",
+	".mise-tasks",
+	".mise.local.toml",
 	".mise.toml",
+	".mise/config.toml",
+	".mise/tasks",
 	".wavez.pkl",
 	".wavez/approvals.jsonl",
 	"hk.pkl",
+	"mise-tasks",
+	"mise.local.toml",
+	"mise.toml",
+	"mise/config.toml",
+	"mise/tasks",
 }
 
 // ReasonProtected is what a refused write is told, once, wherever the

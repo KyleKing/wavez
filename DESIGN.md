@@ -1601,8 +1601,11 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   string, which is what the tests assert against. The list is the approvals
   and `.wavez.pkl`, plus the four places a body runs off an otherwise
   innocuous command: `.git/` and `.jj/` at any depth, and `hk.pkl`,
-  `.github/workflows/`, `.config/mise.toml`, and `.config/mise/conf.d/` at
-  the root, so a fixture spelled `hk.pkl` under testdata is ordinary work.
+  `.github/workflows/`, and every one of the nine filenames mise loads a
+  project config from and five directories it loads a file task from, at the
+  root, so a fixture spelled `hk.pkl` under testdata is ordinary work. That
+  last set is what closes `mise run <task>`, which names a task and never
+  the file the body sits in.
   The shell reads the same list, which widened a rule that had covered
   `.git` alone
 
