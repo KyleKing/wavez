@@ -1523,21 +1523,23 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   dropping a write to a read would switch off path scoping and the mode gate
   in the same step. Here that puts `str_replace`, `write`, `delete`, and
   `rename` on the same footing as `shell` and gives `-strict-scope`
-  somewhere to live that is not the edit tools' own code. The measurement
-  comes first: how many prompts a write class raises over the replay corpus,
-  since the reason edits are ungated is that gating each one would prompt on
-  every turn
-- Two routes onto the allowlist vouch for a command nobody read. `xargs` is
-  on `defaultAllowed` and runs whatever follows it, and `mise run <task>`
-  classifies as "the mise task" while the task body lives in
-  `.config/mise/conf.d/*.toml` and is never read the way `classifyScript`
-  reads a project script. openworker separates the two cases:
-  `_ARG_EXECUTORS` (xargs, env, timeout, nohup, sudo, npx, uvx) can never be
-  vouched for by a prefix rule, and `_IMPLICIT_TARGETS` names the file a
-  command runs without mentioning (`make` to Makefile, `npm` to
-  package.json). The second is what transfers, because `mise run` is how
-  this project runs everything and `classifyScript` already exists to read
-  what it would find
+  somewhere to live that is not the edit tools' own code. The measurement is
+  in: over 327 runs that wrote anything, 1,850 write calls at a mean of 5.7
+  per run (p90 11, max 41), against 2.0 distinct files per run (median 2, p90
+  4, max 6). So a write class keyed per call is unaffordable and one keyed per
+  file is two prompts a run, which is the shape the shell's approval key
+  already has. Turning it on is a decision about how a run should feel and
+  not a measurement any more
+- Neither route onto the allowlist is open, and the `_IMPLICIT_TARGETS` half
+  is closed the other way round. `classifyXargs` already classifies what
+  xargs would invoke, and every other name in openworker's `_ARG_EXECUTORS`
+  (env, timeout, nohup, npx, uvx) prompts on its own name because none is on
+  `defaultAllowed`, with `sudo` refused: measured, `xargs rm -rf /` refuses,
+  `xargs curl` and `xargs -I{} sh -c` both prompt. `mise run <task>` still
+  classifies as the mise task and the body is still never read, and what
+  makes that safe is that no tool can write the body any more. Reading it
+  would prompt on `mise run ci`, which every run calls, to stop an escalation
+  the protected list already stops
 - The search query is the outbound channel the Safety section says the
   network rule does not cover. `web_fetch` prompts on a host no search in
   the thread returned and `web_search` prompts never, so a model-chosen
@@ -1548,7 +1550,11 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   own hosts for the fetch that follows. Neither is worth fencing blind, and
   what to measure is how many distinct hosts a real run fetches and how
   often a search precedes a fetch, since a prompt per search would be the
-  whole tool
+  whole tool. That cannot be measured here: the pair is behind a per-project
+  toggle that defaults off, and 870 thread logs hold no `web_search` or
+  `web_fetch` call at all. Narrowing `seen` from a host to the exact URL a
+  search returned is the change that fits, and its prompt cost has no
+  corpus to be read from
 
 - The guard splits a command string by hand and there is a parser for that.
   [safecmd](https://github.com/AnswerDotAI/safecmd) validates by parsing bash

