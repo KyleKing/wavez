@@ -28,9 +28,11 @@ import (
 const (
 	defaultShutdownGrace = 10 * time.Second
 	dialProbeTimeout     = 200 * time.Millisecond
-	// The sun_path limit: macOS allows 104 bytes including the terminator.
-	maxSockPath = 103
 )
+
+// MaxSockPath is the longest unix socket path a Server can bind: the
+// sun_path limit, which macOS caps at 104 bytes including the terminator.
+const MaxSockPath = 103
 
 // Sentinel errors New, Serve, and Shutdown return.
 var (
@@ -352,18 +354,16 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.serving = true
 	s.mu.Unlock()
 
-	ln, err := listen(ctx, s.sockPath)
-	if err != nil {
+	if err := s.Bind(ctx); err != nil {
 		s.mu.Lock()
 		s.serving = false
 		s.mu.Unlock()
 
-		return fmt.Errorf("listening on %s: %w", s.sockPath, err)
+		return err
 	}
 
 	acceptDone := make(chan struct{})
 	s.mu.Lock()
-	s.ln = ln
 	s.acceptDone = acceptDone
 	s.mu.Unlock()
 
@@ -523,8 +523,8 @@ func (s *Server) wakePending() {
 // socket file left by a daemon that crashed rather than a live one still
 // listening.
 func listen(ctx context.Context, path string) (net.Listener, error) {
-	if len(path) > maxSockPath {
-		return nil, fmt.Errorf("%w: %d bytes, limit is %d: %s", ErrSockPathTooLong, len(path), maxSockPath, path)
+	if len(path) > MaxSockPath {
+		return nil, fmt.Errorf("%w: %d bytes, limit is %d: %s", ErrSockPathTooLong, len(path), MaxSockPath, path)
 	}
 
 	var lc net.ListenConfig
@@ -559,4 +559,24 @@ func listen(ctx context.Context, path string) (net.Listener, error) {
 	}
 
 	return ln, nil
+}
+
+// Bind opens the socket Serve will accept connections on, so a caller can
+// confirm the daemon actually owns its socket before announcing it. It is
+// idempotent: binding an already-bound Server is a no-op.
+func (s *Server) Bind(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.ln != nil {
+		return nil
+	}
+
+	ln, err := listen(ctx, s.sockPath)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", s.sockPath, err)
+	}
+	s.ln = ln
+
+	return nil
 }

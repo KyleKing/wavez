@@ -113,6 +113,12 @@ func serve(ctx context.Context, dir, sock string) error {
 		return fmt.Errorf("starting daemon: %w", err)
 	}
 
+	// Bind before announcing, so the socket is owned by the time the claim
+	// prints rather than after it.
+	if err := srv.Bind(ctx); err != nil {
+		return fmt.Errorf("binding socket: %w", err)
+	}
+
 	if dir != "" {
 		abs, aerr := filepath.Abs(dir)
 		if aerr != nil {
