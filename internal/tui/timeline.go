@@ -32,7 +32,11 @@ func (m Model) updateTimelineKey(_ tea.KeyPressMsg, s string) (Model, tea.Cmd) {
 }
 
 func timelineHints() []hint {
-	return []hint{{keyEsc, labelBack, ""}, {"?", labelHelp, ""}}
+	return []hint{
+		{"j/k", "pick turn", "move the cursor, which expands that turn's whole tool list"},
+		{keyEsc, labelBack, ""},
+		{"?", labelHelp, ""},
+	}
 }
 
 // timelineTurns reduces the active thread's transcript to one row per turn,
