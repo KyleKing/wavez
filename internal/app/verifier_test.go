@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,6 +22,7 @@ var errGoimportsMissing = errors.New("goimports not found on PATH")
 // be tested without shelling out to a real toolchain.
 type stubGate struct {
 	err    error
+	seen   *[]gate.RunContext
 	name   string
 	result gate.Result
 }
@@ -28,7 +30,11 @@ type stubGate struct {
 func (g *stubGate) Name() string      { return g.name }
 func (*stubGate) Resources() []string { return nil }
 
-func (g *stubGate) Run(context.Context, gate.RunContext) (gate.Result, error) {
+func (g *stubGate) Run(_ context.Context, rc gate.RunContext) (gate.Result, error) {
+	if g.seen != nil {
+		*g.seen = append(*g.seen, rc)
+	}
+
 	return g.result, g.err
 }
 
@@ -106,6 +112,167 @@ func TestGateVerifier_Verify(t *testing.T) {
 			feedback, verdict := v.Verify(context.Background(), []tool.Change{{Path: "a.go"}})
 			assertVerifyOutcome(t, log, feedback, verdict == agent.VerdictPass, tt)
 		})
+	}
+}
+
+// TestGateVerifier_PartitionByRepo covers how a run's changes are split by
+// the repository they belong to. Only the changes under repoRoot reach the
+// gates. Work under a declared extra directory is recorded as an abstention
+// naming the directory, never fed back as a failure the run could act on,
+// and a run whose changes are entirely outside the root runs no gate at all.
+func TestGateVerifier_PartitionByRepo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		wantVerdict   agent.GateVerdict
+		wantUncovered string
+		changes       []tool.Change
+		wantRanGates  []string
+		wantSeenPaths []string
+	}{
+		{
+			name:          "all changes in root, gates run as today",
+			changes:       []tool.Change{{Path: "internal/app/verifier.go"}, {Path: "internal/gate/gate.go"}},
+			wantRanGates:  []string{"format", "build"},
+			wantSeenPaths: []string{"internal/app/verifier.go", "internal/gate/gate.go"},
+			wantVerdict:   agent.VerdictPass,
+		},
+		{
+			name: "all changes outside root, no gate runs and the directory is named",
+			changes: []tool.Change{
+				{Path: "/extra/sub/p1.go"},
+				{Path: "/extra/sub/p2.go"},
+			},
+			wantRanGates:  []string{"scope"},
+			wantVerdict:   agent.VerdictPass,
+			wantUncovered: "/extra/sub",
+		},
+		{
+			name: "a mix gates only the in-root subset",
+			changes: []tool.Change{
+				{Path: "internal/app/verifier.go"},
+				{Path: "/other/tree/file.go"},
+			},
+			wantRanGates:  []string{"scope", "format", "build"},
+			wantSeenPaths: []string{"internal/app/verifier.go"},
+			wantVerdict:   agent.VerdictPass,
+			wantUncovered: "/other/tree",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			log, err := gate.OpenLog(filepath.Join(t.TempDir(), "gate.log"))
+			if err != nil {
+				t.Fatalf("OpenLog: %v", err)
+			}
+
+			var seen []gate.RunContext
+			recorder := &stubGate{name: "build", result: gate.Result{Gate: "build", Pass: true}, seen: &seen}
+
+			v := app.NewGateVerifier("/repo", nil, nil, log, gate.RealClock{},
+				[]gate.Gate{
+					&stubGate{name: "format", result: gate.Result{Gate: "format", Pass: true}},
+					recorder,
+				}, nil, nil)
+
+			feedback, verdict := v.Verify(context.Background(), tt.changes)
+			if verdict != tt.wantVerdict {
+				t.Errorf("verdict = %q, want %q", verdict, tt.wantVerdict)
+			}
+			assertFeedback(t, feedback, "")
+			assertRanGates(t, log, tt.wantRanGates)
+			assertUncovered(t, log, tt.wantUncovered)
+			assertSeenPaths(t, seen, tt.wantSeenPaths)
+		})
+	}
+}
+
+func assertFeedback(t *testing.T, feedback, wantSubstring string) {
+	t.Helper()
+
+	if wantSubstring != "" {
+		if !strings.Contains(feedback, wantSubstring) {
+			t.Errorf("feedback = %q, want substring %q", feedback, wantSubstring)
+		}
+
+		return
+	}
+
+	if feedback != "" {
+		t.Errorf("feedback = %q, want empty", feedback)
+	}
+}
+
+// assertUncovered checks that the abstention names the directory this
+// project's gates did not cover, which is the only record a run editing
+// another repository leaves.
+func assertUncovered(t *testing.T, log *gate.Log, want string) {
+	t.Helper()
+
+	entries, err := log.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+
+	var reason string
+
+	for i := range entries {
+		if entries[i].Gate == "scope" {
+			reason = entries[i].Reason
+		}
+	}
+
+	if want == "" {
+		if reason != "" {
+			t.Errorf("uncovered reason = %q, want none recorded", reason)
+		}
+
+		return
+	}
+
+	if !strings.Contains(reason, want) {
+		t.Errorf("uncovered reason = %q, want substring %q", reason, want)
+	}
+
+	if !strings.Contains(reason, "outside this project") {
+		t.Errorf("uncovered reason = %q, want it named as out of scope", reason)
+	}
+}
+
+func assertRanGates(t *testing.T, log *gate.Log, want []string) {
+	t.Helper()
+
+	entries, err := log.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+
+	ran := make([]string, len(entries))
+	for i := range entries {
+		ran[i] = entries[i].Gate
+	}
+
+	if !slices.Equal(ran, want) {
+		t.Errorf("logged gates = %v, want %v", ran, want)
+	}
+}
+
+func assertSeenPaths(t *testing.T, seen []gate.RunContext, want []string) {
+	t.Helper()
+
+	var paths []string
+	for _, rc := range seen {
+		for _, ch := range rc.Changes {
+			paths = append(paths, ch.Path)
+		}
+	}
+
+	if !slices.Equal(paths, want) {
+		t.Errorf("gates saw changes %v, want %v", paths, want)
 	}
 }
 

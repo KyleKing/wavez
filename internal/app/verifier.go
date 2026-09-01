@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/agent"
@@ -48,8 +50,78 @@ func NewGateVerifier(
 	}
 }
 
+// partitionChanges splits the changes a run accumulated by the repository
+// they belong to. A change under repoRoot (a relative path, or an absolute
+// one inside it) is this project's to gate; anything else came from a
+// declared extra directory and this project's gates do not cover it. The
+// second return value names each such directory once, so the report can say
+// where the uncovered work sits without implying it was verified.
+func partitionChanges(changes []tool.Change, repoRoot string) ([]tool.Change, []string) {
+	var inRoot []tool.Change
+	var outside []string
+
+	seen := make(map[string]bool)
+
+	for _, ch := range changes {
+		if !underRoot(ch.Path, repoRoot) {
+			dir := filepath.Dir(filepath.Clean(ch.Path))
+			if !seen[dir] {
+				seen[dir] = true
+				outside = append(outside, dir)
+			}
+
+			continue
+		}
+
+		inRoot = append(inRoot, ch)
+	}
+
+	return inRoot, outside
+}
+
+// underRoot reports whether path names a file inside repoRoot. Relative
+// paths are workspace-relative and so inside; absolute paths must fall
+// under the root itself.
+func underRoot(path, repoRoot string) bool {
+	if !filepath.IsAbs(path) {
+		return true
+	}
+
+	rel, err := filepath.Rel(repoRoot, filepath.Clean(path))
+
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// noteUncovered records that changes landed outside repoRoot as an
+// abstention in the gate log, examining nothing. A run editing a declared
+// extra directory is not failing: this project's gates have nothing to say
+// about another repository, and feeding that back would stop a lane over
+// work it did correctly. The log is where it stays auditable.
+func (v *GateVerifier) noteUncovered(dirs []string) {
+	if len(dirs) == 0 || v.log == nil {
+		return
+	}
+
+	if err := v.log.Append(gate.LogEntry{
+		Timestamp: v.clock.Now(),
+		Gate:      "scope",
+		Reason:    "outside this project: " + strings.Join(dirs, ", "),
+		Pass:      true,
+	}); err != nil {
+		slog.Warn("recording uncovered directories", "error", err)
+	}
+}
+
 // Verify implements agent.Verifier.
 func (v *GateVerifier) Verify(ctx context.Context, changes []tool.Change) (string, agent.GateVerdict) {
+	changes, outside := partitionChanges(changes, v.repoRoot)
+
+	v.noteUncovered(outside)
+
+	if len(changes) == 0 {
+		return "", agent.VerdictPass
+	}
+
 	selection, err := gate.Select(ctx, v.cov, v.graph, changes)
 	if err != nil {
 		selection = gate.Selection{Level: gate.LevelPackage}
