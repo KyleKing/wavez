@@ -1476,7 +1476,12 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
 
 **Also open**, and not competing with the four above:
 
-- The Semgrep opt-in routine. The other three triggers fire now: `schedule`
+- The Semgrep opt-in routine ships, off unless a project writes
+  `semgrep { enabled = true }`, and a declaration overriding any built-in
+  keeps the steps and triggers it does not itself name, so opting in is that
+  one line. A checkout without the binary abstains rather than fails, which
+  is the difference between opting into a check and requiring every checkout
+  install it. The other three triggers fire now: `schedule`
   runs a routine every `intervalSeconds` counted from the end of its last
   run, refused below 30 seconds at compile because a typo in seconds is a
   laptop with no CPU left; `thread-start` fires once per thread rather than
@@ -1487,8 +1492,9 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   nor blocks what depends on it, and a run where every step abstained wears
   its own mark rather than a tick
 - Fleet-scale local serving past the slot bound that ships: `--cache-ram`
-  is set now, and sizing it against the admission headroom rather than at a
-  fixed 512 MiB is what is left (the `kv-slots` numbers). The
+  is sized against the admission headroom now, half of what free RAM holds
+  past the model split across the admitted slots and floored at 64 MiB, with
+  the start-up line naming which of the three branches decided. The
   trimmed-output recall handle ships, as a spill file in the session
   directory the omission line names. So does allow-always persistence, and
   narrowing the key had to come first: the key was the command's first word,
@@ -1503,7 +1509,7 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   gate escalations, and tier changes beside them. The thread screen's `p`
   is the version a person pages through, windowed to the terminal with the
   cursor row expanding to the turn's whole tool list, and both it and the
-  flag render a row through `bench.TurnLine`
+  flag render a row through `bench.TurnLine`. Both ship
 - What the fast tier's remit actually is. Holding the tools, the prompt, and
   the task fixed on `e2` and varying only the tier, the hosted model passed
   3 of 3 checks on all three runs while the fast tier reached 3 of 3 about
@@ -1528,7 +1534,11 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   working take that lane's identity out from under it. A `tool.Change`
   carries the thread that wrote it, stamped as it leaves the run, since a
   shared registry gives the tools no thread of their own. A batch mixing two
-  writers has no single starting point and is handed no identity at all
+  writers has no single starting point and is handed no identity at all.
+  `Changed`, `Status`, and `Covers` narrow to the asking thread too: the
+  loop stamps it on the context the tool call already carries, which is the
+  only path down to a registry built once per project, and a caller naming
+  no thread still gets the every-writer answer a fixture expects
 
 - Risk as a declared property of a tool rather than a call each tool
   remembers to make. `shell`, `pty`, and `web_fetch` each ask the gate
