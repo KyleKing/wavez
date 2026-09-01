@@ -87,7 +87,7 @@ type scriptedGate struct {
 	next     int
 }
 
-func (g *scriptedGate) Begin() { g.next = 0 }
+func (g *scriptedGate) Begin(string) { g.next = 0 }
 
 func (*scriptedGate) Enqueue(tool.Change) {}
 

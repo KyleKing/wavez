@@ -474,9 +474,11 @@ func WithContextWindow(n int) Option { return func(o *Options) { o.ContextWindow
 // consumes it: gates fire on change events rather than on the model
 // deciding to test, and their findings reach the model on its next turn.
 type ChangeGate interface {
-	// Begin forgets the previous run, so what the harness reports about
-	// this one describes this one.
-	Begin()
+	// Begin forgets writer's previous run, so what the harness reports
+	// about this one describes this one. One gate serves every thread, so
+	// the writer is what keeps a lane still working from being forgotten by
+	// a lane starting beside it.
+	Begin(writer string)
 	Enqueue(c tool.Change)
 	TakeFeedback() (string, bool)
 	// FalseAlarms returns the gates that have passed over the same change
@@ -588,7 +590,7 @@ func (l *Loop) Run(
 	}
 
 	if l.options.ChangeGate != nil {
-		l.options.ChangeGate.Begin()
+		l.options.ChangeGate.Begin(string(th.ID()))
 	}
 
 	checkpoint, err := l.captureCheckpoint(ctx)
@@ -1539,6 +1541,7 @@ func (r *run) gateChanges(changes []tool.Change) {
 	}
 
 	for _, c := range changes {
+		c.Writer = string(r.thread.ID())
 		r.loop.options.ChangeGate.Enqueue(c)
 	}
 }

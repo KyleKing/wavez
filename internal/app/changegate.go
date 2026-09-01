@@ -108,8 +108,8 @@ func (g *ChangeGate) Start(ctx context.Context) {
 
 // Begin forgets the previous run. The gate results go with it: a report
 // about a tree two runs ago is worse than saying nothing.
-func (g *ChangeGate) Begin() {
-	g.scope.Begin()
+func (g *ChangeGate) Begin(writer string) {
+	g.scope.Begin(writer)
 
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -571,7 +571,7 @@ func TestRun_OnlyLocalTurnsTakeASlot(t *testing.T) {
 // is the state a real one reaches after failing the same way across edits.
 type stuckGate struct{ asked int }
 
-func (*stuckGate) Begin()                       {}
+func (*stuckGate) Begin(string)                 {}
 func (*stuckGate) Enqueue(tool.Change)          {}
 func (*stuckGate) TakeFeedback() (string, bool) { return "", false }
 func (*stuckGate) FalseAlarms() []string        { return nil }
@@ -618,5 +618,52 @@ func TestRun_AGateNothingCanMoveEscalatesBeforeTheDeadline(t *testing.T) {
 
 	if len(hosted.Requests()) != 1 {
 		t.Errorf("hosted Requests len = %d, want the run to have moved up", len(hosted.Requests()))
+	}
+}
+
+// writerGate records the writer each call named, which is what the lint
+// baseline and anything else keyed per run reads.
+type writerGate struct {
+	began   []string
+	changes []tool.Change
+}
+
+func (g *writerGate) Begin(writer string)        { g.began = append(g.began, writer) }
+func (g *writerGate) Enqueue(c tool.Change)      { g.changes = append(g.changes, c) }
+func (*writerGate) TakeFeedback() (string, bool) { return "", false }
+func (*writerGate) FalseAlarms() []string        { return nil }
+func (*writerGate) Stuck() (string, bool)        { return "", false }
+
+// One agent.Loop serves every thread, so the gate pipeline learns whose work
+// it is holding only from what the loop stamps on the way past. Without it a
+// lane starting beside a lane still working takes that lane's run identity.
+func TestRun_StampsTheThreadOnWhatItSendsTheGates(t *testing.T) {
+	t.Parallel()
+
+	provider := fake.New("balanced",
+		fake.Turn{
+			ToolCalls:  []llm.ToolCall{{ID: "c1", Name: "str_replace", Input: json.RawMessage(`{}`)}},
+			StopReason: llm.StopToolUse,
+		},
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+	)
+
+	th := newThread(t)
+	gate := &writerGate{}
+	loop := agent.New(tiers(provider, provider), tool.NewRegistry(editing{}), permission.AllowAll(),
+		agent.WithChangeGate(gate))
+
+	if _, err := loop.Run(context.Background(), th, basicPrefix(), "edit it", router.Input{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	want := string(th.ID())
+
+	if len(gate.began) != 1 || gate.began[0] != want {
+		t.Errorf("Begin saw %v, want [%s]", gate.began, want)
+	}
+
+	if len(gate.changes) != 1 || gate.changes[0].Writer != want {
+		t.Errorf("Enqueue saw %+v, want one change written by %s", gate.changes, want)
 	}
 }

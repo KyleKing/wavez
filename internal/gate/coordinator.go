@@ -32,7 +32,8 @@ func BuildRunFunc(
 		selection = cadence.apply(selection)
 
 		rc := RunContext{
-			RepoRoot: repoRoot, Changes: changes, Selection: selection, RunID: scope.Current(),
+			RepoRoot: repoRoot, Changes: changes, Selection: selection,
+			RunID: scope.Current(soleWriter(changes)),
 		}
 		results := RunGates(ctx, clock, res, gates, rc)
 
@@ -135,4 +136,25 @@ func relativeTo(repoRoot string, changes []tool.Change) []tool.Change {
 	}
 
 	return out
+}
+
+// soleWriter names the thread a batch belongs to, empty when the batch mixes
+// writers or names none. A mixed batch has no single starting point, so it
+// gets no run identity and every gate reading one falls back to the behavior
+// it had before identities existed.
+func soleWriter(changes []tool.Change) string {
+	writer := ""
+
+	for i := range changes {
+		switch {
+		case changes[i].Writer == "":
+			continue
+		case writer == "":
+			writer = changes[i].Writer
+		case changes[i].Writer != writer:
+			return ""
+		}
+	}
+
+	return writer
 }

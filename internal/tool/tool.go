@@ -19,7 +19,11 @@ type LineRange struct {
 // Change describes one file a tool touched. Gates trigger on these rather than
 // on the model asking for a test run.
 type Change struct {
-	Path    string      `json:"path"`
+	Path string `json:"path"`
+	// Writer is the thread that made this change, stamped as the change
+	// leaves the run that produced it. A shared registry gives the tools no
+	// thread of their own, so nothing below the loop can fill it in.
+	Writer  string      `json:"writer,omitempty"`
 	Ranges  []LineRange `json:"ranges,omitempty"`
 	Added   int         `json:"added"`
 	Removed int         `json:"removed"`

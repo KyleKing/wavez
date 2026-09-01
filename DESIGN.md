@@ -1522,13 +1522,13 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   baseline hangs on: the first lint under a run records what each package
   carried, and afterwards a finding absent from that baseline is the run's
   own and reaches it whatever file it names. A gate with no run identity
-  keeps every neighbor's finding advisory, exactly as before. What is left
-  is the granularity: one `agent.Loop` and so one `ChangeGate` serve every
-  thread, and a batch of changes carries no writer, so `Begin` fires
-  whenever any thread starts a run and wipes the baseline of a lane still
-  working. That lane's next lint re-records and reads its own new findings
-  as inherited, which is the behavior that shipped before this, so the
-  feature degrades rather than misreports
+  keeps every neighbor's finding advisory, exactly as before. The identity
+  is per writer because one `agent.Loop` and so one `ChangeGate` serve every
+  thread: a single current run let a lane starting beside a lane still
+  working take that lane's identity out from under it. A `tool.Change`
+  carries the thread that wrote it, stamped as it leaves the run, since a
+  shared registry gives the tools no thread of their own. A batch mixing two
+  writers has no single starting point and is handed no identity at all
 
 - Risk as a declared property of a tool rather than a call each tool
   remembers to make. `shell`, `pty`, and `web_fetch` each ask the gate
