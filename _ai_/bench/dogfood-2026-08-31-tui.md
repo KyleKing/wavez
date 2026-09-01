@@ -42,9 +42,8 @@ go-test TestServeNoListeningClaimWhenBoundElsewhere
 The lane had been told not to touch `cmd/wavezd` or `internal/daemon`, and
 the gate handed it a failure in exactly those. Before that it read
 `internal/daemon/daemon.go` to diagnose a build error that was the other
-lane mid-`str_replace`. This is DESIGN's write-fence item with an instance:
-what needed coordinating was not that a lane wrote, it was that two lanes
-shared one tree and one verifier.
+lane mid-`str_replace`. This is DESIGN's write-fence item with an instance.
+What needed coordinating was the tree and the verifier the two lanes shared.
 
 ## The header names a model and a window that did not serve the turn
 
@@ -96,9 +95,9 @@ wrongly, leaving `w.Close() //nolint:errcheck` against a G104 that
 `errcheck` does not own, so the lint is still open.
 
 Sequenced differently this would not have happened: the first lane ran on a
-clean tree and finished its own task in 23 turns. The cost of the shared
-tree is not the collision, it is that the second and third lanes never
-worked on what they were asked.
+clean tree and finished its own task in 23 turns. What the shared tree cost was the work
+itself, because the second and third lanes never touched what they were
+asked.
 
 ## Why the local server served nothing, proved
 
@@ -122,8 +121,15 @@ ever a first one.
 
 ## State
 
-Everything above is uncommitted in the working copy, whose parent moved to
-`main` mid-session from another session. `go build ./...`, `go test ./...`,
-and `golangci-lint run` over the whole module are clean. The one lint left
-by a lane was `w.Close() //nolint:errcheck` against a gosec G104 that
-`errcheck` does not own, fixed by hand to check the error.
+The session landed as four commits on `main`, whose tip moved mid-session
+from another session. `go build ./...`, `go test ./...`, and
+`golangci-lint run` over the whole module are clean. The one lint left by a
+lane was `w.Close() //nolint:errcheck` against a gosec G104 that `errcheck`
+does not own, fixed by hand to check the error.
+
+Of the findings above, the announce-before-bind bug, the wrong header, and
+the invisible live spend are fixed, each with a test that fails without its
+fix. The shared gate and shared tree is the one left, and it is a design
+question. It is DESIGN's write-fence item, and the evidence here says the
+fence belongs around the tree and the verifier a lane runs against, where
+DESIGN frames it around which files one call may write.
