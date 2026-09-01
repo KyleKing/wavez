@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/tool"
 )
@@ -39,7 +40,7 @@ func NewGateVerifier(
 }
 
 // Verify implements agent.Verifier.
-func (v *GateVerifier) Verify(ctx context.Context, changes []tool.Change) (string, bool) {
+func (v *GateVerifier) Verify(ctx context.Context, changes []tool.Change) (string, agent.GateVerdict) {
 	selection, err := gate.Select(ctx, v.cov, v.graph, changes)
 	if err != nil {
 		selection = gate.Selection{Level: gate.LevelPackage}
@@ -50,11 +51,21 @@ func (v *GateVerifier) Verify(ctx context.Context, changes []tool.Change) (strin
 	for _, g := range v.gates {
 		result := v.runStep(ctx, g, rc)
 		if !result.Pass {
-			return feedbackText(result), false
+			if !gate.Attributable(result, v.graph, changes) {
+				return unattributedText(result), agent.VerdictUnattributed
+			}
+
+			return feedbackText(result), agent.VerdictFailed
 		}
 	}
 
-	return "", true
+	return "", agent.VerdictPass
+}
+
+// unattributedText frames a failure as the tree's rather than the run's, so
+// a scheduler reading the outcome does not read it as a model that failed.
+func unattributedText(result gate.Result) string {
+	return "the tree fails a gate this run cannot have caused:\n" + feedbackText(result)
 }
 
 // runStep runs one gate, stamping timing the way gate.RunGates does, and

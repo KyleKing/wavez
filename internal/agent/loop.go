@@ -154,6 +154,10 @@ const (
 	// StopAnnouncedNotDone means the model ended a turn announcing its next
 	// step and taking none, twice, having been told once to act instead.
 	StopAnnouncedNotDone Stop = "announced_not_done"
+	// StopTreeState means verification failed on something the run cannot
+	// have caused, so the run stops for the scheduler rather than handing
+	// the model a failure it can only guess at. The run's changes stand.
+	StopTreeState Stop = "tree_state"
 )
 
 // ErrEmptyCompletion reports a provider that returned neither prose nor a
@@ -268,13 +272,34 @@ type LocalSlots interface {
 	AdmitSlot(ctx context.Context, holder string) (func(), error)
 }
 
+// GateVerdict is what one verification round concluded about a run's own work.
+type GateVerdict string
+
+// Verdicts a Verifier may return.
+const (
+	// VerdictPass means every gate passed.
+	VerdictPass GateVerdict = "pass"
+	// VerdictFailed means a gate failed on work this run could have caused,
+	// so the feedback is the model's to act on.
+	VerdictFailed GateVerdict = "failed"
+	// VerdictUnattributed means a gate failed and nothing it printed names a
+	// file this run changed or a package a changed file reaches. The tree is
+	// broken by something other than this run, and a model handed the
+	// failure spends turns on work it cannot have caused: one dogfood lane
+	// abandoned a correct change set over a neighbor's failing test, and a
+	// second spent every turn it had on a third lane's lint. It goes to the
+	// scheduler instead, which is the only party that can see the other
+	// writer.
+	VerdictUnattributed GateVerdict = "unattributed"
+)
+
 // Verifier gates a run once the model reports it is done, per DESIGN.md's
 // decision to verify once on the final turn rather than on every turn.
-// Verify reports ok=true when changes accumulated across the run pass, and
-// on failure returns feedback already trimmed to what the model may see
+// Verify reports VerdictPass when changes accumulated across the run pass,
+// and otherwise returns feedback already trimmed to what the model may see
 // (the gate.Result.ForModel / gate.TrimFailure asymmetry).
 type Verifier interface {
-	Verify(ctx context.Context, changes []tool.Change) (feedback string, ok bool)
+	Verify(ctx context.Context, changes []tool.Change) (feedback string, verdict GateVerdict)
 }
 
 // EditPoint is one accepted change and the jj operation holding the tree as
@@ -1013,21 +1038,29 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 // pass hands off to the review step, a failure appends trimmed feedback as a
 // new turn so the model must fix it, and MaxVerifyRounds bounds how many
 // times that can happen before the run stops as StopVerifyFailed instead of
-// looping forever.
+// looping forever. A failure the run cannot have caused skips all of that
+// and stops as StopTreeState, since another round of the same question gets
+// the same answer.
 func (r *run) finishOrVerify(ctx context.Context) (bool, Outcome, error) {
 	if r.loop.options.Verifier == nil {
 		return r.reviewOrComplete(ctx)
 	}
 
-	feedback, ok := r.loop.options.Verifier.Verify(ctx, r.changes)
+	feedback, verdict := r.loop.options.Verifier.Verify(ctx, r.changes)
 	r.verifyRounds++
 
-	if err := r.logVerify(ok); err != nil {
+	if err := r.logVerify(verdict); err != nil {
 		return true, Outcome{}, err
 	}
 
-	if ok {
+	if verdict == VerdictPass {
 		return r.reviewOrComplete(ctx)
+	}
+
+	if verdict == VerdictUnattributed {
+		out, err := r.stopBound(ctx, StopTreeState, feedback)
+
+		return true, out, err
 	}
 
 	if r.verifyRounds >= r.loop.options.MaxVerifyRounds {
@@ -1084,11 +1117,13 @@ func (r *run) admitSlot(ctx context.Context, choice router.Choice) (func(), erro
 	return release, nil
 }
 
-func (r *run) logVerify(ok bool) error {
+func (r *run) logVerify(verdict GateVerdict) error {
 	ev := event.Event{
-		Kind:   event.KindGate,
-		Text:   fmt.Sprintf("verification round %d", r.verifyRounds),
-		Detail: map[string]any{"round": r.verifyRounds, detailPass: ok},
+		Kind: event.KindGate,
+		Text: fmt.Sprintf("verification round %d", r.verifyRounds),
+		Detail: map[string]any{
+			"round": r.verifyRounds, detailPass: verdict == VerdictPass, "verdict": string(verdict),
+		},
 	}
 	if _, err := r.thread.Log().Append(ev); err != nil {
 		return fmt.Errorf("logging verification round: %w", err)
@@ -1713,9 +1748,10 @@ func (r *run) verifyAbandoned(ctx context.Context) {
 		return
 	}
 
-	feedback, ok := r.loop.options.Verifier.Verify(ctx, r.changes)
+	feedback, verdict := r.loop.options.Verifier.Verify(ctx, r.changes)
+	ok := verdict == VerdictPass
 	r.outcome.GatesPassedAtEnd = ok
-	detail := map[string]any{detailPass: ok, "abandoned": true}
+	detail := map[string]any{detailPass: ok, "abandoned": true, "verdict": string(verdict)}
 	if !ok {
 		detail["feedback"] = feedback
 	}

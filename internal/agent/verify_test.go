@@ -18,7 +18,10 @@ import (
 
 type verifyOutcome struct {
 	feedback string
-	ok       bool
+	// verdict overrides ok, for the cases ok cannot express. Empty means
+	// ok decides.
+	verdict agent.GateVerdict
+	ok      bool
 }
 
 type verifyCall struct {
@@ -32,15 +35,21 @@ type stubVerifier struct {
 	calls  []verifyCall
 }
 
-func (v *stubVerifier) Verify(_ context.Context, changes []tool.Change) (string, bool) {
+func (v *stubVerifier) Verify(_ context.Context, changes []tool.Change) (string, agent.GateVerdict) {
 	v.calls = append(v.calls, verifyCall{changes: changes})
 	if idx := len(v.calls) - 1; idx < len(v.script) {
 		out := v.script[idx]
+		if out.verdict != "" {
+			return out.feedback, out.verdict
+		}
+		if out.ok {
+			return out.feedback, agent.VerdictPass
+		}
 
-		return out.feedback, out.ok
+		return out.feedback, agent.VerdictFailed
 	}
 
-	return "", true
+	return "", agent.VerdictPass
 }
 
 type changeTool struct {
@@ -327,5 +336,47 @@ func TestRun_BoundedRunStillVerifiesWhatItChanged(t *testing.T) {
 	}
 	if !logged {
 		t.Fatal("the abandoned change set's gate result was never logged")
+	}
+}
+
+// TestRun_UnattributedVerdictStopsForScheduler covers the case two parallel
+// dogfood lanes lost their work to: a gate failure in packages the run never
+// touched. The run must stop rather than spend its remaining turns on it, and
+// the model must never be handed the feedback, since nothing it can write
+// changes the answer.
+func TestRun_UnattributedVerdictStopsForScheduler(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local",
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+		fake.Turn{Text: []string{"done again"}, StopReason: llm.StopEndTurn},
+	)
+	hosted := fake.New("hosted")
+
+	const feedback = "the tree fails a gate this run cannot have caused"
+
+	th := newThread(t)
+	reg := tool.NewRegistry(echoTool{name: "echo"})
+	v := &stubVerifier{script: []verifyOutcome{{feedback: feedback, verdict: agent.VerdictUnattributed}}}
+	loop := agent.New(tiers(local, hosted), reg, permission.AllowAll(),
+		agent.WithVerifier(v), agent.WithMaxVerifyRounds(5))
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Stop != agent.StopTreeState {
+		t.Fatalf("Stop = %q, want tree_state", out.Stop)
+	}
+	if len(local.Requests()) != 1 {
+		t.Fatalf("local Requests = %d, want 1: an unattributed failure must not cost a turn", len(local.Requests()))
+	}
+
+	for _, req := range local.Requests() {
+		for _, m := range req.Messages {
+			if strings.Contains(m.Content, feedback) {
+				t.Fatalf("unattributed feedback reached the model: %q", m.Content)
+			}
+		}
 	}
 }

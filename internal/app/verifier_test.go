@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/app"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/tool"
@@ -102,8 +103,8 @@ func TestGateVerifier_Verify(t *testing.T) {
 
 			v := app.NewGateVerifier("/repo", nil, nil, log, gate.RealClock{}, tt.gates, nil)
 
-			feedback, ok := v.Verify(context.Background(), []tool.Change{{Path: "a.go"}})
-			assertVerifyOutcome(t, log, feedback, ok, tt)
+			feedback, verdict := v.Verify(context.Background(), []tool.Change{{Path: "a.go"}})
+			assertVerifyOutcome(t, log, feedback, verdict == agent.VerdictPass, tt)
 		})
 	}
 }
