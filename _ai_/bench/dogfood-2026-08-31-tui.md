@@ -129,9 +129,12 @@ does not own, fixed by hand to check the error.
 
 Of the findings above, the announce-before-bind bug, the wrong header, and
 the invisible live spend are fixed, each with a test that fails without its
-fix. The shared gate and shared tree was taken as a design question and is
-answered in DESIGN: the tree stays shared and what a gate reports gets
-scoped, because a run's change set is already its own and only the gates'
-execution reads the whole working copy. Reading the code moved the
-diagnosis: a lease would have prevented neither lane's loss, and neither
-would a change to the change set.
+fix. The shared gate and shared tree was taken as a design question, answered
+in DESIGN, and built: the tree stays shared, a failure the run cannot have
+caused stops it for the scheduler instead of costing a turn, a neighbor's
+lint finding is named as another writer's rather than hidden or blamed on
+the lane, and undo scopes itself to the thread's own paths while another
+lane writes. Reading the code moved the diagnosis: a run's change set is
+already its own and only the gates' execution reads the whole working copy,
+so a lease would have prevented neither lane's loss and neither would a
+change to the change set.
