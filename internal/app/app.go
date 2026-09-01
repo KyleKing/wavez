@@ -314,7 +314,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	p := buildProviders(ctx, cfg, options)
 	providers, supervisor := p.tiers, p.supervisor
 
-	bundle, err := buildGates(root, stateDir, store, gateLog, cfg, graph, lspPool, scheduler)
+	bundle, err := buildGates(root, stateDir, store, gateLog, cfg, graph, lspPool, scheduler, leases)
 	if err != nil {
 		_ = store.Close() //nolint:errcheck // best-effort cleanup after a later failure
 		return nil, err
@@ -922,7 +922,7 @@ func rootedGlobs(root string, patterns []string) []string {
 // pipelines against them.
 func buildGates(
 	root, stateDir string, store *codeintel.Store, gateLog *gate.Log, cfg config.Config, graph *gate.ImportGraph,
-	lspPool *lsp.Pool, scheduler *sched.Scheduler,
+	lspPool *lsp.Pool, scheduler *sched.Scheduler, writers Writers,
 ) (gateBundle, error) {
 	rules, err := loadConventionRules(root, cfg.AstGrepRules)
 	if err != nil {
@@ -977,7 +977,7 @@ func buildGates(
 		gate.NewBuildGate(root), gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root),
 		gate.NewFailToPassGate(root, jj, jj))
 	verifyGates = append(verifyGates, projectChecks...)
-	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources)
+	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources, writers)
 
 	return gateBundle{runner: runner, adapter: adapter, verifier: verifier, routines: routines}, nil
 }

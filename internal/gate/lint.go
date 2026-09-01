@@ -97,6 +97,10 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			"the change does not compile, which the build gate reports"), nil
 	}
 
+	for i := range advisories {
+		advisories[i].Writer = otherWriter
+	}
+
 	return Result{
 		Gate: g.Name(), Level: rc.Selection.Level, Examined: len(files),
 		Failures: failures, Advisories: advisories, Pass: len(failures) == 0,
@@ -200,6 +204,12 @@ func lintFailures(out []byte, changes []tool.Change) ([]TrimmedFailure, []Trimme
 
 	return bounded(mine), bounded(neighbors), true
 }
+
+// otherWriter is what a neighbor's finding is attributed to. The gate cannot
+// name the thread that left it, and saying it belongs to somebody is the part
+// that matters: a run that reads a finding as its own fixes it, and one told
+// it is another writer's works around it.
+const otherWriter = "another writer"
 
 // bounded is one TrimmedFailure holding at most maxLintFindings of
 // findings, saying how many it left out.

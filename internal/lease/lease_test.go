@@ -186,3 +186,29 @@ func leaseFor(t *testing.T, m *lease.Manager, subtree string) lease.Lease {
 
 	return lease.Lease{}
 }
+
+// OtherActiveHolders is what a gate reads to decide whether a finding on
+// somebody else's line is still moving, so it must count only the lanes
+// writing right now and never the asker itself.
+func TestOtherActiveHolders(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	m := lease.New("/repo", lease.WithTTL(time.Minute), lease.WithClock(clock))
+
+	releaseAlpha, err := m.Acquire(lease.WithHolder(t.Context(), "alpha"), "/repo/internal/vcs/jj.go")
+	require.NoError(t, err)
+
+	releaseBeta, err := m.Acquire(lease.WithHolder(t.Context(), "beta"), "/repo/internal/tui/app.go")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"beta"}, m.OtherActiveHolders("alpha"))
+	assert.Equal(t, []string{"alpha", "beta"}, m.OtherActiveHolders("gamma"))
+
+	releaseBeta()
+	assert.Empty(t, m.OtherActiveHolders("alpha"))
+
+	releaseAlpha()
+	assert.Empty(t, m.OtherActiveHolders("gamma"))
+}

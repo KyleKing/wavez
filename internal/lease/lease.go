@@ -375,6 +375,45 @@ func (m *Manager) List() []Lease {
 	return out
 }
 
+// OtherActiveHolders names the threads other than holder writing into the
+// tree right now, in sorted order with each named once.
+//
+// It answers one question a gate cannot answer for itself: whether a finding
+// on a file the run did not write belongs to a lane still moving. One that
+// does will have changed by the time the run could act on it, and one that
+// does not was left by the user or an earlier run and is worth saying.
+func (m *Manager) OtherActiveHolders(holder string) []string {
+	if m == nil {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := m.now()
+	seen := map[string]struct{}{}
+
+	var out []string
+
+	for _, e := range m.held {
+		if e.holder == "" || e.holder == holder || m.state(e, now) != StateActive {
+			continue
+		}
+
+		if _, dup := seen[e.holder]; dup {
+			continue
+		}
+
+		seen[e.holder] = struct{}{}
+
+		out = append(out, e.holder)
+	}
+
+	sort.Strings(out)
+
+	return out
+}
+
 // Counts is the pair the diagnostics panel shows: leases held right now and
 // threads waiting on one.
 type Counts struct {

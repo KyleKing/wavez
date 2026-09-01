@@ -41,9 +41,13 @@ type RunContext struct {
 // the model nothing but a boolean, a failing one gives it only what touches
 // the change.
 type TrimmedFailure struct {
-	Test    string   `json:"test"`
-	Package string   `json:"package,omitempty"`
-	Frames  []string `json:"frames,omitempty"`
+	Test    string `json:"test"`
+	Package string `json:"package,omitempty"`
+	// Writer names who left a finding that is not this run's. It is set only
+	// on an Advisory about a file the run did not write, so feedback can say
+	// whose the finding is instead of handing the run a defect to claim.
+	Writer string   `json:"writer,omitempty"`
+	Frames []string `json:"frames,omitempty"`
 	// Context is the head of the untrimmed output, set only when Frames is
 	// empty. A failure naming no changed file is often the harness's own
 	// (a build failure whose command was wrong reports a Go toolchain
