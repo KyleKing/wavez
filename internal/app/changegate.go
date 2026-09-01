@@ -32,6 +32,9 @@ type ChangeGate struct {
 	runner  *gate.Runner
 	inbox   chan tool.Change
 	pending []gate.Result
+	// scope names the run in progress, advanced by Begin, so the gates this
+	// runner feeds can tell what this run started with from what it caused.
+	scope *gate.RunScope
 	// latest survives TakeFeedback, because a run asks "are the checks
 	// green" long after it was told, and queued counts the changes no batch
 	// has covered yet, which is the difference between a stale answer and a
@@ -70,9 +73,10 @@ type gateVerdict struct {
 const stuckAfter = 3
 
 // NewChangeGate builds a ChangeGate over runner. Nothing flows until Start
-// runs.
-func NewChangeGate(runner *gate.Runner) *ChangeGate {
-	return &ChangeGate{runner: runner, inbox: make(chan tool.Change, changeInbox)}
+// runs. Scope is the run identity Begin advances; nil means no run identity,
+// and gates treat that as no per-run state.
+func NewChangeGate(runner *gate.Runner, scope *gate.RunScope) *ChangeGate {
+	return &ChangeGate{runner: runner, inbox: make(chan tool.Change, changeInbox), scope: scope}
 }
 
 // Start runs the runner and the two pumps around it until ctx is done.
@@ -105,6 +109,8 @@ func (g *ChangeGate) Start(ctx context.Context) {
 // Begin forgets the previous run. The gate results go with it: a report
 // about a tree two runs ago is worse than saying nothing.
 func (g *ChangeGate) Begin() {
+	g.scope.Begin()
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 

@@ -31,8 +31,9 @@ type Selection struct {
 // RunContext is what one debounced batch hands to every Gate.
 type RunContext struct {
 	RepoRoot  string
-	Changes   []tool.Change
+	RunID     string
 	Selection Selection
+	Changes   []tool.Change
 }
 
 // TrimmedFailure is what reaches the model on a gate failure: a test name

@@ -333,7 +333,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	runner, adapter, verifier := bundle.runner, bundle.adapter, bundle.verifier
 
 	reviewer := NewModelReviewer(root, vcs.NewJj(), providers, tierModels(cfg))
-	changeGate := NewChangeGate(runner)
+	changeGate := NewChangeGate(runner, bundle.runScope)
 	registry := buildRegistry(registryDeps{
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
@@ -1025,8 +1025,15 @@ func buildGates(
 
 	// The adapter, not the store, is what selection reads: only the thing
 	// building the map knows whether the map is finished.
+	// One run scope for the whole project: the lint gate's baseline is
+	// keyed by the run it was recorded under, so the background gate
+	// pipeline and the change gate that starts a run must agree on which
+	// run is in progress. It returns through the bundle for the same
+	// reason.
+	runScope := gate.NewRunScope()
+
 	runFunc := gate.BuildRunFunc(gate.RealClock{}, adapter, graph,
-		enabledGates(gates, routines.set.DisabledGates()), gateLog, root, resources)
+		enabledGates(gates, routines.set.DisabledGates()), gateLog, root, resources, runScope)
 	runner := gate.NewRunner(gate.RealClock{}, cfg.GateDebounce,
 		admitted(scheduler, routine.ChangeRunFunc(root, runFunc, routines.runner, routines.compiled)))
 
@@ -1040,7 +1047,10 @@ func buildGates(
 	verifyGates = append(verifyGates, projectChecks...)
 	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources, writers)
 
-	return gateBundle{runner: runner, adapter: adapter, verifier: verifier, routines: routines}, nil
+	return gateBundle{
+		runner: runner, adapter: adapter, verifier: verifier, routines: routines,
+		runScope: runScope,
+	}, nil
 }
 
 // enabledGates drops the gates a project turned off by disabling their

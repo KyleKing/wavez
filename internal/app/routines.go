@@ -27,6 +27,9 @@ type gateBundle struct {
 	adapter  *gate.CoverageAdapter
 	verifier *GateVerifier
 	routines routineLayer
+	// runScope names the run in progress, so the change gate that begins a
+	// run and the gate pipeline that lints under it agree on one identity.
+	runScope *gate.RunScope
 }
 
 // routineLayer is the project's compiled routines and the pieces that run

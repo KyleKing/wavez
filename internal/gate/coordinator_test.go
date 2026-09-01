@@ -37,7 +37,7 @@ func TestBuildRunFuncLogsEachResult(t *testing.T) {
 		&stubGate{name: "go-test", result: gate.Result{Gate: "go-test", Pass: false, Examined: 3}},
 	}
 
-	runFn := gate.BuildRunFunc(gate.RealClock{}, fakeLineCoverage{}, nil, gates, l, "/repo", nil)
+	runFn := gate.BuildRunFunc(gate.RealClock{}, fakeLineCoverage{}, nil, gates, l, "/repo", nil, gate.NewRunScope())
 
 	result := runFn(context.Background(), []tool.Change{{Path: "pkg/a.go"}})
 	if result.LogError != nil {
@@ -88,7 +88,7 @@ func TestBuildRunFuncForcesAFullRunOnCadence(t *testing.T) {
 	// Every batch resolves to a covering test, so nothing but the cadence
 	// can widen the selection.
 	cov := fakeLineCoverage{coverageKey("pkg/a.go", 1, 2): {{TestID: "pkg.TestA"}}}
-	runFn := gate.BuildRunFunc(clock, cov, nil, []gate.Gate{rec}, l, "/repo", nil)
+	runFn := gate.BuildRunFunc(clock, cov, nil, []gate.Gate{rec}, l, "/repo", nil, gate.NewRunScope())
 
 	batches := gate.DefaultCadence.MaxSelectivePasses + 1
 	for range batches {
@@ -124,7 +124,7 @@ func TestBuildRunFuncForcesAFullRunAfterTheInterval(t *testing.T) {
 	rec := &recordingGate{}
 	clock := newFakeClock(time.Now())
 	cov := fakeLineCoverage{coverageKey("pkg/a.go", 1, 2): {{TestID: "pkg.TestA"}}}
-	runFn := gate.BuildRunFunc(clock, cov, nil, []gate.Gate{rec}, l, "/repo", nil)
+	runFn := gate.BuildRunFunc(clock, cov, nil, []gate.Gate{rec}, l, "/repo", nil, gate.NewRunScope())
 
 	runFn(context.Background(), batch)
 	clock.Advance(gate.DefaultCadence.MaxInterval + time.Second)
@@ -155,7 +155,7 @@ func TestBuildRunFuncMakesChangePathsRelativeToTheRoot(t *testing.T) {
 	root := t.TempDir()
 	rec := &recordingGate{}
 	runFn := gate.BuildRunFunc(newFakeClock(time.Now()), fakeLineCoverage{}, nil,
-		[]gate.Gate{rec}, l, root, nil)
+		[]gate.Gate{rec}, l, root, nil, gate.NewRunScope())
 
 	runFn(context.Background(), []tool.Change{{Path: filepath.Join(root, "internal", "thread", "a.go")}})
 

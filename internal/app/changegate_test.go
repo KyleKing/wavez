@@ -74,7 +74,7 @@ func TestChangeGateFeedback(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := app.NewChangeGate(nil)
+			g := app.NewChangeGate(nil, gate.NewRunScope())
 			g.Collect(gate.RunResult{Gates: tt.results})
 
 			got, _ := g.TakeFeedback()
@@ -106,7 +106,7 @@ func TestChangeGateFeedback(t *testing.T) {
 func TestChangeGateStatusRepeatsWhatFailed(t *testing.T) {
 	t.Parallel()
 
-	g := app.NewChangeGate(nil)
+	g := app.NewChangeGate(nil, gate.NewRunScope())
 	g.Collect(gate.RunResult{Gates: []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{{
 		Package: "internal/thread", Frames: []string{"thread.go:31:9: undefined: utf8"},
 	}}}}})
@@ -131,7 +131,7 @@ func TestChangeGateStatusRepeatsWhatFailed(t *testing.T) {
 func TestChangeGateNamesAGateThatRetractedItsFailure(t *testing.T) {
 	t.Parallel()
 
-	g := app.NewChangeGate(nil)
+	g := app.NewChangeGate(nil, gate.NewRunScope())
 
 	g.Collect(gate.RunResult{Gates: []gate.Result{
 		{Gate: "go-test", Failures: []gate.TrimmedFailure{{Package: "internal/guard"}}},
@@ -159,7 +159,7 @@ func TestChangeGateNamesAGateThatRetractedItsFailure(t *testing.T) {
 func TestChangeGateKeepsQuietWhenAnEditExplainsThePass(t *testing.T) {
 	t.Parallel()
 
-	g := app.NewChangeGate(nil)
+	g := app.NewChangeGate(nil, gate.NewRunScope())
 	g.Collect(gate.RunResult{Gates: []gate.Result{
 		{Gate: "go-test", Failures: []gate.TrimmedFailure{{Package: "internal/guard"}}},
 	}})
@@ -187,7 +187,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 	t.Run("the same failure across edits", func(t *testing.T) {
 		t.Parallel()
 
-		g := app.NewChangeGate(nil)
+		g := app.NewChangeGate(nil, gate.NewRunScope())
 
 		for i := range 3 {
 			g.Enqueue(tool.Change{Path: "internal/sysinfo/memory_test.go", Added: 1})
@@ -206,7 +206,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 	t.Run("a re-run over the same tree is not the tier's fault", func(t *testing.T) {
 		t.Parallel()
 
-		g := app.NewChangeGate(nil)
+		g := app.NewChangeGate(nil, gate.NewRunScope())
 		for range 4 {
 			g.Collect(gate.RunResult{Gates: failing})
 		}
@@ -223,7 +223,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 	t.Run("a re-run between edits does not clear the count", func(t *testing.T) {
 		t.Parallel()
 
-		g := app.NewChangeGate(nil)
+		g := app.NewChangeGate(nil, gate.NewRunScope())
 
 		for range 3 {
 			g.Enqueue(tool.Change{Path: "internal/sysinfo/memory_test.go", Added: 1})
@@ -239,7 +239,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 	t.Run("a failure that moved is progress", func(t *testing.T) {
 		t.Parallel()
 
-		g := app.NewChangeGate(nil)
+		g := app.NewChangeGate(nil, gate.NewRunScope())
 
 		for i := range 4 {
 			g.Enqueue(tool.Change{Path: "internal/sysinfo/memory_test.go", Added: 1})
@@ -264,7 +264,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 func TestChangeGateCoversOnlyThePackagesItWroteIn(t *testing.T) {
 	t.Parallel()
 
-	g := app.NewChangeGate(nil)
+	g := app.NewChangeGate(nil, gate.NewRunScope())
 	g.Enqueue(tool.Change{Path: "internal/bench/stats.go", Added: 1})
 	g.Enqueue(tool.Change{Path: "internal/bench/testdata/x.golden", Added: 1})
 

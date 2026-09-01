@@ -145,7 +145,7 @@ func TestCoverageMapDrivesLineLevelSelection(t *testing.T) {
 	}
 
 	runFn := gate.BuildRunFunc(gate.RealClock{}, adapter, nil,
-		[]gate.Gate{gate.NewGoTestGate(repoRoot)}, gateLog, repoRoot, gate.NewResourceSet())
+		[]gate.Gate{gate.NewGoTestGate(repoRoot)}, gateLog, repoRoot, gate.NewResourceSet(), gate.NewRunScope())
 
 	res := runFn(ctx, []tool.Change{{Path: "greet.go", Ranges: []tool.LineRange{{Start: 3, End: 8}}}})
 	if len(res.Gates) != 1 {

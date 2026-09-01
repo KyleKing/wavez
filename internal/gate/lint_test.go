@@ -139,8 +139,17 @@ func TestLintGateSeesPastASiblingFile(t *testing.T) {
 func runLintGate(t *testing.T, root string) gate.Result {
 	t.Helper()
 
+	return runLintGateAs(t, root, "")
+}
+
+// runLintGateAs runs the gate under runID, the identity a run hands its
+// batches. The same gate value is reused so its baseline survives the call,
+// the way a project's lint gate survives a run's batches.
+func runLintGateAs(t *testing.T, root, runID string) gate.Result {
+	t.Helper()
+
 	result, err := gate.NewLintGate(root).Run(context.Background(), gate.RunContext{
-		RepoRoot: root, Changes: []tool.Change{{Path: "a.go"}},
+		RepoRoot: root, Changes: []tool.Change{{Path: "a.go"}}, RunID: runID,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -232,5 +241,119 @@ func TestLintGateRecordsANeighborsFindingRatherThanDroppingIt(t *testing.T) {
 
 	if frames := result.Advisories[0].Frames; len(frames) != 1 || !strings.Contains(frames[0], "b.go") {
 		t.Errorf("advisory = %q, want it to name b.go", frames)
+	}
+}
+
+// A finding the package already carried when the run began is one the run
+// inherited: the first lint under the run's identity records the baseline,
+// and on every later round that finding stays an advisory, so the gate log
+// holds it without the run being blamed for a neighbor's old work.
+//
+//nolint:paralleltest // same lock as the tests above
+func TestLintGateKeepsABaselineFindingAdvisory(t *testing.T) {
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		t.Skip("golangci-lint is not installed")
+	}
+
+	root := lintFixtureWithSibling(t,
+		"package a\n\nfunc F() int { return G() }\n",
+		"package a\n\nfunc G() (n int) {\n\tn = 1\n\treturn\n}\n")
+
+	g := gate.NewLintGate(root)
+	rc := gate.RunContext{RepoRoot: root, Changes: []tool.Change{{Path: "a.go"}}, RunID: "run-baseline"}
+
+	for range 2 {
+		result, err := g.Run(context.Background(), rc)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+
+		if !result.Pass || len(result.Failures) != 0 {
+			t.Fatalf("result = %+v, want the inherited finding not to fail the run", result)
+		}
+
+		if len(result.Advisories) != 1 || !strings.Contains(result.Advisories[0].Frames[0], "b.go") {
+			t.Fatalf("advisories = %+v, want b.go's finding recorded as inherited", result.Advisories)
+		}
+	}
+}
+
+// A finding the baseline did not hold is the run's own, whatever file it
+// names. The first lint under a run's identity sees b.go clean, the run's
+// edit breaks it, and the second lint hands the finding to the run as a
+// failure instead of an advisory: this is the work the gate used to lint
+// and then discard.
+//
+//nolint:paralleltest // same lock as the tests above
+func TestLintGateHandsANewNeighborFindingToTheRun(t *testing.T) {
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		t.Skip("golangci-lint is not installed")
+	}
+
+	// The neighbor starts clean and the package compiles throughout: a
+	// baseline is only recorded by a lint that ran, and a package that does
+	// not build abstains without recording one.
+	root := lintFixtureWithSibling(t,
+		"package a\n\nfunc F() int { return G() }\n",
+		"package a\n\nfunc G() int {\n\tn := 1\n\n\treturn n\n}\n")
+
+	g := gate.NewLintGate(root)
+	rc := gate.RunContext{RepoRoot: root, Changes: []tool.Change{{Path: "a.go"}}, RunID: "run-fresh"}
+
+	first, err := g.Run(context.Background(), rc)
+	if err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	if !first.Pass || len(first.Advisories) != 0 {
+		t.Fatalf("first result = %+v, want a clean starting point", first)
+	}
+
+	// The run's work leaves the neighbor it never wrote with a finding,
+	// which is exactly what the gate used to discard.
+	naked := "package a\n\nfunc G() (n int) {\n\tn = 1\n\n\treturn\n}\n"
+	if err := os.WriteFile(filepath.Join(root, "b.go"), []byte(naked), 0o600); err != nil {
+		t.Fatalf("rewriting b.go: %v", err)
+	}
+
+	second, err := g.Run(context.Background(), rc)
+	if err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+
+	if second.Pass || len(second.Failures) != 1 || !strings.Contains(second.Failures[0].Frames[0], "b.go") {
+		t.Fatalf("result = %+v, want the new neighbor finding to reach the run", second)
+	}
+}
+
+// With no run identity the gate has no baseline to read and behaves exactly
+// as it did before one existed: every neighbor's finding is an advisory,
+// including one that is new since the last lint.
+//
+//nolint:paralleltest // same lock as the tests above
+func TestLintGateWithoutARunBehavesAsBefore(t *testing.T) {
+	if _, err := exec.LookPath("golangci-lint"); err != nil {
+		t.Skip("golangci-lint is not installed")
+	}
+
+	root := lintFixtureWithSibling(t,
+		"package a\n\nfunc F() int { return G() }\n",
+		"package a\n\nfunc G() (n int) {\n\tn = 1\n\treturn\n}\n")
+
+	g := gate.NewLintGate(root)
+	rc := gate.RunContext{RepoRoot: root, Changes: []tool.Change{{Path: "a.go"}}}
+
+	for range 2 {
+		result, err := g.Run(context.Background(), rc)
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+
+		if !result.Pass || len(result.Failures) != 0 {
+			t.Fatalf("result = %+v, want no failure with no run identity", result)
+		}
+
+		if len(result.Advisories) != 1 {
+			t.Fatalf("advisories = %+v, want the neighbor's finding recorded", result.Advisories)
+		}
 	}
 }

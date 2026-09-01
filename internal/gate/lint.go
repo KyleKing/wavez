@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/kyleking/wavez/internal/tool"
 )
@@ -40,11 +41,20 @@ const typecheckSuffix = "(typecheck)"
 // instead, which is the expensive way to answer a question a tool can
 // answer for nothing.
 type LintGate struct {
-	repoRoot string
+	// baseline holds the findings this run inherited, recorded the first
+	// time the gate linted under this run's identity, with the run's id
+	// beside them. It is the run's starting point, which is what separates
+	// a finding the run inherited from one it caused.
+	baseline    map[string]struct{}
+	baselineRun string
+	repoRoot    string
+	baselineMu  sync.Mutex
 }
 
 // NewLintGate builds a LintGate rooted at repoRoot.
-func NewLintGate(repoRoot string) *LintGate { return &LintGate{repoRoot: repoRoot} }
+func NewLintGate(repoRoot string) *LintGate {
+	return &LintGate{repoRoot: repoRoot}
+}
 
 // Name identifies this gate in the gate log.
 func (*LintGate) Name() string { return lintGateName }
@@ -82,6 +92,14 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 
 	out, err := cmd.CombinedOutput()
 	if err == nil {
+		// A clean first lint under a run's identity still seeds the
+		// baseline: the run's starting point is "no findings", and
+		// without recording it the second lint would mistake itself
+		// for the first and call its own new findings inherited.
+		if rc.RunID != "" {
+			g.recordBaseline(rc.RunID, nil, nil, nil)
+		}
+
 		return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: len(files), Pass: true}, nil
 	}
 
@@ -91,7 +109,7 @@ func (g *LintGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			fmt.Errorf("%s run: %w: %s", lintTool, err, strings.TrimSpace(string(out)))
 	}
 
-	failures, advisories, sawFinding := lintFailures(out, rc.Changes)
+	failures, advisories, sawFinding := g.lintFailures(out, rc.Changes, rc.RunID)
 	if !sawFinding && len(failures) == 0 {
 		return Abstained(g.Name(), rc.Selection.Level,
 			"the change does not compile, which the build gate reports"), nil
@@ -169,12 +187,18 @@ func packagesOf(files []string) []string {
 // The gate lints whole packages because the linter type-checks whatever it
 // is handed, so it reads a neighbor on every run and used to discard what
 // it found there. A run that makes a sibling file stop compiling cleanly
-// then passed every round and failed in CI. A neighbor's finding is an
-// advisory rather than a failure because the gate cannot say whether this
-// run caused it: telling the run would blame it for what it inherited, and
-// separating the two needs the package's findings as they stood when the
-// run started, which no gate is handed today.
-func lintFailures(out []byte, changes []tool.Change) ([]TrimmedFailure, []TrimmedFailure, bool) {
+// then passed every round and failed in CI. Whether a neighbor's finding
+// is the run's own is what runID decides: the first lint under a run's
+// identity records what each package carried when the run started, and
+// afterwards a finding present in that baseline is one the run inherited
+// and stays advisory, while one absent from it is the run's own work and
+// reaches the run as a failure whatever file it names. With no run
+// identity there is no baseline, and every neighbor's finding stays
+// advisory, exactly as before. A finding that names a changed file fails
+// the gate either way.
+func (g *LintGate) lintFailures(
+	out []byte, changes []tool.Change, runID string,
+) ([]TrimmedFailure, []TrimmedFailure, bool) {
 	changed := changedPaths(changes)
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 
@@ -187,23 +211,94 @@ func lintFailures(out []byte, changes []tool.Change) ([]TrimmedFailure, []Trimme
 		}
 	}
 
-	var mine, neighbors []string
+	// The first lint under a run's identity is the one that records the
+	// baseline, so its neighbor findings are the starting point by
+	// definition: they are classified as inherited, and it is the second
+	// and later lints that compare against what was recorded.
+	firstLint := runID != "" && !g.hasBaseline(runID)
+
+	var mine, inherited, fresh []string
 
 	for _, line := range lines {
 		switch {
 		case namesAChangedFile(line, changed):
 			mine = append(mine, strings.TrimSpace(line))
 		case findingLine.MatchString(strings.TrimSpace(line)):
-			neighbors = append(neighbors, strings.TrimSpace(line))
+			// With no run identity there is no baseline to read, so
+			// every neighbor's finding is advisory, exactly as
+			// before run identity existed.
+			if runID == "" || firstLint || g.inBaseline(runID, line) {
+				inherited = append(inherited, strings.TrimSpace(line))
+			} else {
+				fresh = append(fresh, strings.TrimSpace(line))
+			}
 		}
 	}
 
-	if len(mine) == 0 && len(neighbors) == 0 {
+	if len(mine) == 0 && len(inherited) == 0 && len(fresh) == 0 {
 		return []TrimmedFailure{{Test: lintGateName, Context: headOf(lines)}}, nil, false
 	}
 
-	return bounded(mine), bounded(neighbors), true
+	if runID != "" {
+		g.recordBaseline(runID, mine, fresh, inherited)
+	}
+
+	// A finding that names a file this run changed is a failure whether or
+	// not the baseline held it, and so is one the baseline did not hold:
+	// the gate caught the run making it, and a file the run never wrote is
+	// still a file its work left worse. Only what the run inherited stays
+	// advisory.
+	return bounded(slices.Concat(mine, fresh)), bounded(inherited), true
 }
+
+// recordBaseline seeds the run's baseline with every finding this lint saw,
+// the first time the gate linted under runID. The run's own files are part
+// of the starting point too, on the same "what the package carried" terms:
+// a finding still present on a later round, after the run edited, is a
+// finding the run has not fixed rather than a new one.
+func (g *LintGate) recordBaseline(runID string, mine, fresh, inherited []string) {
+	g.baselineMu.Lock()
+	defer g.baselineMu.Unlock()
+
+	if g.baselineRun != runID {
+		g.baselineRun = runID
+		g.baseline = map[string]struct{}{}
+	}
+
+	for _, group := range [][]string{mine, fresh, inherited} {
+		for _, f := range group {
+			g.baseline[keyOf(f)] = struct{}{}
+		}
+	}
+}
+
+// hasBaseline reports whether the run's starting point has been recorded
+// yet. False means the next lint is the run's first look at the package.
+func (g *LintGate) hasBaseline(runID string) bool {
+	g.baselineMu.Lock()
+	defer g.baselineMu.Unlock()
+
+	return g.baselineRun == runID
+}
+
+// inBaseline reports whether a finding was part of the run's starting point.
+// A run with no baseline recorded yet holds nothing, so nothing is exempt.
+func (g *LintGate) inBaseline(runID, line string) bool {
+	g.baselineMu.Lock()
+	defer g.baselineMu.Unlock()
+
+	if g.baselineRun != runID {
+		return false
+	}
+
+	_, ok := g.baseline[keyOf(line)]
+
+	return ok
+}
+
+// keyOf is a finding's identity in a baseline: the file, line, and message
+// with its linter name, which is the whole finding line.
+func keyOf(line string) string { return strings.TrimSpace(line) }
 
 // otherWriter is what a neighbor's finding is attributed to. The gate cannot
 // name the thread that left it, and saying it belongs to somebody is the part

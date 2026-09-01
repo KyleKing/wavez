@@ -17,6 +17,7 @@ import (
 // else already running under that key.
 func BuildRunFunc(
 	clock Clock, cov LineCoverage, graph *ImportGraph, gates []Gate, log *Log, repoRoot string, res *ResourceSet,
+	scope *RunScope,
 ) RunFunc {
 	cadence := &fullRunCadence{clock: clock, cfg: DefaultCadence, lastFull: clock.Now()}
 
@@ -30,7 +31,9 @@ func BuildRunFunc(
 
 		selection = cadence.apply(selection)
 
-		rc := RunContext{RepoRoot: repoRoot, Changes: changes, Selection: selection}
+		rc := RunContext{
+			RepoRoot: repoRoot, Changes: changes, Selection: selection, RunID: scope.Current(),
+		}
 		results := RunGates(ctx, clock, res, gates, rc)
 
 		var logErr error
