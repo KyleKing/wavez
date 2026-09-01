@@ -1,3 +1,14 @@
+## v0.18.0 (2026-09-01)
+
+### Feat
+
+- **runtime**: size the llama-server prompt cache from admission headroom
+
+### Fix
+
+- **gate**: keep one lane's gate findings from reaching another
+- **gate**: key a run's lint baseline to the thread that wrote the change
+
 ## v0.17.0 (2026-09-01)
 
 ### Feat
