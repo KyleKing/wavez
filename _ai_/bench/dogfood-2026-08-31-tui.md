@@ -129,7 +129,9 @@ does not own, fixed by hand to check the error.
 
 Of the findings above, the announce-before-bind bug, the wrong header, and
 the invisible live spend are fixed, each with a test that fails without its
-fix. The shared gate and shared tree is the one left, and it is a design
-question. It is DESIGN's write-fence item, and the evidence here says the
-fence belongs around the tree and the verifier a lane runs against, where
-DESIGN frames it around which files one call may write.
+fix. The shared gate and shared tree was taken as a design question and is
+answered in DESIGN: the tree stays shared and what a gate reports gets
+scoped, because a run's change set is already its own and only the gates'
+execution reads the whole working copy. Reading the code moved the
+diagnosis: a lease would have prevented neither lane's loss, and neither
+would a change to the change set.
