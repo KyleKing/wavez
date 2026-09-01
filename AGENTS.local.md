@@ -112,6 +112,12 @@ are specific to this codebase and not visible from the code.
   with an empty `tool_calls` and a tool result under nothing, and its prefix
   cannot be rebuilt. Read the sidecar first when a recall's trail is shorter
   than the run was
+- A run edits a declared `extraDirs` directory through the edit tools or
+  through `shell`, and only the first records a checkpoint. Undo reverts
+  every repository the thread recorded an edit in, so work a lane wrote into
+  a sibling repository with `shell` is outside what undo can reach and is
+  reverted by hand in that repository. The project's own gates abstain on
+  those changes and log the abstention as `scope`
 - Fuzzy `search` ranks a wider window than it answers with, so what the
   index scores and what a caller sees are different orders. Nothing may ask
   a ranked query whether a name exists: `internal/finish` did, and
