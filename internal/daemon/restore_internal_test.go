@@ -8,6 +8,8 @@ import (
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
+	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 // fakeRestorer stands in for the jj backend: changed reports what each
@@ -334,5 +336,70 @@ func TestManagerRestoreScopesToOwnPathsWhileAnotherLaneWrites(t *testing.T) {
 
 			checkMechanism(t, r, tc.wantWhole, tc.wantScopedN)
 		})
+	}
+}
+
+// A thread log written before repositories were tracked carries one bare
+// checkpoint per tool call, and every existing thread's log is that shape.
+// Dropping those events would take per-edit undo away from all of them.
+func TestApplyEditPointReadsALegacyCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	m := newManager(t.TempDir(), &agent.Loop{}, agent.Prefix{})
+
+	mt, err := m.create(createParams{Prompt: "undo me", Dirs: []string{t.TempDir()}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	mt.applyEditPoint(event.Event{
+		Kind:    event.KindTool,
+		Tool:    "str_replace",
+		Changes: []tool.Change{{Path: "a.go"}},
+		Detail:  map[string]any{"checkpoint": "op1"},
+	})
+
+	want := []api.EditPoint{{Op: "op1", Tool: "str_replace", Paths: []string{"a.go"}}}
+	if !reflect.DeepEqual(mt.edits, want) {
+		t.Errorf("edits = %+v, want %+v", mt.edits, want)
+	}
+}
+
+// A restore spanning repositories reports one of their checkpoints and
+// concatenates their diff stats, so the order has to come from the thread
+// rather than from a map's iteration.
+func TestManagerRestoreOrdersRepositoriesBeforeReporting(t *testing.T) {
+	t.Parallel()
+
+	m := newManager(t.TempDir(), &agent.Loop{}, agent.Prefix{})
+
+	own, sibling := t.TempDir(), t.TempDir()
+
+	mt, err := m.create(createParams{Prompt: "undo me", Dirs: []string{own}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	mt.baseline = "op0"
+	mt.edits = []api.EditPoint{
+		{Repo: sibling, Op: "op-sibling", Tool: "write", Paths: []string{"hk.pkl"}},
+		{Repo: own, Op: "op-own", Tool: "str_replace", Paths: []string{"a.go"}},
+	}
+
+	for range 8 {
+		r := &fakeRestorer{stat: "a.go | 1 +\n", changed: [][]string{{"a.go"}, {"hk.pkl"}}}
+
+		got, rErr := m.restore(context.Background(), r, nil, api.Command{ThreadID: mt.id, Confirm: true})
+		if rErr != nil {
+			t.Fatalf("restore: %v", rErr)
+		}
+
+		if got.Checkpoint != "op-own" {
+			t.Fatalf("Checkpoint = %q, want the thread's own repository's", got.Checkpoint)
+		}
+
+		if r.restored != 2 {
+			t.Fatalf("Restore called %d time(s), want both repositories reverted", r.restored)
+		}
 	}
 }

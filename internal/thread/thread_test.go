@@ -62,7 +62,8 @@ func TestHistoryIsAppendOnlyAndCopied(t *testing.T) {
 	if err := th.AppendAssistant(ctx, llm.Message{Content: "hi"}, nil, thread.TurnMeta{}); err != nil {
 		t.Fatalf("AppendAssistant: %v", err)
 	}
-	if err := th.AppendToolResult(ctx, "call-1", "read", nil, tool.Result{Content: "file contents"}, ""); err != nil {
+	err := th.AppendToolResult(ctx, "call-1", "read", nil, tool.Result{Content: "file contents"}, "", nil)
+	if err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 
@@ -211,7 +212,8 @@ func TestAppendToolResultLogsTheInput(t *testing.T) {
 	})
 
 	input := json.RawMessage(`{"path":"a.go","old_string":"x"}`)
-	if err := th.AppendToolResult(t.Context(), "c1", "str_replace", input, tool.Result{Content: "ok"}, ""); err != nil {
+	err = th.AppendToolResult(t.Context(), "c1", "str_replace", input, tool.Result{Content: "ok"}, "", nil)
+	if err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 
@@ -260,11 +262,11 @@ func TestAppendToolResultKeepsAFailedCallsArgumentsWhole(t *testing.T) {
 
 	ctx := t.Context()
 	if err := th.AppendToolResult(ctx, "c1", "str_replace", input,
-		tool.Result{Content: "not found", IsError: true}, ""); err != nil {
+		tool.Result{Content: "not found", IsError: true}, "", nil); err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 	if err := th.AppendToolResult(ctx, "c2", "str_replace", input,
-		tool.Result{Content: "ok"}, ""); err != nil {
+		tool.Result{Content: "ok"}, "", nil); err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 
@@ -379,7 +381,7 @@ func TestReopenRestoresTheTranscript(t *testing.T) {
 		t.Fatalf("assistant: %v", err)
 	}
 	if err := first.AppendToolResult(ctx, "c1", "read",
-		json.RawMessage(`{"path":"a.go"}`), tool.Result{Content: "package a"}, ""); err != nil {
+		json.RawMessage(`{"path":"a.go"}`), tool.Result{Content: "package a"}, "", nil); err != nil {
 		t.Fatalf("tool: %v", err)
 	}
 	if err := first.Close(); err != nil {

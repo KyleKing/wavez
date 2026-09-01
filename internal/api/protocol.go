@@ -350,6 +350,10 @@ type Diff struct {
 // EditPoint is one accepted change of a run and the operation holding the
 // tree just after it, which is what lets undo reach a single edit.
 type EditPoint struct {
+	// Repo is the repository root the operation belongs to, which is where a
+	// restore must run. An edit reached through a declared extra directory
+	// belongs to a different repository than the project root.
+	Repo string `json:"repo,omitempty"`
 	// Op is the jj operation holding the tree just after this change, which
 	// is what a restore rewinds to.
 	Op    string   `json:"op"`

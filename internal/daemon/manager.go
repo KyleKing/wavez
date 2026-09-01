@@ -865,9 +865,10 @@ type Writers interface {
 	OtherActiveHolders(holder, dir string) []string
 }
 
-// restore previews or performs an undo of threadID back to the checkpoint
-// captured before its first turn. A preview reports the work the restore
-// would discard; only confirm actually destroys it.
+// restore previews or performs an undo of threadID back to the checkpoints
+// captured before its first turn, one per repository the thread recorded
+// edits in. A preview reports the work the restore would discard; only
+// confirm actually destroys it.
 //
 // Nothing to discard is an error rather than a successful no-op, so a
 // client never reports an undo that undid nothing.
@@ -878,7 +879,7 @@ func (m *manager) restore(ctx context.Context, r Restorer, w Writers, cmd api.Co
 	}
 
 	mt.mu.Lock()
-	baseline, dir, running, edits := mt.baseline, firstDir(mt.dirs), mt.running, slices.Clone(mt.edits)
+	baseline, dirs, running, edits := mt.baseline, slices.Clone(mt.dirs), mt.running, slices.Clone(mt.edits)
 	mt.mu.Unlock()
 
 	switch {
@@ -886,41 +887,132 @@ func (m *manager) restore(ctx context.Context, r Restorer, w Writers, cmd api.Co
 		return api.Restore{}, ErrThreadBusy
 	case baseline == "":
 		return api.Restore{}, ErrNoCheckpoint
-	case r == nil || dir == "":
-		return api.Restore{}, ErrNoRepository
 	}
 
-	target, err := restoreTarget(baseline, edits, cmd.Checkpoint)
+	// targets is one checkpoint per repository the thread recorded an edit
+	// in, which is everything a confirmed undo reverts. A repository holding
+	// no recorded edit keeps the run's baseline checkpoint, so the whole
+	// first repository is what reverts to it.
+	targets, err := restoreTargets(baseline, edits, dirs, cmd.Checkpoint)
 	if err != nil {
 		return api.Restore{}, err
 	}
-
-	changed, err := r.ChangedFiles(ctx, dir, target)
-	if err != nil {
-		return api.Restore{}, fmt.Errorf("listing what thread %s would discard: %w", cmd.ThreadID, err)
+	if len(targets) == 0 || r == nil {
+		return api.Restore{}, ErrNoRepository
 	}
-	if len(changed) == 0 {
+
+	repos := orderedRepos(targets, dirs)
+
+	dirty, err := discardable(ctx, r, cmd.ThreadID, repos, w)
+	if err != nil {
+		return api.Restore{}, err
+	}
+	if dirty.changed == 0 {
 		return api.Restore{}, ErrNothingToRestore
 	}
 
-	summary, err := r.DiffStat(ctx, dir, target)
-	if err != nil {
-		return api.Restore{}, fmt.Errorf("summarizing what thread %s would discard: %w", cmd.ThreadID, err)
+	out := api.Restore{
+		ThreadID: cmd.ThreadID, Checkpoint: repos[0].target,
+		Summary: dirty.summary, Scoped: dirty.scoped, Edits: edits,
 	}
-
-	out := api.Restore{ThreadID: cmd.ThreadID, Checkpoint: target, Summary: summary, Edits: edits}
-	out.Scoped = otherWriters(w, cmd.ThreadID, dir)
 	if !cmd.Confirm {
 		return out, nil
 	}
 
-	if err := performRestore(ctx, r, dir, target, out.Scoped, edits); err != nil {
-		return api.Restore{}, err
+	for _, rr := range repos {
+		if err := performRestore(ctx, r, rr.repo, rr.target, out.Scoped, edits); err != nil {
+			return api.Restore{}, err
+		}
 	}
 
 	out.Restored = true
 
 	return out, nil
+}
+
+// discardable is what a restore would throw away across every repository it
+// touches: the changed-file count, the combined diff stat, and whether any
+// other thread is writing one of the repositories, which is what scopes a
+// restore to the asking thread's own paths.
+type discardReport struct {
+	summary string
+	changed int
+	scoped  bool
+}
+
+func discardable(
+	ctx context.Context, r Restorer, threadID string, repos []restoreRepo, w Writers,
+) (discardReport, error) {
+	var (
+		out     discardReport
+		summary strings.Builder
+	)
+
+	for _, rr := range repos {
+		changed, err := r.ChangedFiles(ctx, rr.repo, rr.target)
+		if err != nil {
+			return discardReport{}, fmt.Errorf("listing what thread %s would discard: %w", threadID, err)
+		}
+		out.changed += len(changed)
+
+		stat, err := r.DiffStat(ctx, rr.repo, rr.target)
+		if err != nil {
+			return discardReport{}, fmt.Errorf("summarizing what thread %s would discard: %w", threadID, err)
+		}
+		if stat != "" {
+			if summary.Len() > 0 {
+				fmt.Fprintln(&summary)
+			}
+
+			fmt.Fprint(&summary, stat)
+		}
+
+		out.scoped = out.scoped || otherWriters(w, threadID, rr.repo)
+	}
+
+	out.summary = summary.String()
+
+	return out, nil
+}
+
+// restoreRepo pairs one repository with the checkpoint its restore rewinds
+// to.
+type restoreRepo struct {
+	repo   string
+	target string
+}
+
+// orderedRepos puts the thread's own directories first, in the order it was
+// given them, and every other repository after them by name. The reported
+// checkpoint and the combined diff stat both read off this order, so a map's
+// would make the same undo describe itself differently each time.
+func orderedRepos(targets map[string]string, dirs []string) []restoreRepo {
+	out := make([]restoreRepo, 0, len(targets))
+	seen := map[string]bool{}
+
+	for _, d := range dirs {
+		if target, ok := targets[d]; ok && !seen[d] {
+			seen[d] = true
+
+			out = append(out, restoreRepo{repo: d, target: target})
+		}
+	}
+
+	rest := make([]string, 0, len(targets))
+
+	for repo := range targets {
+		if !seen[repo] {
+			rest = append(rest, repo)
+		}
+	}
+
+	slices.Sort(rest)
+
+	for _, repo := range rest {
+		out = append(out, restoreRepo{repo: repo, target: targets[repo]})
+	}
+
+	return out
 }
 
 // otherWriters reports whether a thread other than threadID holds an active
@@ -958,22 +1050,50 @@ func editedPaths(edits []api.EditPoint) []string {
 	return out
 }
 
-// restoreTarget resolves which operation a restore rewinds to. An id the
-// thread did not record is refused rather than passed to jj: restoring
-// destroys uncommitted work, and a client naming an arbitrary operation is
-// not a request the daemon should carry out.
-func restoreTarget(baseline string, edits []api.EditPoint, want string) (string, error) {
-	if want == "" || want == baseline {
-		return baseline, nil
-	}
+// restoreTargets resolves which operation each repository's restore rewinds
+// to. A repository holding a recorded edit rewinds to the thread's own
+// checkpoint for it; the run's baseline covers every other directory the
+// thread ran in, which is only the first one in practice. An id the thread
+// did not record is refused rather than passed to jj: restoring destroys
+// uncommitted work, and a client naming an arbitrary operation is not a
+// request the daemon should carry out.
+func restoreTargets(baseline string, edits []api.EditPoint, dirs []string, want string) (map[string]string, error) {
+	if want == "" {
+		out := map[string]string{}
 
-	for _, e := range edits {
-		if e.Op == want {
-			return want, nil
+		for _, e := range edits {
+			if e.Repo != "" {
+				out[e.Repo] = e.Op
+			}
 		}
+
+		for _, d := range dirs {
+			if _, ok := out[d]; !ok {
+				out[d] = baseline
+			}
+		}
+
+		return out, nil
 	}
 
-	return "", fmt.Errorf("%w: %s", ErrUnknownCheckpoint, want)
+	// A single-edit undo rewinds only the repository that recorded it; every
+	// other repository's work stands, since undoing one edit has no opinion
+	// about a tree it never touched. An edit recorded before repos were
+	// tracked belongs to the thread's first directory.
+	for _, e := range edits {
+		if e.Op != want {
+			continue
+		}
+
+		repo := e.Repo
+		if repo == "" && len(dirs) > 0 {
+			repo = dirs[0]
+		}
+
+		return map[string]string{repo: e.Op}, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrUnknownCheckpoint, want)
 }
 
 // performRestore reverts dir and proves it: jj reports "Nothing changed"
@@ -989,6 +1109,17 @@ func restoreTarget(baseline string, edits []api.EditPoint, want string) (string,
 func performRestore(
 	ctx context.Context, r Restorer, dir, checkpoint string, scoped bool, edits []api.EditPoint,
 ) error {
+	repoEdits := edits
+	if dir != "" {
+		repoEdits = nil
+
+		for _, e := range edits {
+			if e.Repo == "" || e.Repo == dir {
+				repoEdits = append(repoEdits, e)
+			}
+		}
+	}
+
 	if !scoped {
 		if err := r.Restore(ctx, dir, checkpoint); err != nil {
 			return fmt.Errorf("restoring %s: %w", dir, err)
@@ -997,7 +1128,7 @@ func performRestore(
 		return verifyRestored(ctx, r, dir, checkpoint, nil)
 	}
 
-	paths := editedPaths(edits)
+	paths := editedPaths(repoEdits)
 	if len(paths) == 0 {
 		return ErrNothingToRestore
 	}

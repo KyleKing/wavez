@@ -3,6 +3,9 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"maps"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 // managedThread pairs a thread.Thread with the daemon-owned bookkeeping the
@@ -263,10 +267,10 @@ func (mt *managedThread) apply(ev event.Event) {
 	mt.applyEditPoint(ev)
 }
 
-// applyEditPoint records the operation holding the tree just after one
-// accepted change. A new prompt clears the list, since undo is offered over
-// the run in front of the user rather than over every edit the thread has
-// ever made.
+// applyEditPoint records one edit point per repository the call changed:
+// the operation holding that repository's tree just after the change. A new
+// prompt clears the list, since undo is offered over the run in front of the
+// user rather than over every edit the thread has ever made.
 func (mt *managedThread) applyEditPoint(ev event.Event) {
 	if ev.Kind == event.KindUser {
 		mt.edits = nil
@@ -278,17 +282,79 @@ func (mt *managedThread) applyEditPoint(ev event.Event) {
 		return
 	}
 
-	op, ok := ev.Detail["checkpoint"].(string)
-	if !ok || op == "" {
+	repos := checkpointsFromEvent(ev)
+	if len(repos) == 0 {
 		return
 	}
 
-	paths := make([]string, 0, len(ev.Changes))
-	for _, c := range ev.Changes {
-		paths = append(paths, c.Path)
+	for _, repo := range slices.Sorted(maps.Keys(repos)) {
+		op := repos[repo]
+
+		paths := make([]string, 0, len(ev.Changes))
+		for _, c := range ev.Changes {
+			if repoOf(repo, c.Path) {
+				paths = append(paths, c.Path)
+			}
+		}
+
+		if len(paths) == 0 {
+			paths = append(paths, pathsOf(ev.Changes)...)
+		}
+
+		mt.edits = append(mt.edits, api.EditPoint{Repo: repo, Op: op, Tool: ev.Tool, Paths: paths})
+	}
+}
+
+// checkpointsFromEvent reads the per-repository operations a tool call
+// captured. An event written before repositories were tracked carries one
+// bare checkpoint under no repository name, which restore reads as the
+// thread's first directory.
+func checkpointsFromEvent(ev event.Event) thread.Checkpoints {
+	raw, ok := ev.Detail["checkpoints"]
+	if !ok {
+		if op, isString := ev.Detail["checkpoint"].(string); isString && op != "" {
+			return thread.Checkpoints{"": op}
+		}
+
+		return nil
 	}
 
-	mt.edits = append(mt.edits, api.EditPoint{Op: op, Tool: ev.Tool, Paths: paths})
+	switch v := raw.(type) {
+	case thread.Checkpoints:
+		return v
+	case map[string]any:
+		out := thread.Checkpoints{}
+		for repo, op := range v {
+			s, ok := op.(string)
+			if !ok || s == "" {
+				continue
+			}
+
+			out[repo] = s
+		}
+
+		return out
+	default:
+		return nil
+	}
+}
+
+// repoOf reports whether path belongs to repository root repo: relative paths
+// carry no root of their own, so they follow the single-repository case and
+// are attributed to every recorded repository's point only when it is the one
+// the run itself named.
+func repoOf(repo, path string) bool {
+	return path == "" || !filepath.IsAbs(path) || strings.HasPrefix(filepath.Clean(path)+string(filepath.Separator),
+		filepath.Clean(repo)+string(filepath.Separator))
+}
+
+func pathsOf(changes []tool.Change) []string {
+	out := make([]string, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, c.Path)
+	}
+
+	return out
 }
 
 // applyTiming tracks the current run's turn boundaries. A run starts at the

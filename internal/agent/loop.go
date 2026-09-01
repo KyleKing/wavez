@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -308,6 +309,10 @@ type Verifier interface {
 // without committing anything: measured on this repo, restoring to a
 // captured id brings back the exact file content, at 40-70 ms per capture.
 type EditPoint struct {
+	// Repo is the repository root the operation belongs to, which is where a
+	// restore must run. An edit reached through a declared extra directory
+	// belongs to a different repository than the project root.
+	Repo  string
 	Op    string
 	Paths []string
 }
@@ -319,6 +324,11 @@ type EditPoint struct {
 // of any command. Restore must be safe to call when nothing changed since
 // the checkpoint it is given.
 type Checkpointer interface {
+	// RepoRoot names the repository root holding path, which is where a
+	// checkpoint captured after an edit there belongs. An error names a path
+	// under no repository, which records no checkpoint rather than failing
+	// the edit.
+	RepoRoot(ctx context.Context, path string) (string, error)
 	Capture(ctx context.Context, repoRoot string) (string, error)
 	Restore(ctx context.Context, repoRoot, checkpoint string) error
 }
@@ -1381,7 +1391,7 @@ func (r *run) handleMalformedCall(ctx context.Context, call llm.ToolCall) (bool,
 	if err := r.appendToolResult(ctx, call, tool.Fail(tool.CauseMalformed,
 		"the arguments for %s were not valid JSON, so the call never ran. Send it again with the "+
 			"arguments as one JSON object, writing any multi-line text as a single string with "+
-			`\n escapes rather than real line breaks`, call.Name), ""); err != nil {
+			`\n escapes rather than real line breaks`, call.Name), "", nil); err != nil {
 		return true, Outcome{}, err
 	}
 	r.outcome.ToolCalls++
@@ -1412,7 +1422,7 @@ func (r *run) handleRepeatedCall(ctx context.Context, call llm.ToolCall) (bool, 
 
 	if err := r.appendToolResult(ctx, call, tool.Fail(tool.CauseRepeat,
 		"you already made this exact %s call and it did not move the task forward; "+
-			"read the previous result, then either change the arguments or stop", call.Name), ""); err != nil {
+			"read the previous result, then either change the arguments or stop", call.Name), "", nil); err != nil {
 		return true, Outcome{}, err
 	}
 	r.outcome.ToolCalls++
@@ -1469,7 +1479,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 	if err != nil {
 		unknown := tool.Fail(tool.CauseBadInput, "unknown tool %q", call.Name)
 
-		return unknown, r.appendToolResult(ctx, call, unknown, "")
+		return unknown, r.appendToolResult(ctx, call, unknown, "", nil)
 	}
 
 	allowed, err := r.gk.check(ctx, t, call.Input)
@@ -1479,7 +1489,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 	if !allowed {
 		denied := tool.Fail(tool.CauseRefused, "permission denied for %q", call.Name)
 
-		return denied, r.appendToolResult(ctx, call, denied, "")
+		return denied, r.appendToolResult(ctx, call, denied, "", nil)
 	}
 
 	proceed, err := r.preToolUse(ctx, t, call)
@@ -1489,7 +1499,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 	if !proceed {
 		refused := tool.Fail(tool.CauseRefused, "pre-tool-use hook refused %q", call.Name)
 
-		return refused, r.appendToolResult(ctx, call, refused, "")
+		return refused, r.appendToolResult(ctx, call, refused, "", nil)
 	}
 
 	result, err := t.Run(ctx, call.Input)
@@ -1498,13 +1508,13 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 	}
 	r.changes = append(r.changes, result.Changes...)
 	r.gateChanges(result.Changes)
-	op := r.checkpointEdit(ctx, result.Changes)
+	op, repos := r.checkpointEdit(ctx, result.Changes)
 
 	if err := r.postToolUse(ctx, t, call, result); err != nil {
 		return tool.Result{}, err
 	}
 
-	return result, r.appendToolResult(ctx, call, result, op)
+	return result, r.appendToolResult(ctx, call, result, op, repos)
 }
 
 // gateChanges hands each change to the gate runner. It is fire-and-forget
@@ -1521,27 +1531,76 @@ func (r *run) gateChanges(changes []tool.Change) {
 }
 
 // checkpointEdit records the tree as it stands just after one accepted
-// change, and reports the operation id holding it. A failure to capture is
-// not a failure of the edit: the run keeps its whole-run checkpoint either
-// way, so this loses granularity rather than recoverability.
-func (r *run) checkpointEdit(ctx context.Context, changes []tool.Change) string {
+// change, one operation per repository the changes landed in, and reports
+// the operation id a single-repository caller can restore to: the run's own
+// repository's when it holds one of the changes, else the first captured.
+// A change under no jj repository records nothing for itself. A failure to
+// capture is not a failure of the edit: the run keeps its whole-run
+// checkpoint either way, so this loses granularity rather than
+// recoverability.
+func (r *run) checkpointEdit(ctx context.Context, changes []tool.Change) (string, thread.Checkpoints) {
 	if len(changes) == 0 || r.loop.options.Checkpointer == nil {
-		return ""
+		return "", nil
 	}
 
-	op, err := r.loop.options.Checkpointer.Capture(ctx, r.loop.options.RepoRoot)
-	if err != nil {
-		return ""
-	}
+	// repos maps each repository root to the operation captured for it, and
+	// is what a caller restores one repository at a time with.
+	repos := thread.Checkpoints{}
 
-	paths := make([]string, 0, len(changes))
+	// repoRoots groups the changes by the repository holding each path,
+	// first-seen order, so one capture covers everything a repository took.
+	repoRoots := map[string][]string{}
+
+	var order []string
+
 	for _, c := range changes {
-		paths = append(paths, c.Path)
+		repo, err := r.loop.options.Checkpointer.RepoRoot(ctx, r.repoFor(c.Path))
+		if err != nil {
+			continue
+		}
+
+		if _, seen := repoRoots[repo]; !seen {
+			order = append(order, repo)
+		}
+
+		repoRoots[repo] = append(repoRoots[repo], c.Path)
 	}
 
-	r.outcome.Edits = append(r.outcome.Edits, EditPoint{Op: op, Paths: paths})
+	primary := ""
 
-	return op
+	for _, repo := range order {
+		op, err := r.loop.options.Checkpointer.Capture(ctx, repo)
+		if err != nil {
+			continue
+		}
+
+		r.outcome.Edits = append(r.outcome.Edits, EditPoint{
+			Repo: repo, Op: op, Paths: repoRoots[repo],
+		})
+
+		repos[repo] = op
+
+		if primary == "" || repo == r.loop.options.RepoRoot {
+			primary = op
+		}
+	}
+
+	if len(repos) == 0 {
+		return "", nil
+	}
+
+	return primary, repos
+}
+
+// repoFor names the directory whose repository a change's path belongs to:
+// the run's own repository when the path is relative (every tool reports
+// one), the path's own directory otherwise.
+func (r *run) repoFor(path string) string {
+	if !filepath.IsAbs(path) {
+		return r.loop.options.RepoRoot
+	}
+
+	return filepath.Dir(path)
 }
 
 // collectGateFeedback appends whatever the change-triggered gates found
@@ -1649,8 +1708,10 @@ func (r *run) logFalseAlarms() error {
 	return nil
 }
 
-func (r *run) appendToolResult(ctx context.Context, call llm.ToolCall, result tool.Result, checkpoint string) error {
-	if err := r.thread.AppendToolResult(ctx, call.ID, call.Name, call.Input, result, checkpoint); err != nil {
+func (r *run) appendToolResult(
+	ctx context.Context, call llm.ToolCall, result tool.Result, checkpoint string, repos thread.Checkpoints,
+) error {
+	if err := r.thread.AppendToolResult(ctx, call.ID, call.Name, call.Input, result, checkpoint, repos); err != nil {
 		return fmt.Errorf("appending tool result: %w", err)
 	}
 

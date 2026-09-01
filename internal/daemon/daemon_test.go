@@ -664,6 +664,10 @@ var errNoJJRepo = errors.New("capturing checkpoint: /x is not a jj repository")
 
 type failingCheckpointer struct{ err error }
 
+func (failingCheckpointer) RepoRoot(_ context.Context, path string) (string, error) {
+	return path, nil
+}
+
 func (f failingCheckpointer) Capture(context.Context, string) (string, error) { return "", f.err }
 func (f failingCheckpointer) Restore(context.Context, string, string) error   { return f.err }
 

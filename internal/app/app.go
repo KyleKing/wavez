@@ -837,7 +837,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
 			tools.WithAllowedCommands(d.shellAllow)),
 		tools.NewPTY(d.root, DefaultThreadID, d.permGate),
-		tools.NewSearch(d.indexer),
+		tools.NewSearch(d.indexer, d.root, reach),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),

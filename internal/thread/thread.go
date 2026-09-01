@@ -264,6 +264,12 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 	return nil
 }
 
+// Checkpoints maps each repository root a tool call changed to the jj
+// operation holding that repository's tree just after the call. It rides on
+// the tool event rather than in history because undo is the harness's
+// business and never the model's.
+type Checkpoints map[string]string
+
 // AppendToolResult appends a tool's result to history, tagged to toolCallID,
 // and logs a KindTool event carrying the changes it produced and the input the
 // model sent, truncated to a bound that depends on whether the call failed.
@@ -271,12 +277,13 @@ func (t *Thread) AppendAssistant(ctx context.Context, msg llm.Message, usage *ll
 // the fact without it. A result the tool reported as
 // an error is marked with an is_error detail, so downstream stats can tell a
 // failed call from a successful one.
-// The checkpoint is the jj operation holding the tree just after this call's
-// changes, empty when the call changed nothing. It rides on the event rather
-// than in history because undo is the harness's business and never the
-// model's.
+// The checkpoint is the jj operation of the run's own repository holding the
+// tree just after this call's changes, empty when the call changed nothing it
+// can reach, and repos carries one operation per repository the call touched,
+// which is what a multi-repository undo restores.
 func (t *Thread) AppendToolResult(
-	ctx context.Context, toolCallID, toolName string, input json.RawMessage, result tool.Result, checkpoint string,
+	ctx context.Context, toolCallID, toolName string, input json.RawMessage, result tool.Result,
+	checkpoint string, repos Checkpoints,
 ) error {
 	if err := contextErr(ctx); err != nil {
 		return err
@@ -315,6 +322,12 @@ func (t *Thread) AppendToolResult(
 			ev.Detail = map[string]any{}
 		}
 		ev.Detail["checkpoint"] = checkpoint
+	}
+	if len(repos) > 0 {
+		if ev.Detail == nil {
+			ev.Detail = map[string]any{}
+		}
+		ev.Detail["checkpoints"] = repos
 	}
 	if _, err := t.log.Append(ev); err != nil {
 		return fmt.Errorf("logging tool turn: %w", err)

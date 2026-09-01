@@ -44,7 +44,7 @@ func TestWriteLedgerAppendsKindLedger(t *testing.T) {
 	if err := th.AppendToolResult(ctx, "1", "edit", nil, tool.Result{
 		Content: "ok",
 		Changes: []tool.Change{{Path: "x.go"}},
-	}, ""); err != nil {
+	}, "", nil); err != nil {
 		t.Fatalf("AppendToolResult: %v", err)
 	}
 

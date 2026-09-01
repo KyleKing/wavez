@@ -19,11 +19,22 @@ import (
 
 var errCapture = errors.New("not a jj repository")
 
-// stubCheckpointer scripts Capture and records every Restore call.
+// stubCheckpointer scripts Capture and records every Restore call. RepoRoot
+// resolves every path to root, which is what a single-repository project
+// sees; roots overrides that per path.
 type stubCheckpointer struct {
-	captured   string
 	captureErr error
+	captured   string
+	roots      map[string]string
 	restores   []string
+}
+
+func (c *stubCheckpointer) RepoRoot(_ context.Context, path string) (string, error) {
+	if repo, ok := c.roots[path]; ok {
+		return repo, nil
+	}
+
+	return "/repo", nil
 }
 
 func (c *stubCheckpointer) Capture(context.Context, string) (string, error) {
@@ -163,6 +174,10 @@ func TestLoop_RestoreCheckpointWithNoCheckpointerErrors(t *testing.T) {
 // way jj does once the working copy has moved between them.
 type countingCheckpointer struct {
 	captures int
+}
+
+func (*countingCheckpointer) RepoRoot(_ context.Context, _ string) (string, error) {
+	return "/repo", nil
 }
 
 func (c *countingCheckpointer) Capture(context.Context, string) (string, error) {
