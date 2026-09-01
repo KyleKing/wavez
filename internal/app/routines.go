@@ -55,7 +55,7 @@ func buildRoutines(
 		actions = append(actions, routine.GateAction(g))
 	}
 
-	actions = append(actions, routine.RunAction(root))
+	actions = append(actions, routine.RunAction(root), routine.SemgrepAction(root))
 	actions = append(actions, routine.ServiceActions(routine.NewServices(serviceDefs(root, cfg)))...)
 
 	registry := routine.NewRegistry(actions...)

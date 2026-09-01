@@ -300,9 +300,30 @@ func CompileSet(defs map[string]Definition, reg *Registry, hash string) (*Set, e
 		}
 	}
 
+	// The semgrep built-in exists only where its action was registered, the
+	// same rule the gate built-ins follow. It stays disabled: the project
+	// turns it on with `semgrep { enabled = true }` in ".wavez.pkl".
+	if _, ok := reg.Lookup(SemgrepActionName); ok {
+		merged[SemgrepName] = semgrepDefinition()
+	}
+
 	for _, name := range sortedKeys(defs) {
 		def := defs[name]
 		def.Name = name
+
+		// A declaration overriding a built-in keeps what it does not itself
+		// name: opting one in is `enabled = true`, not a re-declaration of
+		// the steps and triggers the built-in already carries.
+		if base, ok := merged[name]; ok {
+			if len(def.Steps) == 0 {
+				def.Steps = base.Steps
+			}
+
+			if len(def.Triggers) == 0 {
+				def.Triggers = base.Triggers
+			}
+		}
+
 		merged[name] = def
 	}
 
