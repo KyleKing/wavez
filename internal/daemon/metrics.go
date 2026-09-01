@@ -6,6 +6,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/llm"
+	"github.com/kyleking/wavez/internal/router"
 )
 
 // usage totals one thread's token counts, read back off its own event log
@@ -138,4 +139,24 @@ func (s *spendLedger) rollLocked() {
 	if !day.Equal(s.day) {
 		s.day, s.total = day, 0
 	}
+}
+
+// servedFromEvent reads which model and tier answered a turn off the same
+// KindAgent event that carries its usage. A thread pins a tier at most, so
+// this is the only record of what a turn actually ran on. The tier is
+// recorded even where the tier's model has no configured name, so either
+// one alone is an answer.
+func servedFromEvent(ev event.Event) (string, router.Choice, bool) {
+	if ev.Kind != event.KindAgent {
+		return "", "", false
+	}
+
+	model, hasModel := ev.Detail["model"].(string)
+
+	tier, hasTier := ev.Detail["tier"].(string)
+	if !hasModel && !hasTier {
+		return "", "", false
+	}
+
+	return model, router.Choice(tier), true
 }

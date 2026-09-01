@@ -426,15 +426,22 @@ func TestThread_TailFollowHoldsUntilTheReaderScrolls(t *testing.T) {
 
 // The header is the only standing surface that says which tier a thread is
 // pinned to, so a pin that does not reach it is invisible between turns.
-func TestThread_HeaderNamesThePinnedTier(t *testing.T) {
+// The header named the local model for every unpinned thread, so 23 turns
+// that ran on glm-5.3 read as qwen3:8b. Nothing but the served model says
+// what answered, since an unpinned thread routes to a tier the daemon
+// reports no model name for.
+func TestThread_HeaderNamesWhatIsServing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name     string
+		served   string
 		override router.Choice
 		want     string
 	}{
-		{name: "unpinned shows the local model", override: "", want: "qwen3:8b "},
+		{name: "unpinned and unserved names the default tier", want: "balanced "},
+		{name: "served names what answered", served: "glm-5.3", want: "glm-5.3 "},
+		{name: "served and pinned", served: "glm-5.3", override: router.ChoiceBalanced, want: "glm-5.3·pinned"},
 		{name: "pinned fast", override: router.ChoiceFast, want: "qwen3:8b·pinned"},
 		{name: "pinned balanced", override: router.ChoiceBalanced, want: "balanced·pinned"},
 		{name: "pinned deep", override: router.ChoiceDeep, want: "deep·pinned"},
@@ -446,9 +453,9 @@ func TestThread_HeaderNamesThePinnedTier(t *testing.T) {
 
 			m := newSized(t, tui.Options{NoColor: true}, 120, 24)
 			m = apply(t, m, api.Reply{Kind: api.RepDiag, Diag: &api.Diagnostics{LocalModel: "qwen3:8b"}})
-			m = openThread(t, m, []api.ThreadInfo{
-				{ID: "t1", Name: "fix-lock", Dir: "wavez", State: event.StateWorking, Override: tc.override},
-			})
+			info := api.ThreadInfo{ID: "t1", Name: "fix-lock", Dir: "wavez", State: event.StateWorking}
+			info.Override, info.Served = tc.override, tc.served
+			m = openThread(t, m, []api.ThreadInfo{info})
 
 			assert.Contains(t, m.View().Content, tc.want)
 		})

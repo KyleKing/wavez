@@ -166,6 +166,7 @@ func (m *manager) create(p createParams) (*managedThread, error) {
 
 	mt := &managedThread{
 		th:      th,
+		price:   m.loop.PriceTurn,
 		served:  m.loop.ContextWindow(),
 		cycle:   p.Cycle,
 		id:      id,
@@ -591,6 +592,7 @@ func (m *manager) runTurn(ctx context.Context, mt *managedThread, done chan stru
 	mt.cancel = nil
 	mt.lastErr = err
 	mt.spendUSD += outcome.HostedSpendUSD
+	mt.liveSpendUSD = 0
 
 	if mt.baseline == "" {
 		mt.baseline = outcome.Checkpoint

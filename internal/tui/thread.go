@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -518,27 +519,34 @@ func (m Model) renderThread() string {
 	return frame(m.width, headerGoal(title, info.Goal, m.width), body, footer, m.th)
 }
 
-// activeModel names the model serving this thread. ThreadInfo.Model carries
-// only an override, so a thread without one is served by the daemon's local
-// model rather than by nothing. A pinned tier is named instead of the model,
-// since the daemon reports no name for the network tiers and a pin is what
-// decides the tier either way.
+// activeModel names what is serving this thread, marking a pin because a
+// pinned tier is not recoverable from the model name alone.
 func (m Model) activeModel(info api.ThreadInfo) string {
-	switch info.Override {
-	case router.ChoiceDeep:
-		return "deep·pinned"
-	case router.ChoiceBalanced:
-		return "balanced·pinned"
-	case router.ChoiceFast:
-		return m.servingModel(info) + "·pinned"
-	default:
-		return m.servingModel(info)
+	name := m.servingModel(info)
+	if info.Override != "" {
+		return name + "·pinned"
 	}
+
+	return name
 }
 
+// servingModel prefers the model that answered the last turn, since nothing
+// else says what actually ran: a thread pins a tier at most, and the router
+// defaults to a tier the daemon reports no model name for. Before the first
+// turn the tier is named instead, except on fast, which is the local model.
 func (m Model) servingModel(info api.ThreadInfo) string {
+	if info.Served != "" {
+		return info.Served
+	}
+
 	if info.Model != "" {
 		return info.Model
+	}
+
+	tier := cmp.Or(info.Tier, info.Override, router.Default)
+
+	if tier != router.ChoiceFast {
+		return string(tier)
 	}
 
 	return orDash(m.diag.LocalModel)

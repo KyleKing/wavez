@@ -652,7 +652,7 @@ func (l *Loop) priorSpend(th *thread.Thread) float64 {
 			continue
 		}
 
-		total += l.priceTurn(model, &llm.Usage{
+		total += l.PriceTurn(model, llm.Usage{
 			InputTokens:     loggedInt(raw, "input_tokens"),
 			OutputTokens:    loggedInt(raw, "output_tokens"),
 			CacheReadTokens: loggedInt(raw, "cache_read_tokens"),
@@ -673,15 +673,16 @@ func loggedInt(detail map[string]any, key string) int {
 	return int(v)
 }
 
-// priceTurn prices one turn's usage against the configured per-model table.
+// PriceTurn prices one turn's usage against the configured per-model table.
 // A model with no pricing entry contributes zero cost, so the cost ceiling
-// never trips on a model wavez has no real price for.
+// never trips on a model wavez has no real price for. A caller pricing a turn
+// off its own log event gets the same number the run accumulates.
 //
 // InputTokens counts the whole prompt including the part the provider served
 // from its cache, so billing all of it at the input rate charges 3.5x what a
 // cached token costs on the deep tier, where 90% of every turn's prompt is a
 // cache hit.
-func (l *Loop) priceTurn(model string, usage *llm.Usage) float64 {
+func (l *Loop) PriceTurn(model string, usage llm.Usage) float64 {
 	p, ok := l.options.Pricing[model]
 	if !ok {
 		return 0
@@ -981,7 +982,7 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 		r.outcome.OutputTokens += usage.OutputTokens
 		// Priced per model rather than per tier: a model with no price
 		// costs nothing, which is what an on-box tier is.
-		r.outcome.HostedSpendUSD += r.loop.priceTurn(req.Model, usage)
+		r.outcome.HostedSpendUSD += r.loop.PriceTurn(req.Model, *usage)
 		r.outcome.ThreadSpendUSD = r.priorSpend + r.outcome.HostedSpendUSD
 	}
 	if r.loop.options.MaxHostedSpendUSD > 0 && r.outcome.HostedSpendUSD >= r.loop.options.MaxHostedSpendUSD {

@@ -99,9 +99,9 @@ func TestPriceTurnCacheReads(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := loop.priceTurn(tc.model, &tc.usage)
+			got := loop.PriceTurn(tc.model, tc.usage)
 			if math.Abs(got-tc.want) > 1e-9 {
-				t.Fatalf("priceTurn = %v, want %v", got, tc.want)
+				t.Fatalf("PriceTurn = %v, want %v", got, tc.want)
 			}
 		})
 	}

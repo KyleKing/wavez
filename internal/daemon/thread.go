@@ -9,6 +9,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/router"
 	"github.com/kyleking/wavez/internal/thread"
 )
@@ -60,19 +61,31 @@ type managedThread struct {
 	// routing.
 	override router.Choice
 	model    string
-	state    event.State
-	step     string
+	// servedModel and servedTier are what actually answered the last turn,
+	// read off its own log event. model and override are only what was
+	// asked for, and a thread that pins neither still runs on some tier.
+	servedModel string
+	servedTier  router.Choice
+	state       event.State
+	step        string
 	// samples is the recent state history one schedule lane is drawn from,
 	// oldest first and bounded, since a lane covers minutes rather than a
 	// thread's whole life.
 	// pending is the prompts that arrived while a turn was running, oldest
 	// first. They start one at a time at turn boundaries rather than being
 	// dropped, which is what sending to a working thread used to do.
-	pending  []string
-	samples  []stateSample
-	dirs     []string
+	pending []string
+	samples []stateSample
+	dirs    []string
+	// price is what one turn cost, nil where no pricing table was wired.
+	price    func(model string, usage llm.Usage) float64
 	usage    usage
 	spendUSD float64
+	// liveSpendUSD prices the turns of the run in flight off its own log
+	// events, so a metered run reports what it has spent before it ends.
+	// The run's outcome replaces it at the end rather than adding to it,
+	// which is why it resets there and accrues only while running.
+	liveSpendUSD float64
 	// turns is how many turns of the current run have finished.
 	turns int
 	// compactions and tokensSaved follow the thread's own compaction events,
@@ -147,7 +160,9 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 		Checkpoint: mt.baseline,
 		Seq:        mt.th.Log().Head(),
 		LastEvent:  mt.lastAt,
-		Spend:      mt.spendUSD,
+		Spend:      mt.spendUSD + mt.liveSpendUSD,
+		Served:     mt.servedModel,
+		Tier:       mt.servedTier,
 		Turn:       mt.turns + 1,
 		Turns:      mt.turns,
 		TurnStart:  mt.turnStart,
@@ -160,14 +175,28 @@ func (mt *managedThread) info() (api.ThreadInfo, error) {
 	}, nil
 }
 
-// window is the fast tier's served context for this thread's project,
-// which is the budget the router admits a turn against.
+// tier is where this thread's turns run: what served the last one, else what
+// it is pinned to, else the router's own default.
+func (mt *managedThread) tier() router.Choice {
+	switch {
+	case mt.servedTier != "":
+		return mt.servedTier
+	case mt.override != "":
+		return mt.override
+	default:
+		return router.Default
+	}
+}
+
+// window is the context budget the router admits a turn against, which is
+// the local tier's served context only for a thread running on it.
 func (mt *managedThread) window() int {
-	if mt.served <= 0 {
-		return router.FastContextBudget
+	local := mt.served
+	if local <= 0 {
+		local = router.FastContextBudget
 	}
 
-	return mt.served
+	return router.ContextBudget(mt.tier(), local)
 }
 
 // sync folds every log event this cache has not yet seen into state, step,
@@ -215,6 +244,10 @@ func (mt *managedThread) apply(ev event.Event) {
 	}
 	if v, ok := usageFromEvent(ev); ok {
 		mt.usage.add(v)
+		mt.addLiveSpend(ev, v)
+	}
+	if model, tier, ok := servedFromEvent(ev); ok {
+		mt.servedModel, mt.servedTier = model, tier
 	}
 	if saved, ok := compactionFromEvent(ev); ok {
 		mt.compactions++
@@ -399,4 +432,20 @@ func firstDir(dirs []string) string {
 	}
 
 	return dirs[0]
+}
+
+// addLiveSpend prices one turn into the run in flight. It accrues only while
+// running, since replaying the log at startup would otherwise charge every
+// turn the thread has ever taken to a run that is not happening.
+func (mt *managedThread) addLiveSpend(ev event.Event, v llm.Usage) {
+	if !mt.running || mt.price == nil {
+		return
+	}
+
+	model, _, ok := servedFromEvent(ev)
+	if !ok {
+		return
+	}
+
+	mt.liveSpendUSD += mt.price(model, v)
 }

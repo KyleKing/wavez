@@ -249,6 +249,11 @@ type ThreadInfo struct {
 	// routes automatically. A client renders it because a pinned tier is not
 	// recoverable from the model name alone.
 	Override router.Choice `json:"override,omitempty"`
+	// Served is the model that answered the last turn and Tier is what it
+	// ran on, both empty until a turn has finished. Model and Override say
+	// only what was asked for, so these are what a client names.
+	Served string        `json:"served,omitempty"`
+	Tier   router.Choice `json:"tier,omitempty"`
 	// Thinking is the thread's reasoning-trace pin, nil when the thread
 	// follows the served model's own default.
 	Thinking *bool `json:"thinking,omitempty"`

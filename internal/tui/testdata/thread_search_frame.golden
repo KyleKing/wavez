@@ -1,4 +1,4 @@
-[1m┌ calcipy · fix-lock-timeout · - 0.0k/0.0k · $0.00 ────────────────────────────┐[m
+[1m┌ calcipy · fix-lock-timeout · balanced 0.0k/0.0k · $0.00 ─────────────────────┐[m
 [1m│ [m[2mledger  editing internal/lease.go[m                                           [1m │[m
 [1m│ [m  ▸ tool   make the [7mlease[m TTL configurable                                  [1m │[m
 [1m│ [m  ▸ tool   renamed the default                                              [1m │[m

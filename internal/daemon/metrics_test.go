@@ -2,16 +2,19 @@ package daemon_test
 
 import (
 	"encoding/json"
+	"math"
 	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/llm/fake"
+	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/router"
 )
 
@@ -144,11 +147,39 @@ func TestDiagnostics_SeparatesReadingsFromUnmeasuredGauges(t *testing.T) {
 		}
 
 		info := listThread(t, cl, th.ID)
-		if info.Tokens != 1100 || info.Context != 1100 || info.Window != router.FastContextBudget {
-			t.Fatalf("thread tokens = %+v, want 1100 tokens, 1100 context, window %d",
-				info, router.FastContextBudget)
+		if info.Tokens != 1100 || info.Context != 1100 {
+			t.Fatalf("thread tokens = %+v, want 1100 tokens and 1100 context", info)
 		}
 	})
+}
+
+// The window was the local tier's for every thread, so a run served on
+// balanced in a 128k window rendered as 9.4k of an 8.2k context and read as
+// overflowing. Only the turn's own log event says which tier answered it.
+func TestThreadInfo_WindowFollowsTheTierThatServed(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local", fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn})
+	h := newHarness(t, local)
+	cl := dial(t, h)
+	cl.hello()
+	th := cl.newThread(nil)
+
+	if info := listThread(t, cl, th.ID); info.Tier != "" {
+		t.Fatalf("Tier = %q before any turn, want empty", info.Tier)
+	}
+
+	runOneTurn(t, cl, th.ID)
+
+	info := listThread(t, cl, th.ID)
+	if info.Tier != router.Default {
+		t.Fatalf("Tier = %q, want the tier that served the turn (%q)", info.Tier, router.Default)
+	}
+
+	if info.Window != router.HostedContextBudget {
+		t.Fatalf("Window = %d for a turn served on %s, want %d",
+			info.Window, info.Tier, router.HostedContextBudget)
+	}
 }
 
 func fetchDiag(t *testing.T, cl *client) api.Diagnostics {
@@ -193,4 +224,61 @@ func runOneTurn(t *testing.T, cl *client, id string) {
 		return rep.Kind == api.RepEvent && rep.Event != nil &&
 			rep.Event.Kind == event.KindState && rep.Event.State == event.StateDone
 	})
+}
+
+// Spend was folded only from a finished run's outcome, so a metered run read
+// as $0.00 for its whole length: the number that justifies stopping one early
+// was the number withheld until stopping no longer mattered.
+func TestThreadInfo_SpendIsReportedWhileTheRunIsStillGoing(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local",
+		fake.Turn{
+			ToolCalls:  []llm.ToolCall{{ID: "1", Name: "gated", Input: []byte(`{}`)}},
+			StopReason: llm.StopToolUse,
+			Usage:      &llm.Usage{InputTokens: 100_000, OutputTokens: 10_000},
+		},
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+	)
+	h := newHarness(t, local,
+		withTool(gatedTool{echoTool: echoTool{name: "gated"}, key: "gated-key"}),
+		withLoopOptions(agent.WithModels(router.Tiers[string]{Balanced: "glm-5.3"})))
+
+	cl := dial(t, h)
+	cl.hello()
+	th := cl.newThread(nil)
+	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
+	cl.recvFor("sub")
+
+	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
+	cl.recvFor("send")
+
+	// The permission gate parks the run between its two turns, which is a
+	// run in flight with one turn already paid for.
+	pending := waitForEvent(t, cl, func(rep api.Reply) bool {
+		return rep.Kind == api.RepPending && len(rep.Pending) == 1
+	})
+
+	// 100k input at $1.40 and 10k output at $4.40 per million.
+	const wantFirstTurn = 0.184
+
+	mid := listThread(t, cl, th.ID)
+	if math.Abs(mid.Spend-wantFirstTurn) > 0.0001 {
+		t.Fatalf("Spend = %v mid-run, want the first turn's %v", mid.Spend, wantFirstTurn)
+	}
+
+	cl.send(api.Command{
+		ID: "answer", Kind: api.CmdAnswer, PromptID: pending.Pending[0].ID, Decision: permission.Allow,
+	})
+	cl.recvFor("answer")
+	waitForEvent(t, cl, func(rep api.Reply) bool {
+		return rep.Kind == api.RepEvent && rep.Event != nil && rep.Event.State == event.StateDone
+	})
+
+	// The outcome replaces the live accrual rather than adding to it.
+	done := listThread(t, cl, th.ID)
+	if math.Abs(done.Spend-wantFirstTurn) > 0.0001 {
+		t.Fatalf("Spend = %v once the run ended, want the same %v rather than a doubled total",
+			done.Spend, wantFirstTurn)
+	}
 }
