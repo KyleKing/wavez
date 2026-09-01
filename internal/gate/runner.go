@@ -72,7 +72,10 @@ func (r *Runner) Results() <-chan RunResult {
 // Start runs the debounce loop until ctx is done. Callers run it in its own
 // goroutine.
 func (r *Runner) Start(ctx context.Context) {
-	pending := make(map[string]tool.Change)
+	// One batch per writer: one agent.Loop serves every thread, so a single
+	// pending map coalesced two lanes' work into one run and handed each of
+	// them the other's findings as its own.
+	pending := make(map[string]map[string]tool.Change)
 
 	var timer Timer
 
@@ -87,7 +90,13 @@ func (r *Runner) Start(ctx context.Context) {
 
 			return
 		case msg := <-r.changeCh:
-			coalesce(pending, msg.change)
+			byPath, ok := pending[msg.change.Writer]
+			if !ok {
+				byPath = make(map[string]tool.Change)
+				pending[msg.change.Writer] = byPath
+			}
+
+			coalesce(byPath, msg.change)
 
 			if timer == nil {
 				timer = r.clock.NewTimer(r.debounce)
@@ -99,11 +108,13 @@ func (r *Runner) Start(ctx context.Context) {
 
 			close(msg.done)
 		case <-timerC:
-			batch := drain(pending)
-			pending = make(map[string]tool.Change)
+			for _, byPath := range pending {
+				r.results <- r.run(ctx, drain(byPath))
+			}
+
+			pending = make(map[string]map[string]tool.Change)
 			timer = nil
 			timerC = nil
-			r.results <- r.run(ctx, batch)
 		}
 	}
 }

@@ -480,17 +480,17 @@ type ChangeGate interface {
 	// a lane starting beside it.
 	Begin(writer string)
 	Enqueue(c tool.Change)
-	TakeFeedback() (string, bool)
+	TakeFeedback(writer string) (string, bool)
 	// FalseAlarms returns the gates that have passed over the same change
 	// set they just failed over, and clears them. A retraction is the
 	// harness reporting a defect that was never in the code, so it is
 	// recorded rather than quietly dropped.
-	FalseAlarms() []string
+	FalseAlarms(writer string) []string
 	// Stuck names a gate this run has failed identically several times over,
 	// each after further edits, or reports false. It is the run's own
 	// history read as a routing signal: the tier has been told what is
 	// wrong and cannot move it.
-	Stuck() (string, bool)
+	Stuck(writer string) (string, bool)
 }
 
 // WithChangeGate configures Run to feed every change into a debounced gate
@@ -1635,7 +1635,7 @@ func (r *run) collectGateFeedback(ctx context.Context) error {
 		return err
 	}
 
-	feedback, failed := r.loop.options.ChangeGate.TakeFeedback()
+	feedback, failed := r.loop.options.ChangeGate.TakeFeedback(string(r.thread.ID()))
 	if feedback == "" {
 		return nil
 	}
@@ -1672,7 +1672,7 @@ func (r *run) collectGateFeedback(ctx context.Context) error {
 // the gate failure it already has, and a run told it has been moved up
 // treats the move as the progress.
 func (r *run) escalateIfStuck() error {
-	name, stuck := r.loop.options.ChangeGate.Stuck()
+	name, stuck := r.loop.options.ChangeGate.Stuck(string(r.thread.ID()))
 	if !stuck || r.stuckEscalated {
 		return nil
 	}
@@ -1707,7 +1707,7 @@ func (r *run) escalateIfStuck() error {
 // the harness, and telling a run about it invites it to discount the next
 // failure.
 func (r *run) logFalseAlarms() error {
-	for _, name := range r.loop.options.ChangeGate.FalseAlarms() {
+	for _, name := range r.loop.options.ChangeGate.FalseAlarms(string(r.thread.ID())) {
 		r.outcome.GateFalseAlarms++
 
 		if _, err := r.thread.Log().Append(event.Event{

@@ -77,7 +77,7 @@ func TestChangeGateFeedback(t *testing.T) {
 			g := app.NewChangeGate(nil, gate.NewRunScope())
 			g.Collect(gate.RunResult{Gates: tt.results})
 
-			got, _ := g.TakeFeedback()
+			got, _ := g.TakeFeedback("")
 
 			if tt.wantNone {
 				if got != "" {
@@ -93,7 +93,7 @@ func TestChangeGateFeedback(t *testing.T) {
 				}
 			}
 
-			if again, _ := g.TakeFeedback(); again != "" {
+			if again, _ := g.TakeFeedback(""); again != "" {
 				t.Error("TakeFeedback() did not clear; the same failure would repeat every turn")
 			}
 		})
@@ -111,7 +111,7 @@ func TestChangeGateStatusRepeatsWhatFailed(t *testing.T) {
 		Package: "internal/thread", Frames: []string{"thread.go:31:9: undefined: utf8"},
 	}}}}})
 
-	g.TakeFeedback()
+	g.TakeFeedback("")
 
 	status, ok := g.Status()
 	if !ok {
@@ -138,18 +138,18 @@ func TestChangeGateNamesAGateThatRetractedItsFailure(t *testing.T) {
 		{Gate: "format", Pass: true, Examined: 1},
 	}})
 
-	if alarms := g.FalseAlarms(); len(alarms) != 0 {
+	if alarms := g.FalseAlarms(""); len(alarms) != 0 {
 		t.Fatalf("FalseAlarms() = %v on the first verdict, want none", alarms)
 	}
 
 	g.Collect(gate.RunResult{Gates: []gate.Result{{Gate: "go-test", Pass: true, Examined: 1}}})
 
-	alarms := g.FalseAlarms()
+	alarms := g.FalseAlarms("")
 	if len(alarms) != 1 || alarms[0] != "go-test" {
 		t.Fatalf("FalseAlarms() = %v, want [go-test]", alarms)
 	}
 
-	if again := g.FalseAlarms(); len(again) != 0 {
+	if again := g.FalseAlarms(""); len(again) != 0 {
 		t.Errorf("FalseAlarms() = %v on a second call, want it cleared", again)
 	}
 }
@@ -167,7 +167,7 @@ func TestChangeGateKeepsQuietWhenAnEditExplainsThePass(t *testing.T) {
 	g.Enqueue(tool.Change{Path: "internal/guard/guard.go", Added: 1})
 	g.Collect(gate.RunResult{Gates: []gate.Result{{Gate: "go-test", Pass: true, Examined: 1}}})
 
-	if alarms := g.FalseAlarms(); len(alarms) != 0 {
+	if alarms := g.FalseAlarms(""); len(alarms) != 0 {
 		t.Errorf("FalseAlarms() = %v, want none: an edit landed between the two verdicts", alarms)
 	}
 }
@@ -193,12 +193,12 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 			g.Enqueue(tool.Change{Path: "internal/sysinfo/memory_test.go", Added: 1})
 			g.Collect(gate.RunResult{Gates: failing})
 
-			if name, stuck := g.Stuck(); stuck != (i == 2) {
+			if name, stuck := g.Stuck(""); stuck != (i == 2) {
 				t.Fatalf("after %d rounds Stuck() = %q, %v, want stuck=%v", i+1, name, stuck, i == 2)
 			}
 		}
 
-		if name, _ := g.Stuck(); name != "go-test" {
+		if name, _ := g.Stuck(""); name != "go-test" {
 			t.Errorf("Stuck() named %q, want the gate that failed", name)
 		}
 	})
@@ -211,7 +211,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 			g.Collect(gate.RunResult{Gates: failing})
 		}
 
-		if name, stuck := g.Stuck(); stuck {
+		if name, stuck := g.Stuck(""); stuck {
 			t.Errorf("Stuck() = %q, %v after four debounced re-runs of one change, want false", name, stuck)
 		}
 	})
@@ -231,7 +231,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 			g.Collect(gate.RunResult{Gates: failing})
 		}
 
-		if name, stuck := g.Stuck(); !stuck {
+		if name, stuck := g.Stuck(""); !stuck {
 			t.Errorf("Stuck() = %q, %v after three edits against one failure, want true", name, stuck)
 		}
 	})
@@ -252,7 +252,7 @@ func TestChangeGateNamesATierThatCannotMoveAFailure(t *testing.T) {
 			}}})
 		}
 
-		if name, stuck := g.Stuck(); stuck {
+		if name, stuck := g.Stuck(""); stuck {
 			t.Errorf("Stuck() = %q, %v, want false: the failure moved every round", name, stuck)
 		}
 	})
@@ -287,5 +287,51 @@ func TestChangeGateCoversOnlyThePackagesItWroteIn(t *testing.T) {
 				t.Errorf("Covers(%q) = %v, want %v", tt.pkgs, got, tt.want)
 			}
 		})
+	}
+}
+
+// One agent.Loop serves every thread, so one ChangeGate's results used to be
+// one set: two lanes ran side by side, and the gate told the lane working on
+// the go-test gate that the other lane's brand-new file did not compile,
+// under "Gates ran on your changes". That lane went and edited the other's
+// file and died on the result. A writer's feedback is its own now.
+func TestChangeGate_OneWritersFindingsNeverReachAnother(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil, gate.NewRunScope())
+
+	g.Collect(gate.RunResult{
+		Changes: []tool.Change{{Path: "internal/runtime/cacheram.go", Writer: "lane-b"}},
+		Gates: []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{
+			{Test: "build", Frames: []string{"internal/runtime/cacheram.go:81:13: undefined: osStat"}},
+		}}},
+	})
+
+	if got, failed := g.TakeFeedback("lane-a"); got != "" || failed {
+		t.Errorf("lane-a was told %q about lane-b's changes", got)
+	}
+
+	got, failed := g.TakeFeedback("lane-b")
+	if !failed || !strings.Contains(got, "undefined: osStat") {
+		t.Errorf("lane-b was not told about its own failure: %q", got)
+	}
+}
+
+// Begin clears the writer it names and nothing else, since a lane starting
+// beside a lane still working must not take that lane's report with it.
+func TestChangeGate_BeginClearsOnlyItsOwnWriter(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil, gate.NewRunScope())
+
+	g.Collect(gate.RunResult{
+		Changes: []tool.Change{{Path: "a.go", Writer: "lane-a"}},
+		Gates:   []gate.Result{{Gate: "lint", Failures: []gate.TrimmedFailure{{Test: "lint"}}}},
+	})
+
+	g.Begin("lane-b")
+
+	if got, _ := g.TakeFeedback("lane-a"); got == "" {
+		t.Error("lane-b starting cleared lane-a's pending report")
 	}
 }

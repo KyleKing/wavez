@@ -30,7 +30,7 @@ func TestRunScopeKeepsEachWriterSeparate(t *testing.T) {
 }
 
 // TestRunScopeWithoutAWriter covers the two callers that have no identity to
-// give: a nil scope, and a batch whose writer soleWriter could not name.
+// give: a nil scope, and a batch whose writer SoleWriter could not name.
 func TestRunScopeWithoutAWriter(t *testing.T) {
 	t.Parallel()
 
@@ -78,8 +78,8 @@ func TestSoleWriter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := soleWriter(tt.changes); got != tt.want {
-				t.Errorf("soleWriter = %q, want %q", got, tt.want)
+			if got := SoleWriter(tt.changes); got != tt.want {
+				t.Errorf("SoleWriter = %q, want %q", got, tt.want)
 			}
 		})
 	}

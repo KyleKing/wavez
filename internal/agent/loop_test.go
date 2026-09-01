@@ -571,12 +571,12 @@ func TestRun_OnlyLocalTurnsTakeASlot(t *testing.T) {
 // is the state a real one reaches after failing the same way across edits.
 type stuckGate struct{ asked int }
 
-func (*stuckGate) Begin(string)                 {}
-func (*stuckGate) Enqueue(tool.Change)          {}
-func (*stuckGate) TakeFeedback() (string, bool) { return "", false }
-func (*stuckGate) FalseAlarms() []string        { return nil }
+func (*stuckGate) Begin(string)                       {}
+func (*stuckGate) Enqueue(tool.Change)                {}
+func (*stuckGate) TakeFeedback(string) (string, bool) { return "", false }
+func (*stuckGate) FalseAlarms(string) []string        { return nil }
 
-func (g *stuckGate) Stuck() (string, bool) {
+func (g *stuckGate) Stuck(string) (string, bool) {
 	g.asked++
 
 	return "go-test", g.asked > 1
@@ -628,11 +628,11 @@ type writerGate struct {
 	changes []tool.Change
 }
 
-func (g *writerGate) Begin(writer string)        { g.began = append(g.began, writer) }
-func (g *writerGate) Enqueue(c tool.Change)      { g.changes = append(g.changes, c) }
-func (*writerGate) TakeFeedback() (string, bool) { return "", false }
-func (*writerGate) FalseAlarms() []string        { return nil }
-func (*writerGate) Stuck() (string, bool)        { return "", false }
+func (g *writerGate) Begin(writer string)              { g.began = append(g.began, writer) }
+func (g *writerGate) Enqueue(c tool.Change)            { g.changes = append(g.changes, c) }
+func (*writerGate) TakeFeedback(string) (string, bool) { return "", false }
+func (*writerGate) FalseAlarms(string) []string        { return nil }
+func (*writerGate) Stuck(string) (string, bool)        { return "", false }
 
 // One agent.Loop serves every thread, so the gate pipeline learns whose work
 // it is holding only from what the loop stamps on the way past. Without it a

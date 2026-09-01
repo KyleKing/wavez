@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"path"
-	"slices"
 	"strings"
 	"sync"
 
@@ -29,17 +28,28 @@ const changeInbox = 256
 // run's 29 shell calls were hand-written `go build`, `go test`, `go vet`, and
 // `gofmt` over changes the gates had already examined.
 type ChangeGate struct {
-	runner  *gate.Runner
-	inbox   chan tool.Change
-	pending []gate.Result
-	// scope names the run in progress, advanced by Begin, so the gates this
-	// runner feeds can tell what this run started with from what it caused.
+	runner *gate.Runner
+	inbox  chan tool.Change
+	// scope names each writer's run in progress, advanced by Begin, so the
+	// gates this runner feeds can tell what a run started with from what it
+	// caused.
 	scope *gate.RunScope
-	// latest survives TakeFeedback, because a run asks "are the checks
-	// green" long after it was told, and queued counts the changes no batch
-	// has covered yet, which is the difference between a stale answer and a
-	// current one.
-	latest []gate.Result
+	// states is one writer's view of the gates each. One agent.Loop serves
+	// every thread, so a single set of these fields told a lane that another
+	// lane's compile errors were its own changes: one such lane went and
+	// edited the other's brand-new file, then died on the result.
+	states map[string]*runState
+	mu     sync.Mutex
+}
+
+// runState is what one writer's run has been told and has written.
+type runState struct {
+	// pending is what TakeFeedback has not yet delivered, and latest
+	// survives it, because a run asks "are the checks green" long after it
+	// was told. queued counts the changes no batch has covered yet, which
+	// is the difference between a stale answer and a current one.
+	pending []gate.Result
+	latest  []gate.Result
 	// changed is every path this run has written, in the order the changes
 	// landed. It answers the question 24 of 278 logged shell calls asked jj
 	// and git, and it is per run because the answer to "what have I changed"
@@ -52,7 +62,6 @@ type ChangeGate struct {
 	verdict     map[string]gateVerdict
 	falseAlarms []string
 	queued      int
-	mu          sync.Mutex
 }
 
 type gateVerdict struct {
@@ -76,7 +85,36 @@ const stuckAfter = 3
 // runs. Scope is the run identity Begin advances; nil means no run identity,
 // and gates treat that as no per-run state.
 func NewChangeGate(runner *gate.Runner, scope *gate.RunScope) *ChangeGate {
-	return &ChangeGate{runner: runner, inbox: make(chan tool.Change, changeInbox), scope: scope}
+	return &ChangeGate{
+		runner: runner, inbox: make(chan tool.Change, changeInbox),
+		scope: scope, states: map[string]*runState{},
+	}
+}
+
+// everyState flattens every writer's run into one, for the answers that
+// cannot say who is asking. The caller holds g.mu.
+func (g *ChangeGate) everyState() *runState {
+	var all runState
+
+	for _, st := range g.states {
+		all.changed = append(all.changed, st.changed...)
+		all.latest = append(all.latest, st.latest...)
+		all.queued += st.queued
+	}
+
+	return &all
+}
+
+// state returns writer's run state, creating it on first use. The caller
+// holds g.mu.
+func (g *ChangeGate) state(writer string) *runState {
+	st, ok := g.states[writer]
+	if !ok {
+		st = &runState{}
+		g.states[writer] = st
+	}
+
+	return st
 }
 
 // Start runs the runner and the two pumps around it until ctx is done.
@@ -114,16 +152,24 @@ func (g *ChangeGate) Begin(writer string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.latest, g.changed, g.queued = nil, nil, 0
-	g.verdict, g.falseAlarms = nil, nil
+	g.states[writer] = &runState{}
 }
 
-// Changed is every file this run has written, most recent last.
+// Changed is every file any run in progress has written, most recent last
+// within a writer. It does not narrow to the caller: the tool registry is
+// built once per project with no thread of its own, so the shell asking what
+// it has changed cannot say who is asking. That is the half of writer
+// scoping still open, and it is advisory rather than the feedback loop.
 func (g *ChangeGate) Changed() []tool.Change {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	return slices.Clone(g.changed)
+	var out []tool.Change
+	for _, st := range g.states {
+		out = append(out, st.changed...)
+	}
+
+	return out
 }
 
 // Enqueue records one change for gating. It blocks only when the runner is
@@ -131,8 +177,9 @@ func (g *ChangeGate) Changed() []tool.Change {
 // stall worth avoiding.
 func (g *ChangeGate) Enqueue(c tool.Change) {
 	g.mu.Lock()
-	g.queued++
-	g.changed = append(g.changed, c)
+	st := g.state(c.Writer)
+	st.queued++
+	st.changed = append(st.changed, c)
 	g.mu.Unlock()
 
 	g.inbox <- c
@@ -144,35 +191,34 @@ func (g *ChangeGate) Collect(res gate.RunResult) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.pending = append(g.pending, res.Gates...)
-	g.latest = res.Gates
+	st := g.state(gate.SoleWriter(res.Changes))
 
-	g.noteFalseAlarms(res.Gates)
+	st.pending = append(st.pending, res.Gates...)
+	st.latest = res.Gates
 
-	g.queued -= len(res.Changes)
-	if g.queued < 0 {
-		g.queued = 0
-	}
+	st.noteFalseAlarms(res.Gates)
+
+	st.queued = max(st.queued-len(res.Changes), 0)
 }
 
 // noteFalseAlarms records every gate in results that passes over the same
 // change set it just failed over. `h5` was exactly that and it cost three
 // re-runs to name: nothing about the code had changed, so the failure was
 // the harness's and the pass is the proof.
-func (g *ChangeGate) noteFalseAlarms(results []gate.Result) {
-	if g.verdict == nil {
-		g.verdict = make(map[string]gateVerdict, len(results))
+func (st *runState) noteFalseAlarms(results []gate.Result) {
+	if st.verdict == nil {
+		st.verdict = make(map[string]gateVerdict, len(results))
 	}
 
 	for i := range results {
 		name := results[i].Gate
 
-		prior, seen := g.verdict[name]
-		if seen && !prior.pass && results[i].Pass && prior.changes == len(g.changed) {
-			g.falseAlarms = append(g.falseAlarms, name)
+		prior, seen := st.verdict[name]
+		if seen && !prior.pass && results[i].Pass && prior.changes == len(st.changed) {
+			st.falseAlarms = append(st.falseAlarms, name)
 		}
 
-		next := gateVerdict{pass: results[i].Pass, changes: len(g.changed)}
+		next := gateVerdict{pass: results[i].Pass, changes: len(st.changed)}
 		if !results[i].Pass {
 			next.failure = failureSignature(results[i])
 		}
@@ -189,7 +235,7 @@ func (g *ChangeGate) noteFalseAlarms(results []gate.Result) {
 			}
 		}
 
-		g.verdict[name] = next
+		st.verdict[name] = next
 	}
 }
 
@@ -198,11 +244,11 @@ func (g *ChangeGate) noteFalseAlarms(results []gate.Result) {
 // signal rather than feedback: the run has been told what is wrong and has
 // edited against it repeatedly without moving it, which is what a tier
 // reaching the end of its remit looks like from the outside.
-func (g *ChangeGate) Stuck() (string, bool) {
+func (g *ChangeGate) Stuck(writer string) (string, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	for name, v := range g.verdict {
+	for name, v := range g.state(writer).verdict {
 		if v.repeats >= stuckAfter-1 {
 			return name, true
 		}
@@ -226,12 +272,13 @@ func failureSignature(r gate.Result) string {
 
 // FalseAlarms returns the gates that have retracted a failure since the last
 // call, and clears them.
-func (g *ChangeGate) FalseAlarms() []string {
+func (g *ChangeGate) FalseAlarms(writer string) []string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	out := g.falseAlarms
-	g.falseAlarms = nil
+	st := g.state(writer)
+	out := st.falseAlarms
+	st.falseAlarms = nil
 
 	return out
 }
@@ -252,20 +299,22 @@ func (g *ChangeGate) Status() (string, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.queued > 0 {
+	st := g.everyState()
+
+	if st.queued > 0 {
 		return "they are running on your latest changes now, and what they find " +
 			"reaches you before your next turn", true
 	}
 
 	var passed []string
 
-	for i := range g.latest {
-		if !g.latest[i].Pass {
-			return "they ran on your changes and failed:\n\n" + failureReport(g.latest), true
+	for i := range st.latest {
+		if !st.latest[i].Pass {
+			return "they ran on your changes and failed:\n\n" + failureReport(st.latest), true
 		}
 
-		if g.latest[i].Examined > 0 {
-			passed = append(passed, g.latest[i].Gate)
+		if st.latest[i].Examined > 0 {
+			passed = append(passed, st.latest[i].Gate)
 		}
 	}
 
@@ -295,10 +344,11 @@ func failureReport(results []gate.Result) string {
 // reports a failure. A pass is one line naming the gates that examined the
 // change, which is what keeps a run from re-running them through the shell;
 // a failure carries the trimmed frames as well.
-func (g *ChangeGate) TakeFeedback() (string, bool) {
+func (g *ChangeGate) TakeFeedback(writer string) (string, bool) {
 	g.mu.Lock()
-	results := g.pending
-	g.pending = nil
+	st := g.state(writer)
+	results := st.pending
+	st.pending = nil
 	g.mu.Unlock()
 
 	if len(results) == 0 {
@@ -447,9 +497,10 @@ func (g *ChangeGate) Covers(pkgs []string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	dirs := make(map[string]bool, len(g.changed))
+	changed := g.everyState().changed
+	dirs := make(map[string]bool, len(changed))
 
-	for _, c := range g.changed {
+	for _, c := range changed {
 		if strings.HasSuffix(c.Path, ".go") {
 			dirs[path.Dir(c.Path)] = true
 		}

@@ -91,14 +91,14 @@ func (g *scriptedGate) Begin(string) { g.next = 0 }
 
 func (*scriptedGate) Enqueue(tool.Change) {}
 
-func (*scriptedGate) FalseAlarms() []string { return nil }
+func (*scriptedGate) FalseAlarms(string) []string { return nil }
 
 // A fixture scripts the gate feedback verbatim, so nothing here is stuck:
 // the routing signal is about a gate the run failed to move, and a replay
 // asserts what the model saw rather than where it ran.
-func (*scriptedGate) Stuck() (string, bool) { return "", false }
+func (*scriptedGate) Stuck(string) (string, bool) { return "", false }
 
-func (g *scriptedGate) TakeFeedback() (string, bool) {
+func (g *scriptedGate) TakeFeedback(string) (string, bool) {
 	if g.next >= len(g.feedback) {
 		return "", false
 	}
