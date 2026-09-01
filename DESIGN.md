@@ -1319,7 +1319,9 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    not make the conclusion right, and not reading it proves the conclusion
    came from somewhere other than the tree. A run that changed something
    abstains, because a search result is a fair source for naming a neighbor
-   in passing.
+   in passing. `finish.AnswerReadsWhatItNames` is that bound, and a lane sent
+   to build it read the tree, found it, and spent its turns verifying what
+   was already there.
 
 3. **`no_match` is the only class in the edit tools that is still live.**
    Since 2026-08-28 `str_replace` runs 94 calls at a 7% error rate, `no_match`
