@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,41 @@ func openTestIndex(t *testing.T, sources map[string]string) *codeintel.Indexer {
 	})
 
 	return codeintel.NewIndexer(store, root, lang.NewDefaultRegistry())
+}
+
+// A query whose path names a declared extra directory reports that the
+// directory is outside the index rather than "no matches": the string a run
+// searched for was reachable by read, and the miss read as its absence.
+func TestSearchNamesTheExtraDirectoryOutsideTheIndex(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	indexer := openTestIndex(t, map[string]string{
+		"main.go": "package main\n\nfunc main() {}\n",
+	})
+
+	extra := filepath.Join(t.TempDir(), "template")
+	if err := os.MkdirAll(extra, 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	search := tools.NewSearch(tools.Index(indexer), root, tools.WithExtraRoots([]string{extra}))
+
+	input := fmt.Sprintf(`{"mode":"literal","query":"golangci-lint run","path":%q}`,
+		filepath.Join(extra, "my_go_template"))
+	result, err := search.Run(t.Context(), json.RawMessage(input))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.IsError {
+		t.Fatalf("IsError = true, want false: %q", result.Content)
+	}
+
+	if !strings.Contains(result.Content, "the code index does not cover") || !strings.Contains(result.Content, extra) {
+		t.Errorf("Content = %q, want it to name the extra directory and say the index does not cover it",
+			result.Content)
+	}
 }
 
 func TestSearch(t *testing.T) {
@@ -115,7 +151,7 @@ func TestSearch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := tools.NewSearch(openTestIndex(t, tt.sources))
+			s := tools.NewSearch(openTestIndex(t, tt.sources), "")
 			input := mustJSON(t, map[string]any{"mode": tt.mode, "query": tt.query, "limit": tt.limit})
 
 			result, err := s.Run(context.Background(), input)
@@ -144,7 +180,7 @@ func TestSearchNarrowsToAPath(t *testing.T) {
 		"a/keep.go": "package a\n\nfunc Target() string { return \"a\" }\n",
 		"b/drop.go": "package b\n\nfunc Target() string { return \"b\" }\n",
 	})
-	search := tools.NewSearch(indexer)
+	search := tools.NewSearch(indexer, "")
 
 	whole, err := search.Run(t.Context(), []byte(`{"mode":"fuzzy","query":"Target"}`))
 	if err != nil {
@@ -180,7 +216,7 @@ func TestSearchFindsEitherOfTwoNames(t *testing.T) {
 		"b/beta.go":  "package b\n\nfunc Beta() string { return \"b\" }\n",
 	})
 
-	res, err := tools.NewSearch(indexer).Run(t.Context(), []byte(`{"mode":"fuzzy","query":"Alpha OR Beta"}`))
+	res, err := tools.NewSearch(indexer, "").Run(t.Context(), []byte(`{"mode":"fuzzy","query":"Alpha OR Beta"}`))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -205,7 +241,7 @@ func TestSearchLiteralHoldsPunctuationAndCase(t *testing.T) {
 		"b/other.go": "package b\n\nfunc ApplyToFile(p string) {}\n",
 		"c/case.go":  "package c\n\nfunc applytofile(p string) {}\n",
 	})
-	search := tools.NewSearch(indexer)
+	search := tools.NewSearch(indexer, "")
 
 	cases := []struct {
 		name  string
@@ -270,7 +306,7 @@ func TestSearchRetriesAWordyLiteralAsFuzzy(t *testing.T) {
 
 	search := tools.NewSearch(openTestIndex(t, map[string]string{
 		"thread/thread.go": "package thread\n\nfunc truncate(s string, limit int) string { return s }\n",
-	}))
+	}), "")
 
 	result, err := search.Run(context.Background(),
 		json.RawMessage(`{"mode":"literal","query":"truncate function in thread/thread.go"}`))
@@ -312,7 +348,7 @@ func TestSearchNamesTheClosestNamesOnALiteralMiss(t *testing.T) {
 
 	search := tools.NewSearch(openTestIndex(t, map[string]string{
 		"tools/read.go": "package tools\n\nconst maxReadLines = 400\n",
-	}))
+	}), "")
 
 	result, err := search.Run(context.Background(),
 		json.RawMessage(`{"mode":"literal","query":"maxLines"}`))
@@ -359,9 +395,9 @@ func TestSearchRecoversWhatXMLManglingLeftIntact(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			search := tools.NewSearch(openTestIndex(t, map[string]string{
+			search := tools.NewSearch(tools.Index(openTestIndex(t, map[string]string{
 				"a/keep.go": "package a\n\nfunc Target() string { return \"a\" }\n",
-			}))
+			})), "")
 
 			result, err := search.Run(t.Context(), []byte(tc.input))
 			if err != nil {

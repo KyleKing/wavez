@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -64,11 +65,19 @@ type Index interface {
 // choose between.
 type Search struct {
 	index Index
+	// root is the project root, the only tree the index covers.
+	root string
+	// extraRoots are the directories outside the root the project declared
+	// reachable. They are deliberately not indexed; a query naming one
+	// reports that rather than an absence.
+	extraRoots []string
 }
 
-// NewSearch builds a Search tool over index.
-func NewSearch(index Index) *Search {
-	return &Search{index: index}
+// NewSearch builds a Search tool over index, scoped to root, which must be
+// the same root the index covers, with opts naming the declared extra
+// directories the reach of read and edit covers but the index does not.
+func NewSearch(index Index, root string, opts ...Option) *Search {
+	return &Search{index: index, root: root, extraRoots: newDeps(opts).extraRoots}
 }
 
 // Name implements tool.Tool.
@@ -105,6 +114,14 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 
 	if in.Query == "" {
 		return tool.Fail(tool.CauseBadInput, "query is required"), nil
+	}
+
+	// A path under a declared extra directory is reachable by read and edit
+	// but invisible to the index, which covers only the project root.
+	// Answering "no matches" there reads as the string not existing, so the
+	// miss is named for what it is before the index is queried.
+	if note, outside := s.outsideIndex(in.Path); outside {
+		return tool.Result{Content: note}, nil
 	}
 
 	// An absent mode reads as fuzzy rather than as an error. The index
@@ -145,6 +162,33 @@ func (s *Search) Run(ctx context.Context, input json.RawMessage) (tool.Result, e
 
 	return tool.Result{Content: fmt.Sprintf("%s:\n%s",
 		literalMissReason(in.Query), formatSearchResults(retried, stats, in.Query, in.Path))}, nil
+}
+
+// outsideIndex reports whether path names something under a declared extra
+// directory, which the code index does not cover: the index reaches only the
+// project root. The returned note says so and points at read or shell, so a
+// run reaches for them instead of concluding the string is absent.
+func (s *Search) outsideIndex(path string) (string, bool) {
+	if path == "" {
+		return "", false
+	}
+
+	var abs string
+	if filepath.IsAbs(path) {
+		abs = filepath.Clean(path)
+	} else {
+		abs = filepath.Clean(filepath.Join(s.root, path))
+	}
+
+	for _, dir := range s.extraRoots {
+		if within(dir, abs) {
+			return fmt.Sprintf("no matches: %s is under the extra directory %s, which the code "+
+				"index does not cover; it indexes only the project root. Use read or shell with rg "+
+				"to reach it", path, dir), true
+		}
+	}
+
+	return "", false
 }
 
 // fuzzyRetryText is what a literal miss searches for instead. The index

@@ -41,7 +41,7 @@ func allTools(t *testing.T) []tool.Tool {
 		tools.NewStrReplace(dir, nil),
 		tools.NewWrite(dir, nil),
 		tools.NewShell(dir, dir, "thread-1", permission.AllowAll()),
-		tools.NewSearch(openTestIndex(t, nil)),
+		tools.NewSearch(openTestIndex(t, nil), ""),
 		tools.NewQuestion(fakeAsker{}),
 	}
 }
