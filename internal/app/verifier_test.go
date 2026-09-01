@@ -140,7 +140,7 @@ func assertVerifyOutcome(t *testing.T, log *gate.Log, feedback string, ok bool, 
 // stubWriters scripts what the lease manager reports about other lanes.
 type stubWriters struct{ others []string }
 
-func (w stubWriters) OtherActiveHolders(string) []string { return w.others }
+func (w stubWriters) OtherActiveHolders(_, _ string) []string { return w.others }
 
 // TestGateVerifier_AttributedAdvisory covers the half of the parallel-lane
 // decision that decides what a run is told about a line it did not write. A

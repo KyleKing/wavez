@@ -862,7 +862,7 @@ type Restorer interface {
 // Writers reports the threads writing into the tree besides the one asking.
 // A *lease.Manager satisfies it, and a nil Writers reads as nobody else.
 type Writers interface {
-	OtherActiveHolders(holder string) []string
+	OtherActiveHolders(holder, dir string) []string
 }
 
 // restore previews or performs an undo of threadID back to the checkpoint
@@ -909,7 +909,7 @@ func (m *manager) restore(ctx context.Context, r Restorer, w Writers, cmd api.Co
 	}
 
 	out := api.Restore{ThreadID: cmd.ThreadID, Checkpoint: target, Summary: summary, Edits: edits}
-	out.Scoped = otherWriters(w, cmd.ThreadID)
+	out.Scoped = otherWriters(w, cmd.ThreadID, dir)
 	if !cmd.Confirm {
 		return out, nil
 	}
@@ -925,12 +925,12 @@ func (m *manager) restore(ctx context.Context, r Restorer, w Writers, cmd api.Co
 
 // otherWriters reports whether a thread other than threadID holds an active
 // lease, which is what decides how much of the tree a restore may touch.
-func otherWriters(w Writers, threadID string) bool {
+func otherWriters(w Writers, threadID, dir string) bool {
 	if w == nil {
 		return false
 	}
 
-	return len(w.OtherActiveHolders(threadID)) > 0
+	return len(w.OtherActiveHolders(threadID, dir)) > 0
 }
 
 // editedPaths is every path the thread recorded an edit to, once each in

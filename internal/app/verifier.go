@@ -31,7 +31,7 @@ type GateVerifier struct {
 // Writers reports the threads writing into the tree besides the one being
 // verified. A lease.Manager satisfies it.
 type Writers interface {
-	OtherActiveHolders(holder string) []string
+	OtherActiveHolders(holder, dir string) []string
 }
 
 // NewGateVerifier builds a GateVerifier rooted at repoRoot, running gates
@@ -89,7 +89,7 @@ func (v *GateVerifier) soleWriter(ctx context.Context) bool {
 
 	holder, _ := lease.HolderFrom(ctx)
 
-	return len(v.writers.OtherActiveHolders(holder)) == 0
+	return len(v.writers.OtherActiveHolders(holder, v.repoRoot)) == 0
 }
 
 // runStep runs one gate, stamping timing the way gate.RunGates does, and

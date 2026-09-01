@@ -375,14 +375,20 @@ func (m *Manager) List() []Lease {
 	return out
 }
 
-// OtherActiveHolders names the threads other than holder writing into the
-// tree right now, in sorted order with each named once.
+// OtherActiveHolders names the threads other than holder writing under dir
+// right now, in sorted order with each named once. An empty dir asks about
+// the whole project.
 //
 // It answers one question a gate cannot answer for itself: whether a finding
 // on a file the run did not write belongs to a lane still moving. One that
 // does will have changed by the time the run could act on it, and one that
 // does not was left by the user or an earlier run and is worth saying.
-func (m *Manager) OtherActiveHolders(holder string) []string {
+//
+// The dir argument is what keeps that answer about one tree. A thread may
+// write anywhere, so a lane editing a sibling repository holds a lease here
+// too, and reading it as a writer of this tree scopes an undo and hides a
+// finding over work that cannot collide.
+func (m *Manager) OtherActiveHolders(holder, dir string) []string {
 	if m == nil {
 		return nil
 	}
@@ -391,12 +397,17 @@ func (m *Manager) OtherActiveHolders(holder string) []string {
 	defer m.mu.Unlock()
 
 	now := m.now()
+	scope := dirSubtree(m.root, dir)
 	seen := map[string]struct{}{}
 
 	var out []string
 
-	for _, e := range m.held {
+	for key, e := range m.held {
 		if e.holder == "" || e.holder == holder || m.state(e, now) != StateActive {
+			continue
+		}
+
+		if !underScope(scope, key) {
 			continue
 		}
 
@@ -412,6 +423,29 @@ func (m *Manager) OtherActiveHolders(holder string) []string {
 	sort.Strings(out)
 
 	return out
+}
+
+// dirSubtree is the lease key naming dir itself, the way Subtree names the
+// directory holding a write target.
+func dirSubtree(root, dir string) string {
+	if dir == "" {
+		return "."
+	}
+
+	return Subtree(root, filepath.Join(dir, "x"))
+}
+
+// underScope reports whether a held key sits inside the subtree scope names.
+//
+// A target outside the root keys on its own absolute directory, which is what
+// separates a sibling repository from this project when scope is the whole
+// tree.
+func underScope(scope, key string) bool {
+	if scope == "." {
+		return !filepath.IsAbs(key)
+	}
+
+	return Overlaps(scope, key)
 }
 
 // Counts is the pair the diagnostics panel shows: leases held right now and

@@ -54,7 +54,7 @@ func (f *fakeRestorer) RestorePaths(_ context.Context, _, _ string, paths []stri
 // fakeWriters scripts what the lease manager reports about other lanes.
 type fakeWriters struct{ others []string }
 
-func (w fakeWriters) OtherActiveHolders(string) []string { return w.others }
+func (w fakeWriters) OtherActiveHolders(_, _ string) []string { return w.others }
 
 func TestManagerRestore(t *testing.T) {
 	t.Parallel()

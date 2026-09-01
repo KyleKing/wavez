@@ -203,12 +203,32 @@ func TestOtherActiveHolders(t *testing.T) {
 	releaseBeta, err := m.Acquire(lease.WithHolder(t.Context(), "beta"), "/repo/internal/tui/app.go")
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"beta"}, m.OtherActiveHolders("alpha"))
-	assert.Equal(t, []string{"alpha", "beta"}, m.OtherActiveHolders("gamma"))
+	assert.Equal(t, []string{"beta"}, m.OtherActiveHolders("alpha", ""))
+	assert.Equal(t, []string{"alpha", "beta"}, m.OtherActiveHolders("gamma", ""))
+	assert.Empty(t, m.OtherActiveHolders("gamma", "/repo/internal/gate"))
 
 	releaseBeta()
-	assert.Empty(t, m.OtherActiveHolders("alpha"))
+	assert.Empty(t, m.OtherActiveHolders("alpha", ""))
 
 	releaseAlpha()
-	assert.Empty(t, m.OtherActiveHolders("gamma"))
+	assert.Empty(t, m.OtherActiveHolders("gamma", ""))
+}
+
+// A thread writes wherever it likes, so a lane editing a sibling repository
+// holds a lease under this manager too. Reading that as a writer of this tree
+// scopes an undo and hides a lint finding over work that cannot collide.
+func TestOtherActiveHoldersIgnoresASiblingRepository(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m := lease.New("/repo", lease.WithTTL(time.Minute), lease.WithClock(func() time.Time { return now }))
+
+	release, err := m.Acquire(lease.WithHolder(t.Context(), "template"), "/other/my_go_template/go_template/hk.pkl")
+	require.NoError(t, err)
+
+	t.Cleanup(release)
+
+	assert.Empty(t, m.OtherActiveHolders("here", ""))
+	assert.Empty(t, m.OtherActiveHolders("here", "/repo"))
+	assert.Equal(t, []string{"template"}, m.OtherActiveHolders("here", "/other/my_go_template"))
 }
