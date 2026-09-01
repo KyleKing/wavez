@@ -77,6 +77,9 @@ func (*Declare) Description() string {
 // Schema implements tool.Tool.
 func (*Declare) Schema() json.RawMessage { return declareSchema }
 
+// Risk implements tool.Tool.
+func (*Declare) Risk() tool.RiskClass { return tool.RiskWriteLocal }
+
 type declareInput struct {
 	Symbol string `json:"symbol"`
 	Source string `json:"source"`

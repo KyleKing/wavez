@@ -79,6 +79,7 @@ type options struct {
 	maxHostedSpendUSD   float64
 	allowAll            bool
 	strictScope         bool
+	gateWrites          bool
 	mutate              bool
 	jsonOut             bool
 	plan                bool
@@ -118,6 +119,8 @@ func run(args []string) error {
 	fs.BoolVar(&opt.allowAll, "allow-all", false, "approve every permission prompt without asking")
 	fs.BoolVar(&opt.strictScope, "strict-scope", false,
 		"refuse an edit to a file this run never read or created")
+	fs.BoolVar(&opt.gateWrites, "gate-writes", false,
+		"ask permission before each write-class tool call, keyed per file (off by default)")
 	fs.IntVar(&opt.maxTurns, "max-turns", 0, "cap model turns, a dead-man's switch (0 uses the loop default)")
 	fs.IntVar(&opt.maxToolCallsPerTurn, "max-tool-calls-per-turn", 0,
 		"cap tool calls within one model turn (0 uses the loop default)")
@@ -251,6 +254,10 @@ func appOptions(opt options) []app.Option {
 
 	if opt.strictScope {
 		out = append(out, app.WithStrictScope())
+	}
+
+	if opt.gateWrites {
+		out = append(out, app.WithGatedWrites())
 	}
 
 	return out

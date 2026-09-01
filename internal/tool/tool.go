@@ -46,10 +46,15 @@ type Spec struct {
 
 // Tool is one deterministic operation the model may invoke. Run must be safe to
 // call concurrently with other tools and must not retain input after returning.
+//
+// Risk declares the class of side effect the tool's calls can have; the
+// dispatcher consults the permission gate from it before Run, so no tool can
+// gate itself out of the check.
 type Tool interface {
 	Name() string
 	Description() string
 	Schema() json.RawMessage
+	Risk() RiskClass
 	Run(ctx context.Context, input json.RawMessage) (Result, error)
 }
 

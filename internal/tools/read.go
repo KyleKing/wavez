@@ -92,6 +92,9 @@ func (*Read) Description() string {
 // Schema implements tool.Tool.
 func (*Read) Schema() json.RawMessage { return readSchema }
 
+// Risk implements tool.Tool.
+func (*Read) Risk() tool.RiskClass { return tool.RiskRead }
+
 type readInput struct {
 	Path      string `json:"path"`
 	StartLine int    `json:"start_line"`

@@ -102,6 +102,9 @@ func (*Rename) Description() string {
 // Schema implements tool.Tool.
 func (*Rename) Schema() json.RawMessage { return renameSchema }
 
+// Risk implements tool.Tool.
+func (*Rename) Risk() tool.RiskClass { return tool.RiskWriteLocal }
+
 type renameInput struct {
 	Symbol string `json:"symbol"`
 	To     string `json:"to"`

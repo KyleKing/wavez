@@ -79,6 +79,9 @@ func (*Look) Description() string {
 // Schema implements tool.Tool.
 func (*Look) Schema() json.RawMessage { return lookSchema }
 
+// Risk implements tool.Tool. Looking sends the image to a vision service.
+func (*Look) Risk() tool.RiskClass { return tool.RiskExternal }
+
 type lookInput struct {
 	Path     string `json:"path"`
 	Question string `json:"question"`

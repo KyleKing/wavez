@@ -199,6 +199,7 @@ type Options struct {
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
 	StrictScope         bool
+	GatedWrites         bool
 	ManagedLocalServer  bool
 }
 
@@ -253,6 +254,13 @@ func WithManagedLocalServer() Option {
 // created, instead of recording it and allowing it.
 func WithStrictScope() Option {
 	return func(o *Options) { o.StrictScope = true }
+}
+
+// WithGatedWrites asks the permission gate about each write-class tool call,
+// keyed per file. Off by default: the write class is declared for every edit
+// tool regardless, and this only decides whether the gate consults it.
+func WithGatedWrites() Option {
+	return func(o *Options) { o.GatedWrites = true }
 }
 
 // WithAsker sets the Asker backing the question tool. A headless run and
@@ -532,6 +540,10 @@ func loopOptions(root string, cfg config.Config, options Options) []agent.Option
 
 	if options.MaxStagnantErrors > 0 {
 		out = append(out, agent.WithMaxStagnantErrors(options.MaxStagnantErrors))
+	}
+
+	if options.GatedWrites {
+		out = append(out, agent.WithGatedWrites())
 	}
 
 	return out

@@ -15,6 +15,7 @@ type namedTool struct{ name string }
 func (t namedTool) Name() string          { return t.name }
 func (namedTool) Description() string     { return "does a thing" }
 func (namedTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (namedTool) Risk() tool.RiskClass    { return tool.RiskRead }
 
 func (namedTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: "ok"}, nil

@@ -94,6 +94,9 @@ func (*Search) Description() string {
 // Schema implements tool.Tool.
 func (*Search) Schema() json.RawMessage { return searchSchema }
 
+// Risk implements tool.Tool.
+func (*Search) Risk() tool.RiskClass { return tool.RiskRead }
+
 type searchInput struct {
 	Mode  string `json:"mode"`
 	Query string `json:"query"`

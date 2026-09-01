@@ -92,6 +92,10 @@ func (*PTY) Description() string {
 // Schema implements tool.Tool.
 func (*PTY) Schema() json.RawMessage { return ptySchema }
 
+// Risk implements tool.Tool. Exec rather than write_local: the command line
+// decides what a call touches, and the guard judges that line per call.
+func (*PTY) Risk() tool.RiskClass { return tool.RiskExec }
+
 type ptyInput struct {
 	Command string   `json:"command"`
 	Keys    []string `json:"keys"`

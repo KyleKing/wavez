@@ -33,6 +33,7 @@ type editing struct{}
 func (editing) Name() string            { return "str_replace" }
 func (editing) Description() string     { return "edits" }
 func (editing) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (editing) Risk() tool.RiskClass    { return tool.RiskWriteLocal }
 func (editing) Run(context.Context, json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: "a.go: +1 -0 lines", Changes: []tool.Change{{Path: "a.go", Added: 1}}}, nil
 }

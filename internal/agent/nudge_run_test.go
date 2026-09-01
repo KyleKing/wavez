@@ -22,6 +22,7 @@ type readOnlyTool struct{}
 func (readOnlyTool) Name() string            { return "search" }
 func (readOnlyTool) Description() string     { return "reads" }
 func (readOnlyTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (readOnlyTool) Risk() tool.RiskClass    { return tool.RiskRead }
 func (readOnlyTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: "a result"}, nil
 }

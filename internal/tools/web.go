@@ -103,6 +103,11 @@ func (*WebSearch) Description() string {
 // Schema implements tool.Tool.
 func (*WebSearch) Schema() json.RawMessage { return webSearchSchema }
 
+// Risk implements tool.Tool. A search sends the query to a fixed search
+// instance, so its destination is not the model's choice the way a fetch's
+// URL is, but the query still leaves the machine.
+func (*WebSearch) Risk() tool.RiskClass { return tool.RiskEgress }
+
 // Run implements tool.Tool.
 //
 //nolint:unparam // Run's error is the tool.Tool contract, and a web failure is a result rather than one
@@ -148,6 +153,10 @@ func (*WebFetch) Description() string {
 
 // Schema implements tool.Tool.
 func (*WebFetch) Schema() json.RawMessage { return webFetchSchema }
+
+// Risk implements tool.Tool. Every fetch leaves the machine, and which host
+// it leaves for is the model's choice.
+func (*WebFetch) Risk() tool.RiskClass { return tool.RiskEgress }
 
 // Run implements tool.Tool.
 //

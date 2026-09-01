@@ -31,6 +31,7 @@ type echoTool struct{ name string }
 func (e echoTool) Name() string          { return e.name }
 func (echoTool) Description() string     { return "echoes its input" }
 func (echoTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (echoTool) Risk() tool.RiskClass    { return tool.RiskRead }
 
 func (echoTool) Run(_ context.Context, input json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: "ok:" + string(input)}, nil

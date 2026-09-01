@@ -119,6 +119,9 @@ func (*StrReplace) Description() string {
 // Schema implements tool.Tool.
 func (*StrReplace) Schema() json.RawMessage { return strReplaceSchema }
 
+// Risk implements tool.Tool.
+func (*StrReplace) Risk() tool.RiskClass { return tool.RiskWriteLocal }
+
 // strReplaceInput reads new_string through a pointer so that an absent
 // field is distinguishable from an empty one. They mean opposite things: an
 // empty new_string deletes old_string, and an absent one is a call that was

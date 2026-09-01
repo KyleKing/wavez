@@ -32,6 +32,7 @@ type echoTool struct {
 func (e echoTool) Name() string          { return e.name }
 func (echoTool) Description() string     { return "echoes its input" }
 func (echoTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (echoTool) Risk() tool.RiskClass    { return tool.RiskRead }
 
 func (echoTool) Run(_ context.Context, input json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: "ok:" + string(input)}, nil
@@ -45,6 +46,10 @@ type gatedTool struct {
 func (g gatedTool) RequestPermission(json.RawMessage) (permission.Request, bool) {
 	return permission.Request{Tool: g.name, Action: "write", Key: g.key}, true
 }
+
+// Risk is exec so the keeper consults the gate; the request above is what it
+// asks.
+func (gatedTool) Risk() tool.RiskClass { return tool.RiskExec }
 
 type failingTool struct {
 	echoTool

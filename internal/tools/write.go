@@ -71,6 +71,9 @@ func (*Write) Description() string {
 // Schema implements tool.Tool.
 func (*Write) Schema() json.RawMessage { return writeSchema }
 
+// Risk implements tool.Tool.
+func (*Write) Risk() tool.RiskClass { return tool.RiskWriteLocal }
+
 type writeInput struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`

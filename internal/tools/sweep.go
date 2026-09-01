@@ -84,6 +84,9 @@ func (*Sweep) Description() string {
 // Schema implements tool.Tool.
 func (*Sweep) Schema() json.RawMessage { return sweepSchema }
 
+// Risk implements tool.Tool.
+func (*Sweep) Risk() tool.RiskClass { return tool.RiskRead }
+
 type sweepInput struct {
 	Pattern       string `json:"pattern"`
 	Language      string `json:"language"`

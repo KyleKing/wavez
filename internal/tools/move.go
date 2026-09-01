@@ -77,6 +77,9 @@ func (*Move) Description() string {
 // Schema implements tool.Tool.
 func (*Move) Schema() json.RawMessage { return moveSchema }
 
+// Risk implements tool.Tool.
+func (*Move) Risk() tool.RiskClass { return tool.RiskWriteLocal }
+
 type moveInput struct {
 	Symbol string `json:"symbol"`
 	To     string `json:"to"`

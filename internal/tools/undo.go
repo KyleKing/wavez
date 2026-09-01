@@ -54,6 +54,10 @@ func (*Undo) Description() string {
 // Schema implements tool.Tool.
 func (*Undo) Schema() json.RawMessage { return undoSchema }
 
+// Risk implements tool.Tool. An undo writes the tree back, though only as far
+// as this run's own edits.
+func (*Undo) Risk() tool.RiskClass { return tool.RiskWriteLocal }
+
 type undoInput struct {
 	Path string `json:"path"`
 }

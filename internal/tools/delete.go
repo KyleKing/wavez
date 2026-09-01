@@ -67,6 +67,9 @@ func (*Delete) Description() string {
 // Schema implements tool.Tool.
 func (*Delete) Schema() json.RawMessage { return deleteSchema }
 
+// Risk implements tool.Tool.
+func (*Delete) Risk() tool.RiskClass { return tool.RiskWriteLocal }
+
 type deleteInput struct {
 	Symbol string `json:"symbol"`
 	Path   string `json:"path"`

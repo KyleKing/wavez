@@ -96,6 +96,10 @@ func (*Shell) Description() string {
 // Schema implements tool.Tool.
 func (*Shell) Schema() json.RawMessage { return shellSchema }
 
+// Risk implements tool.Tool. Exec rather than write_local: the command line
+// decides what a call touches, and the guard judges that line per call.
+func (*Shell) Risk() tool.RiskClass { return tool.RiskExec }
+
 type shellInput struct {
 	Command string `json:"command"`
 }

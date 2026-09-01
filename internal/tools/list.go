@@ -61,6 +61,9 @@ func (*List) Description() string {
 // Schema implements tool.Tool.
 func (*List) Schema() json.RawMessage { return listSchema }
 
+// Risk implements tool.Tool.
+func (*List) Risk() tool.RiskClass { return tool.RiskRead }
+
 type listInput struct {
 	Dir     string `json:"dir"`
 	Pattern string `json:"pattern"`

@@ -62,6 +62,9 @@ func (*Hypothesis) Description() string {
 // Schema implements tool.Tool.
 func (*Hypothesis) Schema() json.RawMessage { return hypothesisSchema }
 
+// Risk implements tool.Tool.
+func (*Hypothesis) Risk() tool.RiskClass { return tool.RiskRead }
+
 type hypothesisInput struct {
 	Cause       string `json:"cause"`
 	Experiment  string `json:"experiment"`

@@ -67,6 +67,9 @@ func (*Context) Description() string {
 // Schema implements tool.Tool.
 func (*Context) Schema() json.RawMessage { return contextSchema }
 
+// Risk implements tool.Tool.
+func (*Context) Risk() tool.RiskClass { return tool.RiskRead }
+
 type contextInput struct {
 	Files       string `json:"files"`
 	TokenBudget int    `json:"token_budget"`

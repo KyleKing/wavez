@@ -70,14 +70,17 @@ const (
 )
 
 // toolStrReplace is the edit tool named in more than one rule here.
-const toolStrReplace = "str_replace"
+const (
+	toolStrReplace = "str_replace"
+	toolWrite      = "write"
+)
 
 // editToolNames are the tools that leave a tool.Change on success.
 var editToolNames = map[string]struct{}{
 	"delete":       {},
 	"rename":       {},
 	toolStrReplace: {},
-	"write":        {},
+	toolWrite:      {},
 }
 
 // ModelPricing prices one model's hosted usage in dollars per million
@@ -371,6 +374,12 @@ type Options struct {
 	FastPresencePenalty float64
 	FastRepeatPenalty   float64
 	CompactEnabled      bool
+	// GateWrites asks the permission gate about write_local tool calls,
+	// keyed per file. It is off by default: the measurement says 5.7 write
+	// calls a run against 2.0 distinct files, so the write class is two
+	// prompts a run, and enabling it is a separate decision from declaring
+	// the class.
+	GateWrites bool
 }
 
 // samplingFor is the repetition bound for one turn, which is zero off the
@@ -396,6 +405,10 @@ type Option func(*Options)
 // WithLocalSlots makes every turn routed to the local tier take a slot on
 // the on-box model for the length of its request, and give it back after.
 func WithLocalSlots(s LocalSlots) Option { return func(o *Options) { o.LocalSlots = s } }
+
+// WithGatedWrites asks the permission gate about write_local tool calls,
+// keyed per file. Off by default; see Options.GateWrites.
+func WithGatedWrites() Option { return func(o *Options) { o.GateWrites = true } }
 
 // WithMaxTurns overrides DefaultMaxTurns.
 func WithMaxTurns(n int) Option { return func(o *Options) { o.MaxTurns = n } }
@@ -599,7 +612,7 @@ func (l *Loop) Run(
 
 	r := &run{
 		loop: l, thread: th, system: system, tools: prefix.Tools, fastTools: prefix.FastTools,
-		hint: hint, gk: newGateKeeper(l.gate),
+		hint: hint, gk: newGateKeeper(l.gate, l.options.GateWrites),
 		task: prompt, startTime: start, deadline: deadline,
 		priorSpend: l.priorSpend(th),
 	}

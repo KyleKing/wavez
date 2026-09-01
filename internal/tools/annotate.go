@@ -87,6 +87,9 @@ func (*Annotate) Description() string {
 // Schema implements tool.Tool.
 func (*Annotate) Schema() json.RawMessage { return annotateSchema }
 
+// Risk implements tool.Tool. Annotating waits on the user to draw and save.
+func (*Annotate) Risk() tool.RiskClass { return tool.RiskExternal }
+
 type annotateInput struct {
 	Path     string `json:"path"`
 	Question string `json:"question"`

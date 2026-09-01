@@ -60,6 +60,7 @@ type changeTool struct {
 func (c changeTool) Name() string          { return c.name }
 func (changeTool) Description() string     { return "records a change" }
 func (changeTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (changeTool) Risk() tool.RiskClass    { return tool.RiskWriteLocal }
 
 func (c changeTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: "ok", Changes: c.changes}, nil

@@ -47,6 +47,9 @@ func (*Question) Description() string {
 // Schema implements tool.Tool.
 func (*Question) Schema() json.RawMessage { return questionSchema }
 
+// Risk implements tool.Tool. Asking stops for a human answer.
+func (*Question) Risk() tool.RiskClass { return tool.RiskExternal }
+
 type questionInput struct {
 	Question string `json:"question"`
 }

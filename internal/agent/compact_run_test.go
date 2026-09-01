@@ -23,6 +23,7 @@ type bulkTool struct{ name string }
 func (b bulkTool) Name() string          { return b.name }
 func (bulkTool) Description() string     { return "returns a lot of output" }
 func (bulkTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (bulkTool) Risk() tool.RiskClass    { return tool.RiskWriteLocal }
 
 const (
 	bulkLine        = "a line of tool output\n"
@@ -139,6 +140,7 @@ type sameBodyTool struct{ body string }
 func (sameBodyTool) Name() string            { return "bulk" }
 func (sameBodyTool) Description() string     { return "returns the same output every time" }
 func (sameBodyTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (sameBodyTool) Risk() tool.RiskClass    { return tool.RiskWriteLocal }
 
 func (s sameBodyTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
 	return tool.Result{Content: s.body}, nil
