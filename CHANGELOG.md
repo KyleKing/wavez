@@ -1,3 +1,29 @@
+## v0.17.0 (2026-09-01)
+
+### Feat
+
+- **gate**: tell a run's own lint findings from what it inherited
+- **tool**: declare each tool's risk class and read it in one place
+- **tui**: page a run's timeline instead of scrolling it
+- **gate**: stop gating a change this project's repository does not hold
+- **daemon**: undo every repository a thread edited
+- **search**: name a path under a declared extra directory as outside the index
+- **config**: let a project set how long one run may take
+- **tools**: let a project's declared extra directories actually be reached
+- **daemon**: scope an undo to a thread's own paths while another lane writes
+- **gate**: name a lint finding another writer left instead of hiding it
+- **gate**: route a failure a run cannot have caused to the scheduler
+- **runtime**: cap llama-server's host prompt cache with --cache-ram
+
+### Fix
+
+- **tui**: advertise the timeline's cursor keys in its footer
+- **shell**: name the sandbox write boundary behind an Operation not permitted
+- **guard**: stop reading the 1 of 2>&1 as a command needing approval
+- **lease**: count only the lanes writing the tree being asked about
+- **daemon**: read what actually served each turn off the thread's log
+- **daemon**: bind the socket before announcing it
+
 ## v0.16.1 (2026-08-31)
 
 ### Fix
