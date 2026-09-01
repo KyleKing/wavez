@@ -10,6 +10,18 @@ astGrepRules = new Listing {
   "rules/*.yml"
 }
 
+// The template this project is generated from. A fix that belongs upstream is
+// a lane in that tree rather than a note asking for one later, and the render
+// re-clobbers anything left only here.
+extraDirs = new Listing {
+  "../my_go_template"
+}
+
+// A lane here spans several packages and their tests, and the built-in ten
+// minutes stopped one mid-change with the tree not compiling. A daemon thread
+// takes no flags, so this is where that time is given.
+maxRunSeconds = 2400
+
 // The z.ai coding plan serves every network tier, so a turn that leaves this
 // laptop costs a subscription rather than a token. A coding-plan key opens
 // only the coding endpoint: the general "/api/paas/v4" root refuses it.
