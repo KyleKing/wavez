@@ -151,12 +151,26 @@ func splitSequence(s string) []string {
 			return twoCharOp, true
 		case runes[i] == '|' && i+1 < len(runes) && runes[i+1] == '|':
 			return twoCharOp, true
+		case runes[i] == '&' && isRedirAmp(runes, i):
+			return 0, false
 		case runes[i] == '&':
 			return singleCharOp, true
 		default:
 			return 0, false
 		}
 	})
+}
+
+// isRedirAmp reports whether the '&' at runes[i] is part of a redirection
+// target rather than a backgrounding operator: it is immediately preceded by
+// an unquoted '>' (possibly with a digit fd prefix, as in `2>&1`) or
+// immediately followed by '>', as in bash's `&>file`.
+func isRedirAmp(runes []rune, i int) bool {
+	if i+1 < len(runes) && runes[i+1] == '>' {
+		return true
+	}
+
+	return i > 0 && runes[i-1] == '>'
 }
 
 // splitPipeline splits a single pipeline on `|`, honoring quotes.
