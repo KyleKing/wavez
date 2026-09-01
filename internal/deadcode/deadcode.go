@@ -31,7 +31,8 @@ const Binary = "deadcode"
 // indistinguishable from a clean one.
 var ErrUnavailable = errors.New(
 	"deadcode is not installed: `mise use -g go:golang.org/x/tools/cmd/deadcode` or " +
-		"`go install golang.org/x/tools/cmd/deadcode@latest`")
+		"`go install golang.org/x/tools/cmd/deadcode@latest`",
+)
 
 // Func is one function no main reaches.
 type Func struct {

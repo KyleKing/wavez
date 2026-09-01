@@ -80,7 +80,7 @@ func replaceVar(s, name, value string) string {
 		after := i + len("$"+name)
 		// `$HOMEWORK` is a different variable, so only replace when the name
 		// ends at a path separator or at the end of the token.
-		if after < len(s) && (isWordChar(rune(s[after]))) {
+		if after < len(s) && isWordChar(rune(s[after])) {
 			return s
 		}
 

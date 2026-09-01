@@ -238,7 +238,8 @@ func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	if len(args) == 0 {
 		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"selection produced no tests or packages for %d changed Go file(s), so nothing was run",
-			changedGo)), nil
+			changedGo,
+		)), nil
 	}
 
 	//nolint:gosec // args are a fixed subset of Selection's own test/package names
@@ -269,12 +270,14 @@ func (g *GoTestGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 		// which is the demand the abstention rule exists to avoid.
 		if len(summary.TestlessPackages) > 0 && !summary.BuildFailed {
 			return Abstained(g.Name(), rc.Selection.Level, fmt.Sprintf(
-				"%d selected package(s) hold no test file", len(summary.TestlessPackages))), nil
+				"%d selected package(s) hold no test file", len(summary.TestlessPackages),
+			)), nil
 		}
 
 		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"go test ran 0 tests for %d changed Go file(s) at %s level; the selection matched no test",
-			changedGo, rc.Selection.Level)), nil
+			changedGo, rc.Selection.Level,
+		)), nil
 	}
 
 	result := Result{

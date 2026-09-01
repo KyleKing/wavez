@@ -29,7 +29,8 @@ const (
 func (e *Expander) resolveSymbol(ctx context.Context, ref string) expansion {
 	if e.index == nil {
 		return note(ref, fmt.Sprintf(
-			"no file at %s and no code index is attached, so a symbol cannot resolve; left as literal text", ref))
+			"no file at %s and no code index is attached, so a symbol cannot resolve; left as literal text", ref,
+		))
 	}
 
 	name := ref
@@ -44,7 +45,8 @@ func (e *Expander) resolveSymbol(ctx context.Context, ref string) expansion {
 	})
 	if err != nil {
 		return note(ref, fmt.Sprintf(
-			"the code index could not be queried (%v); left as literal text", err))
+			"the code index could not be queried (%v); left as literal text", err,
+		))
 	}
 
 	found := partitionMatches(results, ref)

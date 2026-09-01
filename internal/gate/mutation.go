@@ -67,7 +67,8 @@ func (g *MutationGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	if changedGo > 0 && len(args) == 0 {
 		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"selection produced no tests for %d changed Go file(s), so no mutant could be killed",
-			changedGo)), nil
+			changedGo,
+		)), nil
 	}
 
 	mutants, dropped, err := g.plan(rc)
@@ -80,7 +81,8 @@ func (g *MutationGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
 				"no mutable expression on the changed lines of %d Go file(s); "+
 					"the change may be unverifiable by this gate rather than verified",
-				changedGo)), nil
+				changedGo,
+			)), nil
 		}
 
 		return Result{Gate: g.Name(), Level: rc.Selection.Level, Pass: true}, nil

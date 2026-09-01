@@ -198,7 +198,8 @@ func (m Model) renderRestore() string {
 
 	if m.restore.scoped {
 		body = append(body, "", truncate(m.th.statusWarn.Render(
-			"another thread is writing this tree, so undo reverts only what this one recorded"), inner))
+			"another thread is writing this tree, so undo reverts only what this one recorded",
+		), inner))
 	}
 
 	if len(m.restore.edits) > 0 {

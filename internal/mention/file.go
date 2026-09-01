@@ -61,7 +61,8 @@ func (e *Expander) expandFile(ref, abs string, budget int) expansion {
 	if allowed <= 0 {
 		return fileNote(ref, fmt.Sprintf(
 			"%s, not expanded: the %d-line budget for one prompt is already spent; use read",
-			lineCount(len(lines)), e.totalLines))
+			lineCount(len(lines)), e.totalLines,
+		))
 	}
 
 	if len(lines) <= allowed {
@@ -76,12 +77,14 @@ func (e *Expander) expandFile(ref, abs string, budget int) expansion {
 
 	return expansion{
 		mentions: []Mention{{Ref: ref, Kind: KindFile, Truncated: true, Detail: fmt.Sprintf(
-			"%s, expanded 1-%d against a %d-line budget", lineCount(len(lines)), allowed, e.fileLines)}},
+			"%s, expanded 1-%d against a %d-line budget", lineCount(len(lines)), allowed, e.fileLines,
+		)}},
 		section: fmt.Sprintf(
 			"@%s (file, %s, showing 1-%d; the %d-line mention budget cut it):\n%s\n"+
 				"[%d lines not shown; use read with a line range for the rest]",
 			ref, lineCount(len(lines)), allowed, e.fileLines,
-			strings.Join(lines[:allowed], "\n"), len(lines)-allowed),
+			strings.Join(lines[:allowed], "\n"), len(lines)-allowed,
+		),
 		lines:   allowed,
 		handled: true,
 	}

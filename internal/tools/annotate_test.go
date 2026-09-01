@@ -58,7 +58,8 @@ func TestAnnotate_ReadsWhatTheUserDrew(t *testing.T) {
 	asker := &markingAsker{draw: marked}
 
 	an := tools.NewAnnotate(
-		tools.NewLook(root, tools.NewScope(root, false), provider, "glm-4.6v"), asker, work, noViewer())
+		tools.NewLook(root, tools.NewScope(root, false), provider, "glm-4.6v"), asker, work, noViewer(),
+	)
 
 	result, err := an.Run(t.Context(), mustJSON(t, map[string]any{
 		"path": "shot.png", "question": "which element is misaligned",
@@ -110,7 +111,8 @@ func TestAnnotate_SaysWhenNothingWasDrawn(t *testing.T) {
 	provider := fake.New("vision", fake.Turn{Text: []string{"should not be asked"}})
 	an := tools.NewAnnotate(
 		tools.NewLook(root, tools.NewScope(root, false), provider, "glm-4.6v"),
-		&markingAsker{}, filepath.Join(root, ".wavez", "session"), noViewer())
+		&markingAsker{}, filepath.Join(root, ".wavez", "session"), noViewer(),
+	)
 
 	result, err := an.Run(t.Context(), mustJSON(t, map[string]any{
 		"path": "shot.png", "question": "where",
@@ -140,7 +142,8 @@ func TestAnnotate_RefusesWhatItCannotHandOver(t *testing.T) {
 	asker := &markingAsker{}
 	an := tools.NewAnnotate(
 		tools.NewLook(root, tools.NewScope(root, false), fake.New("vision"), "glm-4.6v"),
-		asker, filepath.Join(root, ".wavez", "session"), noViewer())
+		asker, filepath.Join(root, ".wavez", "session"), noViewer(),
+	)
 
 	for _, input := range []map[string]any{
 		{"path": "notes.md", "question": "where"},

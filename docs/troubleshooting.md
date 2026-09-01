@@ -98,14 +98,14 @@ Regenerate with `go test ./... -update` and review the diff. Never hand-edit.
 go test -v -run TestName ./package
 ```
 
-## golangci-lint reports issues in files that do not exist
+## `jj git push` runs no git hooks
 
-`golangci-lint` caches results by package path, and the cache outlives the
-directory. After a sibling worktree is deleted, a run from this repo still
-prints that worktree's findings under `../<name>/...`, so a clean tree can
-report dozens of issues and a real regression hides among them. Check whether
-the reported path exists before chasing it, and clear the cache:
+A colocated jj repo bypasses `pre-push` entirely, so `verify-released`,
+`commitizen-branch`, and every linter this template installs are inert. Run
+`hk check --all` by hand before pushing from jj.
 
-```bash
-mise exec -- golangci-lint cache clean
-```
+## Project-specific entries
+
+This file is template-owned and `copier update` keeps it current. Put entries that
+only apply to this project in `docs/troubleshooting.local.md`, which the template
+never renders, so they survive the next update instead of re-conflicting.

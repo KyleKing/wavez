@@ -95,7 +95,8 @@ func (g *LSPGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			}, nil
 		case err != nil:
 			return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
-				"the language server did not start on this project: %v", err)), nil
+				"the language server did not start on this project: %v", err,
+			)), nil
 		}
 
 		if _, ok := byClient[client]; !ok {
@@ -183,7 +184,8 @@ func (g *LSPGate) collect(
 	if len(silent) > 0 {
 		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"the language server published no diagnostics for %s within %s",
-			strings.Join(silent, ", "), g.timeout))
+			strings.Join(silent, ", "), g.timeout,
+		))
 	}
 
 	return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: examined, Pass: true}

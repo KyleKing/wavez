@@ -91,7 +91,8 @@ func TestToTextKeepsTheProseAndDropsTheMarkup(t *testing.T) {
 	title, text := web.ToText(
 		`<html><head><title>Lease API</title><script>steal()</script></head>`+
 			`<body><nav>home</nav><p>TTL is a duration.</p><p>Defaults to 30s.</p></body></html>`,
-		"text/html; charset=utf-8")
+		"text/html; charset=utf-8",
+	)
 
 	if title != "Lease API" {
 		t.Errorf("title = %q", title)

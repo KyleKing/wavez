@@ -839,7 +839,8 @@ func (r *run) nudgeIfNothingChanged(ctx context.Context) error {
 	if err := r.thread.AppendUser(ctx, fmt.Sprintf(
 		"You have changed no file in %d turns. More reading is not progress on this task. "+
 			"Make the smallest edit that starts it now, and read again afterwards if you need to.",
-		r.outcome.Turns)); err != nil {
+		r.outcome.Turns,
+	)); err != nil {
 		return fmt.Errorf("appending no-change nudge: %w", err)
 	}
 
@@ -1040,7 +1041,8 @@ func (r *run) turn(ctx context.Context) (bool, Outcome, error) {
 			"hosted spend ceiling reached: $%.4f spent (ceiling $%.4f) after %d turn(s); "+
 				"thread %s has cost $%.4f and keeps its transcript, so another prompt continues it",
 			r.outcome.HostedSpendUSD, r.loop.options.MaxHostedSpendUSD, r.outcome.Turns,
-			r.thread.ID(), r.outcome.ThreadSpendUSD)
+			r.thread.ID(), r.outcome.ThreadSpendUSD,
+		)
 		out, err := r.stopBound(ctx, StopCostCeiling, reason)
 
 		return true, out, err
@@ -1110,7 +1112,8 @@ func (r *run) complete(ctx context.Context) (bool, Outcome, error) {
 	r.outcome.Elapsed = r.elapsed()
 	r.outcome.Stop = StopComplete
 	r.outcome.Reason = fmt.Sprintf(
-		"the model ended its turn after %d turn(s) and every configured check passed", r.outcome.Turns)
+		"the model ended its turn after %d turn(s) and every configured check passed", r.outcome.Turns,
+	)
 	if err := r.thread.SetState(ctx, event.StateDone); err != nil {
 		return true, Outcome{}, fmt.Errorf("setting state: %w", err)
 	}

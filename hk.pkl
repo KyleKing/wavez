@@ -5,10 +5,10 @@
 // pkl `local`, so the version is repeated as a literal. All five occurrences are
 // listed in .doneram.pkl and patched together.
 
-amends "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Config.pkl"
-import "package://github.com/jdx/hk/releases/download/v1.53.0/hk@1.53.0#/Builtins.pkl"
+amends "package://github.com/jdx/hk/releases/download/v1.56.1/hk@1.56.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.56.1/hk@1.56.1#/Builtins.pkl"
 
-min_hk_version = "1.53.0"
+min_hk_version = "1.56.1"
 
 // Golden files are byte-exact terminal snapshots and intentionally carry no
 // trailing newline. Any whitespace fixer that rewrites them breaks the tests.

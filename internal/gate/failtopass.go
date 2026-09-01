@@ -86,7 +86,8 @@ func (g *FailToPassGate) Run(ctx context.Context, rc RunContext) (Result, error)
 	if len(testChanges) == 0 {
 		return Abstained(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"%d changed Go file(s) and no changed test file, so this run wrote no test to check",
-			len(goFiles(rc.Changes)))), nil
+			len(goFiles(rc.Changes)),
+		)), nil
 	}
 
 	if len(codeChanges) == 0 {
@@ -101,7 +102,8 @@ func (g *FailToPassGate) Run(ctx context.Context, rc RunContext) (Result, error)
 
 	if len(candidates) == 0 {
 		return Abstained(g.Name(), rc.Selection.Level, fmt.Sprintf(
-			"%d changed test file(s) declare no test function on their changed lines", len(testChanges))), nil
+			"%d changed test file(s) declare no test function on their changed lines", len(testChanges),
+		)), nil
 	}
 
 	patches, err := g.revertPatches(ctx, codeChanges)
@@ -112,7 +114,8 @@ func (g *FailToPassGate) Run(ctx context.Context, rc RunContext) (Result, error)
 	if len(patches) == 0 {
 		return ExaminedNothing(g.Name(), rc.Selection.Level, fmt.Sprintf(
 			"the working copy holds no hunk for %d changed non-test Go file(s), so nothing could be reverted",
-			len(codeChanges))), nil
+			len(codeChanges),
+		)), nil
 	}
 
 	return g.runReverted(ctx, rc, candidates, patches)
@@ -206,7 +209,8 @@ func verdict(gateName string, level Level, candidates []testFunc, summary GoTest
 
 	if result.Examined == 0 {
 		return ExaminedNothing(gateName, level, fmt.Sprintf(
-			"none of the %d test(s) this run wrote ran against the reverted tree", len(candidates)))
+			"none of the %d test(s) this run wrote ran against the reverted tree", len(candidates),
+		))
 	}
 
 	result.Pass = true

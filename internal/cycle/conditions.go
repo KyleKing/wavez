@@ -97,7 +97,8 @@ func ArtifactFails(p Prober) condition.Condition[State] {
 
 		return condition.Unmet(CondArtifactFails, fmt.Sprintf(
 			"all %d test(s) the change set declares pass on the current tree, so nothing is reproduced",
-			len(observed))), nil
+			len(observed),
+		)), nil
 	})
 }
 
@@ -160,7 +161,8 @@ func SweepAccounted(sw Sweeper) condition.Condition[State] {
 		left := untriaged(hits, recorded.Dismissed)
 		if len(left) == 0 {
 			return condition.Met(CondSweepAccounted, fmt.Sprintf(
-				"the sweep leaves %d hit(s), each fixed or dismissed with a reason", len(hits))), nil
+				"the sweep leaves %d hit(s), each fixed or dismissed with a reason", len(hits),
+			)), nil
 		}
 
 		if verdict, named := durableArtifact(recorded, s, len(hits), len(left)); named {
@@ -169,7 +171,8 @@ func SweepAccounted(sw Sweeper) condition.Condition[State] {
 
 		return condition.Unmet(CondSweepAccounted, fmt.Sprintf(
 			"%d of %d sweep hit(s) are neither fixed nor dismissed (%s) and no durable artifact is named",
-			len(left), len(hits), strings.Join(left, ", "))), nil
+			len(left), len(hits), strings.Join(left, ", "),
+		)), nil
 	})
 }
 
@@ -197,12 +200,14 @@ func durableArtifact(recorded Sweep, s State, hits, left int) (condition.Verdict
 	if !inChangeSet(s.Changes, recorded.Artifact) {
 		return condition.Unmet(CondSweepAccounted, fmt.Sprintf(
 			"the named durable artifact %s is not in this cycle's change set, so this run did not write it",
-			recorded.Artifact)), true
+			recorded.Artifact,
+		)), true
 	}
 
 	return condition.Met(CondSweepAccounted, fmt.Sprintf(
 		"the sweep does not discriminate (%d hit(s), %d untriaged) and %s is written in its place",
-		hits, left, recorded.Artifact)), true
+		hits, left, recorded.Artifact,
+	)), true
 }
 
 func failing(observed []Observation) []string {

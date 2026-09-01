@@ -98,7 +98,8 @@ func serve(ctx context.Context, dir, sock string) error {
 	// per-project Scheduler could otherwise read.
 	scheduler := sched.New(
 		sched.WithHeadroom(config.DefaultAdmissionHeadroom),
-		sched.WithLocalSlots(runtime.ServedSlots))
+		sched.WithLocalSlots(runtime.ServedSlots),
+	)
 	settingsPath := filepath.Join(userDir, "models.json")
 
 	srv, err := daemon.New(sock,

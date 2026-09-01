@@ -32,7 +32,8 @@ func TestPersisting_RemembersOneExactActionAcrossProcesses(t *testing.T) {
 			asked++
 
 			return permission.AllowAlways, nil
-		}), store)
+		},
+	), store)
 
 	req := permission.Request{Tool: "shell", Key: "curl https://example.com/x"}
 
@@ -98,7 +99,8 @@ func TestPersisting_RecordsNothingForADenial(t *testing.T) {
 	gate := permission.Persisting(permission.GateFunc(
 		func(context.Context, permission.Request) (permission.Decision, error) {
 			return permission.Deny, errAsked
-		}), store)
+		},
+	), store)
 
 	req := permission.Request{Tool: "shell", Key: "rm -rf ."}
 	if _, err := gate.Ask(context.Background(), req); !errors.Is(err, errAsked) {

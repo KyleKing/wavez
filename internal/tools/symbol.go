@@ -69,7 +69,8 @@ func locate(ctx context.Context, index Index, root, name, path string) (declarat
 		return declaration{}, fmt.Errorf(
 			"%w: %s declares %s. Send the same call with path: %q, naming whichever of them "+
 				"you meant, and the rest are left alone",
-			ErrAmbiguousSymbol, strings.Join(files, ", "), name, files[0])
+			ErrAmbiguousSymbol, strings.Join(files, ", "), name, files[0],
+		)
 	}
 }
 

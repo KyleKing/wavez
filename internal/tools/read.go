@@ -115,7 +115,8 @@ func (in *readInput) normalizeRange() error {
 	if in.StartLine < minLineNum || in.EndLine < in.StartLine {
 		return fmt.Errorf(
 			"%w: 1 <= start_line <= end_line, got start_line=%d end_line=%d",
-			errBadLineRange, in.StartLine, in.EndLine)
+			errBadLineRange, in.StartLine, in.EndLine,
+		)
 	}
 
 	return nil

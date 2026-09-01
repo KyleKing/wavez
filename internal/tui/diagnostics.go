@@ -264,7 +264,8 @@ func (m Model) diagDrill() []string {
 
 	out := make([]string, 0, len(rows)+1)
 	out = append(out, m.th.fgMuted.Render(
-		fmt.Sprintf("  %-22s %-14s %-9s %-8s %s", "thread", "dir", "ctx", "tokens", "spend")))
+		fmt.Sprintf("  %-22s %-14s %-9s %-8s %s", "thread", "dir", "ctx", "tokens", "spend"),
+	))
 
 	for i := range rows {
 		r := &rows[i]
