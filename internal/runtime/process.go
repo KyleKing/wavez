@@ -99,6 +99,7 @@ func buildArgs(cfg Config) []string {
 		"-np", strconv.Itoa(ServedSlots),
 		"--spec-type", cfg.specType(),
 		"--cache-reuse", strconv.Itoa(cfg.cacheReuse()),
+		"--cache-ram", strconv.Itoa(cfg.cacheRAMMiB()),
 		"--jinja",
 		"--chat-template-kwargs", thinkingOff,
 	}

@@ -10,6 +10,14 @@ const DefaultContextSize = 8192
 // laptop.
 const DefaultCacheReuse = 256
 
+// DefaultCacheRAMMiB is the --cache-ram size llama-server starts with
+// unless Config overrides it. Without it llama-server defaults to 8 GiB of
+// host-RAM prompt cache (see _ai_/demos/kv-slots/README.md: two cached
+// prefixes grew the server from 6.3 GB to 8.8 GB), which the admission
+// scheduler never sees. 512 MiB keeps several prefixes hot inside a budget
+// sized for this laptop.
+const DefaultCacheRAMMiB = 512
+
 // DefaultBinary is the llama-server executable name resolved via PATH
 // unless Config overrides it.
 const DefaultBinary = "llama-server"
@@ -42,6 +50,9 @@ type Config struct {
 	// CacheReuse is the --cache-reuse token count; DefaultCacheReuse is
 	// used when zero.
 	CacheReuse int
+	// CacheRAMMiB is the --cache-ram host-RAM prompt cache size in MiB;
+	// DefaultCacheRAMMiB is used when zero.
+	CacheRAMMiB int
 	// Threads is the -t count. Zero leaves llama-server's own choice alone,
 	// which is not a number wavez has measured a better value for.
 	Threads int
@@ -72,6 +83,14 @@ func (c Config) specType() string {
 	}
 
 	return c.SpecType
+}
+
+func (c Config) cacheRAMMiB() int {
+	if c.CacheRAMMiB == 0 {
+		return DefaultCacheRAMMiB
+	}
+
+	return c.CacheRAMMiB
 }
 
 func (c Config) cacheReuse() int {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -57,6 +58,7 @@ func TestManager_Start_ReadyImmediately(t *testing.T) {
 		"-np", "1",
 		"--spec-type", "ngram-simple",
 		"--cache-reuse", "256",
+		"--cache-ram", "512",
 		"--jinja",
 		"--chat-template-kwargs", `{"enable_thinking":false}`,
 	}
@@ -68,6 +70,38 @@ func TestManager_Start_ReadyImmediately(t *testing.T) {
 		if gotArgs[i] != a {
 			t.Errorf("process factory args[%d] = %q, want %q", i, gotArgs[i], a)
 		}
+	}
+}
+
+func TestManager_Start_CacheRAMOverride(t *testing.T) {
+	t.Parallel()
+
+	proc := newFakeProcess()
+
+	var gotArgs []string
+
+	m := runtime.NewManager(
+		runtime.WithProcessFactory(func(_ string, args []string) runtime.Process {
+			gotArgs = args
+
+			return proc
+		}),
+		runtime.WithHealthChecker(alwaysReady),
+	)
+
+	cfg := runtime.Config{GGUFPath: "model.gguf", Port: 8097, CacheRAMMiB: 128}
+	if _, err := m.Start(context.Background(), cfg); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	want := "--cache-ram"
+	i := slices.Index(gotArgs, want)
+	if i < 0 || i+1 >= len(gotArgs) {
+		t.Fatalf("args %v missing %s value", gotArgs, want)
+	}
+
+	if got, w := gotArgs[i+1], "128"; got != w {
+		t.Errorf("args %s = %q, want %q", want, got, w)
 	}
 }
 
