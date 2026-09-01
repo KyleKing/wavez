@@ -397,7 +397,33 @@ func (s *Shell) formatShellResult(result sandbox.Result) string {
 		fmt.Fprintf(&b, "\nstderr:\n%s", trimOutput(result.Stderr, s.spill))
 	}
 
+	b.WriteString(s.writeBoundaryNote(result))
+
 	return b.String()
+}
+
+// sandboxDenial is the errno text a write outside the sandbox's writable
+// subpaths surfaces as. Seatbelt answers EPERM and each program reports it
+// in its own words, so this is the only part all of them share.
+const sandboxDenial = "Operation not permitted"
+
+// writeBoundaryNote names the boundary behind an EPERM a command earned by
+// writing outside it. The denial itself names a file and never the rule, so
+// a run reads it as that file's own permissions and tries the same way
+// again.
+func (s *Shell) writeBoundaryNote(result sandbox.Result) string {
+	if result.ExitCode == 0 || !strings.Contains(result.Stderr, sandboxDenial) {
+		return ""
+	}
+
+	note := "\nnote: this shell writes only under the project root and the session directory."
+
+	if len(s.deps.extraRoots) > 0 {
+		note += " A directory the project declares reachable is readable here and is written" +
+			" with the edit tools, which is also what records a checkpoint for it."
+	}
+
+	return note + "\n"
 }
 
 // spill writes the whole of a trimmed output where the run can read the part

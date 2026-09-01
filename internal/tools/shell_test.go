@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -416,5 +417,49 @@ func TestShell_KeepsTheWholeOutputOfATrimmedCommand(t *testing.T) {
 
 	if !strings.Contains(res.Content, "\n1\n") || !strings.Contains(res.Content, "400") {
 		t.Errorf("Content = %q, want the first and last lines still inline", res.Content)
+	}
+}
+
+// TestShell_WriteOutsideTheSandboxNamesTheBoundary runs a real write into a
+// declared extra directory. Seatbelt answers EPERM naming the file, which
+// reads as that file's own permissions, and the lane that met it spent a
+// turn before reaching for the edit tools.
+func TestShell_WriteOutsideTheSandboxNamesTheBoundary(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("sandbox-exec"); err != nil {
+		t.Skip("sandbox-exec not available on this host")
+	}
+
+	root, extra := t.TempDir(), t.TempDir()
+	target := filepath.Join(extra, "AGENTS.md")
+
+	if err := os.WriteFile(target, []byte("before\n"), 0o600); err != nil {
+		t.Fatalf("seeding the extra directory: %v", err)
+	}
+
+	gate, _ := recordingGate(t, permission.Allow)
+	sh := tools.NewShell(root, root, "thread-1", gate, tools.WithExtraRoots([]string{extra}))
+
+	result, err := sh.Run(context.Background(), mustJSON(t, map[string]any{
+		"command": "echo after > " + target,
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !strings.Contains(result.Content, "writes only under the project root") {
+		t.Errorf("Content = %q, want it to name the write boundary", result.Content)
+	}
+	if !strings.Contains(result.Content, "edit tools") {
+		t.Errorf("Content = %q, want it to name the way in", result.Content)
+	}
+
+	got, err := os.ReadFile(target) //nolint:gosec // target is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("reading back the target: %v", err)
+	}
+	if string(got) != "before\n" {
+		t.Errorf("target = %q, want the sandbox to have denied the write", got)
 	}
 }
