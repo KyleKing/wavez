@@ -1,3 +1,10 @@
+## v0.19.0 (2026-09-01)
+
+### Feat
+
+- **routine**: add the semgrep routine, opt-in and abstaining without the binary
+- **gate**: narrow the harness's tree-state answers to the thread that asks
+
 ## v0.18.0 (2026-09-01)
 
 ### Feat
