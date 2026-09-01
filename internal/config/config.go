@@ -136,6 +136,10 @@ type Config struct {
 	LocalPort int
 	// LocalStartTimeout bounds one llama-server start attempt.
 	LocalStartTimeout time.Duration
+	// MaxRunWallClock bounds one run's wall-clock time, zero to keep the
+	// harness default. A daemon thread takes no flags, so this is the only
+	// place a long task can be given the time it needs.
+	MaxRunWallClock time.Duration
 	// Web offers the search and fetch tools at all. It is off by default
 	// for two reasons: the pair costs 217 preamble tokens on every turn of
 	// every thread, and a coding agent that can reach the network without

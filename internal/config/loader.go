@@ -63,6 +63,7 @@ type pklConfig struct {
 	HookTimeoutMs    int        `pkl:"hookTimeoutMs"`
 	LocalPort        int        `pkl:"localPort"`
 	LocalStartSecs   int        `pkl:"localStartTimeoutSeconds"`
+	MaxRunSecs       int        `pkl:"maxRunSeconds"`
 	LeaseTTLMinutes  int        `pkl:"leaseTtlMinutes"`
 	Web              bool       `pkl:"web"`
 }
@@ -339,6 +340,10 @@ func fromPkl(root string, p pklConfig) Config {
 
 	if p.LocalStartSecs != 0 {
 		cfg.LocalStartTimeout = time.Duration(p.LocalStartSecs) * time.Second
+	}
+
+	if p.MaxRunSecs != 0 {
+		cfg.MaxRunWallClock = time.Duration(p.MaxRunSecs) * time.Second
 	}
 
 	cfg.Context = p.Context

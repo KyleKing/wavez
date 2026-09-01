@@ -518,8 +518,12 @@ func loopOptions(root string, cfg config.Config, options Options) []agent.Option
 		out = append(out, agent.WithMaxToolCallsPerTurn(options.MaxToolCallsPerTurn))
 	}
 
-	if options.MaxWallClock > 0 {
-		out = append(out, agent.WithMaxWallClock(options.MaxWallClock))
+	// A flag beats the project's own setting, since it is the narrower of
+	// the two and names one run.
+	if wall := options.MaxWallClock; wall > 0 {
+		out = append(out, agent.WithMaxWallClock(wall))
+	} else if cfg.MaxRunWallClock > 0 {
+		out = append(out, agent.WithMaxWallClock(cfg.MaxRunWallClock))
 	}
 
 	if options.MaxHostedSpendUSD > 0 {
