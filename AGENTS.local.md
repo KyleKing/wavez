@@ -153,6 +153,20 @@ are specific to this codebase and not visible from the code.
   The patch lands as `git apply --reject` into the working tree and jj
   snapshots it, so the `.rej` files arrive in the working copy. Copier
   excludes every git-ignored path from the patch, which is silent
+- One `agent.Loop` serves every thread, and so does the one `ChangeGate` and
+  `gate.Runner` under it, so anything per-run there has to be keyed by the
+  writer. A `tool.Change` carries the thread that wrote it, stamped in
+  `run.gateChanges` because the tool registry is built once per project and
+  the tools have no thread of their own. `ChangeGate.Changed`, `Status`, and
+  `Covers` are the three that still cannot say who is asking, since the
+  shell reaches them through that shared registry, and they answer about
+  every writer at once
+- Two lanes running beside each other is how the shared-state defects show
+  up, and they read as the lane's own fault. One lane was handed the other's
+  compile errors under "Gates ran on your changes", edited the other's
+  brand-new file to fix them, and was then stopped by `tree_state` over the
+  result. Read `TakeFeedback`'s writer before reading the code a lane
+  touched
 - A pty in canonical mode echoes a keystroke the moment it is written, so
   the screen is quiet on that echo before the program has been scheduled:
   measured, the echo lands at 0 ms and an answer at 407 ms. `settle` reads a
