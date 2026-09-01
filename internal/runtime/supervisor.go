@@ -3,8 +3,11 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/kyleking/wavez/internal/sysinfo"
 )
 
 // DefaultPort is the loopback port llama-server listens on unless Config
@@ -48,6 +51,7 @@ type Supervisor struct {
 	model        string
 	cfg          Config
 	startTimeout time.Duration
+	slots        int
 	mu           sync.Mutex
 }
 
@@ -63,6 +67,12 @@ func WithGGUFResolver(r GGUFResolver) SupervisorOption {
 // already running on the configured port.
 func WithProbe(c HealthChecker) SupervisorOption {
 	return func(s *Supervisor) { s.probe = c }
+}
+
+// WithAdmittedSlots tells the Supervisor how many slots the scheduler
+// admits, which the cache is split across.
+func WithAdmittedSlots(n int) SupervisorOption {
+	return func(s *Supervisor) { s.slots = n }
 }
 
 // WithStartTimeout bounds how long Ensure waits for a started server to
@@ -89,6 +99,7 @@ func NewSupervisor(model string, cfg Config, opts ...SupervisorOption) *Supervis
 		manager:      NewManager(),
 		resolve:      ResolveGGUF,
 		probe:        HTTPHealthCheck,
+		slots:        ServedSlots,
 		model:        model,
 		cfg:          cfg,
 		startTimeout: DefaultStartTimeout,
@@ -117,6 +128,7 @@ func (s *Supervisor) Ensure(ctx context.Context) (Endpoint, error) {
 	}
 
 	cfg := s.cfg
+
 	if cfg.GGUFPath == "" {
 		path, err := s.resolve(ctx, s.model)
 		if err != nil {
@@ -125,6 +137,19 @@ func (s *Supervisor) Ensure(ctx context.Context) (Endpoint, error) {
 
 		cfg.GGUFPath = path
 	}
+
+	mem, memRead := readMemoryOnce(ctx, sysinfo.ReadMemory)
+
+	cacheMiB, cacheSource := DeriveCacheRAMMiB(CacheRAMInput{
+		OverrideMiB: s.cfg.CacheRAMMiB,
+		Mem:         mem,
+		MemRead:     memRead,
+		ModelBytes:  modelRAMBytes(cfg.GGUFPath),
+		Slots:       s.slots,
+	})
+	cfg.CacheRAMMiB = cacheMiB
+
+	slog.Info("sizing the llama-server prompt cache", "cacheRAMMiB", cfg.CacheRAMMiB, "from", cacheSource)
 
 	startCtx, cancel := context.WithTimeout(ctx, s.startTimeout)
 	defer cancel()

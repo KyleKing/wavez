@@ -50,8 +50,10 @@ type Config struct {
 	// CacheReuse is the --cache-reuse token count; DefaultCacheReuse is
 	// used when zero.
 	CacheReuse int
-	// CacheRAMMiB is the --cache-ram host-RAM prompt cache size in MiB;
-	// DefaultCacheRAMMiB is used when zero.
+	// CacheRAMMiB is the --cache-ram host-RAM prompt cache size in MiB.
+	// Zero derives it from admission headroom: free host RAM less the
+	// model's size, split across the admitted slots, floored at
+	// DefaultCacheRAMMiB when memory cannot be read.
 	CacheRAMMiB int
 	// Threads is the -t count. Zero leaves llama-server's own choice alone,
 	// which is not a number wavez has measured a better value for.

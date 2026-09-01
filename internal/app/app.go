@@ -765,8 +765,14 @@ type providers struct {
 func ensureLocalServer(ctx context.Context, cfg config.Config, options Options) localServer {
 	fallback := runtime.LocalBaseURL(cfg.LocalPort)
 
+	slots := runtime.ServedSlots
+	if options.Scheduler != nil {
+		slots = options.Scheduler.LocalSlots()
+	}
+
 	sup := runtime.NewSupervisor(cfg.Tiers.Fast.Model, localRuntime(cfg, options),
-		runtime.WithStartTimeout(cfg.LocalStartTimeout))
+		runtime.WithStartTimeout(cfg.LocalStartTimeout),
+		runtime.WithAdmittedSlots(slots))
 
 	endpoint, err := sup.Ensure(context.WithoutCancel(ctx))
 	if err != nil {

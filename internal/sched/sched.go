@@ -308,6 +308,16 @@ func (s *Scheduler) notify(h Hold) {
 	}
 }
 
+// LocalSlots reports how many local slots the scheduler admits, the number
+// llama-server is started with (-np) and any derived cache is split across.
+func (s *Scheduler) LocalSlots() int {
+	if s == nil {
+		return 0
+	}
+
+	return s.slots
+}
+
 func (s *Scheduler) read(ctx context.Context) (sysinfo.Memory, bool) {
 	mem, err := s.mem(ctx)
 	if err != nil || mem.TotalBytes == 0 {
