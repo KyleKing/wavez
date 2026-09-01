@@ -182,9 +182,9 @@ type stubChecks struct {
 	known  bool
 }
 
-func (s stubChecks) Status() (string, bool) { return s.status, s.known }
+func (s stubChecks) Status(string) (string, bool) { return s.status, s.known }
 
-func (s stubChecks) Covers(pkgs []string) bool {
+func (s stubChecks) Covers(_ string, pkgs []string) bool {
 	for _, p := range pkgs {
 		if !slices.Contains(s.covers, p) {
 			return false
@@ -278,7 +278,7 @@ type stubChanges struct {
 	changes []tool.Change
 }
 
-func (s stubChanges) Changed() []tool.Change { return s.changes }
+func (s stubChanges) Changed(string) []tool.Change { return s.changes }
 
 // 24 of 278 logged shell calls asked jj or git what the run had changed,
 // which the harness recorded as it changed it.

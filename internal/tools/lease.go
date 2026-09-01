@@ -20,17 +20,24 @@ type Leases interface {
 // the tree. *app.ChangeGate satisfies it, and a shell built without one
 // runs every command the guard allows.
 type Checks interface {
-	Status() (string, bool)
-	// Covers reports whether the gates already ran over every package in
-	// pkgs, each a directory relative to the module root.
-	Covers(pkgs []string) bool
+	// Status says what the gates already found for writer, the thread
+	// asking. An empty writer is a caller with no thread, which gets the
+	// answer about every writer.
+	Status(writer string) (string, bool)
+	// Covers reports whether the gates already ran, for writer, over every
+	// package in pkgs, each a directory relative to the module root. An
+	// empty writer covers what any writer changed.
+	Covers(writer string, pkgs []string) bool
 }
 
 // Changes reports what the current run has written. *app.ChangeGate
 // satisfies it, and a shell built without one runs a version-control
 // command rather than answering it.
 type Changes interface {
-	Changed() []tool.Change
+	// Changed lists what writer has written this run, most recent last. An
+	// empty writer is a caller with no thread, which gets every writer's
+	// changes, today's behavior.
+	Changed(writer string) []tool.Change
 }
 
 // deps holds what a write tool may be given beyond its root and scope.

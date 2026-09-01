@@ -113,7 +113,7 @@ func TestChangeGateStatusRepeatsWhatFailed(t *testing.T) {
 
 	g.TakeFeedback("")
 
-	status, ok := g.Status()
+	status, ok := g.Status("")
 	if !ok {
 		t.Fatal("Status() said nothing about a failure it holds")
 	}
@@ -283,7 +283,7 @@ func TestChangeGateCoversOnlyThePackagesItWroteIn(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := g.Covers(tt.pkgs); got != tt.want {
+			if got := g.Covers("", tt.pkgs); got != tt.want {
 				t.Errorf("Covers(%q) = %v, want %v", tt.pkgs, got, tt.want)
 			}
 		})
@@ -314,6 +314,96 @@ func TestChangeGate_OneWritersFindingsNeverReachAnother(t *testing.T) {
 	got, failed := g.TakeFeedback("lane-b")
 	if !failed || !strings.Contains(got, "undefined: osStat") {
 		t.Errorf("lane-b was not told about its own failure: %q", got)
+	}
+}
+
+// The shell reaches Changed, Status and Covers with no thread of its own, so
+// those three used to flatten every writer: a lane asking what it had changed
+// was told about the lane beside it. The thread asking arrives on the tool
+// call's context now, and the same three answers narrow with it. A caller
+// naming no writer still gets every writer's answer, which is what a replay
+// fixture or a one-off probe expects.
+func TestChangeGate_TreeStateAnswersNarrowToTheWriter(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil, gate.NewRunScope())
+
+	g.Enqueue(tool.Change{Path: "internal/runtime/a.go", Added: 1, Writer: "lane-a"})
+	g.Enqueue(tool.Change{Path: "cmd/wavez/b.go", Added: 1, Writer: "lane-b"})
+	g.Collect(gate.RunResult{
+		Changes: []tool.Change{{Path: "internal/runtime/a.go", Writer: "lane-a"}},
+		Gates:   []gate.Result{{Gate: "go-test", Pass: true, Examined: 1}},
+	})
+
+	t.Run("Changed lists one writer's files and not the other's", func(t *testing.T) {
+		t.Parallel()
+
+		if got := g.Changed("lane-a"); len(got) != 1 || got[0].Path != "internal/runtime/a.go" {
+			t.Errorf("lane-a Changed() = %v, want only internal/runtime/a.go", got)
+		}
+
+		if got := g.Changed("lane-b"); len(got) != 1 || got[0].Path != "cmd/wavez/b.go" {
+			t.Errorf("lane-b Changed() = %v, want only cmd/wavez/b.go", got)
+		}
+
+		if got := g.Changed(""); len(got) != 2 {
+			t.Errorf("no-writer Changed() = %v, want both writers' files", got)
+		}
+	})
+
+	t.Run("Status answers for the writer that asked", func(t *testing.T) {
+		t.Parallel()
+
+		laneAFailureReachesOnlyLaneB(t, g)
+	})
+
+	t.Run("Covers counts only the writer's packages", func(t *testing.T) {
+		t.Parallel()
+
+		if !g.Covers("lane-a", []string{"internal/runtime"}) {
+			t.Error("lane-a Covers(internal/runtime) = false, want the package it changed")
+		}
+
+		if g.Covers("lane-a", []string{"cmd/wavez"}) {
+			t.Error("lane-a Covers(cmd/wavez) = true, want lane-b's package to stay lane-b's")
+		}
+
+		if g.Covers("lane-b", []string{"internal/runtime"}) {
+			t.Error("lane-b Covers(internal/runtime) = true, want lane-a's package to stay lane-a's")
+		}
+
+		if !g.Covers("", []string{"cmd/wavez"}) {
+			t.Error("no-writer Covers(cmd/wavez) = false, want the every-writer answer")
+		}
+	})
+}
+
+// laneAFailureReachesOnlyLaneB gives lane-b a failing gate and checks that
+// Status reports it to lane-b alone, while a caller naming no writer still
+// hears something.
+func laneAFailureReachesOnlyLaneB(t *testing.T, g *app.ChangeGate) {
+	t.Helper()
+
+	g.Collect(gate.RunResult{
+		Changes: []tool.Change{{Path: "cmd/wavez/b.go", Writer: "lane-b"}},
+		Gates: []gate.Result{{Gate: "go-test", Failures: []gate.TrimmedFailure{
+			{Test: "build", Frames: []string{"cmd/wavez/b.go:9:2: undefined: flagParse"}},
+		}}},
+	})
+	g.TakeFeedback("lane-b")
+
+	status, _ := g.Status("lane-a")
+	if strings.Contains(status, "flagParse") {
+		t.Errorf("lane-a Status() = %q, want lane-b's failure to stay lane-b's", status)
+	}
+
+	status, ok := g.Status("lane-b")
+	if !ok || !strings.Contains(status, "flagParse") {
+		t.Errorf("lane-b Status() = %q, %v, want its own failure", status, ok)
+	}
+
+	if _, ok = g.Status(""); !ok {
+		t.Error("no-writer Status() said nothing, want the every-writer answer")
 	}
 }
 

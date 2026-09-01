@@ -105,6 +105,17 @@ func (g *ChangeGate) everyState() *runState {
 	return &all
 }
 
+// asked is the state a question about writer answers from. A caller with no
+// thread of its own asks about every writer, which is the shape the tool
+// registry had before a call carried one. The caller holds g.mu.
+func (g *ChangeGate) asked(writer string) *runState {
+	if writer == "" {
+		return g.everyState()
+	}
+
+	return g.state(writer)
+}
+
 // state returns writer's run state, creating it on first use. The caller
 // holds g.mu.
 func (g *ChangeGate) state(writer string) *runState {
@@ -155,21 +166,16 @@ func (g *ChangeGate) Begin(writer string) {
 	g.states[writer] = &runState{}
 }
 
-// Changed is every file any run in progress has written, most recent last
-// within a writer. It does not narrow to the caller: the tool registry is
-// built once per project with no thread of its own, so the shell asking what
-// it has changed cannot say who is asking. That is the half of writer
-// scoping still open, and it is advisory rather than the feedback loop.
-func (g *ChangeGate) Changed() []tool.Change {
+// Changed is what writer's run has written, most recent last. An empty
+// writer is the registry's old shape: a caller with no thread of its own,
+// which gets every writer's changes. The thread asking reaches the shell
+// through the context its tool call carries, so a lane's own shell no
+// longer answers for the lane beside it.
+func (g *ChangeGate) Changed(writer string) []tool.Change {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	var out []tool.Change
-	for _, st := range g.states {
-		out = append(out, st.changed...)
-	}
-
-	return out
+	return append([]tool.Change(nil), g.asked(writer).changed...)
 }
 
 // Enqueue records one change for gating. It blocks only when the runner is
@@ -295,11 +301,11 @@ func (g *ChangeGate) FalseAlarms(writer string) []string {
 // compacted or simply moved on has no way back to it, so one `h6` run spent
 // six turns trying to establish a build state it had already been told and
 // could not re-read.
-func (g *ChangeGate) Status() (string, bool) {
+func (g *ChangeGate) Status(writer string) (string, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	st := g.everyState()
+	st := g.asked(writer)
 
 	if st.queued > 0 {
 		return "they are running on your latest changes now, and what they find " +
@@ -484,12 +490,13 @@ func failureName(f gate.TrimmedFailure) string {
 	return "build"
 }
 
-// Covers reports whether the gates that ran over this run's changes cover
+// Covers reports whether the gates that ran over writer's changes cover
 // every package in pkgs, each named as a directory relative to the module
 // root. A package this run never wrote a Go file in is one the change-
 // triggered gates never selected, so the harness has nothing to say about it
-// and the caller has to run the command itself.
-func (g *ChangeGate) Covers(pkgs []string) bool {
+// and the caller has to run the command itself. An empty writer is a caller
+// with no thread, covered by whatever any writer changed.
+func (g *ChangeGate) Covers(writer string, pkgs []string) bool {
 	if len(pkgs) == 0 {
 		return false
 	}
@@ -497,7 +504,7 @@ func (g *ChangeGate) Covers(pkgs []string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	changed := g.everyState().changed
+	changed := g.asked(writer).changed
 	dirs := make(map[string]bool, len(changed))
 
 	for _, c := range changed {

@@ -115,7 +115,7 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
-	if answer, ok := s.alreadyKnown(in.Command); ok {
+	if answer, ok := s.alreadyKnown(ctx, in.Command); ok {
 		return tool.Result{Content: answer}, nil
 	}
 
@@ -189,24 +189,28 @@ func inPlaceEditRefusal(command string) (tool.Result, bool) {
 
 // alreadyKnown answers a command whose answer the harness is already
 // holding, rather than spending a subprocess and a turn to rediscover it.
-func (s *Shell) alreadyKnown(command string) (string, bool) {
-	if answer, ok := s.alreadyChecked(command); ok {
+// The writer is the thread asking, read off the call's context; an absent
+// one gets the answer about every writer.
+func (s *Shell) alreadyKnown(ctx context.Context, command string) (string, bool) {
+	if answer, ok := s.alreadyChecked(ctx, command); ok {
 		return answer, true
 	}
 
-	return s.alreadyWritten(command)
+	return s.alreadyWritten(ctx, command)
 }
 
 // alreadyWritten answers a read-only version-control command with what this
 // run has written. The system prompt has told runs not to call git or jj
 // since the harness took over checkpointing, and 24 of 278 logged shell
 // calls called one anyway, every time to ask a question answered here.
-func (s *Shell) alreadyWritten(command string) (string, bool) {
+func (s *Shell) alreadyWritten(ctx context.Context, command string) (string, bool) {
 	if s.deps.changes == nil || !guard.VCSInspect(command) {
 		return "", false
 	}
 
-	changed := s.deps.changes.Changed()
+	writer, _ := tool.WriterFromContext(ctx)
+
+	changed := s.deps.changes.Changed(writer)
 	if len(changed) == 0 {
 		return "Not run: version control is the harness's job. You have changed nothing " +
 			"this run.", true
@@ -257,17 +261,19 @@ func dedupeChanges(changes []tool.Change) []tool.Change {
 // what the harness already knows, when it knows anything. This is not an
 // error: the model asked a question the harness can answer, so it gets the
 // answer rather than a refusal to look it up.
-func (s *Shell) alreadyChecked(command string) (string, bool) {
+func (s *Shell) alreadyChecked(ctx context.Context, command string) (string, bool) {
 	if s.deps.checks == nil {
 		return "", false
 	}
 
-	name, ok := s.checkRerun(command)
+	writer, _ := tool.WriterFromContext(ctx)
+
+	name, ok := s.checkRerun(ctx, command)
 	if !ok {
 		return "", false
 	}
 
-	status, ok := s.deps.checks.Status()
+	status, ok := s.deps.checks.Status(writer)
 	if !ok {
 		return "", false
 	}
@@ -288,13 +294,15 @@ func (s *Shell) alreadyChecked(command string) (string, bool) {
 // report the change-triggered gates ran, but only for a package this run
 // changed: over 64 recorded runs, 148 scoped sweeps went through the shell
 // and 135 named such a package.
-func (s *Shell) checkRerun(command string) (string, bool) {
+func (s *Shell) checkRerun(ctx context.Context, command string) (string, bool) {
 	if name, ok := guard.ProjectCheck(command); ok {
 		return name, true
 	}
 
+	writer, _ := tool.WriterFromContext(ctx)
+
 	pkgs, ok := guard.GoPackageSweep(command)
-	if !ok || !s.deps.checks.Covers(pkgs) {
+	if !ok || !s.deps.checks.Covers(writer, pkgs) {
 		return "", false
 	}
 

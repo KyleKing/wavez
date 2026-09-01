@@ -1517,6 +1517,12 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 		return refused, r.appendToolResult(ctx, call, refused, "", nil)
 	}
 
+	// The thread is stamped here rather than at tool construction because the
+	// registry is shared across threads: this context is the only thing that
+	// reaches the tool carrying the writer's identity, and the shell reads it
+	// back to answer gate questions for this writer alone.
+	ctx = tool.WithWriter(ctx, string(r.thread.ID()))
+
 	result, err := t.Run(ctx, call.Input)
 	if err != nil {
 		result = tool.Fail(tool.CauseIO, "%s: %v", call.Name, err)

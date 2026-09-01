@@ -223,11 +223,11 @@ func registryFor(root, sessionTmp, checks string) *tool.Registry {
 // the shell gets the same answer on every machine.
 type frozenChecks string
 
-func (c frozenChecks) Status() (string, bool) { return string(c), c != "" }
+func (c frozenChecks) Status(string) (string, bool) { return string(c), c != "" }
 
 // Covers is false, because a fixture declares one gate state and no change
 // set, so nothing names the packages a scoped sweep would ask about.
-func (frozenChecks) Covers([]string) bool { return false }
+func (frozenChecks) Covers(string, []string) bool { return false }
 
 func specs(registry *tool.Registry) []llm.ToolSpec {
 	built := registry.Specs()

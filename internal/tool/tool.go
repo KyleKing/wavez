@@ -29,6 +29,27 @@ type Change struct {
 	Removed int         `json:"removed"`
 }
 
+// writerKey is the context key carrying the thread a tool call belongs to. The
+// loop is the only place that knows it, and the registry it hands the tools to
+// is shared across threads, so the context the call already receives is the
+// only path down.
+type writerKey struct{}
+
+// WithWriter returns ctx carrying the thread every tool call in it belongs to.
+// The writer is what ChangeGate answers narrow to: one lane's shell must not
+// read another lane's gate results.
+func WithWriter(ctx context.Context, writer string) context.Context {
+	return context.WithValue(ctx, writerKey{}, writer)
+}
+
+// WriterFromContext names the thread the call belongs to, and whether it said.
+// An absent writer is not an error: the caller answers for every writer, which
+// is what a caller with no thread (a replay fixture, a one-off probe) expects.
+func WriterFromContext(ctx context.Context) (string, bool) {
+	w, ok := ctx.Value(writerKey{}).(string)
+	return w, ok
+}
+
 // Result is what a tool returns. Content is the only part the model sees, so it
 // is already trimmed by the tool's own rules.
 type Result struct {
