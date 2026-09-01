@@ -198,6 +198,11 @@ func (m Model) threadNavKey(s string) (Model, tea.Cmd, bool) {
 		m.push(screenSummary)
 
 		return m, nil, true
+	case "p":
+		m.push(screenTimeline)
+		m.timeline.cursor = max(len(m.timelineTurns())-1, 0)
+
+		return m, nil, true
 	default:
 		return m, nil, false
 	}
@@ -827,6 +832,7 @@ func threadHints(search searchState, focus int, filter filterCategory) []hint {
 		hint{"g", "goal", "show this thread's goal"},
 		hint{"c", filterHintLabel(filter), "step the kind filter"},
 		hint{"s", "summary", "group rows by kind"},
+		hint{"p", "timeline", "see the run as bars per turn"},
 	)
 	hints = append(hints, back...)
 

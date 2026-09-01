@@ -105,6 +105,8 @@ func (m Model) currentHints() []hint {
 		return routinesHints()
 	case screenSummary:
 		return summaryHints()
+	case screenTimeline:
+		return timelineHints()
 	default:
 		return nil
 	}

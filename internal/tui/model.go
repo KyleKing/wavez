@@ -28,6 +28,7 @@ const (
 	screenSchedule
 	screenModels
 	screenSummary
+	screenTimeline
 )
 
 const (
@@ -73,6 +74,7 @@ type Model struct {
 	sched       scheduleState
 	diagUI      diagState
 	routinesUI  routinesState
+	timeline    timelineState
 	width       int
 	focus       int
 	height      int
@@ -488,6 +490,8 @@ func (m Model) dispatchScreenKey(msg tea.KeyPressMsg, s string) (Model, tea.Cmd)
 		return m.updateScheduleKey(msg, s)
 	case screenSummary:
 		return m.updateSummaryKey(s)
+	case screenTimeline:
+		return m.updateTimelineKey(msg, s)
 	default:
 		return m, nil
 	}

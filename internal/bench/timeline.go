@@ -18,10 +18,10 @@ const barWidth = 24
 // subMinuteResolution is what a turn under a minute is reported to.
 const subMinuteResolution = 100 * time.Millisecond
 
-// toolsPerRow bounds the tool calls one line names. A turn that called more
+// ToolsPerRow bounds the tool calls one line names. A turn that called more
 // than this says how many it made instead, since the point of the line is
 // the shape of the run and not a second copy of the log.
-const toolsPerRow = 6
+const ToolsPerRow = 6
 
 // Call is one tool call as the timeline reads it: what ran and why it
 // failed, if it did.
@@ -133,38 +133,52 @@ func RenderTimeline(w io.Writer, turns []Turn) error {
 		return writeLine(w, "no turns recorded")
 	}
 
-	longest := time.Duration(0)
-	for _, t := range turns {
-		longest = max(longest, t.Duration)
-	}
-
+	longest := LongestTurn(turns)
 	previousTier := ""
 
 	for _, t := range turns {
-		var line strings.Builder
-
-		fmt.Fprintf(&line, "%3d  %s %6s  %s",
-			t.Number, bar(t.Duration, longest), shortDuration(t.Duration), callList(t.Calls))
-
-		notes := t.Notes
-		if t.Tier != "" && previousTier != "" && t.Tier != previousTier {
-			notes = append(slices.Clone(notes), "now on "+t.Tier)
-		}
-
-		for _, n := range notes {
-			line.WriteString("  · " + n)
+		if err := writeLine(w, TurnLine(t, longest, previousTier)); err != nil {
+			return err
 		}
 
 		if t.Tier != "" {
 			previousTier = t.Tier
 		}
-
-		if err := writeLine(w, strings.TrimRight(line.String(), " ")); err != nil {
-			return err
-		}
 	}
 
 	return nil
+}
+
+// LongestTurn is what the bars are scaled against.
+func LongestTurn(turns []Turn) time.Duration {
+	longest := time.Duration(0)
+	for i := range turns {
+		longest = max(longest, turns[i].Duration)
+	}
+
+	return longest
+}
+
+// TurnLine renders one turn: its bar, its duration, the tools it called, and
+// the notes beside them, where previousTier is the tier the turn before it
+// ran on, empty for the first turn, which is what makes a tier change a note
+// rather than a column repeated on every row.
+func TurnLine(t Turn, longest time.Duration, previousTier string) string {
+	var line strings.Builder
+
+	fmt.Fprintf(&line, "%3d  %s %6s  %s",
+		t.Number, bar(t.Duration, longest), shortDuration(t.Duration), callList(t.Calls))
+
+	notes := t.Notes
+	if t.Tier != "" && previousTier != "" && t.Tier != previousTier {
+		notes = append(slices.Clone(notes), "now on "+t.Tier)
+	}
+
+	for _, n := range notes {
+		line.WriteString("  · " + n)
+	}
+
+	return strings.TrimRight(line.String(), " ")
 }
 
 func writeLine(w io.Writer, s string) error {
@@ -195,7 +209,7 @@ func callList(calls []Call) string {
 		return "-"
 	}
 
-	if len(calls) > toolsPerRow {
+	if len(calls) > ToolsPerRow {
 		return fmt.Sprintf("%d tool calls", len(calls))
 	}
 

@@ -102,6 +102,8 @@ func screenAt(t *testing.T, name string, width, height int) tui.Model {
 		m = apply(t, m, keyPress('M'))
 	case "summary":
 		m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}, keyPress('s'))
+	case "timeline":
+		m = apply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}, keyPress('p'))
 	}
 
 	return m
@@ -113,7 +115,10 @@ func screenAt(t *testing.T, name string, width, height int) tui.Model {
 func TestEveryScreen_FitsItsTerminal(t *testing.T) {
 	t.Parallel()
 
-	screens := []string{"home", "thread", "schedule", "inbox", "diagnostics", "routines", "models", "summary"}
+	screens := []string{
+		"home", "thread", "schedule", "inbox", "diagnostics",
+		"routines", "models", "summary", "timeline",
+	}
 
 	for _, sz := range []struct{ width, height int }{{80, 24}, {100, 30}, {200, 50}} {
 		for _, name := range screens {

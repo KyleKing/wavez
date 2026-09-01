@@ -1,0 +1,12 @@
+[1m┌ timeline · fix-lock-timeout ─────────────────────────────────────────────────┐[m
+[1m│ [m  1  ████                       1m0s  read edit                             [1m │[m
+[1m│ [m  2  ████████████████████████   5m0s  shell ✗exit 1 edit read read          [1m │[m
+[1m│ [m[1m  3  ██                          30s  7 tool calls[m                          [1m │[m
+[1m│ [m      read                                                                  [1m │[m
+[1m│ [m      read                                                                  [1m │[m
+[1m│ [m      read                                                                  [1m │[m
+[1m│ [m      read                                                                  [1m │[m
+[1m│ [m      read                                                                  [1m │[m
+[1m│ [m      edit                                                                  [1m │[m
+[1m│ [m      edit                                                                  [1m │[m
+[1m└ [esc]back [?]help ───────────────────────────────────────────────────────────┘[m

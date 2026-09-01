@@ -29,6 +29,11 @@ type row struct {
 // the full history into one string.
 type transcript struct {
 	rows []row
+	// events is every event this transcript was fed, in arrival order. The
+	// rows are a lossy view of them (state changes and role markers render
+	// nothing, streamed text coalesces), so anything reading a thread as a
+	// sequence rather than as a screen reads these.
+	events []event.Event
 }
 
 // append adds e to the transcript, coalescing it into the previous row when
@@ -37,8 +42,10 @@ type transcript struct {
 // the one exception is a KindAgent event carrying a Role, which is a marker
 // that types the preceding agent row instead of becoming a row itself.
 func (t *transcript) append(e event.Event) {
+	t.events = append(t.events, e)
+
 	if e.Kind == event.KindAgent && e.Role != "" && e.Text == "" {
-		t.applyRole(e.Role)
+		t.applyRole(e)
 
 		return
 	}
@@ -68,7 +75,7 @@ func (t *transcript) append(e event.Event) {
 
 // applyRole types the last row with role, when it is an agent row and the
 // reader has not already chosen a fold state for it.
-func (t *transcript) applyRole(role event.Role) {
+func (t *transcript) applyRole(e event.Event) {
 	if len(t.rows) == 0 {
 		return
 	}
@@ -78,7 +85,7 @@ func (t *transcript) applyRole(role event.Role) {
 		return
 	}
 
-	last.role = role
+	last.role = e.Role
 	if !last.toggled {
 		last.expanded = defaultExpanded(last.kind, last.role)
 	}
