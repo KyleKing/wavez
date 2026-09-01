@@ -856,6 +856,13 @@ type Restorer interface {
 	ChangedFiles(ctx context.Context, repoRoot, marker string) ([]string, error)
 	DiffStat(ctx context.Context, repoRoot, marker string) (string, error)
 	Restore(ctx context.Context, repoRoot, checkpoint string) error
+	RestorePaths(ctx context.Context, repoRoot, checkpoint string, paths []string) error
+}
+
+// Writers reports the threads writing into the tree besides the one asking.
+// A *lease.Manager satisfies it, and a nil Writers reads as nobody else.
+type Writers interface {
+	OtherActiveHolders(holder string) []string
 }
 
 // restore previews or performs an undo of threadID back to the checkpoint
@@ -864,7 +871,7 @@ type Restorer interface {
 //
 // Nothing to discard is an error rather than a successful no-op, so a
 // client never reports an undo that undid nothing.
-func (m *manager) restore(ctx context.Context, r Restorer, cmd api.Command) (api.Restore, error) {
+func (m *manager) restore(ctx context.Context, r Restorer, w Writers, cmd api.Command) (api.Restore, error) {
 	mt, ok := m.get(cmd.ThreadID)
 	if !ok {
 		return api.Restore{}, ErrThreadNotFound
@@ -902,17 +909,53 @@ func (m *manager) restore(ctx context.Context, r Restorer, cmd api.Command) (api
 	}
 
 	out := api.Restore{ThreadID: cmd.ThreadID, Checkpoint: target, Summary: summary, Edits: edits}
+	out.Scoped = otherWriters(w, cmd.ThreadID)
 	if !cmd.Confirm {
 		return out, nil
 	}
 
-	if err := performRestore(ctx, r, dir, target); err != nil {
+	if err := performRestore(ctx, r, dir, target, out.Scoped, edits); err != nil {
 		return api.Restore{}, err
 	}
 
 	out.Restored = true
 
 	return out, nil
+}
+
+// otherWriters reports whether a thread other than threadID holds an active
+// lease, which is what decides how much of the tree a restore may touch.
+func otherWriters(w Writers, threadID string) bool {
+	if w == nil {
+		return false
+	}
+
+	return len(w.OtherActiveHolders(threadID)) > 0
+}
+
+// editedPaths is every path the thread recorded an edit to, once each in
+// sorted order. It is what a scoped restore reverts, and it is narrower than
+// what the tree holds by exactly the writes nothing recorded.
+func editedPaths(edits []api.EditPoint) []string {
+	seen := map[string]struct{}{}
+
+	var out []string
+
+	for _, e := range edits {
+		for _, p := range e.Paths {
+			if _, dup := seen[p]; dup {
+				continue
+			}
+
+			seen[p] = struct{}{}
+
+			out = append(out, p)
+		}
+	}
+
+	sort.Strings(out)
+
+	return out
 }
 
 // restoreTarget resolves which operation a restore rewinds to. An id the
@@ -936,17 +979,63 @@ func restoreTarget(baseline string, edits []api.EditPoint, want string) (string,
 // performRestore reverts dir and proves it: jj reports "Nothing changed"
 // through a zero exit status, so a restore is only believable once the
 // working copy stops differing from the checkpoint.
-func performRestore(ctx context.Context, r Restorer, dir, checkpoint string) error {
-	if err := r.Restore(ctx, dir, checkpoint); err != nil {
-		return fmt.Errorf("restoring %s: %w", dir, err)
+//
+// Which mechanism runs is the scheduler's call rather than the client's.
+// Alone in the tree a thread gets the operation restore the VCS decision was
+// taken for, which reverts everything including a write nothing recorded.
+// With another thread writing, an operation restore would take that thread's
+// work with it, so this degrades to reverting the asking thread's own edited
+// paths and leaves the rest of the tree standing.
+func performRestore(
+	ctx context.Context, r Restorer, dir, checkpoint string, scoped bool, edits []api.EditPoint,
+) error {
+	if !scoped {
+		if err := r.Restore(ctx, dir, checkpoint); err != nil {
+			return fmt.Errorf("restoring %s: %w", dir, err)
+		}
+
+		return verifyRestored(ctx, r, dir, checkpoint, nil)
 	}
 
+	paths := editedPaths(edits)
+	if len(paths) == 0 {
+		return ErrNothingToRestore
+	}
+
+	if err := r.RestorePaths(ctx, dir, checkpoint, paths); err != nil {
+		return fmt.Errorf("restoring %d path(s) of %s: %w", len(paths), dir, err)
+	}
+
+	return verifyRestored(ctx, r, dir, checkpoint, paths)
+}
+
+// verifyRestored proves a restore landed. A nil paths list demands the whole
+// working copy stopped differing from the checkpoint; a non-nil one demands
+// it only of those paths, since a scoped restore leaves the other writer's
+// files differing on purpose.
+func verifyRestored(ctx context.Context, r Restorer, dir, checkpoint string, paths []string) error {
 	left, err := r.ChangedFiles(ctx, dir, checkpoint)
 	if err != nil {
 		return fmt.Errorf("verifying the restore of %s: %w", dir, err)
 	}
-	if len(left) > 0 {
-		return fmt.Errorf("%w: %d file(s) still differ", ErrRestoreIncomplete, len(left))
+
+	if paths == nil {
+		if len(left) > 0 {
+			return fmt.Errorf("%w: %d file(s) still differ", ErrRestoreIncomplete, len(left))
+		}
+
+		return nil
+	}
+
+	want := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		want[p] = struct{}{}
+	}
+
+	for _, f := range left {
+		if _, ok := want[f]; ok {
+			return fmt.Errorf("%w: %s still differs", ErrRestoreIncomplete, f)
+		}
 	}
 
 	return nil

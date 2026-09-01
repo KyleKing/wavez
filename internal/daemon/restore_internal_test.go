@@ -14,11 +14,13 @@ import (
 // successive ChangedFiles call sees, so a test can model a restore that
 // cleaned the tree and one that did not.
 type fakeRestorer struct {
-	err      error
-	stat     string
-	changed  [][]string
-	calls    int
-	restored int
+	err          error
+	stat         string
+	changed      [][]string
+	restoredPath []string
+	calls        int
+	restored     int
+	scopedCalls  int
 }
 
 func (f *fakeRestorer) ChangedFiles(context.Context, string, string) ([]string, error) {
@@ -41,6 +43,18 @@ func (f *fakeRestorer) Restore(context.Context, string, string) error {
 
 	return f.err
 }
+
+func (f *fakeRestorer) RestorePaths(_ context.Context, _, _ string, paths []string) error {
+	f.scopedCalls++
+	f.restoredPath = paths
+
+	return f.err
+}
+
+// fakeWriters scripts what the lease manager reports about other lanes.
+type fakeWriters struct{ others []string }
+
+func (w fakeWriters) OtherActiveHolders(string) []string { return w.others }
 
 func TestManagerRestore(t *testing.T) {
 	t.Parallel()
@@ -110,7 +124,9 @@ func TestManagerRestore(t *testing.T) {
 			mt.baseline = tc.baseline
 			mt.running = tc.running
 
-			got, err := m.restore(context.Background(), tc.restorer, api.Command{ThreadID: mt.id, Confirm: tc.confirm})
+			cmd := api.Command{ThreadID: mt.id, Confirm: tc.confirm}
+
+			got, err := m.restore(context.Background(), tc.restorer, nil, cmd)
 
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {
@@ -163,7 +179,7 @@ func TestManagerRestoreWithoutARestorer(t *testing.T) {
 
 	mt.baseline = "op1"
 
-	_, err = m.restore(context.Background(), nil, api.Command{ThreadID: mt.id, Confirm: true})
+	_, err = m.restore(context.Background(), nil, nil, api.Command{ThreadID: mt.id, Confirm: true})
 	if !errors.Is(err, ErrNoRepository) {
 		t.Fatalf("restore error = %v, want %v", err, ErrNoRepository)
 	}
@@ -188,7 +204,7 @@ func TestManagerRestoreTargetsOneRecordedEdit(t *testing.T) {
 
 	r := &fakeRestorer{changed: [][]string{{"a.go"}, {"a.go"}}, stat: "a.go | 1 +\n"}
 
-	got, err := m.restore(context.Background(), r, api.Command{ThreadID: mt.id, Checkpoint: "op1"})
+	got, err := m.restore(context.Background(), r, nil, api.Command{ThreadID: mt.id, Checkpoint: "op1"})
 	if err != nil {
 		t.Fatalf("restore: %v", err)
 	}
@@ -201,7 +217,7 @@ func TestManagerRestoreTargetsOneRecordedEdit(t *testing.T) {
 		t.Errorf("Edits = %v, want the picker's own list back", got.Edits)
 	}
 
-	_, err = m.restore(context.Background(), r, api.Command{ThreadID: mt.id, Checkpoint: "opX"})
+	_, err = m.restore(context.Background(), r, nil, api.Command{ThreadID: mt.id, Checkpoint: "opX"})
 	if !errors.Is(err, ErrUnknownCheckpoint) {
 		t.Errorf("restore error = %v, want %v", err, ErrUnknownCheckpoint)
 	}
@@ -239,5 +255,84 @@ func TestManagerQueuesAPromptSentMidTurn(t *testing.T) {
 
 	if len(pending) != 1 || pending[0] != "and also this" {
 		t.Errorf("pending = %v, want the prompt verbatim", pending)
+	}
+}
+
+// A whole-repo operation restore takes every writer's work with it, so a
+// thread undoing itself while another lane writes must revert only the paths
+// it recorded an edit to. Which mechanism runs is the scheduler's call, and
+// the client is told which one it got.
+func checkMechanism(t *testing.T, r *fakeRestorer, wantWhole, wantScoped int) {
+	t.Helper()
+
+	if r.restored != wantWhole {
+		t.Errorf("Restore called %d time(s), want %d", r.restored, wantWhole)
+	}
+	if r.scopedCalls != wantScoped {
+		t.Errorf("RestorePaths called %d time(s), want %d", r.scopedCalls, wantScoped)
+	}
+	if wantScoped > 0 && !reflect.DeepEqual(r.restoredPath, []string{"mine.go"}) {
+		t.Errorf("RestorePaths got %v, want only this thread's edited paths", r.restoredPath)
+	}
+}
+
+func TestManagerRestoreScopesToOwnPathsWhileAnotherLaneWrites(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		others      []string
+		leftover    []string
+		wantWhole   int
+		wantScopedN int
+		wantScoped  bool
+	}{
+		{name: "alone in the tree, the whole operation comes back", wantWhole: 1},
+		{
+			name:        "another lane writing, only this thread's paths come back",
+			others:      []string{"other-thread"},
+			wantScoped:  true,
+			wantScopedN: 1,
+			leftover:    []string{"theirs.go"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := newManager(t.TempDir(), &agent.Loop{}, agent.Prefix{})
+
+			mt, err := m.create(createParams{Prompt: "undo me", Dirs: []string{t.TempDir()}})
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			mt.baseline = "op0"
+			mt.edits = []api.EditPoint{{Op: "op1", Tool: "str_replace", Paths: []string{"mine.go"}}}
+
+			// The second ChangedFiles is the verification: the neighbor's file
+			// still differs after a scoped restore, and that must not read as
+			// a restore that failed.
+			r := &fakeRestorer{
+				stat:    "mine.go | 1 +\n",
+				changed: [][]string{{"mine.go", "theirs.go"}, tc.leftover},
+			}
+
+			got, err := m.restore(context.Background(), r, fakeWriters{others: tc.others},
+				api.Command{ThreadID: mt.id, Confirm: true})
+			if err != nil {
+				t.Fatalf("restore: %v", err)
+			}
+
+			if got.Scoped != tc.wantScoped {
+				t.Errorf("Scoped = %v, want %v", got.Scoped, tc.wantScoped)
+			}
+			if !got.Restored {
+				t.Error("Restored = false, want the undo reported as done")
+			}
+
+			checkMechanism(t, r, tc.wantWhole, tc.wantScopedN)
+		})
 	}
 }

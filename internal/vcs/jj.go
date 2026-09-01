@@ -3,6 +3,7 @@ package vcs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -136,6 +137,33 @@ func (*Jj) Restore(ctx context.Context, repoRoot, checkpoint string) error {
 	return nil
 }
 
+// RestorePaths reverts only paths to their content at the operation Capture
+// returned as checkpoint, leaving every other file in repoRoot alone.
+//
+// It exists for the tree another thread is writing, where an operation
+// restore would take that thread's work with it. It cannot revert a write no
+// caller named, so a shell command that edited a file nothing recorded
+// survives it, which is the price of not touching the rest of the tree. An
+// empty paths list restores nothing and returns nil.
+func (*Jj) RestorePaths(ctx context.Context, repoRoot, checkpoint string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	// An empty checkpoint would resolve to root(), which deletes every named
+	// path rather than reverting it.
+	if strings.TrimSpace(checkpoint) == "" {
+		return fmt.Errorf("restoring paths of %s: %w", repoRoot, errNoCheckpoint)
+	}
+
+	args := append([]string{"restore", diffFromArg(checkpoint)}, paths...)
+	if _, err := runJJ(ctx, repoRoot, args...); err != nil {
+		return fmt.Errorf("restoring %d path(s) of %s to operation %s: %w",
+			len(paths), repoRoot, checkpoint, err)
+	}
+
+	return nil
+}
+
 // AddWorkspace creates a second working copy of repoRoot at dir, holding
 // the same content as repoRoot's working copy, uncommitted changes
 // included. A caller mutating files needs somewhere the live tree is not,
@@ -204,6 +232,10 @@ func diffFromArg(marker string) string {
 
 	return "--from=at_operation(" + marker + ", @)"
 }
+
+// errNoCheckpoint refuses a path restore with no operation to restore from,
+// since the revset that stands in for one is root().
+var errNoCheckpoint = errors.New("vcs: no checkpoint to restore from")
 
 func notJJRepoErr(path string, cause error) error {
 	return fmt.Errorf("%s is not a jj repository, fix with %q: %w: %w", path, InitHint, ErrNotJJRepo, cause)

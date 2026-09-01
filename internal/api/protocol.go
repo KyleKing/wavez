@@ -370,8 +370,12 @@ type Restore struct {
 	Summary string `json:"summary"`
 	// Edits is one entry per accepted change of the run, oldest first, so a
 	// client can offer undo of a single edit rather than only of the run.
-	Edits    []EditPoint `json:"edits,omitempty"`
-	Restored bool        `json:"restored"`
+	Edits []EditPoint `json:"edits,omitempty"`
+	// Scoped reports that another thread is writing this tree, so the
+	// restore reverts only the paths this thread recorded an edit to rather
+	// than the whole working copy. A write nothing recorded survives it.
+	Scoped   bool `json:"scoped,omitempty"`
+	Restored bool `json:"restored"`
 }
 
 // Schedule is the fleet as the scheduler sees it: one lane per thread over

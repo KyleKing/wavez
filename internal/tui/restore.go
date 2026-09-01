@@ -20,6 +20,9 @@ type restoreState struct {
 	// nth edit left it.
 	edits  []api.EditPoint
 	cursor int
+	// scoped reports that another thread is writing this tree, so the undo
+	// reverts only what this thread recorded and leaves the rest standing.
+	scoped bool
 	open   bool
 }
 
@@ -104,13 +107,16 @@ func (m *Model) applyRestore(r api.Restore) {
 	if r.Restored {
 		m.restore = restoreState{}
 		m.status = "restored to checkpoint " + shortCheckpoint(r.Checkpoint) + ", discarded " + statTotal(r.Summary)
+		if r.Scoped {
+			m.status += " (this thread's paths only)"
+		}
 
 		return
 	}
 
 	m.restore = restoreState{
 		open: true, threadID: r.ThreadID, summary: summaryLines(r.Summary),
-		edits: r.Edits, cursor: m.restore.cursor,
+		edits: r.Edits, cursor: m.restore.cursor, scoped: r.Scoped,
 	}
 }
 
@@ -188,6 +194,11 @@ func (m Model) renderRestore() string {
 
 	for _, line := range m.restore.summary {
 		body = append(body, truncate("  "+line, inner))
+	}
+
+	if m.restore.scoped {
+		body = append(body, "", truncate(m.th.statusWarn.Render(
+			"another thread is writing this tree, so undo reverts only what this one recorded"), inner))
 	}
 
 	if len(m.restore.edits) > 0 {
