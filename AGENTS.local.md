@@ -158,9 +158,11 @@ are specific to this codebase and not visible from the code.
   writer. A `tool.Change` carries the thread that wrote it, stamped in
   `run.gateChanges` because the tool registry is built once per project and
   the tools have no thread of their own. `ChangeGate.Changed`, `Status`, and
-  `Covers` are the three that still cannot say who is asking, since the
-  shell reaches them through that shared registry, and they answer about
-  every writer at once
+  `Covers` take that writer as an argument, read off the tool call's context
+  where `tool.WithWriter` stamped it, because the context is the only thing
+  reaching a tool that the shared registry did not build. An empty writer is
+  the every-writer answer a fixture or a one-off probe expects, so a new
+  caller that forgets to pass one is wrong quietly rather than loudly
 - Two lanes running beside each other is how the shared-state defects show
   up, and they read as the lane's own fault. One lane was handed the other's
   compile errors under "Gates ran on your changes", edited the other's
