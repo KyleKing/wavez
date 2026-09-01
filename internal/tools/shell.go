@@ -336,7 +336,7 @@ func (s *Shell) classify(command string) guard.Result {
 }
 
 func (s *Shell) classifyScript(rel string) guard.Result {
-	abs, err := resolvePath(s.root, rel)
+	abs, err := resolvePath(s.root, s.deps.extraRoots, rel)
 	if err != nil {
 		return guard.Result{Verdict: guard.Allow, Reason: reasonNoScript, Fragment: rel}
 	}

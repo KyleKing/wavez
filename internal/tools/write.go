@@ -87,7 +87,7 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
-	abs, err := resolvePath(w.root, in.Path)
+	abs, err := resolvePath(w.root, w.deps.extraRoots, in.Path)
 	if err != nil {
 		return tool.Fail(tool.CauseRefused, "%v", err), nil
 	}

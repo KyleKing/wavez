@@ -55,12 +55,13 @@ type Look struct {
 	scope    *Scope
 	root     string
 	model    string
+	deps     deps
 }
 
 // NewLook builds a Look that asks provider, which must be a model that
 // accepts image content.
-func NewLook(root string, scope *Scope, provider llm.Provider, model string) *Look {
-	return &Look{root: root, scope: scope, provider: provider, model: model}
+func NewLook(root string, scope *Scope, provider llm.Provider, model string, opts ...Option) *Look {
+	return &Look{root: root, scope: scope, provider: provider, model: model, deps: newDeps(opts)}
 }
 
 // Name implements tool.Tool.
@@ -120,7 +121,7 @@ func (l *Look) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 // image reads the file and reports why it cannot be looked at, if it cannot.
 func (l *Look) image(path string) ([]byte, string, *tool.Result) {
-	abs, err := resolvePath(l.root, path)
+	abs, err := resolvePath(l.root, l.deps.extraRoots, path)
 	if err != nil {
 		return nil, "", failure(tool.CauseBadInput, "%v", err)
 	}

@@ -67,12 +67,13 @@ type Read struct {
 	scope    *Scope
 	registry *lang.Registry
 	root     string
+	deps     deps
 }
 
 // NewRead builds a Read tool scoped to root, reporting each file it reads
 // to scope.
-func NewRead(root string, scope *Scope) *Read {
-	return &Read{root: root, scope: scope, registry: lang.NewDefaultRegistry()}
+func NewRead(root string, scope *Scope, opts ...Option) *Read {
+	return &Read{root: root, scope: scope, registry: lang.NewDefaultRegistry(), deps: newDeps(opts)}
 }
 
 // Name implements tool.Tool.
@@ -173,7 +174,7 @@ func (r *Read) readAll(paths []string, start, end int) tool.Result {
 // readOne answers for one path, which is a directory listing, an outline, or
 // a line range.
 func (r *Read) readOne(p string, start, end int) (string, *tool.Result) {
-	abs, err := resolvePath(r.root, p)
+	abs, err := resolvePath(r.root, r.deps.extraRoots, p)
 	if err != nil {
 		return "", failure(tool.CauseRefused, "%v", err)
 	}

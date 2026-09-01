@@ -495,7 +495,7 @@ func (s *StrReplace) prepare(
 	}
 
 	for _, g := range groups {
-		abs, err := resolvePath(s.root, g.Path)
+		abs, err := resolvePath(s.root, s.deps.extraRoots, g.Path)
 		if err == nil {
 			err = s.scope.Edit(abs)
 		}

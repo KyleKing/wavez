@@ -83,3 +83,40 @@ func TestWrite_RefusesPathOutsideRoot(t *testing.T) {
 		t.Errorf("result = %+v, want a refusal for a path outside the root", result)
 	}
 }
+
+// A project may declare directories beyond its root, which is how a lane
+// edits the template it was generated from while working in the render. A
+// relative path still resolves against the project root, so an extra root is
+// reached by naming it absolutely.
+func TestWrite_ReachesADeclaredExtraRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sibling := t.TempDir()
+	target := filepath.Join(sibling, "hk.pkl")
+
+	refused := tools.NewWrite(root, nil)
+	reaching := tools.NewWrite(root, nil, tools.WithExtraRoots([]string{sibling}))
+
+	input := mustJSON(t, map[string]any{"path": target, "content": "amends\n"})
+
+	result, err := refused.Run(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.IsError || result.Cause != tool.CauseRefused {
+		t.Fatalf("result = %+v, want a refusal without the directory declared", result)
+	}
+
+	result, err = reaching.Run(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("result = %+v, want the write to land in the declared directory", result)
+	}
+
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("Stat: %v, want the file written", err)
+	}
+}

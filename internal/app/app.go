@@ -8,10 +8,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -328,7 +330,8 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
 		checks: changeGate, changes: changeGate, shellAllow: cfg.ShellAllow,
-		web: cfg.Web, webSearchURL: cfg.WebSearchURL,
+		extraDirs: reachableDirs(root, cfg.ExtraDirs),
+		web:       cfg.Web, webSearchURL: cfg.WebSearchURL,
 		vision: visionProvider(ctx, cfg), visionModel: visionModel(cfg),
 	})
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
@@ -810,19 +813,23 @@ type registryDeps struct {
 	// shellAllow widens the guard's list of shell commands that run without
 	// asking, from what the project named.
 	shellAllow []string
-	web        bool
+	// extraDirs are the directories outside the project root the project
+	// declared reachable, already resolved and vetted.
+	extraDirs []string
+	web       bool
 }
 
 func buildRegistry(d registryDeps) *tool.Registry {
 	withLeases := tools.WithLeases(d.leases)
+	reach := tools.WithExtraRoots(d.extraDirs)
 
 	set := []tool.Tool{
-		tools.NewList(d.root),
-		tools.NewRead(d.root, d.scope),
-		tools.NewStrReplace(d.root, d.scope, withLeases, tools.WithSymbols(d.indexer)),
-		tools.NewUndo(d.root, d.scope, withLeases),
-		tools.NewWrite(d.root, d.scope, withLeases),
-		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases,
+		tools.NewList(d.root, reach),
+		tools.NewRead(d.root, d.scope, reach),
+		tools.NewStrReplace(d.root, d.scope, withLeases, reach, tools.WithSymbols(d.indexer)),
+		tools.NewUndo(d.root, d.scope, withLeases, reach),
+		tools.NewWrite(d.root, d.scope, withLeases, reach),
+		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases, reach,
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
 			tools.WithAllowedCommands(d.shellAllow)),
 		tools.NewPTY(d.root, DefaultThreadID, d.permGate),
@@ -869,6 +876,44 @@ func buildRegistry(d registryDeps) *tool.Registry {
 // replay would otherwise spend its first minutes doing while the model waits.
 func DerivedState() []string {
 	return []string{storeFileName, coverageManifestFileName}
+}
+
+// reachableDirs vets the directories a project declared reachable beyond its
+// root, resolving a relative one against root and dropping anything that is
+// not a directory on disk.
+//
+// An ancestor of the project root is refused however it is spelled. It would
+// grant every sibling of the project at once, which is more than declaring
+// one sibling asks for, and it is the shape a stray "." or ".." takes.
+func reachableDirs(root string, declared []string) []string {
+	var out []string
+
+	for _, dir := range declared {
+		abs := dir
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(root, abs)
+		}
+
+		abs = filepath.Clean(abs)
+
+		info, err := os.Stat(abs)
+		if err != nil || !info.IsDir() {
+			slog.Warn("skipping unreachable extra directory", "dir", dir)
+
+			continue
+		}
+
+		if rel, relErr := filepath.Rel(abs, root); relErr == nil &&
+			(rel == "." || !strings.HasPrefix(rel, "..")) {
+			slog.Warn("refusing an extra directory holding the project root", "dir", dir)
+
+			continue
+		}
+
+		out = append(out, abs)
+	}
+
+	return out
 }
 
 // StateDir is where a project keeps the state Wavez derives for it.

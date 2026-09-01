@@ -41,10 +41,13 @@ var listSchema = buildSchema(map[string]schemaProperty{
 // what a project holds without spending a shell call on `find` or `ls`.
 type List struct {
 	root string
+	deps deps
 }
 
 // NewList builds a List tool over root.
-func NewList(root string) *List { return &List{root: root} }
+func NewList(root string, opts ...Option) *List {
+	return &List{root: root, deps: newDeps(opts)}
+}
 
 // Name implements tool.Tool.
 func (*List) Name() string { return "list" }
@@ -87,7 +90,7 @@ func (l *List) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 
 	blocks := make([]string, 0, len(dirs))
 	for _, dir := range dirs {
-		abs, err := resolvePath(l.root, dir)
+		abs, err := resolvePath(l.root, l.deps.extraRoots, dir)
 		if err != nil {
 			return tool.Fail(tool.CauseRefused, "%v", err), nil
 		}

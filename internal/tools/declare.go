@@ -117,7 +117,7 @@ func (d *Declare) Run(ctx context.Context, input json.RawMessage) (tool.Result, 
 // replace swaps an existing declaration's whole span, doc comment included,
 // for the new text.
 func (d *Declare) replace(ctx context.Context, decl declaration, text string) (tool.Result, error) {
-	abs, err := resolvePath(d.root, decl.path)
+	abs, err := resolvePath(d.root, d.deps.extraRoots, decl.path)
 	if err != nil {
 		return failWith(err), nil
 	}
@@ -175,7 +175,7 @@ func (d *Declare) add(ctx context.Context, in *declareInput, text string) (tool.
 			in.Symbol), nil
 	}
 
-	abs, err := resolvePath(d.root, in.Path)
+	abs, err := resolvePath(d.root, d.deps.extraRoots, in.Path)
 	if err != nil {
 		return failWith(err), nil
 	}

@@ -1561,6 +1561,28 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   search returned is the change that fits, and its prompt cost has no
   corpus to be read from
 
+- One provider's schema quirks are a hand-coded special case, and there is a
+  shape for the general problem.
+  [jcode](https://github.com/1jehuang/jcode)'s `jcode-schema-dialect` names the
+  bug precisely: eight of its issues were the same failure with a different
+  keyword, each fixed by appending that keyword to a per-provider deny list,
+  and a deny list only ever holds what has already broken for somebody. Its
+  replacement is three layers. Each provider declares the subset of JSON Schema
+  it *accepts*, so an unknown construct is dropped rather than forwarded and a
+  keyword nobody has seen yet is inert instead of fatal. A rejection that
+  happens anyway is parsed out of the provider's error text into the offending
+  keyword and the turn is retried without it. The learned quirk is persisted,
+  so it costs one wasted round trip ever. `openaic.schemaFor` is the deny-list
+  stage of exactly this: `Dialect.composesSchemas()` is a single boolean, and a
+  dialect that answers false has every branch but the first silently dropped,
+  which is why a tool reachable only through a later `buildOneOf` branch is a
+  tool the hosted tiers cannot reach at all. Generalizing the boolean to a
+  declared keyword set is small. The part worth copying whole is the
+  conformance check, which asserts over the real tool registry that a
+  normalized schema neither keeps a construct the dialect rejects nor drops one
+  that carried meaning, because over-stripping is the failure an allow-list
+  newly makes possible and nothing here would catch it
+
 - The guard splits a command string by hand and there is a parser for that.
   [safecmd](https://github.com/AnswerDotAI/safecmd) validates by parsing bash
   into an AST before it checks anything, on the argument that
@@ -1571,7 +1593,12 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   commands and nested substitution, and replaces the redirection scan in
   `writes.go` with the parse tree's own targets. The `Env` argument and the
   expansion rules stay as they are, since a parser answers what a command is
-  and not what its variables hold
+  and not what its variables hold. jcode's `jcode-command-risk` attaches the
+  caveat that matters: its catastrophic tier is a small absolute path-based
+  deny that deliberately does not depend on parsing the command correctly, on
+  the argument that a static parser is defense in depth and never a sandbox.
+  So the refusals that must never be wrong stay where they are, and the parse
+  buys the tier above them
 - A finding needs a baseline, and [fallow](https://github.com/fallow-rs/fallow)
   names the mechanism. The `lint` gate reads a changed file's whole package,
   filters out what it cannot attribute to the run, and so says nothing about a
@@ -1773,6 +1800,7 @@ No:
 - Personas, connector fleets, and teams. openworker's shape is one assistant reaching 25+ third-party services across a whole workday, and each of those is an account, a token, and a scope. One user on one laptop in one checkout is the constraint that pays for the deterministic layer here, and a Slack connector spends it
 - A git backend beside the jj one. jj's git interop already covers GitHub, and two backends would double the surface for no gain
 - KiteSurf as the browser backend (Workers only). browser-control as the default backend (real profile, allow-by-default filter in a third-party relay), kept as an opt-in behind the same interface
+- A reflection gate in front of a refusal, from [jcode](https://github.com/1jehuang/jcode)'s `jcode-command-risk`: rather than prompting the user, the harness refuses once and hands back a structured demand that the model name which user request the command serves, so a blind retry of the identical call fails again. It is the answer to the resend failure the swarm-forge entry above describes, and it makes model output a policy input, which is the one line the Safety section holds. It is also solving a problem this project does not have, since a prompt costs one user on one laptop a keystroke where jcode is choosing between a model turn and interrupting somebody
 - Wish/SSH for remote access (2026 CVEs)
 - Plugins, MCP servers loaded up front, multi-agent hierarchies past one level of delegation
 

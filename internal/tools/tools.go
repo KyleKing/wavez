@@ -24,9 +24,14 @@ var ErrPathOutsideRoot = errors.New("path is outside the project root")
 var ErrPathMissing = errors.New("path is required and was not set")
 
 // resolvePath resolves path against root and refuses one that lexically
-// escapes it, whether given as an absolute path or a relative one that
-// walks out with "..".
-func resolvePath(root, path string) (string, error) {
+// escapes every reachable root, whether given as an absolute path or a
+// relative one that walks out with "..".
+//
+// A relative path always resolves against root, so an extra root is reached
+// by naming it absolutely. Resolving relative paths against several roots in
+// turn would make the same call mean different files depending on what
+// happens to exist.
+func resolvePath(root string, extra []string, path string) (string, error) {
 	if path == "" {
 		return "", ErrPathMissing
 	}
@@ -38,12 +43,29 @@ func resolvePath(root, path string) (string, error) {
 		abs = filepath.Clean(filepath.Join(root, path))
 	}
 
-	rel, err := filepath.Rel(root, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%w: %s", ErrPathOutsideRoot, path)
+	if within(root, abs) {
+		return abs, nil
 	}
 
-	return abs, nil
+	for _, dir := range extra {
+		if within(dir, abs) {
+			return abs, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrPathOutsideRoot, path)
+}
+
+// within reports whether abs sits inside dir, which is lexical: a symlink out
+// of the tree is not what this refuses.
+func within(dir, abs string) bool {
+	if dir == "" {
+		return false
+	}
+
+	rel, err := filepath.Rel(dir, abs)
+
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // lineNumbered reports text that looks like it was copied out of a read

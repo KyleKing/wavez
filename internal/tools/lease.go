@@ -42,6 +42,9 @@ type deps struct {
 	// allowedCommands widen the guard's built-in list of shell commands that
 	// run without a prompt, from what the project named.
 	allowedCommands []string
+	// extraRoots are the directories outside the project root a path may
+	// resolve into, from what the project declared.
+	extraRoots []string
 }
 
 // Option configures a tool's optional dependencies.
@@ -81,6 +84,13 @@ func WithChanges(c Changes) Option {
 // own toolchain is named here rather than left to a prompt per turn.
 func WithAllowedCommands(names []string) Option {
 	return func(d *deps) { d.allowedCommands = names }
+}
+
+// WithExtraRoots widens what a tool may reach to directories outside the
+// project root. A path still resolves relative to the project root, and an
+// absolute path is accepted only when it sits inside one of these.
+func WithExtraRoots(dirs []string) Option {
+	return func(d *deps) { d.extraRoots = dirs }
 }
 
 func newDeps(opts []Option) deps {

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -39,5 +41,28 @@ func TestQuestionIsOfferedOnlyWhereSomethingCanAnswer(t *testing.T) {
 				t.Errorf("tools = %v, want the rest of the surface intact", names)
 			}
 		})
+	}
+}
+
+// An extra directory holding the project root would grant every sibling of
+// the project at once, which is more than declaring one sibling asks for and
+// is the shape a stray "." or ".." takes.
+func TestReachableDirsRefusesAnAncestorOfTheRoot(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	root := filepath.Join(parent, "project")
+	sibling := filepath.Join(parent, "template")
+
+	for _, dir := range []string{root, sibling} {
+		if err := os.Mkdir(dir, 0o750); err != nil {
+			t.Fatalf("Mkdir: %v", err)
+		}
+	}
+
+	got := reachableDirs(root, []string{sibling, parent, "..", filepath.Join(parent, "absent")})
+
+	if !slices.Equal(got, []string{sibling}) {
+		t.Errorf("reachableDirs = %v, want only the sibling", got)
 	}
 }

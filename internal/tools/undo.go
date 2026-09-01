@@ -69,7 +69,7 @@ func (u *Undo) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 		return tool.Fail(tool.CauseMalformed, "invalid input: %v", err), nil
 	}
 
-	abs, err := resolvePath(u.root, in.Path)
+	abs, err := resolvePath(u.root, u.deps.extraRoots, in.Path)
 	if err != nil {
 		return tool.Fail(tool.CauseRefused, "%v", err), nil
 	}
