@@ -1500,8 +1500,10 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
 - `wavez -timeline <run>` is the sequence the corpus commands cannot show:
   one line per turn, a bar scaled to the run's longest turn, the tools each
   turn called with the cause on every failure, and the gate deliveries,
-  gate escalations, and tier changes beside them. What is left is a version
-  a person can page through rather than scroll
+  gate escalations, and tier changes beside them. The thread screen's `p`
+  is the version a person pages through, windowed to the terminal with the
+  cursor row expanding to the turn's whole tool list, and both it and the
+  flag render a row through `bench.TurnLine`
 - What the fast tier's remit actually is. Holding the tools, the prompt, and
   the task fixed on `e2` and varying only the tier, the hosted model passed
   3 of 3 checks on all three runs while the fast tier reached 3 of 3 about
@@ -1515,10 +1517,18 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   displaced out of a run's own files was linted and then discarded, and CI
   was the first place it surfaced. An advisory reaches the gate log and never
   the model, which is what keeps a run from being blamed for what it
-  inherited. What that leaves open is telling the two apart, which needs the
-  package's findings as they stood when the run started: the gate is handed a
-  batch's change set and no run identity, so a baseline has nowhere to live
-  yet
+  inherited. Telling the two apart needed the package's findings as they
+  stood when the run started, and `gate.RunScope` is the identity that
+  baseline hangs on: the first lint under a run records what each package
+  carried, and afterwards a finding absent from that baseline is the run's
+  own and reaches it whatever file it names. A gate with no run identity
+  keeps every neighbor's finding advisory, exactly as before. What is left
+  is the granularity: one `agent.Loop` and so one `ChangeGate` serve every
+  thread, and a batch of changes carries no writer, so `Begin` fires
+  whenever any thread starts a run and wipes the baseline of a lane still
+  working. That lane's next lint re-records and reads its own new findings
+  as inherited, which is the behavior that shipped before this, so the
+  feature degrades rather than misreports
 
 - Risk as a declared property of a tool rather than a call each tool
   remembers to make. `shell`, `pty`, and `web_fetch` each ask the gate
@@ -1535,8 +1545,13 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   per run (p90 11, max 41), against 2.0 distinct files per run (median 2, p90
   4, max 6). So a write class keyed per call is unaffordable and one keyed per
   file is two prompts a run, which is the shape the shell's approval key
-  already has. Turning it on is a decision about how a run should feel and
-  not a measurement any more
+  already has. `tool.RiskClass` is that declaration and the gate keeper is
+  the one place reading it, with the rule enforced in the direction that
+  matters: a class adds a gate and can never take one away, so a tool's own
+  `RequestPermission` is put to the gate whatever the tool declares. The
+  edit tools declare `write_local` and stay unprompted, behind
+  `-gate-writes`. Turning that on is a decision about how a run should feel
+  and not a measurement any more
 - Neither route onto the allowlist is open, and the `_IMPLICIT_TARGETS` half
   is closed the other way round. `classifyXargs` already classifies what
   xargs would invoke, and every other name in openworker's `_ARG_EXECUTORS`
