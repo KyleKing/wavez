@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/guard"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/sandbox"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -78,21 +78,22 @@ var ptySchema = buildSchema(map[string]schemaProperty{
 // not track, and nothing here needs one: a call sends its keys and reads the
 // screen they produced.
 type PTY struct {
-	gate     permission.Gate
-	root     string
-	threadID string
-	env      guard.Env
+	gate       permission.Gate
+	root       string
+	sessionTmp string
+	threadID   string
+	env        guard.Env
 }
 
 // NewPTY builds a PTY tool rooted at root, asking gate before it runs
 // anything, since the command it is handed is as arbitrary as the shell's.
 // It judges a command by the same list the shell does, so a project whose
 // TUI is started by its own toolchain does not pay an approval per drive.
-func NewPTY(root, threadID string, gate permission.Gate, opts ...Option) *PTY {
+func NewPTY(root, sessionTmp, threadID string, gate permission.Gate, opts ...Option) *PTY {
 	d := newDeps(opts)
 
 	return &PTY{
-		root: root, threadID: threadID, gate: gate,
+		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate,
 		env: guard.Env{ProjectRoot: root, AllowedCommands: d.allowedCommands},
 	}
 }
@@ -233,9 +234,14 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 		return "", err
 	}
 
-	//nolint:gosec // the command has already been through the guard and the permission gate
-	cmd := exec.CommandContext(ctx, "sh", "-c", in.Command)
-	cmd.Dir = p.root
+	// Under the same profile the shell runs everything under: a program
+	// driven at a terminal writes wherever the process can, and there is
+	// nothing about having a terminal that should widen that.
+	cmd, removeProfile, err := sandbox.Command(ctx, p.root, p.sessionTmp, "sh", "-c", in.Command)
+	if err != nil {
+		return "", fmt.Errorf("preparing a sandbox for %q: %w", in.Command, err)
+	}
+	defer removeProfile()
 
 	//nolint:gosec // the size is bounded well inside a uint16 by ptyInput.size
 	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})

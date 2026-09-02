@@ -27,7 +27,7 @@ func TestPTY_RunsAProgramOnARealTerminal(t *testing.T) {
 	}
 
 	gate, _ := recordingGate(t, permission.Allow)
-	p := tools.NewPTY(root, "t", gate)
+	p := tools.NewPTY(root, t.TempDir(), "t", gate)
 
 	res, err := p.Run(t.Context(), mustJSON(t, map[string]any{"command": "sh probe.sh"}))
 	if err != nil {
@@ -50,49 +50,39 @@ func TestPTY_RunsAProgramOnARealTerminal(t *testing.T) {
 }
 
 // A key reaches the program and what it draws afterwards comes back.
-func TestPTY_SendsKeystrokesAndReadsWhatTheyDrew(t *testing.T) {
+func TestPTY_WaitsForTheProgramsAnswer(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	gate, _ := recordingGate(t, permission.Allow)
-	p := tools.NewPTY(root, "t", gate)
-
-	res, err := p.Run(t.Context(), mustJSON(t, map[string]any{
-		"command": `sh -c 'read -r name; echo "hello $name"'`,
-		"keys":    []string{"wavez\r"},
-	}))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	// A terminal echoes a keystroke the moment it is written, so the screen
+	// is already still when the wait after that key begins. The slow case is
+	// the flake that caused, made deterministic: a wait that ends on the echo
+	// kills the program before it answers. Measured under a pty the echo
+	// lands at 0 ms, and two settle windows carry such a wait to about
+	// 525 ms, so this answer lands past that.
+	tests := map[string]string{
+		"an immediate answer":                     `sh -c 'read -r name; echo "hello $name"'`,
+		"an answer after the echo has gone quiet": `sh -c 'read -r name; sleep 0.9; echo "hello $name"'`,
 	}
 
-	if !strings.Contains(res.Content, "hello wavez") {
-		t.Errorf("the keystroke did not reach the program:\n%s", res.Content)
-	}
-}
+	for name, command := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-// A terminal echoes a keystroke the moment it is written, so the screen is
-// already still when the wait after that key begins. This is the flake that
-// behavior caused, made deterministic: a wait that ends on the echo kills the
-// program before it answers. Measured under a pty, the echo lands at 0 ms,
-// and two waits of one settle window each carry a wait that ends on it to
-// about 525 ms, so the answer here lands past that.
-func TestPTY_WaitsForTheProgramRatherThanItsOwnEcho(t *testing.T) {
-	t.Parallel()
+			gate, _ := recordingGate(t, permission.Allow)
+			p := tools.NewPTY(t.TempDir(), t.TempDir(), "t", gate)
 
-	root := t.TempDir()
-	gate, _ := recordingGate(t, permission.Allow)
-	p := tools.NewPTY(root, "t", gate)
+			res, err := p.Run(t.Context(), mustJSON(t, map[string]any{
+				"command": command,
+				"keys":    []string{"wavez\r"},
+			}))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
 
-	res, err := p.Run(t.Context(), mustJSON(t, map[string]any{
-		"command": `sh -c 'read -r name; sleep 0.9; echo "hello $name"'`,
-		"keys":    []string{"wavez\r"},
-	}))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	if !strings.Contains(res.Content, "hello wavez") {
-		t.Errorf("the wait ended on the echo, not on the answer:\n%s", res.Content)
+			if !strings.Contains(res.Content, "hello wavez") {
+				t.Errorf("the program's answer never reached the screen:\n%s", res.Content)
+			}
+		})
 	}
 }
 
@@ -105,7 +95,7 @@ func TestPTY_DoesNotWaitTheDrawBoundForAKeyThatDrawsNothing(t *testing.T) {
 
 	root := t.TempDir()
 	gate, _ := recordingGate(t, permission.Allow)
-	p := tools.NewPTY(root, "t", gate)
+	p := tools.NewPTY(root, t.TempDir(), "t", gate)
 
 	start := time.Now()
 
@@ -160,7 +150,7 @@ func TestPTY_RefusesWhatItCannotRun(t *testing.T) {
 			t.Parallel()
 
 			gate, _ := recordingGate(t, permission.Allow)
-			res, err := tools.NewPTY(root, "t", gate).Run(t.Context(), mustJSON(t, tt.input))
+			res, err := tools.NewPTY(root, t.TempDir(), "t", gate).Run(t.Context(), mustJSON(t, tt.input))
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -185,7 +175,7 @@ func TestPTY_WaitsForAProgramThatStartsSlowly(t *testing.T) {
 	root := t.TempDir()
 	gate, _ := recordingGate(t, permission.Allow)
 
-	res, err := tools.NewPTY(root, "t", gate).Run(t.Context(), mustJSON(t, map[string]any{
+	res, err := tools.NewPTY(root, t.TempDir(), "t", gate).Run(t.Context(), mustJSON(t, map[string]any{
 		"command": "sleep 1; echo LATE",
 	}))
 	if err != nil {
@@ -225,7 +215,7 @@ func TestPTY_DrawsAtTheSizeTheCallAsksFor(t *testing.T) {
 
 			gate, _ := recordingGate(t, permission.Allow)
 
-			res, err := tools.NewPTY(root, "t", gate).Run(t.Context(), mustJSON(t, tt.input))
+			res, err := tools.NewPTY(root, t.TempDir(), "t", gate).Run(t.Context(), mustJSON(t, tt.input))
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -262,7 +252,7 @@ func TestPTY_HonorsTheProjectAllowlist(t *testing.T) {
 				opts = append(opts, tools.WithAllowedCommands([]string{"uv"}))
 			}
 
-			res, err := tools.NewPTY(root, "t", gate, opts...).
+			res, err := tools.NewPTY(root, t.TempDir(), "t", gate, opts...).
 				Run(t.Context(), mustJSON(t, map[string]any{"command": "uv --version"}))
 			if err != nil {
 				t.Fatalf("Run: %v", err)
@@ -304,7 +294,7 @@ func TestPTY_AnswersATerminalQuery(t *testing.T) {
 	go func() {
 		input := mustJSON(t, map[string]any{"command": "sh query.sh"})
 
-		res, err := tools.NewPTY(root, "t", gate).Run(t.Context(), input)
+		res, err := tools.NewPTY(root, t.TempDir(), "t", gate).Run(t.Context(), input)
 		if err != nil {
 			t.Errorf("Run: %v", err)
 		}
@@ -319,5 +309,33 @@ func TestPTY_AnswersATerminalQuery(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("the call did not return: the terminal never answered the query")
+	}
+}
+
+// A program at a terminal writes wherever the process can unless something
+// stops it, and having a terminal is no reason to widen what a tool may
+// touch: the shell runs under the same profile.
+func TestPTY_WritesOnlyInsideTheProjectRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "escaped")
+
+	gate, _ := recordingGate(t, permission.Allow)
+	input := mustJSON(t, map[string]any{
+		"command": "echo in > inside; echo out > '" + outside + "'; echo done",
+	})
+
+	res, err := tools.NewPTY(root, t.TempDir(), "t", gate).Run(t.Context(), input)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "inside")); err != nil {
+		t.Errorf("a write inside the project root was refused: %v\n%s", err, res.Content)
+	}
+
+	if _, err := os.Stat(outside); err == nil {
+		t.Errorf("a write outside the project root landed at %s", outside)
 	}
 }

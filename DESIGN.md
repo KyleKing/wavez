@@ -648,8 +648,9 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 ### Recordings (M2 PTY, M5 browser)
 
 The driving half of the PTY work is done and is a tool rather than a session:
-`pty` runs one command on a pseudo-terminal, plays keystrokes into it, and
-returns the screen, 80x24 unless the call names a size. The size is an
+`pty` runs one command on a pseudo-terminal under the same Seatbelt profile
+the shell runs everything under, plays keystrokes into it, and returns the
+screen, 80x24 unless the call names a size. The size is an
 argument because a layout is written for a width: the same program that reads
 correctly at 120 columns truncates at 80, and neither reading is the bug
 until they are compared. tmux through the shell was the obvious alternative and the

@@ -40,39 +40,70 @@ type Result struct {
 // machine. GOPROXY=off makes a module that is genuinely missing say so
 // rather than reporting it as a network failure.
 func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (Result, error) {
+	cmd, done, err := Command(ctx, projectRoot, sessionTmp, args...)
+	if err != nil {
+		return Result{}, err
+	}
+	defer done()
+
+	var stdout, stderr bytes.Buffer
+
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
+
+	var exitErr *exec.ExitError
+
+	switch {
+	case runErr == nil:
+		return result, nil
+	case errors.As(runErr, &exitErr):
+		result.ExitCode = exitErr.ExitCode()
+
+		return result, nil
+	default:
+		return Result{}, fmt.Errorf("running sandboxed command: %w", runErr)
+	}
+}
+
+// Command prepares args to run under the same profile Exec uses, without
+// running it, for a caller that owns the process's input and output: driving
+// a program under a pseudo-terminal is one, and a terminal is not something
+// a buffer can stand in for.
+//
+// The returned function removes the profile file and must be called once the
+// command has finished, which is why the command is not started here.
+func Command(
+	ctx context.Context, projectRoot, sessionTmp string, args ...string,
+) (*exec.Cmd, func(), error) {
 	if len(args) == 0 {
-		return Result{}, ErrNoCommand
+		return nil, nil, ErrNoCommand
 	}
 
 	profile, err := NewProfile(projectRoot, sessionTmp)
 	if err != nil {
-		return Result{}, fmt.Errorf("building sandbox profile: %w", err)
+		return nil, nil, fmt.Errorf("building sandbox profile: %w", err)
 	}
 
 	dirs, err := prepareCaches(profile.sessionTmp)
 	if err != nil {
-		return Result{}, err
+		return nil, nil, err
 	}
 
 	profileFile, err := os.CreateTemp(profile.sessionTmp, "wavez-*.sb")
 	if err != nil {
-		return Result{}, fmt.Errorf("writing sandbox profile: %w", err)
+		return nil, nil, fmt.Errorf("writing sandbox profile: %w", err)
 	}
+
 	if err := writeAndClose(profileFile, profile.Render()); err != nil {
-		return Result{}, err
+		return nil, nil, err
 	}
 
-	result, runErr := runSandboxed(ctx, profile.projectRoot, profileFile.Name(), dirs, args)
+	cmd := sandboxCommand(ctx, profile.projectRoot, profileFile.Name(), dirs, args)
 
-	if rmErr := os.Remove(profileFile.Name()); rmErr != nil {
-		if runErr != nil {
-			return Result{}, runErr
-		}
-
-		return Result{}, fmt.Errorf("removing sandbox profile: %w", rmErr)
-	}
-
-	return result, runErr
+	return cmd, func() { _ = os.Remove(profileFile.Name()) }, nil
 }
 
 // caches are the directories a toolchain writes to that live outside the
@@ -158,9 +189,9 @@ func writeAndClose(f *os.File, content string) error {
 	}
 }
 
-func runSandboxed(
+func sandboxCommand(
 	ctx context.Context, projectRoot, profilePath string, dirs caches, args []string,
-) (Result, error) {
+) *exec.Cmd {
 	sandboxArgs := append([]string{"-f", profilePath}, args...)
 	// #nosec G204 -- args is the command this sandbox exists to confine, not passed to an unsandboxed shell.
 	cmd := exec.CommandContext(ctx, "sandbox-exec", sandboxArgs...)
@@ -177,22 +208,5 @@ func runSandboxed(
 		"UV_CACHE_DIR="+dirs.uv,
 	)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
-
-	var exitErr *exec.ExitError
-	switch {
-	case runErr == nil:
-		return result, nil
-	case errors.As(runErr, &exitErr):
-		result.ExitCode = exitErr.ExitCode()
-
-		return result, nil
-	default:
-		return Result{}, fmt.Errorf("running sandboxed command: %w", runErr)
-	}
+	return cmd
 }

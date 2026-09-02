@@ -32,7 +32,7 @@ func TestRiskClass(t *testing.T) {
 		{"declare", tools.NewDeclare(".", nil, nil), tool.RiskWriteLocal},
 		{"undo", tools.NewUndo(".", nil), tool.RiskWriteLocal},
 		{"shell", tools.NewShell(".", "", "", nil), tool.RiskExec},
-		{"pty", tools.NewPTY(".", "", nil), tool.RiskExec},
+		{"pty", tools.NewPTY(".", "", "", nil), tool.RiskExec},
 		{"question", tools.NewQuestion(nil), tool.RiskExternal},
 		{"hypothesis", tools.NewHypothesis(nil), tool.RiskRead},
 		{"web_fetch", mustWebFetch(t), tool.RiskEgress},
