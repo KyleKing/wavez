@@ -75,7 +75,7 @@ func Classify(command string, env Env) Result {
 		return Result{Verdict: Refuse, Reason: "fork bomb", Fragment: trimmed}
 	}
 
-	outer, subs := extractSubstitutions(trimmed)
+	outer, subs := extractSubstitutions(stripHeredocBodies(trimmed))
 
 	var findings []finding
 	for _, seq := range splitSequence(outer) {

@@ -290,3 +290,114 @@ func tokenize(s string) []string {
 
 	return tokens
 }
+
+// stripHeredocBodies removes the body of every heredoc, keeping the command
+// line that opened it. A body is data the command reads on stdin, and the
+// splitter treats a newline as a command separator, so `cat > x.md <<'EOF'`
+// followed by markdown had every heading line classified as a command named
+// `#` and stopped the run to approve one.
+//
+// A body piped into a shell is still code, and this does not hide it: the
+// interpreter is named on the command line, and no shell is on the allowlist.
+func stripHeredocBodies(command string) string {
+	lines := strings.Split(command, "\n")
+
+	var out []string
+
+	for i := 0; i < len(lines); i++ {
+		out = append(out, lines[i])
+
+		for _, want := range heredocTerminators(lines[i]) {
+			for i+1 < len(lines) {
+				i++
+
+				if strings.TrimSpace(lines[i]) == want {
+					break
+				}
+			}
+		}
+	}
+
+	return strings.Join(out, "\n")
+}
+
+// heredocTerminators returns the terminator word of each heredoc a line
+// opens, in order. A `<<` inside quotes is text rather than a redirection,
+// and a `<<` with no word after it opens nothing.
+func heredocTerminators(line string) []string {
+	var words []string
+
+	runes := []rune(line)
+
+	var inSingle, inDouble bool
+
+	for i := 0; i < len(runes); i++ {
+		c := runes[i]
+
+		switch {
+		case inSingle:
+			inSingle = c != '\''
+		case inDouble:
+			inDouble = c != '"'
+		case c == '\'':
+			inSingle = true
+		case c == '"':
+			inDouble = true
+		case c == '<' && i+1 < len(runes) && runes[i+1] == '<':
+			word, next := heredocWord(runes, i+twoCharOp)
+			if word != "" {
+				words = append(words, word)
+			}
+
+			i = next
+		}
+	}
+
+	return words
+}
+
+// heredocWord reads the terminator that follows a `<<`, with or without the
+// `-` that strips leading tabs and with or without quotes, and returns it
+// with the index of its last rune.
+func heredocWord(runes []rune, i int) (string, int) {
+	if i < len(runes) && runes[i] == '-' {
+		i++
+	}
+
+	for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t') {
+		i++
+	}
+
+	if i >= len(runes) {
+		return "", i
+	}
+
+	quote := rune(0)
+	if runes[i] == '\'' || runes[i] == '"' {
+		quote = runes[i]
+		i++
+	}
+
+	var word strings.Builder
+
+	for ; i < len(runes); i++ {
+		c := runes[i]
+		if quote != 0 && c == quote {
+			break
+		}
+
+		if quote == 0 && !isWordRune(c) {
+			i--
+
+			break
+		}
+
+		word.WriteRune(c)
+	}
+
+	return word.String(), i
+}
+
+func isWordRune(c rune) bool {
+	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
