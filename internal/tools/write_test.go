@@ -13,25 +13,37 @@ import (
 func TestWrite_CreatesNewFile(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	w := tools.NewWrite(dir, nil)
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "in the root", path: "new.go"},
+		{name: "in a directory that does not exist yet", path: "internal/probe/new.go"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := w.Run(context.Background(), mustJSON(t, map[string]any{
-		"path": "new.go", "content": "package foo\n",
-	}))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if result.IsError {
-		t.Fatalf("IsError = true, want false: %q", result.Content)
-	}
+			dir := t.TempDir()
+			w := tools.NewWrite(dir, nil)
 
-	got, err := os.ReadFile(filepath.Join(dir, "new.go")) //nolint:gosec // dir is a t.TempDir() fixture
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(got) != "package foo\n" {
-		t.Errorf("file content = %q, want %q", got, "package foo\n")
+			result, err := w.Run(context.Background(), mustJSON(t, map[string]any{
+				"path": tc.path, "content": "package foo\n",
+			}))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if result.IsError {
+				t.Fatalf("IsError = true, want false: %q", result.Content)
+			}
+
+			got, err := os.ReadFile(filepath.Join(dir, tc.path)) //nolint:gosec // dir is a t.TempDir() fixture
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			if string(got) != "package foo\n" {
+				t.Errorf("file content = %q, want %q", got, "package foo\n")
+			}
+		})
 	}
 }
 

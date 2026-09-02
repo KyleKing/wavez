@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/tool"
@@ -32,6 +33,7 @@ const (
 	// The guard reads a script's contents when something runs it, so the
 	// bit costs no check that was doing work.
 	execFilePerm = 0o755
+	newDirPerm   = 0o755
 )
 
 // Write creates a new file with the given content. It refuses to overwrite
@@ -115,6 +117,14 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		return tool.Fail(tool.CauseRefused, "%s already exists; use str_replace to edit it", in.Path), nil
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return tool.Fail(tool.CauseIO, "checking %s: %v", in.Path, statErr), nil
+	}
+
+	// A new file's directory may not exist yet, and a run that gets told
+	// "no such file or directory" about the file it just named reaches for
+	// `mkdir -p` and then keeps writing through shell heredocs, which costs
+	// an approval per file. The parent is already inside the resolved root.
+	if err := os.MkdirAll(filepath.Dir(abs), newDirPerm); err != nil {
+		return tool.Fail(tool.CauseIO, "creating the directory for %s: %v", in.Path, err), nil
 	}
 
 	if err := os.WriteFile(abs, []byte(in.Content), permFor(in.Content)); err != nil {
