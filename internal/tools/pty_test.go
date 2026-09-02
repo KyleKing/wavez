@@ -278,3 +278,46 @@ func TestPTY_HonorsTheProjectAllowlist(t *testing.T) {
 		})
 	}
 }
+
+// A terminal that never answers a query is a terminal that hangs the program
+// asking. The emulator writes its answers into a pipe, and with nothing
+// reading it the parse blocks mid-screen and the whole call deadlocks: a
+// Textual app asks about its modes before it draws anything, and every drive
+// of one sat until the harness killed it.
+func TestPTY_AnswersATerminalQuery(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	// DECRQM for mode 2026, then a line of output. The emulator answers the
+	// query, and the program's own draw only arrives if that answer did not
+	// block the reader.
+	script := "printf '\\033[?2026$p'; sleep 0.2; printf 'DREW\\n'"
+	//nolint:gosec // a fixture this test runs itself
+	if err := os.WriteFile(filepath.Join(root, "query.sh"), []byte(script), 0o700); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+
+	gate, _ := recordingGate(t, permission.Allow)
+
+	done := make(chan tool.Result, 1)
+
+	go func() {
+		input := mustJSON(t, map[string]any{"command": "sh query.sh"})
+
+		res, err := tools.NewPTY(root, "t", gate).Run(t.Context(), input)
+		if err != nil {
+			t.Errorf("Run: %v", err)
+		}
+
+		done <- res
+	}()
+
+	select {
+	case res := <-done:
+		if !strings.Contains(res.Content, "DREW") {
+			t.Errorf("the program never drew past its query:\n%s", res.Content)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the call did not return: the terminal never answered the query")
+	}
+}

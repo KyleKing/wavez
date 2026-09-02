@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 
@@ -251,23 +252,59 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 		_, _ = io.Copy(screen, tty) //nolint:errcheck // the copy ends when the program does
 	}()
 
+	input := &ttyInputWriter{tty: tty}
+
+	// A terminal answers what a program asks it. The emulator writes those
+	// answers into a pipe, and nothing reading that pipe blocks the emulator
+	// mid-parse, which stops the reader above and hangs the whole call: a
+	// Textual app queries its modes on startup and deadlocked here every
+	// time. The answers go back to the program, which is where a real
+	// terminal sends them.
+	go func() {
+		_, _ = io.Copy(input, screen.emulator) //nolint:errcheck // ends when the terminal closes
+	}()
+
 	go func() {
 		defer close(exited)
 		_ = cmd.Wait() //nolint:errcheck // the status says nothing the screen does not
 	}()
 
-	p.play(ctx, tty, screen, exited, in.Keys)
+	p.play(ctx, input, screen, exited, in.Keys)
 
 	drain(done, exited)
 
 	// Killing the program is what ends the reader for one that would
 	// otherwise sit at a prompt. A program that already exited is past this.
-	_ = cmd.Process.Kill() //nolint:errcheck // best effort: the program may have exited already
-	_ = tty.Close()        //nolint:errcheck // as above
+	_ = cmd.Process.Kill()      //nolint:errcheck // best effort: the program may have exited already
+	_ = tty.Close()             //nolint:errcheck // as above
+	_ = screen.emulator.Close() //nolint:errcheck // ends the goroutine answering the program
 	<-done
 	<-exited
 
-	return strings.TrimRight(screen.emulator.Render(), " \n"), nil
+	// The styling is the program's, and nothing reading this can act on a
+	// color. One 120x30 Textual screen renders as 7,119 bytes with its escape
+	// sequences and 4,921 without.
+	return strings.TrimRight(ansi.Strip(screen.emulator.Render()), " \n"), nil
+}
+
+// ttyInputWriter is everything written into the program's terminal: the keys
+// the call plays and the answers the emulator owes the program's own queries.
+// One lock keeps a reply from landing inside a keystroke.
+type ttyInputWriter struct {
+	tty io.Writer
+	mu  sync.Mutex
+}
+
+func (w *ttyInputWriter) Write(b []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	n, err := w.tty.Write(b)
+	if err != nil {
+		return n, fmt.Errorf("writing to the terminal: %w", err)
+	}
+
+	return n, nil
 }
 
 // drain gives the reader time to finish once the program has exited, before
