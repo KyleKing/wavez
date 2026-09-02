@@ -26,7 +26,8 @@ type Result struct {
 // Exec runs args under a Seatbelt profile scoped to projectRoot and
 // sessionTmp, with the caches a build writes to (GOCACHE,
 // GOLANGCI_LINT_CACHE, GOTMPDIR, and TMPDIR, which is what cgo's compiler
-// driver uses) redirected into sessionTmp. It fails closed: any error resolving paths or building the
+// driver uses, plus XDG_CACHE_HOME and UV_CACHE_DIR, which is what uv
+// refuses to start without) redirected into sessionTmp. It fails closed: any error resolving paths or building the
 // profile aborts before sandbox-exec is invoked, and a nonzero exit from
 // the sandboxed command is reported in Result rather than as an error.
 //
@@ -48,7 +49,7 @@ func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (
 		return Result{}, fmt.Errorf("building sandbox profile: %w", err)
 	}
 
-	caches, err := prepareGoCaches(profile.sessionTmp)
+	dirs, err := prepareCaches(profile.sessionTmp)
 	if err != nil {
 		return Result{}, err
 	}
@@ -61,7 +62,7 @@ func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (
 		return Result{}, err
 	}
 
-	result, runErr := runSandboxed(ctx, profile.projectRoot, profileFile.Name(), caches, args)
+	result, runErr := runSandboxed(ctx, profile.projectRoot, profileFile.Name(), dirs, args)
 
 	if rmErr := os.Remove(profileFile.Name()); rmErr != nil {
 		if runErr != nil {
@@ -74,9 +75,14 @@ func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (
 	return result, runErr
 }
 
-type goCaches struct {
-	cache string
-	tmp   string
+// caches are the directories a toolchain writes to that live outside the
+// project. Each is redirected into the session's own temp dir, because the
+// profile makes the machine's copy readable and not writable.
+type caches struct {
+	goCache string
+	tmp     string
+	user    string
+	uv      string
 }
 
 // secretEnvFragments name the environment variables a sandboxed command
@@ -120,18 +126,20 @@ func namesASecret(name string) bool {
 	return false
 }
 
-func prepareGoCaches(sessionTmp string) (goCaches, error) {
-	caches := goCaches{
-		cache: filepath.Join(sessionTmp, "gocache"),
-		tmp:   filepath.Join(sessionTmp, "gotmp"),
+func prepareCaches(sessionTmp string) (caches, error) {
+	dirs := caches{
+		goCache: filepath.Join(sessionTmp, "gocache"),
+		tmp:     filepath.Join(sessionTmp, "gotmp"),
+		user:    filepath.Join(sessionTmp, "cache"),
+		uv:      filepath.Join(sessionTmp, "cache", "uv"),
 	}
-	for _, dir := range []string{caches.cache, caches.tmp} {
+	for _, dir := range []string{dirs.goCache, dirs.tmp, dirs.user, dirs.uv} {
 		if err := os.MkdirAll(dir, sessionDirPerm); err != nil {
-			return goCaches{}, fmt.Errorf("preparing sandbox go cache dir %q: %w", dir, err)
+			return caches{}, fmt.Errorf("preparing sandbox cache dir %q: %w", dir, err)
 		}
 	}
 
-	return caches, nil
+	return dirs, nil
 }
 
 func writeAndClose(f *os.File, content string) error {
@@ -151,18 +159,22 @@ func writeAndClose(f *os.File, content string) error {
 }
 
 func runSandboxed(
-	ctx context.Context, projectRoot, profilePath string, caches goCaches, args []string,
+	ctx context.Context, projectRoot, profilePath string, dirs caches, args []string,
 ) (Result, error) {
 	sandboxArgs := append([]string{"-f", profilePath}, args...)
 	// #nosec G204 -- args is the command this sandbox exists to confine, not passed to an unsandboxed shell.
 	cmd := exec.CommandContext(ctx, "sandbox-exec", sandboxArgs...)
 	cmd.Dir = projectRoot
 	cmd.Env = append(scrubbedEnv(os.Environ()),
-		"GOCACHE="+caches.cache,
-		"GOLANGCI_LINT_CACHE="+caches.cache,
-		"GOTMPDIR="+caches.tmp,
-		"TMPDIR="+caches.tmp,
+		"GOCACHE="+dirs.goCache,
+		"GOLANGCI_LINT_CACHE="+dirs.goCache,
+		"GOTMPDIR="+dirs.tmp,
+		"TMPDIR="+dirs.tmp,
 		"GOPROXY=off",
+		// uv refuses to run at all when it cannot open its cache, and a
+		// Python project's runner is uv the way a Go project's is go.
+		"XDG_CACHE_HOME="+dirs.user,
+		"UV_CACHE_DIR="+dirs.uv,
 	)
 
 	var stdout, stderr bytes.Buffer

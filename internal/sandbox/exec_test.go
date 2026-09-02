@@ -55,6 +55,15 @@ func TestExec_Probes(t *testing.T) {
 			args:   []string{"cat", sshConfig},
 			wantOK: false,
 		},
+		{
+			// uv exits before it runs anything when it cannot open its
+			// cache, and the machine's own cache is readable and not
+			// writable here, so the redirect is what makes a Python
+			// project's runner work at all.
+			name:   "write the redirected user cache",
+			args:   []string{"sh", "-c", "echo x > \"$UV_CACHE_DIR/probe\" && echo x > \"$XDG_CACHE_HOME/probe\""},
+			wantOK: true,
+		},
 	}
 
 	for _, tt := range tests {
