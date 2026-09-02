@@ -649,7 +649,10 @@ The bar is Claude Code Mobile: open the phone, see what the agent needs, answer,
 
 The driving half of the PTY work is done and is a tool rather than a session:
 `pty` runs one command on a pseudo-terminal, plays keystrokes into it, and
-returns the screen. tmux through the shell was the obvious alternative and the
+returns the screen, 80x24 unless the call names a size. The size is an
+argument because a layout is written for a width: the same program that reads
+correctly at 120 columns truncates at 80, and neither reading is the bug
+until they are compared. tmux through the shell was the obvious alternative and the
 sandbox refuses it, because Seatbelt counts a unix socket in the network
 family and its path filters do not match one, so the only grant that works
 allows connecting to every socket on the machine. Owning the terminal turns

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -25,6 +26,10 @@ import (
 const (
 	ptyCols       = 80
 	ptyRows       = 24
+	ptyMinCols    = 20
+	ptyMinRows    = 5
+	ptyMaxCols    = 240
+	ptyMaxRows    = 100
 	ptySettle     = 250 * time.Millisecond
 	ptyAnswerWait = 2 * time.Second
 	ptyKeyGap     = 2 * time.Second
@@ -46,6 +51,14 @@ var ptySchema = buildSchema(map[string]schemaProperty{
 		Description: "Keystrokes to send in order, each after the screen has settled. " +
 			"Send \\r for Enter, \\t for Tab, \\u001b for Escape, and \\u0003 for Ctrl-C. " +
 			"An empty list just starts the program and reads the first screen.",
+	},
+	"cols": {
+		Type:        schemaTypeInteger,
+		Description: "Terminal width, 80 by default. Change it to see the program's wrapping and truncation.",
+	},
+	"rows": {
+		Type:        schemaTypeInteger,
+		Description: "Terminal height, 24 by default.",
 	},
 }, "command")
 
@@ -83,8 +96,9 @@ func (*PTY) Name() string { return "pty" }
 func (*PTY) Description() string {
 	return "Run a program under a real terminal, send it keystrokes, and read the screen it " +
 		"drew. Use it for anything that renders rather than prints: a TUI, a full-screen " +
-		"editor, an interactive prompt. What comes back is one 80x24 screen, so output longer " +
-		"than that has scrolled off exactly as it would have on a terminal; use shell for a " +
+		"editor, an interactive prompt. What comes back is one screen, 80x24 unless cols and " +
+		"rows say otherwise, so output longer than that has scrolled off as it would on a " +
+		"terminal; use shell for a " +
 		"program whose whole output you need. The program is stopped when the call returns, so " +
 		"send every key the check needs in one call."
 }
@@ -99,7 +113,37 @@ func (*PTY) Risk() tool.RiskClass { return tool.RiskExec }
 type ptyInput struct {
 	Command string   `json:"command"`
 	Keys    []string `json:"keys"`
+	Cols    int      `json:"cols"`
+	Rows    int      `json:"rows"`
 }
+
+// size is the terminal the call asks for, defaulted and bounded. A program
+// drawn at a size no terminal has is a screen nobody will see, and an
+// emulator sized from an unchecked number is a call that allocates whatever
+// it was handed.
+func (in ptyInput) size() (int, int, error) {
+	cols, rows := in.Cols, in.Rows
+	if cols == 0 {
+		cols = ptyCols
+	}
+
+	if rows == 0 {
+		rows = ptyRows
+	}
+
+	if cols < ptyMinCols || cols > ptyMaxCols {
+		return 0, 0, fmt.Errorf("%w: %d columns, outside %d-%d", errScreenSize, cols, ptyMinCols, ptyMaxCols)
+	}
+
+	if rows < ptyMinRows || rows > ptyMaxRows {
+		return 0, 0, fmt.Errorf("%w: %d rows, outside %d-%d", errScreenSize, rows, ptyMinRows, ptyMaxRows)
+	}
+
+	return cols, rows, nil
+}
+
+// errScreenSize reports a terminal size outside what this tool will open.
+var errScreenSize = errors.New("screen size")
 
 // Run implements tool.Tool.
 func (p *PTY) Run(ctx context.Context, input json.RawMessage) (tool.Result, error) {
@@ -119,6 +163,10 @@ func (p *PTY) Run(ctx context.Context, input json.RawMessage) (tool.Result, erro
 	if len(in.Keys) > ptyMaxKeys {
 		return tool.Fail(tool.CauseBadInput,
 			"%d keystrokes in one call, at most %d", len(in.Keys), ptyMaxKeys), nil
+	}
+
+	if _, _, err := in.size(); err != nil {
+		return tool.Fail(tool.CauseBadInput, "%v", err), nil
 	}
 
 	if refusal, ok := p.refuse(ctx, in.Command); ok {
@@ -172,16 +220,22 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ptyMaxRunTime)
 	defer cancel()
 
+	cols, rows, err := in.size()
+	if err != nil {
+		return "", err
+	}
+
 	//nolint:gosec // the command has already been through the guard and the permission gate
 	cmd := exec.CommandContext(ctx, "sh", "-c", in.Command)
 	cmd.Dir = p.root
 
-	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: ptyCols, Rows: ptyRows})
+	//nolint:gosec // the size is bounded well inside a uint16 by ptyInput.size
+	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	if err != nil {
 		return "", fmt.Errorf("opening a terminal for %q: %w", in.Command, err)
 	}
 
-	screen := &ptyScreen{emulator: vt.NewSafeEmulator(ptyCols, ptyRows)}
+	screen := &ptyScreen{emulator: vt.NewSafeEmulator(cols, rows)}
 	done := make(chan struct{})
 	exited := make(chan struct{})
 

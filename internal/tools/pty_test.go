@@ -148,6 +148,11 @@ func TestPTY_RefusesWhatItCannotRun(t *testing.T) {
 			want:  "refused",
 			cause: tool.CauseRefused,
 		},
+		"a screen no terminal has": {
+			input: map[string]any{"command": "echo hi", "cols": 4000},
+			want:  "outside 20-240",
+			cause: tool.CauseBadInput,
+		},
 	}
 
 	for name, tt := range tests {
@@ -189,5 +194,50 @@ func TestPTY_WaitsForAProgramThatStartsSlowly(t *testing.T) {
 
 	if !strings.Contains(res.Content, "LATE") {
 		t.Errorf("gave up before the program printed:\n%q", res.Content)
+	}
+}
+
+// The size the call asks for is the size the program is drawn at, which is
+// what a layout written for a wider terminal has to be checked against: the
+// same program wraps at 80 and does not at 120.
+func TestPTY_DrawsAtTheSizeTheCallAsksFor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	tests := map[string]struct {
+		input   map[string]any
+		wantRow string
+	}{
+		"the default 80 columns wraps it": {
+			input:   map[string]any{"command": "printf '%0.s-' $(seq 1 100)"},
+			wantRow: strings.Repeat("-", 80),
+		},
+		"120 columns does not": {
+			input:   map[string]any{"command": "printf '%0.s-' $(seq 1 100)", "cols": 120},
+			wantRow: strings.Repeat("-", 100),
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			gate, _ := recordingGate(t, permission.Allow)
+
+			res, err := tools.NewPTY(root, "t", gate).Run(t.Context(), mustJSON(t, tt.input))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if res.IsError {
+				t.Fatalf("Result = %+v, want the screen", res)
+			}
+
+			first, _, _ := strings.Cut(res.Content, "\n")
+			if first != tt.wantRow {
+				t.Errorf("first row is %d columns of %q, want %d", len(first), first, len(tt.wantRow))
+			}
+		})
 	}
 }
