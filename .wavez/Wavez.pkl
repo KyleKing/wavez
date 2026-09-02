@@ -277,9 +277,11 @@ class Routine {
 }
 
 /// Routines this project defines. Gates ship as built-in routines under
-/// their gate names, and a routine named here replaces the built-in of that
-/// name outright: to turn a gate off, declare it with `enabled = false` and
-/// no steps.
+/// their gate names, and so does `semgrep`, which ships disabled. A routine
+/// named here overrides the built-in of that name, keeping the built-in's
+/// steps when it declares none: to turn a gate off, declare it with
+/// `enabled = false`, and to opt into `semgrep`, declare it with
+/// `enabled = true`.
 ///
 /// The typed constructor in the default is load-bearing. A `Mapping` or
 /// `Listing` default written as `new Mapping {}` loses its element type, and

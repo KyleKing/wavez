@@ -34,6 +34,18 @@ func GoServer() Server {
 	return Server{Language: "go", Command: "gopls", Extensions: []string{".go"}}
 }
 
+// PythonServer is ty, Astral's type checker, which speaks LSP over stdio
+// under its `server` subcommand and publishes versioned diagnostics rather
+// than only answering pull requests for them.
+func PythonServer() Server {
+	return Server{
+		Language:   "python",
+		Command:    "ty",
+		Args:       []string{"server"},
+		Extensions: []string{".py", ".pyi"},
+	}
+}
+
 // Pool holds at most one server process per language for one project root,
 // started the first time a file that server handles is requested. Callers
 // share clients, so only the owner of the Pool may Close it.
@@ -50,10 +62,12 @@ type entry struct {
 }
 
 // NewPool builds a Pool over root. Passing no servers configures the default
-// set, which is gopls today.
+// set, which is gopls and ty. A server whose binary is absent costs nothing
+// until a file it claims is asked for, so the set is the languages wavez
+// speaks rather than the ones this machine has installed.
 func NewPool(root string, servers ...Server) *Pool {
 	if len(servers) == 0 {
-		servers = []Server{GoServer()}
+		servers = []Server{GoServer(), PythonServer()}
 	}
 
 	return &Pool{root: root, servers: servers, entries: make(map[string]*entry)}

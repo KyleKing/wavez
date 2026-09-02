@@ -90,3 +90,68 @@ func write(t *testing.T, root, name, body string) {
 		t.Fatalf("writing %s: %v", name, err)
 	}
 }
+
+// TestRenameFollowsThePythonSymbolAcrossModules is the ty counterpart of the
+// gopls case above, and answers the same question for the language wavez
+// speaks second: whether a rename follows an import into another module and
+// leaves an unrelated function of the same name where it is.
+func TestRenameFollowsThePythonSymbolAcrossModules(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("ty"); err != nil {
+		t.Skip("ty is not on PATH")
+	}
+
+	root := t.TempDir()
+	write(t, root, "pkg/__init__.py", "")
+	write(t, root, "pkg/a.py", "def alpha() -> str:\n    return \"alpha\"\n")
+	write(t, root, "pkg/b.py", "from pkg.a import alpha\n\n\ndef use() -> str:\n    return alpha()\n")
+	write(t, root, "pkg/c.py", "def alpha() -> str:\n    return \"unrelated\"\n")
+
+	pool := lsp.NewPool(root)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), renameBudget)
+		defer cancel()
+
+		if err := pool.Close(ctx); err != nil {
+			t.Errorf("closing pool: %v", err)
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), renameBudget)
+	defer cancel()
+
+	decl := filepath.Join(root, "pkg", "a.py")
+
+	client, err := pool.Client(ctx, decl)
+	if err != nil {
+		t.Fatalf("starting ty: %v", err)
+	}
+
+	if _, err := client.Sync(ctx, decl); err != nil {
+		t.Fatalf("syncing: %v", err)
+	}
+
+	// "def alpha" on line 1 (zero-based 0), column 4 is the identifier.
+	edits, err := client.Rename(ctx, decl, 0, 4, "beta")
+	if err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+
+	touched := map[string]int{}
+	for path, list := range edits {
+		touched[filepath.Base(path)] = len(list)
+	}
+
+	if touched["a.py"] == 0 {
+		t.Errorf("the declaration was not renamed, got %v", touched)
+	}
+
+	if touched["b.py"] == 0 {
+		t.Errorf("the use in another module was not renamed, got %v", touched)
+	}
+
+	if touched["c.py"] != 0 {
+		t.Errorf("an unrelated function of the same name was renamed, got %v", touched)
+	}
+}

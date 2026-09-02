@@ -8,9 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	powernap "github.com/charmbracelet/x/powernap/pkg/lsp"
-	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 )
 
 // ErrServerExited reports a server process that is no longer answering, which
@@ -21,7 +18,7 @@ var ErrServerExited = errors.New("lsp: server exited")
 // safe for concurrent use; documents stay open for the process's lifetime, so
 // a second sync of the same file is a change rather than a re-open.
 type Client struct {
-	inner     *powernap.Client
+	inner     *conn
 	updates   chan struct{}
 	versions  map[string]int
 	published map[string]publication
@@ -31,22 +28,7 @@ type Client struct {
 }
 
 func newClient(ctx context.Context, root string, srv Server) (*Client, error) {
-	rootURI := string(protocol.URIFromPath(root))
-
-	inner, err := powernap.NewClient(powernap.ClientConfig{
-		Command:          srv.Command,
-		Args:             srv.Args,
-		Environment:      srv.Env,
-		RootURI:          rootURI,
-		WorkspaceFolders: []protocol.WorkspaceFolder{{URI: rootURI, Name: filepath.Base(root)}},
-		Settings:         map[string]any{},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("starting %s: %w", srv.Command, err)
-	}
-
 	c := &Client{
-		inner:     inner,
 		updates:   make(chan struct{}),
 		versions:  make(map[string]int),
 		published: make(map[string]publication),
@@ -54,13 +36,12 @@ func newClient(ctx context.Context, root string, srv Server) (*Client, error) {
 		root:      root,
 	}
 
-	inner.RegisterNotificationHandler("textDocument/publishDiagnostics", c.onPublish)
-
-	if err := inner.Initialize(ctx, false); err != nil {
-		inner.Kill()
-
+	inner, err := dial(ctx, root, srv, c.onNotify)
+	if err != nil {
 		return nil, fmt.Errorf("initializing %s: %w", srv.Command, err)
 	}
+
+	c.inner = inner
 
 	return c, nil
 }
@@ -83,7 +64,7 @@ func (c *Client) Sync(ctx context.Context, path string) (int, error) {
 		return 0, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	uri := string(protocol.URIFromPath(abs))
+	uri := pathToURI(abs)
 
 	c.mu.Lock()
 	version, opened := c.versions[abs]
@@ -92,18 +73,28 @@ func (c *Client) Sync(ctx context.Context, path string) (int, error) {
 	c.mu.Unlock()
 
 	if !opened {
-		if err := c.inner.NotifyDidOpenTextDocument(ctx, uri, c.server.Language, version, string(src)); err != nil {
-			return 0, fmt.Errorf("didOpen %s: %w", path, err)
+		var params didOpenParams
+		params.TextDocument.URI = uri
+		params.TextDocument.LanguageID = c.server.Language
+		params.TextDocument.Version = version
+		params.TextDocument.Text = string(src)
+
+		if err := c.inner.send(ctx, "textDocument/didOpen", params); err != nil {
+			return 0, fmt.Errorf("opening %s: %w", path, err)
 		}
 
 		return version, nil
 	}
 
-	whole := protocol.TextDocumentContentChangeWholeDocument{Text: string(src)}
+	var params didChangeParams
+	params.TextDocument.URI = uri
+	params.TextDocument.Version = version
+	params.ContentChanges = []struct {
+		Text string `json:"text"`
+	}{{Text: string(src)}}
 
-	change := []protocol.TextDocumentContentChangeEvent{{Value: whole}}
-	if err := c.inner.NotifyDidChangeTextDocument(ctx, uri, version, change); err != nil {
-		return 0, fmt.Errorf("didChange %s: %w", path, err)
+	if err := c.inner.send(ctx, "textDocument/didChange", params); err != nil {
+		return 0, fmt.Errorf("changing %s: %w", path, err)
 	}
 
 	return version, nil
@@ -134,7 +125,7 @@ func (c *Client) Diagnostics(ctx context.Context, path string, version int) ([]D
 		select {
 		case <-updates:
 		case <-ctx.Done():
-			if !c.inner.IsRunning() {
+			if !c.inner.running() {
 				return nil, fmt.Errorf("%w: %s published nothing for %s", ErrServerExited, c.server.Command, path)
 			}
 
@@ -146,25 +137,27 @@ func (c *Client) Diagnostics(ctx context.Context, path string, version int) ([]D
 // Close shuts the server down over the protocol and reaps the process. The
 // client is unusable afterwards.
 func (c *Client) Close(ctx context.Context) error {
-	shutdownErr := c.inner.Shutdown(ctx)
-	exitErr := c.inner.Exit()
-
-	c.inner.Kill()
-
-	if err := errors.Join(shutdownErr, exitErr); err != nil {
+	if err := c.inner.close(ctx); err != nil {
 		return fmt.Errorf("closing %s: %w", c.server.Command, err)
 	}
 
 	return nil
 }
 
-func (c *Client) onPublish(_ context.Context, _ string, params json.RawMessage) {
+// onNotify records a diagnostics publication and ignores everything else a
+// server says on its own: the log and progress notifications are the server's
+// own narration, and nothing here reads them.
+func (c *Client) onNotify(method string, params json.RawMessage) {
+	if method != "textDocument/publishDiagnostics" {
+		return
+	}
+
 	pub, err := decodePublication(params)
 	if err != nil {
 		return
 	}
 
-	path, err := protocol.DocumentURI(pub.URI).Path()
+	path, err := uriToPath(pub.URI)
 	if err != nil {
 		return
 	}
@@ -224,17 +217,23 @@ func (c *Client) Rename(
 		return nil, err
 	}
 
-	edit, err := c.inner.RequestRename(ctx, abs, line, column, newName)
-	if err != nil {
+	params := renameParams{
+		TextDocument: textDocumentIdentifier{URI: pathToURI(abs)},
+		Position:     position{Line: line, Character: column},
+		NewName:      newName,
+	}
+
+	var edit workspaceEdit
+	if err := c.inner.call(ctx, "textDocument/rename", params, &edit); err != nil {
 		return nil, fmt.Errorf("renaming %s at %s:%d: %w", newName, path, line+1, err)
 	}
 
 	out := make(map[string][]TextEdit, len(edit.Changes))
 
 	for uri, edits := range edit.Changes {
-		file, perr := uri.Path()
+		file, perr := uriToPath(uri)
 		if perr != nil {
-			return nil, fmt.Errorf("rename touched an unreadable location %q: %w", uri, perr)
+			return nil, fmt.Errorf("rename touched an unreadable location: %w", perr)
 		}
 
 		for i := range edits {
@@ -243,63 +242,25 @@ func (c *Client) Rename(
 	}
 
 	for _, doc := range edit.DocumentChanges {
-		if doc.TextDocumentEdit == nil {
-			continue
-		}
-
-		file, perr := doc.TextDocumentEdit.TextDocument.URI.Path()
+		file, perr := uriToPath(doc.TextDocument.URI)
 		if perr != nil {
 			return nil, fmt.Errorf("rename touched an unreadable location: %w", perr)
 		}
 
-		for _, e := range doc.TextDocumentEdit.Edits {
-			te, ok, terr := asTextEdit(e)
-			if terr != nil {
-				return nil, terr
-			}
-
-			if ok {
-				out[file] = append(out[file], te)
-			}
+		for i := range doc.Edits {
+			out[file] = append(out[file], textEdit(doc.Edits[i]))
 		}
 	}
 
 	return out, nil
 }
 
-// asTextEdit pulls a plain TextEdit out of the protocol's union type. The
-// union decodes into an interface holding whatever JSON shape arrived, so a
-// type assertion sees a map rather than the struct, and the annotated variant
-// (which carries a change annotation this caller has nothing to do with) is
-// skipped rather than misread as a plain edit.
-func asTextEdit(e protocol.Or_TextDocumentEdit_edits_Elem) (TextEdit, bool, error) {
-	raw, err := json.Marshal(e.Value)
-	if err != nil {
-		return TextEdit{}, false, fmt.Errorf("re-encoding a rename edit: %w", err)
-	}
-
-	//nolint:tagliatelle // the field name is the protocol's, not this project's
-	var probe struct {
-		AnnotationID *string `json:"annotationId"`
-	}
-	if err := json.Unmarshal(raw, &probe); err == nil && probe.AnnotationID != nil {
-		return TextEdit{}, false, nil
-	}
-
-	var te protocol.TextEdit
-	if err := json.Unmarshal(raw, &te); err != nil {
-		return TextEdit{}, false, fmt.Errorf("decoding a rename edit: %w", err)
-	}
-
-	return textEdit(te), true, nil
-}
-
-func textEdit(e protocol.TextEdit) TextEdit {
+func textEdit(e wireTextEdit) TextEdit {
 	return TextEdit{
-		Line:      int(e.Range.Start.Line),
-		Column:    int(e.Range.Start.Character),
-		EndLine:   int(e.Range.End.Line),
-		EndColumn: int(e.Range.End.Character),
+		Line:      e.Range.Start.Line,
+		Column:    e.Range.Start.Character,
+		EndLine:   e.Range.End.Line,
+		EndColumn: e.Range.End.Character,
 		NewText:   e.NewText,
 	}
 }
@@ -322,20 +283,25 @@ func (c *Client) References(ctx context.Context, path string, line, column int) 
 		return nil, err
 	}
 
-	locations, err := c.inner.FindReferences(ctx, abs, line, column, false)
-	if err != nil {
+	params := referenceParams{
+		TextDocument: textDocumentIdentifier{URI: pathToURI(abs)},
+		Position:     position{Line: line, Character: column},
+	}
+
+	var locations []wireLocation
+	if err := c.inner.call(ctx, "textDocument/references", params, &locations); err != nil {
 		return nil, fmt.Errorf("finding references to %s:%d: %w", path, line+1, err)
 	}
 
 	out := make([]Reference, 0, len(locations))
 
 	for i := range locations {
-		file, perr := locations[i].URI.Path()
+		file, perr := uriToPath(locations[i].URI)
 		if perr != nil {
 			return nil, fmt.Errorf("a reference is at an unreadable location: %w", perr)
 		}
 
-		out = append(out, Reference{Path: file, Line: int(locations[i].Range.Start.Line)})
+		out = append(out, Reference{Path: file, Line: locations[i].Range.Start.Line})
 	}
 
 	return out, nil

@@ -5,10 +5,14 @@
 // code actions, so nothing here is specific to diagnostics or to Go; the
 // diagnostics gate is only its first consumer.
 //
-// The protocol layer is github.com/charmbracelet/x/powernap, the client
-// Crush drives gopls with. DESIGN.md names go.lsp.dev/protocol instead, which
-// shipped a v1.0.0 rewrite in June 2026 but declares "go 1.26" and offers
-// types without process management; powernap declares "go 1.24", spawns and
-// reaps the server, and already carries the rename, references, and symbol
-// requests M3 needs.
+// The protocol layer is this package's own, over github.com/sourcegraph/jsonrpc2
+// framing. It replaced github.com/charmbracelet/x/powernap, whose router reads
+// a server request carrying id 0 as a notification and answers it with null:
+// ty numbers its requests from zero and stops serving entirely once its
+// configuration request is answered that way. The fix has been open upstream
+// as charmbracelet/x#790 since March 2026 with no review, and wavez calls ten
+// of that library's methods, so the transport is cheaper to own than to wait
+// for. What is owned is the handshake, the four requests wavez sends, and the
+// answers a server expects to its own requests; the wire types in wire.go
+// carry only the fields those read.
 package lsp
