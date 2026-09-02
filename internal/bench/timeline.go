@@ -39,9 +39,16 @@ type Turn struct {
 	Calls []Call
 	// Notes are what the harness did during the turn: a gate delivery, a
 	// gate escalation, a tier that failed and moved up.
-	Notes    []string
+	Notes []string
+	// Duration is the turn's wall time with the time it spent parked for a
+	// human taken out, since what a reader is comparing turns for is the
+	// work, and a turn that waited five minutes for an approval was not
+	// five minutes of work.
 	Duration time.Duration
-	Number   int
+	// Waited is that parked time, kept rather than dropped: a run held up
+	// on approvals is a fact about the session worth seeing.
+	Waited time.Duration
+	Number int
 }
 
 // Timeline reduces a thread's events to one row per turn.
@@ -51,9 +58,10 @@ type Turn struct {
 // through where its tool calls and gate rounds fell that no count can.
 func Timeline(evs []event.Event) []Turn {
 	var (
-		out     []Turn
-		current Turn
-		started time.Time
+		out      []Turn
+		current  Turn
+		started  time.Time
+		parkedAt time.Time
 	)
 
 	for i := range evs {
@@ -62,6 +70,8 @@ func Timeline(evs []event.Event) []Turn {
 		if started.IsZero() {
 			started = ev.At
 		}
+
+		parkedAt = trackParked(ev, parkedAt, &current)
 
 		switch ev.Kind {
 		case event.KindTool:
@@ -86,7 +96,7 @@ func Timeline(evs []event.Event) []Turn {
 
 			current.Number = len(out) + 1
 			current.At = started
-			current.Duration = ev.At.Sub(started)
+			current.Duration = ev.At.Sub(started) - current.Waited
 			current.Tier = stringField(ev.Detail, "tier")
 			out = append(out, current)
 
@@ -96,6 +106,31 @@ func Timeline(evs []event.Event) []Turn {
 	}
 
 	return out
+}
+
+// trackParked follows the intervals a thread sits waiting for a human,
+// folding each finished one into the turn it fell in and returning when the
+// current one started, zero when none is open.
+func trackParked(ev *event.Event, parkedAt time.Time, current *Turn) time.Time {
+	if ev.Kind != event.KindState {
+		return parkedAt
+	}
+
+	if ev.State == event.StateNeedsIn {
+		if parkedAt.IsZero() {
+			return ev.At
+		}
+
+		return parkedAt
+	}
+
+	if parkedAt.IsZero() {
+		return parkedAt
+	}
+
+	current.Waited += ev.At.Sub(parkedAt)
+
+	return time.Time{}
 }
 
 // gateNote is what a gate event says about the turn it fell in: a delivery
@@ -170,6 +205,10 @@ func TurnLine(t Turn, longest time.Duration, previousTier string) string {
 		t.Number, bar(t.Duration, longest), shortDuration(t.Duration), callList(t.Calls))
 
 	notes := t.Notes
+	if t.Waited > 0 {
+		notes = append(slices.Clone(notes), "waited "+shortDuration(t.Waited)+" for you")
+	}
+
 	if t.Tier != "" && previousTier != "" && t.Tier != previousTier {
 		notes = append(slices.Clone(notes), "now on "+t.Tier)
 	}

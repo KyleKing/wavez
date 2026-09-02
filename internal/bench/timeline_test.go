@@ -85,3 +85,47 @@ func TestTimeline_SplitsAtTheTurnMarkerAndCarriesWhatHappened(t *testing.T) {
 		t.Errorf("bars = %q and %q, want the longer turn to draw more", lines[0], lines[1])
 	}
 }
+
+// A turn parked for an approval is not a turn that worked for five minutes,
+// and reading one that way makes the slowest turn of a session the one where
+// the human went to lunch.
+func TestTimeline_TakesTheWaitForAHumanOutOfTheTurn(t *testing.T) {
+	t.Parallel()
+
+	base := time.Unix(0, 0)
+	at := func(d time.Duration, ev event.Event) event.Event {
+		ev.At = base.Add(d)
+
+		return ev
+	}
+
+	turns := bench.Timeline([]event.Event{
+		at(0, event.Event{Kind: event.KindUser, Text: "go"}),
+		at(1*time.Second, event.Event{Kind: event.KindState, State: event.StateNeedsIn}),
+		at(5*time.Minute, event.Event{Kind: event.KindState, State: event.StateWorking}),
+		at(5*time.Minute+2*time.Second, turn("balanced", 100, 10, 0)),
+	})
+
+	if len(turns) != 1 {
+		t.Fatalf("timeline has %d turns, want 1", len(turns))
+	}
+
+	// One second before it parked and two after, against five minutes of
+	// wall clock.
+	if got := turns[0].Duration; got != 3*time.Second {
+		t.Errorf("turn lasted %s, want the 3s it worked rather than the wall clock", got)
+	}
+
+	if got := turns[0].Waited; got != 5*time.Minute-time.Second {
+		t.Errorf("turn waited %s, want the parked time kept", got)
+	}
+
+	var out strings.Builder
+	if err := bench.RenderTimeline(&out, turns); err != nil {
+		t.Fatalf("RenderTimeline: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "waited") {
+		t.Errorf("rendered timeline = %q, want it to name the wait", out.String())
+	}
+}

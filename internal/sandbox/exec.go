@@ -103,7 +103,10 @@ func Command(
 
 	cmd := sandboxCommand(ctx, profile.projectRoot, profileFile.Name(), dirs, args)
 
-	return cmd, func() { _ = os.Remove(profileFile.Name()) }, nil
+	//nolint:errcheck // a leftover profile in the session temp dir goes with it
+	remove := func() { _ = os.Remove(profileFile.Name()) }
+
+	return cmd, remove, nil
 }
 
 // caches are the directories a toolchain writes to that live outside the
