@@ -72,6 +72,12 @@ preToolUseHook {
   "--strict"
 }
 hookTimeoutMs = 250
+checks {
+  ["lint"] {
+    paths { "*.py" }
+    command = "ruff check ."
+  }
+}
 `)
 
 	loader, err := config.NewLoader(context.Background())
@@ -121,6 +127,12 @@ hookTimeoutMs = 250
 	}
 	if cfg.HookTimeout != 250*time.Millisecond {
 		t.Errorf("HookTimeout = %v, want 250ms", cfg.HookTimeout)
+	}
+	// A check written the way the schema's own example does, without naming
+	// its class: the default has to carry the element type or every such
+	// entry evaluates as a Dynamic and the whole config fails to load.
+	if len(cfg.Checks) != 1 || cfg.Checks[0].Name != "lint" || cfg.Checks[0].Command != "ruff check ." {
+		t.Errorf("Checks = %+v, want the one declared check", cfg.Checks)
 	}
 }
 
