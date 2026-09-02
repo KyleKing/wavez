@@ -1,3 +1,10 @@
+## v0.20.1 (2026-09-02)
+
+### Fix
+
+- **pty**: read either echo form a tty may write
+- **guard**: refuse a dependency fetch with the reason and the way out
+
 ## v0.20.0 (2026-09-02)
 
 ### Feat
