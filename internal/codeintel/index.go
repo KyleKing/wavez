@@ -60,6 +60,7 @@ type IndexStats struct {
 // buried the one the run was looking for under pytest and pluggy internals.
 var skipDirs = map[string]bool{
 	".git":          true,
+	".jj":           true,
 	".mypy_cache":   true,
 	".pytest_cache": true,
 	".ruff_cache":   true,
@@ -71,6 +72,12 @@ var skipDirs = map[string]bool{
 	"vendor":        true,
 	"venv":          true,
 }
+
+// SkipDir reports a directory name nothing walking a project descends into.
+// The index and the list tool share it: a listing that answers with a
+// project's dependencies is the same wasted turn as an index full of them,
+// and the two answering differently is worse than either.
+func SkipDir(name string) bool { return skipDirs[name] }
 
 // MaxFileBytes is the largest claimed file the index will read. Above it a
 // file is machine-written every time it was measured: an OpenAPI-generated

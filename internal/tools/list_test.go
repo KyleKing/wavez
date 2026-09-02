@@ -23,6 +23,8 @@ func TestList(t *testing.T) {
 		"docs/notes.md",
 		".git/objects/blob",
 		"node_modules/pkg/index.js",
+		".venv/lib/python3.14/site-packages/pytest/__init__.py",
+		"__pycache__/main.cpython-314.pyc",
 	} {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -41,9 +43,13 @@ func TestList(t *testing.T) {
 		absent  []string
 	}{
 		{
-			name:   "the whole tree skips the directories no model asks for",
-			want:   []string{"main.go", "internal/tools/list.go", "docs/notes.md"},
-			absent: []string{".git/objects/blob", "node_modules/pkg/index.js"},
+			name: "the whole tree skips the directories no model asks for",
+			want: []string{"main.go", "internal/tools/list.go", "docs/notes.md"},
+			absent: []string{
+				".git/objects/blob", "node_modules/pkg/index.js",
+				".venv/lib/python3.14/site-packages/pytest/__init__.py",
+				"__pycache__/main.cpython-314.pyc",
+			},
 		},
 		{
 			name:    "a bare glob matches the file name at any depth",

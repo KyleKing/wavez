@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/codeintel"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -18,10 +19,6 @@ const maxListedFiles = 200
 // maxListedDirs caps the rollup a listing falls back to when it has more
 // files than it may print.
 const maxListedDirs = 60
-
-// skipListDirs are never descended into. They hold no source a model asks
-// for and one of them, .git, is large enough to swamp a listing on its own.
-var skipListDirs = map[string]bool{".git": true, ".jj": true, "node_modules": true}
 
 var listSchema = buildSchema(map[string]schemaProperty{
 	"dir": {
@@ -116,7 +113,7 @@ func walkMatching(root, pattern string) ([]string, error) {
 			return fmt.Errorf("listing %s: %w", p, err)
 		}
 		if d.IsDir() {
-			if p != root && skipListDirs[d.Name()] {
+			if p != root && codeintel.SkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 
