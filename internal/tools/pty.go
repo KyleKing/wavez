@@ -363,9 +363,46 @@ func (s *ptyScreen) expect(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.echo = []byte(strings.ReplaceAll(key, "\r", "\r\n"))
+	s.echo = echoOf(key)
 	s.answer = false
 	s.sent = time.Now()
+}
+
+// echoOf is what a terminal in canonical mode writes back for the bytes
+// written to it: \r arrives as \r\n, and a control byte arrives as the two
+// printable characters the tty renders it with, so an Escape comes back as
+// `^[` rather than as 0x1b. Matching the raw bytes instead never matched, and
+// every reply to a program's query then read as the program drawing.
+//
+// The constants are ASCII's: a byte under 0x20 is a control character, 0x40
+// is what the tty adds to render it printable, and 0x7f is delete.
+func echoOf(written string) []byte {
+	const (
+		firstPrintable = 0x20
+		caretOffset    = 0x40
+		del            = 0x7f
+	)
+
+	var out []byte
+
+	for i := range len(written) {
+		c := written[i]
+
+		switch {
+		case c == '\r':
+			out = append(out, '\r', '\n')
+		case c == '\n' || c == '\t':
+			out = append(out, c)
+		case c < firstPrintable:
+			out = append(out, '^', c+caretOffset)
+		case c == del:
+			out = append(out, '^', '?')
+		default:
+			out = append(out, c)
+		}
+	}
+
+	return out
 }
 
 // expectEcho adds bytes the terminal itself wrote into the program's input to
@@ -377,7 +414,7 @@ func (s *ptyScreen) expectEcho(b []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.echo = append(s.echo, b...)
+	s.echo = append(s.echo, echoOf(string(b))...)
 }
 
 // note consumes whatever of b the terminal still owed as echo and reads the
