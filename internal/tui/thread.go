@@ -519,7 +519,7 @@ func (m Model) renderThread() string {
 		spend(info.Spend), filterBadge(m.thread.filter), otherPendingBadge(m.pending, info.ID, m.ascii))
 
 	body := m.threadBody(info)
-	footer := footerHints(threadHints(m.thread.search, m.focus, m.thread.filter), m.width-boxPad)
+	footer := footerHints(threadHints(m.thread.search, m.focus, m.thread.filter, m.thread.input.mode), m.width-boxPad)
 
 	return frame(m.width, headerGoal(title, info.Goal, m.width), body, footer, m.th)
 }
@@ -762,6 +762,31 @@ func changeSummary(tr *transcript, width int) []string {
 	return out
 }
 
+// composerHints names what the composer's keys do in the mode it is actually
+// in. Esc leaves insert and does nothing in normal, so a footer that named it
+// either way told someone in normal mode to press a key that would not move.
+func composerHints(mode vimMode) []hint {
+	if mode == modeInsert {
+		return []hint{
+			{keyEnter, labelSend, ""},
+			{keyInterrupt, "send now", ""},
+			{keyCompose, "fullscreen", ""},
+			{keyEsc, "normal mode", ""},
+			{keyTab, labelPanel, ""},
+			{"?", labelHelp, ""},
+		}
+	}
+
+	return []hint{
+		{keyEnter, labelSend, ""},
+		{"i", "insert", ""},
+		{":", "palette", ""},
+		{keyCompose, "fullscreen", ""},
+		{keyTab, labelPanel, ""},
+		{"?", labelHelp, ""},
+	}
+}
+
 // threadHintTail is the count of hints threadHints appends after its head.
 const threadHintTail = 13
 
@@ -772,20 +797,13 @@ const threadHintTail = 13
 // the row under the cursor from the transcript, so the hint names whichever
 // is true of the panel that is actually focused. It binds to nothing on the
 // diff pane, where no hint names it.
-func threadHints(search searchState, focus int, filter filterCategory) []hint {
+func threadHints(search searchState, focus int, filter filterCategory, mode vimMode) []hint {
 	if search.editing {
 		return []hint{{keyEnter, labelApply, ""}, {keyEsc, labelCancel, ""}}
 	}
 
 	if focus == focusInput {
-		return []hint{
-			{keyEnter, labelSend, ""},
-			{keyInterrupt, "send now", ""},
-			{keyCompose, "fullscreen", ""},
-			{keyEsc, "normal mode", ""},
-			{keyTab, labelPanel, ""},
-			{"?", labelHelp, ""},
-		}
+		return composerHints(mode)
 	}
 
 	var enter []hint

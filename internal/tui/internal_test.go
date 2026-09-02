@@ -1105,24 +1105,36 @@ func TestThreadHints_NameEnterOnlyWhereItBinds(t *testing.T) {
 		name  string
 		want  string
 		focus int
+		mode  vimMode
 	}{
-		{"composer sends", "[enter]send", focusInput},
-		{"transcript toggles", "[enter]toggle", focusTranscript},
+		{"composer sends", "[enter]send", focusInput, modeInsert},
+		{"transcript toggles", "[enter]toggle", focusTranscript, modeNormal},
+		// Esc leaves insert and does nothing in normal, so naming it there
+		// pointed at a key that would not move.
+		{"insert names the way out", "[esc]normal mode", focusInput, modeInsert},
+		{"normal names the way in", "[i]insert", focusInput, modeNormal},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := footerHints(threadHints(searchState{}, tc.focus, catNone), 200)
+			got := footerHints(threadHints(searchState{}, tc.focus, catNone, tc.mode), 200)
 			assert.Contains(t, got, tc.want)
 		})
 	}
 
+	t.Run("normal mode never names esc", func(t *testing.T) {
+		t.Parallel()
+
+		got := footerHints(threadHints(searchState{}, focusInput, catNone, modeNormal), 200)
+		assert.NotContains(t, got, "[esc]")
+	})
+
 	t.Run("diff pane names no enter", func(t *testing.T) {
 		t.Parallel()
 
-		got := footerHints(threadHints(searchState{}, focusDiff, catNone), 200)
+		got := footerHints(threadHints(searchState{}, focusDiff, catNone, modeNormal), 200)
 		assert.NotContains(t, got, "[enter]")
 	})
 }
