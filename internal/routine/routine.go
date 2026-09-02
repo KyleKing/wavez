@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kyleking/wavez/internal/glob"
 )
 
 // Trigger names what fires a routine.
@@ -125,11 +127,7 @@ func (r *Routine) MatchesPath(path string) bool {
 	}
 
 	for _, pattern := range r.Paths {
-		if ok, err := filepath.Match(pattern, path); err == nil && ok {
-			return true
-		}
-
-		if ok, err := filepath.Match(pattern, filepath.Base(path)); err == nil && ok {
+		if glob.Match(pattern, filepath.ToSlash(path)) {
 			return true
 		}
 	}

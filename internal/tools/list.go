@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kyleking/wavez/internal/codeintel"
+	"github.com/kyleking/wavez/internal/glob"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -141,19 +142,7 @@ func walkMatching(root, pattern string) ([]string, error) {
 // path and any other pattern against the file name, because `*.go` from a
 // model means "a Go file anywhere below here" and path.Match would read the
 // slashes as a depth constraint it did not intend.
-func matchesGlob(pattern, rel string) bool {
-	if pattern == "" {
-		return true
-	}
-
-	subject := rel
-	if !strings.Contains(pattern, "/") {
-		subject = path.Base(rel)
-	}
-	ok, err := path.Match(pattern, subject)
-
-	return err == nil && ok
-}
+func matchesGlob(pattern, rel string) bool { return glob.Match(pattern, rel) }
 
 func formatListing(dir, pattern string, found []string) string {
 	what := "files"
