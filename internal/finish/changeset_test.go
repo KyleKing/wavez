@@ -32,6 +32,12 @@ func TestChangeSetMatchesTask(t *testing.T) {
 			wantOK:  true,
 		},
 		{
+			name:    "a path named by its tail matches the file under it",
+			task:    "Fix the ty diagnostic at thread/thread.go:17.",
+			changed: []string{"internal/thread/thread.go"},
+			wantOK:  true,
+		},
+		{
 			name:    "a run that wrote somewhere else is named",
 			task:    "In internal/thread/thread.go rewrite truncate.",
 			changed: []string{"internal/edit/edit.go"},

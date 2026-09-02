@@ -80,12 +80,19 @@ func namedSymbols(text string) []string {
 	return dedupe(out)
 }
 
+// touchesAny reports a changed path the text names. A named path matches a
+// changed one it equals, one it is the directory prefix of, and one it is the
+// tail of: a task says `ui/widgets/file_list.py` where the tree says
+// `src/vcr_tui/ui/widgets/file_list.py`, and reading that as a different file
+// told a run that had edited it that it had not done the task.
 func touchesAny(changed, paths []string) bool {
 	for _, c := range changed {
 		clean := filepath.ToSlash(filepath.Clean(c))
 
 		for _, p := range paths {
-			if clean == p || strings.HasPrefix(clean, strings.TrimSuffix(p, "/")+"/") {
+			if clean == p ||
+				strings.HasPrefix(clean, strings.TrimSuffix(p, "/")+"/") ||
+				strings.HasSuffix(clean, "/"+p) {
 				return true
 			}
 		}
