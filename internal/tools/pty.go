@@ -258,7 +258,7 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 		_, _ = io.Copy(screen, tty) //nolint:errcheck // the copy ends when the program does
 	}()
 
-	input := &ttyInputWriter{tty: tty}
+	input := &ttyInputWriter{tty: tty, screen: screen}
 
 	// A terminal answers what a program asks it. The emulator writes those
 	// answers into a pipe, and nothing reading that pipe blocks the emulator
@@ -297,13 +297,18 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 // the call plays and the answers the emulator owes the program's own queries.
 // One lock keeps a reply from landing inside a keystroke.
 type ttyInputWriter struct {
-	tty io.Writer
-	mu  sync.Mutex
+	tty    io.Writer
+	screen *ptyScreen
+	mu     sync.Mutex
 }
 
 func (w *ttyInputWriter) Write(b []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if w.screen != nil {
+		w.screen.expectEcho(b)
+	}
 
 	n, err := w.tty.Write(b)
 	if err != nil {
@@ -361,6 +366,18 @@ func (s *ptyScreen) expect(key string) {
 	s.echo = []byte(strings.ReplaceAll(key, "\r", "\r\n"))
 	s.answer = false
 	s.sent = time.Now()
+}
+
+// expectEcho adds bytes the terminal itself wrote into the program's input to
+// what the echo still owes, without touching the keystroke bookkeeping. A
+// reply to a program's query comes back on the screen the same way a
+// keystroke does, and reading that as the program drawing ended the wait
+// before the program had run at all.
+func (s *ptyScreen) expectEcho(b []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.echo = append(s.echo, b...)
 }
 
 // note consumes whatever of b the terminal still owed as echo and reads the
