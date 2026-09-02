@@ -48,11 +48,11 @@ description = "Open a GitHub PR for a branch already pushed with jj:branch"
 usage = 'arg "<name>"'
 run = "gh pr create --head $usage_name --fill"
 
-# Pins that override the template's "latest". An unpinned formatter drifts
-# between a laptop and a CI runner, and the check then fails only in CI.
+# Tools the template does not ship. Listed in .doneram.pkl and updated by
+# doneram, because an unpinned tool resolves differently on a laptop than on a
+# runner and the check then fails only in CI.
 [tools]
-tombi = "1.4.0"
 # Reachability from main, which is the orphan check `unused` cannot do for a
 # module that is all internal/: every symbol there is exported API to the
 # compiler, and a test counts as a use.
-"go:golang.org/x/tools/cmd/deadcode" = "latest"
+"go:golang.org/x/tools/cmd/deadcode" = "0.49.0"

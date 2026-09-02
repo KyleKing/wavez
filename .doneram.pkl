@@ -1,0 +1,80 @@
+// Version literals this project pins in files it owns, checked by doneram.
+// The weekly Freshness workflow patches these and opens a draft PR.
+//
+// Pins inside template-managed files (the mise tools in
+// .config/mise/conf.d/template.toml, hk.pkl, and the ci and bump_version
+// workflows) are deliberately absent: my_go_template tracks those and they
+// arrive here through a copier update, so patching them locally would only
+// make the next update a merge.
+//
+// The schema is inlined so this file evaluates today. It amends doneram's
+// published Config.pkl once doneram ships a pkl package.
+
+class Site {
+  /// Repo-relative path to the file holding the literal.
+  file: String
+  /// Regex with exactly one capture group around the version.
+  pattern: String
+  /// An exact match count. Unset takes one or more.
+  expect: Int(this > 0)?
+}
+
+class Tool {
+  resolver: String = "mise"
+  /// Name to query when it differs from the map key, e.g. "owner/repo".
+  resolverName: String?
+  sites: Listing<Site> = new {}
+}
+
+local freshnessYml = ".github/workflows/freshness.yml"
+local miseToml = ".config/mise/conf.d/wavez.toml"
+
+/// A `uses: owner/repo@<sha> # <tag>` GitHub Action pin, one capture group
+/// spanning the sha and the tag together, since github-action patches both
+/// as a single resolved value.
+local function actionPin(action: String): Site = new {
+  file = freshnessYml
+  pattern = #"\#(action)@([0-9a-f]{40} # v[\d.]+)"#
+}
+
+tools: Mapping<String, Tool> = new {
+  ["checkout"] = new {
+    resolver = "github-action"
+    resolverName = "actions/checkout"
+    sites = new { actionPin("actions/checkout") }
+  }
+  ["create-github-app-token"] = new {
+    resolver = "github-action"
+    resolverName = "actions/create-github-app-token"
+    sites = new { actionPin("actions/create-github-app-token") }
+  }
+  ["create-pull-request"] = new {
+    resolver = "github-action"
+    resolverName = "peter-evans/create-pull-request"
+    sites = new { actionPin("peter-evans/create-pull-request") }
+  }
+  ["deadcode"] = new {
+    resolverName = "go:golang.org/x/tools/cmd/deadcode"
+    sites = new {
+      new Site {
+        file = miseToml
+        pattern = #""go:golang\.org/x/tools/cmd/deadcode" = "([\d.]+)""#
+      }
+    }
+  }
+  ["doneram"] = new {
+    resolver = "github-action"
+    resolverName = "kyleking/doneram"
+    sites = new { actionPin("kyleking/doneram") }
+  }
+  ["doneram-version"] = new {
+    resolver = "github-release"
+    resolverName = "kyleking/doneram"
+    sites = new { new Site { file = freshnessYml; pattern = #"version: v([\d.]+)"# } }
+  }
+  ["mise-action"] = new {
+    resolver = "github-action"
+    resolverName = "jdx/mise-action"
+    sites = new { actionPin("jdx/mise-action") }
+  }
+}
