@@ -446,13 +446,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			closeErrs = append(closeErrs, err)
 		}
 	}
-	s.connsWG.Wait()
+	graceCtx, cancel := context.WithTimeout(ctx, s.grace)
+	defer cancel()
+
+	// Bounded, because a handler blocked on a tool that will not answer
+	// would otherwise hold the whole shutdown: a wedged pty call kept a
+	// daemon alive through SIGTERM until it was killed outright.
+	waitFor(graceCtx, s.connsWG.Wait)
+
 	if err := errors.Join(closeErrs...); err != nil {
 		return fmt.Errorf("closing connections: %w", err)
 	}
 
-	graceCtx, cancel := context.WithTimeout(ctx, s.grace)
-	defer cancel()
 	s.cancelAll()
 
 	if err := s.closeProjects(graceCtx); err != nil {
@@ -464,6 +469,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// waitFor runs wait on its own goroutine and returns when it finishes or
+// when ctx runs out, whichever comes first. The goroutine outlives the call
+// in the second case, which is the point: the process is going away, and a
+// wait nothing can end is not a reason to stay.
+func waitFor(ctx context.Context, wait func()) {
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		wait()
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
 }
 
 // closeProjects waits for every loaded project's in-flight turns to finish
