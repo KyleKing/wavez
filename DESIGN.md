@@ -1355,6 +1355,31 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    - `path.Match` reads `**` as one `*`, so every pattern scoping anything to
      a subtree matched one depth and silently missed the rest
 
+   Driving the guard's own parser lane on 2026-09-02 found two more, and the
+   first of them explains where a run's budget goes:
+
+   - `write` called `os.WriteFile` with no parent directory, so creating a
+     file in a directory that did not exist yet always failed, with an error
+     naming the file rather than the missing parent. A run answered that by
+     shelling out to `mkdir -p` and then writing every later file through
+     `cat <<EOF`, which put its own source through the guard as commands and
+     cost an approval per file. Seven turns of forty carried a heredoc, and
+     those seven held 32 of the run's 40 minutes
+   - the naming finish check reads an index built before the run and never
+     during it, so a lane that had written `classifyTokens` a turn earlier
+     was told the name was not in the index. The path half of the same check
+     stats the filesystem, so one check answered from live state and the
+     other from a cache. A name the run wrote into a file it changed is
+     grounded whatever the index still says
+
+   The same lane measured what a lane's size costs. Asked to replace the
+   splitter, move every caller, and add the tests in one run, it stopped on
+   the cost ceiling at 51 turns and $1.00 with the callers half moved.
+   Resumed against one paragraph naming one function to collapse, the same
+   model on the same file finished in 7 turns and $0.14. Nothing about the
+   task got easier between the two, and the tokens went to deciding what to
+   do rather than doing it.
+
    A run which edits nothing was verified by nobody, since every gate and
    every other finish bound reads a change set. One such run reached a
    confident wrong conclusion about a stylesheet and drafted a correction to
@@ -1655,22 +1680,28 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   that carried meaning, because over-stripping is the failure an allow-list
   newly makes possible and nothing here would catch it
 
-- The guard splits a command string by hand and there is a parser for that.
-  [safecmd](https://github.com/AnswerDotAI/safecmd) validates by parsing bash
-  into an AST before it checks anything, on the argument that
-  `echo $(rm -rf /)` is invisible to prefix matching. The same parser is a Go
-  library rather than a binary here (`mvdan.cc/sh/v3/syntax`), so nothing
-  shells out and a verdict stays a pure function of the command text. It
-  closes two Considered-and-deferred entries at once, a heredoc body read as
-  commands and nested substitution, and replaces the redirection scan in
-  `writes.go` with the parse tree's own targets. The `Env` argument and the
-  expansion rules stay as they are, since a parser answers what a command is
-  and not what its variables hold. jcode's `jcode-command-risk` attaches the
-  caveat that matters: its catastrophic tier is a small absolute path-based
-  deny that deliberately does not depend on parsing the command correctly, on
-  the argument that a static parser is defense in depth and never a sandbox.
-  So the refusals that must never be wrong stay where they are, and the parse
-  buys the tier above them
+- The guard reads a command through a bash parser, after
+  [safecmd](https://github.com/AnswerDotAI/safecmd), which parses into an AST
+  before it checks anything on the argument that `echo $(rm -rf /)` is
+  invisible to prefix matching. The parser is a Go library here rather than a
+  binary (`mvdan.cc/sh/v3/syntax`), so nothing shells out and a verdict stays
+  a pure function of the command text. `internal/guard/parse.go` flattens the
+  tree into the shape the rules already read, sequence fragments and pipeline
+  stages as word lists, and reaches every substitution at any depth: nested
+  inside another, inside a word, or inside an unquoted heredoc body, which the
+  shell expands and so is code. A quoted delimiter suppresses expansion and
+  the parser keeps that body literal, which is what closes the heredoc entry
+  the deferred list held. jcode's `jcode-command-risk` attaches the caveat
+  that decided the shape: its catastrophic tier is a small absolute path-based
+  deny that deliberately does not depend on parsing the command correctly,
+  because a static parser is defense in depth and never a sandbox. So text the
+  parser rejects falls back to the hand-rolled splitters rather than being
+  skipped, and a verdict never depends on the parse succeeding:
+  `rm -rf / ; echo 'unterminated` still refuses. What has not moved is
+  `writes.go`, whose three redirection regexps the parse tree's own targets
+  should replace, and the `Env` argument and the expansion rules stay as they
+  are, since a parser answers what a command is and not what its variables
+  hold
 - A finding needs a baseline, and [fallow](https://github.com/fallow-rs/fallow)
   names the mechanism. The `lint` gate reads a changed file's whole package,
   filters out what it cannot attribute to the run, and so says nothing about a
@@ -1848,7 +1879,6 @@ Likely later:
 - Risk scoring for a diff from deterministic signals (capability delta via `semgrep --baseline-commit` or `ast-grep`, blast radius from the import graph, signature change from tree-sitter). Argued in `_ai_/notes/is-it-risky-deterministically.md`. Belongs in Gates once the code-intelligence store exists (M3). Built once and removed: scoring a pending action against the whole run's change set put the answer on the wrong surface. A permission prompt asks about one command, so only the guard's verdict and the paths that command touches belong on it, while capability delta, file count, and blast radius describe the diff and answer a different question at a different time. The regex capability list was the other half of the problem: a `net/http` import in a Go repo reads as "network capability introduced", so the score sat at its top band permanently and the band decided nothing. Whatever replaces it renders per surface, and any capability signal parses rather than greps
 - A symlink inside the project that points out of it passes the guard's containment test, which compares paths lexically and never resolves them. `sandbox.Exec` already realpaths every path entering the Seatbelt profile for the same reason, so the technique is in the repo and the guard does not use it. Doing so would make a verdict depend on filesystem state, which is the invariant the `Env` argument exists to protect, so the resolution belongs in the caller beside the script reading
 - Expansion wider than the four names the guard knows. A shell resolves every variable, and this resolves the ones a destructive command usually hides a path behind; the rest fail closed, which is correct and noisy, since `rm -rf $BUILD_DIR` prompts every time. The fix is not a longer list but real resolution: either a parser that tracks assignments earlier in the same command line, or asking a shell to expand without executing and classifying the result. Both read state, so both belong behind the `Env` argument rather than inside the guard. A parse does not settle this either: it names where an expansion occurs and never what it holds
-- A heredoc body is classified as if its lines were commands, because a newline separates commands and the guard does not track heredoc delimiters. It errs toward refusing (`cat <<EOF` containing `rm -rf /` is refused), so it is noise rather than a hole, and it is worth fixing only when it actually fires on real work. `mvdan.cc/sh/v3/syntax` tracks the delimiter and would close it as a side effect of the parse above, which is the argument for doing the parse rather than this entry alone
 - Churn and bug-correlation per file or function. code-maat (Clojure CLI, CSV hotspots and coupling) and PyDriller (Python library for commit mining and SZZ pipelines) exist today, no maintained bare CLI for defect prediction does. Feeds the same risk score once the code-intelligence store exists
 - Merge-then-monitor: join merges against Sentry or health metrics after the fact to label outcomes. Separate tool, not a pre-merge gate
 - Merge-forward stacked PRs and review state that survives force-pushes (`_ai_/notes/merge-based-stacking.md`). Depends on the M4 VCS layer
