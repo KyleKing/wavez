@@ -282,3 +282,53 @@ func TestThreadInfo_SpendIsReportedWhileTheRunIsStillGoing(t *testing.T) {
 			done.Spend, wantFirstTurn)
 	}
 }
+
+// Spend accumulated only in the process that ran the turns, so a daemon
+// restarted over the same logs reported every finished thread as having spent
+// nothing: the ledger a user reads to decide what a project has cost was
+// erased by an ordinary restart.
+func TestThreadInfo_SpendSurvivesADaemonRestart(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	turn := fake.Turn{
+		Text:       []string{"done"},
+		StopReason: llm.StopEndTurn,
+		Usage:      &llm.Usage{InputTokens: 100_000, OutputTokens: 10_000},
+	}
+
+	h := newHarness(t, fake.New("local", turn),
+		withServerOptions(daemon.WithLogDir(logDir)),
+		withLoopOptions(agent.WithModels(router.Tiers[string]{Balanced: "glm-5.3"})))
+
+	cl := dial(t, h)
+	cl.hello()
+	th := cl.newThread(nil)
+	cl.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
+	cl.recvFor("sub")
+	cl.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
+	cl.recvFor("send")
+	waitForEvent(t, cl, func(rep api.Reply) bool {
+		return rep.Kind == api.RepEvent && rep.Event != nil && rep.Event.State == event.StateDone
+	})
+
+	before := listThread(t, cl, th.ID)
+	// 100k input at $1.40 and 10k output at $4.40 per million.
+	const want = 0.184
+
+	if math.Abs(before.Spend-want) > 0.0001 {
+		t.Fatalf("Spend = %v before the restart, want %v", before.Spend, want)
+	}
+
+	restarted := newHarness(t, fake.New("local", turn),
+		withServerOptions(daemon.WithLogDir(logDir)),
+		withLoopOptions(agent.WithModels(router.Tiers[string]{Balanced: "glm-5.3"})))
+
+	fresh := dial(t, restarted)
+	fresh.hello()
+
+	after := listThread(t, fresh, th.ID)
+	if math.Abs(after.Spend-want) > 0.0001 {
+		t.Errorf("Spend = %v after a restart, want the %v the log records", after.Spend, want)
+	}
+}

@@ -104,6 +104,9 @@ type managedThread struct {
 	processed uint64
 	mu        sync.Mutex
 	running   bool
+	// replaying marks the fold of a log this process did not write, whose
+	// turns no run outcome will ever account for.
+	replaying bool
 	// archived is whether the thread has been put away, folded from the
 	// log so it survives a restart the way nothing else on this cache does.
 	archived bool
@@ -248,7 +251,7 @@ func (mt *managedThread) apply(ev event.Event) {
 	}
 	if v, ok := usageFromEvent(ev); ok {
 		mt.usage.add(v)
-		mt.addLiveSpend(ev, v)
+		mt.addSpend(ev, v)
 	}
 	if model, tier, ok := servedFromEvent(ev); ok {
 		mt.servedModel, mt.servedTier = model, tier
@@ -500,11 +503,14 @@ func firstDir(dirs []string) string {
 	return dirs[0]
 }
 
-// addLiveSpend prices one turn into the run in flight. It accrues only while
-// running, since replaying the log at startup would otherwise charge every
-// turn the thread has ever taken to a run that is not happening.
-func (mt *managedThread) addLiveSpend(ev event.Event, v llm.Usage) {
-	if !mt.running || mt.price == nil {
+// addSpend prices one usage event. A run in flight accumulates into the live
+// figure its own outcome replaces when it ends. A fold of a log this process
+// never ran accumulates into the total instead, since no outcome will ever
+// account for those turns: pricing only the live ones reported every thread
+// as having spent nothing after a restart. An event that is neither has been
+// paid for by its run's outcome already.
+func (mt *managedThread) addSpend(ev event.Event, v llm.Usage) {
+	if mt.price == nil {
 		return
 	}
 
@@ -513,5 +519,10 @@ func (mt *managedThread) addLiveSpend(ev event.Event, v llm.Usage) {
 		return
 	}
 
-	mt.liveSpendUSD += mt.price(model, v)
+	switch {
+	case mt.replaying:
+		mt.spendUSD += mt.price(model, v)
+	case mt.running:
+		mt.liveSpendUSD += mt.price(model, v)
+	}
 }

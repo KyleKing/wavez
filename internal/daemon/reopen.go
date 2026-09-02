@@ -94,11 +94,15 @@ func (m *manager) reopenThread(id, path string) (*managedThread, error) {
 
 	mt := &managedThread{
 		th:      th,
+		price:   m.loop.PriceTurn,
 		id:      id,
 		dirs:    m.defaultDirs,
 		name:    slugName(firstUserText(events), id),
 		created: created,
 		state:   event.StateIdle,
+		// What this fold reads is every turn a previous process ran, and
+		// nothing accounts for those but the log itself.
+		replaying: true,
 	}
 
 	if err := mt.sync(); err != nil {
@@ -106,6 +110,8 @@ func (m *manager) reopenThread(id, path string) (*managedThread, error) {
 	}
 
 	if !interruptedState(mt.state) {
+		mt.replaying = false
+
 		return mt, nil
 	}
 
@@ -115,6 +121,8 @@ func (m *manager) reopenThread(id, path string) (*managedThread, error) {
 	if err := mt.sync(); err != nil {
 		return nil, fmt.Errorf("syncing thread: %w", err)
 	}
+
+	mt.replaying = false
 
 	return mt, nil
 }
