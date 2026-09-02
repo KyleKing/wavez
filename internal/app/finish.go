@@ -36,7 +36,7 @@ func (c *FinishChecker) Check(ctx context.Context, f agent.Finish) ([]string, er
 
 	var reports []finish.Report
 
-	named, err := finish.NamedThingsExist(ctx, c.root, f.Answer, c.index)
+	named, err := finish.NamedThingsExist(ctx, c.root, f.Answer, c.index, changed)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // the check already names the lookup that failed
 	}

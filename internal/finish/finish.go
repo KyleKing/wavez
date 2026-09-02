@@ -71,7 +71,7 @@ var symbolPattern = regexp.MustCompile("`([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)(?:
 // that the tree and the index do not hold. It is exactly what `h1`
 // invented: asked to name a file and a function, a run answered with both
 // and neither existed.
-func NamedThingsExist(ctx context.Context, root, answer string, index Index) (Report, error) {
+func NamedThingsExist(ctx context.Context, root, answer string, index Index, changed []string) (Report, error) {
 	var report Report
 
 	for _, path := range missingPaths(root, answer) {
@@ -80,7 +80,7 @@ func NamedThingsExist(ctx context.Context, root, answer string, index Index) (Re
 		})
 	}
 
-	missing, err := missingSymbols(ctx, answer, index)
+	missing, err := missingSymbols(ctx, answer, index, newText(root, changed))
 	if err != nil {
 		return Report{}, err
 	}
@@ -110,7 +110,7 @@ func missingPaths(root, answer string) []string {
 	return out
 }
 
-func missingSymbols(ctx context.Context, answer string, index Index) ([]string, error) {
+func missingSymbols(ctx context.Context, answer string, index Index, written func(string) bool) ([]string, error) {
 	if index == nil {
 		return nil, nil
 	}
@@ -120,6 +120,10 @@ func missingSymbols(ctx context.Context, answer string, index Index) ([]string, 
 	for _, match := range symbolPattern.FindAllStringSubmatch(answer, -1) {
 		name := lastSegment(match[1])
 		if len(name) < minSymbolLen {
+			continue
+		}
+
+		if written(name) {
 			continue
 		}
 
@@ -140,6 +144,66 @@ func missingSymbols(ctx context.Context, answer string, index Index) ([]string, 
 // almost always a variable in an example rather than a declaration the
 // index would hold.
 const minSymbolLen = 3
+
+// newText reports whether a name is written in one of the files this run
+// changed. The index is built before a run and never during one, so a
+// declaration the run just wrote is absent from both halves of indexHolds:
+// a lane that had written `classifyTokens` a turn earlier was told it had
+// invented the name.
+func newText(root string, changed []string) func(string) bool {
+	var bodies []string
+
+	loaded := false
+
+	return func(name string) bool {
+		if !loaded {
+			loaded = true
+
+			for _, rel := range changed {
+				abs := filepath.Join(root, filepath.FromSlash(rel))
+
+				body, err := os.ReadFile(abs) //nolint:gosec // a path the run itself changed
+				if err != nil {
+					continue
+				}
+
+				bodies = append(bodies, string(body))
+			}
+		}
+
+		for _, body := range bodies {
+			if wholeWord(body, name) {
+				return true
+			}
+		}
+
+		return false
+	}
+}
+
+// wholeWord reports whether body holds name bounded by non-identifier bytes,
+// so `Read` does not match `ReadLog`.
+func wholeWord(body, name string) bool {
+	for at := 0; ; {
+		i := strings.Index(body[at:], name)
+		if i < 0 {
+			return false
+		}
+
+		start := at + i
+		end := start + len(name)
+
+		if (start == 0 || !identByte(body[start-1])) && (end == len(body) || !identByte(body[end])) {
+			return true
+		}
+
+		at = start + 1
+	}
+}
+
+func identByte(c byte) bool {
+	return c == '_' || ('0' <= c && c <= '9') || ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z')
+}
 
 // indexHolds reports whether the project holds the name at all: declared as
 // a symbol, or failing that written somewhere in the tree.

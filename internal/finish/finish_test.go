@@ -67,7 +67,7 @@ func TestNamedThingsExistCatchesAnInventedAnswer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			report, err := finish.NamedThingsExist(t.Context(), root, tt.answer, stubIndex{"recover": true})
+			report, err := finish.NamedThingsExist(t.Context(), root, tt.answer, stubIndex{"recover": true}, nil)
 			if err != nil {
 				t.Fatalf("NamedThingsExist: %v", err)
 			}
@@ -115,12 +115,30 @@ func TestNamedThingsExistReadsPastWhatTheIndexDeclares(t *testing.T) {
 	}
 
 	report, err := finish.NamedThingsExist(t.Context(), root,
-		"`Only` reads `maxReadFiles`, and `Invented` is not there.", store)
+		"`Only` reads `maxReadFiles`, and `Invented` is not there.", store, nil)
 	if err != nil {
 		t.Fatalf("NamedThingsExist: %v", err)
 	}
 
 	if len(report.Findings) != 1 || report.Findings[0].Detail != "Invented" {
 		t.Errorf("Findings = %v, want only the name nothing declares and nothing writes", report.Findings)
+	}
+
+	// The index was built before the run, so a declaration written during it
+	// is in neither half of the lookup and the run's own change set is the
+	// only thing that grounds it.
+	fresh := "package p\n\nfunc classifyTokens() {}\n"
+	if err = os.WriteFile(filepath.Join(root, "fresh.go"), []byte(fresh), 0o600); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	report, err = finish.NamedThingsExist(t.Context(), root,
+		"`classifyTokens` holds the switch now.", store, []string{"fresh.go"})
+	if err != nil {
+		t.Fatalf("NamedThingsExist: %v", err)
+	}
+
+	if !report.OK() {
+		t.Errorf("Findings = %v, want none for a name this run wrote", report.Findings)
 	}
 }
