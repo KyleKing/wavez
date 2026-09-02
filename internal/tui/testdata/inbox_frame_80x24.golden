@@ -1,5 +1,7 @@
 [1m┌ inbox · 2 waiting ───────────────────────────────────────────────────────────┐[m
-[1m│ [m[1m> ! docs-pass                shell    rm -rf .testmondata  [y] [n] [a][m      [1m │[m
+[1m│ [m[1m> ! docs-pass                shell    run                  [y] [n] [a][m      [1m │[m
 [1m│ [m[2m    editing internal/lease.go[m                                               [1m │[m
+[1m│ [m    cat > NEXT_STEPS.md <<'EOF' # Next Steps EOF                            [1m │[m
+[1m│ [m[2m    cat is not on the list of commands that run without asking[m              [1m │[m
 [1m│ [m  ! add-jj-backend                                         > colocate or pu…[1m │[m
 [1m└ [enter]answer [o]open [esc]back ─────────────────────────────────────────────┘[m

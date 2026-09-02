@@ -15,7 +15,9 @@ func samplePending() []api.PendingInfo {
 	return []api.PendingInfo{
 		{
 			ID: "p1", ThreadID: "t2", Thread: "docs-pass", Tool: "shell",
-			Action: "rm -rf .testmondata", Step: "editing internal/lease.go",
+			Action: "run", Step: "editing internal/lease.go",
+			Detail: "cat > NEXT_STEPS.md <<'EOF'\n# Next Steps\nEOF",
+			Reason: "cat is not on the list of commands that run without asking",
 		},
 		{
 			ID: "p2", ThreadID: "t7", Thread: "add-jj-backend", Question: true,
@@ -44,8 +46,10 @@ func TestInbox_RowShowsWhatTheThreadParkedOn(t *testing.T) {
 	out := openInbox(t, 80, 24).View().Content
 
 	assert.Contains(t, out, "docs-pass")
-	assert.Contains(t, out, "rm -rf .testmondata")
 	assert.Contains(t, out, "editing internal/lease.go")
+	// The command being approved, folded onto one line: a row that named only
+	// the reason asked the user to approve something they could not see.
+	assert.Contains(t, out, "cat > NEXT_STEPS.md <<'EOF' # Next Steps EOF")
 }
 
 // A question prompt carries no Step of its own (Detail is the question

@@ -156,6 +156,13 @@ func (m Model) renderInbox() string {
 
 		body = append(body, m.th.accent.Render("> "+line))
 		body = append(body, m.parkedStepLine(r.Step)...)
+		// What is being approved, before why it needs approving. A row that
+		// named only the reason asked the user to approve a command they
+		// could not see.
+		if !r.Question && r.Detail != "" {
+			body = append(body, m.th.fgDefault.Render(truncate("    "+oneLine(r.Detail), m.width-boxPad)))
+		}
+
 		if r.Reason != "" {
 			body = append(body, m.th.fgMuted.Render(truncate("    "+r.Reason, m.width-boxPad)))
 		}
