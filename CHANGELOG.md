@@ -1,3 +1,32 @@
+## v0.20.0 (2026-09-02)
+
+### Feat
+
+- **gate**: let a project configure the formatter and scope checks per stack
+- **glob**: match ** across path segments
+- **pty**: let a call name the screen size
+- **lsp**: own the JSON-RPC transport and add ty for Python
+
+### Fix
+
+- **pty**: match the echo the tty actually writes
+- **pty**: read a reply to the program's query as echo, not as its answer
+- **daemon**: bound the wait for connection handlers at shutdown
+- **guard**: stop reading a script in another language as shell
+- **bench**: take the wait for a human out of a turn's time
+- **tui**: name the composer keys the mode actually has
+- **daemon**: keep a thread's spend across a restart
+- **pty**: run the program under the sandbox, as the shell does
+- **app**: make the reviewer work on a hybrid model and a schema-ignoring endpoint
+- **finish**: match a path the task names by its tail
+- **tui**: name the command an approval is asking about
+- **guard**: read a heredoc body as data, not as commands
+- **pty**: answer the program's terminal queries
+- **pty**: judge a command by the project's allowlist, as the shell does
+- **tools**: list skips what the index skips
+- **sandbox**: redirect the user cache the way the Go caches already are
+- **config**: keep the element type on every class-valued default
+
 ## v0.19.0 (2026-09-01)
 
 ### Feat
