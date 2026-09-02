@@ -19,7 +19,7 @@ import "strings"
 // `sh -c`, so a nested one is a way to hand the classifier a string it never
 // reads.
 var defaultAllowed = map[string]bool{
-	"awk": true, "basename": true, "cat": true, "cd": true, "chmod": true, "chown": true, "cksum": true,
+	"awk": true, "basename": true, "cat": true, "cd": true, cmdChmod: true, cmdChown: true, "cksum": true,
 	"comm": true, "cp": true, "cut": true, "date": true, cmdDiff: true,
 	"dirname": true, "du": true, "echo": true, "expr": true, "false": true,
 	"file": true, "go": true, cmdGofmt: true, "golangci-lint": true, "grep": true,
@@ -29,7 +29,7 @@ var defaultAllowed = map[string]bool{
 	"rm": true, "sed": true, "seq": true, "sort": true, "stat": true,
 	"tail": true, "tee": true, "test": true, "touch": true, "tr": true,
 	"tree": true, "true": true, "uniq": true, "wc": true, "which": true,
-	"xargs": true, "yq": true,
+	cmdXargs: true, "yq": true,
 }
 
 // withoutAssignments drops the `NAME=value` prefix a stage may carry before

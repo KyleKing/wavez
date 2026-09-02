@@ -75,6 +75,12 @@ func Classify(command string, env Env) Result {
 		return Result{Verdict: Refuse, Reason: "fork bomb", Fragment: trimmed}
 	}
 
+	if p := walk(trimmed); p != nil {
+		return worst(classifyParsed(p, env), trimmed)
+	}
+
+	// The parser rejected the text, so the hand-rolled splitters answer. A
+	// verdict never depends on the parse succeeding.
 	outer, subs := extractSubstitutions(stripHeredocBodies(trimmed))
 
 	var findings []finding
@@ -94,6 +100,48 @@ func Classify(command string, env Env) Result {
 	}
 
 	return worst(findings, trimmed)
+}
+
+// classifyParsed grades every pipeline a parse found, at the top level and
+// inside every substitution, nested or not.
+func classifyParsed(p *parsed, env Env) []finding {
+	var findings []finding
+
+	for _, pipe := range p.top {
+		findings = append(findings, classifyStages(pipe, env)...)
+	}
+
+	for _, sub := range p.subs {
+		for _, pipe := range sub.top {
+			for _, f := range classifyStages(pipe, env) {
+				if f.Verdict == Allow {
+					continue
+				}
+				findings = append(findings, finding{
+					Verdict:  f.Verdict,
+					Reason:   "command substitution runs: " + f.Reason,
+					Fragment: f.Fragment,
+				})
+			}
+		}
+	}
+
+	return findings
+}
+
+// classifyStages grades one parsed pipeline: the pipe-to-shell refusal first,
+// then each stage's command.
+func classifyStages(pipe pipeline, env Env) []finding {
+	if reason, ok := pipeToShellStages(pipe.stages); ok {
+		return []finding{{Verdict: Refuse, Reason: reason, Fragment: pipe.fragment}}
+	}
+
+	findings := make([]finding, 0, len(pipe.stages))
+	for _, stage := range pipe.stages {
+		findings = append(findings, classifyTokens(stage.fragment, stage.words, env))
+	}
+
+	return findings
 }
 
 func worst(findings []finding, whole string) Result {

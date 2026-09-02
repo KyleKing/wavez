@@ -29,12 +29,15 @@ const (
 	subShow = "show"
 )
 
-// cmdDiff, cmdGofmt, and cmdMise name literals the allowlist, the
-// already-answered checks, and the write-target rules each repeat.
+// Command literals the allowlist, the rule switch, the already-answered
+// checks, and the write-target rules each repeat.
 const (
+	cmdChmod = "chmod"
+	cmdChown = "chown"
 	cmdDiff  = "diff"
 	cmdGofmt = "gofmt"
 	cmdMise  = "mise"
+	cmdXargs = "xargs"
 )
 
 // propRestore is the subcommand name git and jj share.
@@ -72,24 +75,44 @@ func pipeToShellReason(pipeline string) (string, bool) {
 	return "", false
 }
 
-func isForkBomb(cmd string) bool {
-	compact := strings.Join(strings.Fields(cmd), "")
-	return strings.Contains(compact, ":(){:|:&};:")
+// pipeToShellStages is pipeToShellReason over a parsed pipeline's stages.
+func pipeToShellStages(stages []cmdNode) (string, bool) {
+	if len(stages) < minPipelineStages {
+		return "", false
+	}
+
+	sawFetch := false
+	for _, stage := range stages {
+		if len(stage.words) == 0 {
+			continue
+		}
+		head := stage.words[0]
+		if fetchCommands[head] {
+			sawFetch = true
+			continue
+		}
+		if sawFetch && shellInterpreters[baseName(head)] {
+			return "pipes a network fetch into a shell interpreter", true
+		}
+	}
+
+	return "", false
 }
 
-// classifyCommand gathers every rule that matches cmd and returns the worst
-// of them: a command can trip more than one pattern (rm -rf on a .git path
-// is both a scoped delete and a write to a protected path), and picking only the
-// first match risks under-reporting the real severity.
-func classifyCommand(cmd string, env Env) finding {
-	raw := tokenize(cmd)
+// classifyTokens gathers every rule that matches one command's tokens and
+// returns the worst of them: a command can trip more than one pattern (rm -rf
+// on a .git path is both a scoped delete and a write to a protected path),
+// and picking only the first match risks under-reporting the real severity.
+// Both readings of a command come here: classifyCommand's hand-rolled
+// tokenize for text the parser rejected, and the parse's own word lists.
+func classifyTokens(fragment string, raw []string, env Env) finding {
 	if len(raw) == 0 {
-		return finding{Verdict: NeedsApproval, Reason: "empty command could not be classified", Fragment: cmd}
+		return finding{Verdict: NeedsApproval, Reason: "empty command could not be classified", Fragment: fragment}
 	}
 
 	tokens := withoutAssignments(raw)
 	if len(tokens) == 0 {
-		return finding{Verdict: Allow, Reason: "sets a variable and runs nothing", Fragment: cmd}
+		return finding{Verdict: Allow, Reason: "sets a variable and runs nothing", Fragment: fragment}
 	}
 
 	var candidates []finding
@@ -97,7 +120,7 @@ func classifyCommand(cmd string, env Env) finding {
 	for _, tok := range tokens {
 		if tok == "sudo" {
 			candidates = append(candidates, finding{
-				Verdict: Refuse, Reason: "sudo steps outside the sandbox's user scope", Fragment: cmd,
+				Verdict: Refuse, Reason: "sudo steps outside the sandbox's user scope", Fragment: fragment,
 			})
 
 			break
@@ -107,33 +130,44 @@ func classifyCommand(cmd string, env Env) finding {
 	name := baseName(tokens[0])
 	switch name {
 	case "rm":
-		candidates = append(candidates, classifyRM(cmd, tokens, env))
+		candidates = append(candidates, classifyRM(fragment, tokens, env))
 	case cmdGit:
-		candidates = append(candidates, classifyGit(cmd, tokens, env))
+		candidates = append(candidates, classifyGit(fragment, tokens, env))
 	case "jj":
-		candidates = append(candidates, classifyJJ(cmd, tokens))
-	case "chmod", "chown":
-		candidates = append(candidates, classifyChmodChown(cmd, tokens, env))
+		candidates = append(candidates, classifyJJ(fragment, tokens))
+	case cmdChmod, cmdChown:
+		candidates = append(candidates, classifyChmodChown(fragment, tokens, env))
 	case "dd":
-		candidates = append(candidates, classifyDD(cmd, tokens))
+		candidates = append(candidates, classifyDD(fragment, tokens))
 	case "diskutil":
-		candidates = append(candidates, classifyDiskutil(cmd, tokens))
+		candidates = append(candidates, classifyDiskutil(fragment, tokens))
 	case "kill":
-		candidates = append(candidates, classifyKill(cmd, tokens))
-	case "xargs":
-		candidates = append(candidates, classifyXargs(cmd, tokens, env))
+		candidates = append(candidates, classifyKill(fragment, tokens))
+	case cmdXargs:
+		candidates = append(candidates, classifyXargs(fragment, tokens, env))
 	}
-	candidates = append(candidates, byName(cmd, tokens[0], name, tokens[1:], env)...)
+	candidates = append(candidates, byName(fragment, tokens[0], name, tokens[1:], env)...)
 	if killallProcessWide(name, tokens) {
 		candidates = append(candidates, finding{
-			Verdict: NeedsApproval, Reason: "kills processes by name across the whole user", Fragment: cmd,
+			Verdict: NeedsApproval, Reason: "kills processes by name across the whole user", Fragment: fragment,
 		})
 	}
 	if reason, hit := writesProtected(tokens, env); hit {
-		candidates = append(candidates, finding{Verdict: Refuse, Reason: reason, Fragment: cmd})
+		candidates = append(candidates, finding{Verdict: Refuse, Reason: reason, Fragment: fragment})
 	}
 
-	return worst(candidates, cmd)
+	return worst(candidates, fragment)
+}
+
+// classifyCommand is the fallback reading for text the parser rejected: it
+// tokenizes by hand and hands the tokens to classifyTokens.
+func classifyCommand(cmd string, env Env) finding {
+	return classifyTokens(cmd, tokenize(cmd), env)
+}
+
+func isForkBomb(cmd string) bool {
+	compact := strings.Join(strings.Fields(cmd), "")
+	return strings.Contains(compact, ":(){:|:&};:")
 }
 
 // byName gathers the rules that key off the command's own name rather than

@@ -1,6 +1,6 @@
 module github.com/kyleking/wavez
 
-go 1.25.0
+go 1.26.0
 
 require (
 	charm.land/bubbles/v2 v2.1.1
@@ -24,6 +24,7 @@ require (
 	golang.org/x/tools v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
+	mvdan.cc/sh/v3 v3.14.0
 )
 
 require (

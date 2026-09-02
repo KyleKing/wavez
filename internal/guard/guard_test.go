@@ -232,6 +232,26 @@ func TestClassify_MetacharacterSplitting(t *testing.T) {
 			wantVerdict: guard.Refuse, wantFrag: "rm -rf /",
 		},
 		{name: "backtick substitution is classified", command: "echo `sudo whoami`", wantVerdict: guard.Refuse},
+		{
+			name:        "a substitution inside another substitution is classified",
+			command:     `echo "$(echo $(rm -rf /))"`,
+			wantVerdict: guard.Refuse, wantFrag: "rm -rf /",
+		},
+		{
+			name:        "a quoted heredoc body is data rather than commands",
+			command:     "cat > NOTES.md <<'EOF'\n# Heading\n- a bullet\nEOF\n",
+			wantVerdict: guard.Allow,
+		},
+		{
+			name:        "an unquoted heredoc body expands, so its substitution is classified",
+			command:     "cat <<W\n$(sudo whoami)\nW\n",
+			wantVerdict: guard.Refuse, wantFrag: "sudo whoami",
+		},
+		{
+			name:        "text the parser rejects is still classified",
+			command:     "rm -rf / ; echo 'unterminated",
+			wantVerdict: guard.Refuse, wantFrag: "rm -rf /",
+		},
 	})
 }
 
