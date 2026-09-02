@@ -1316,6 +1316,45 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      change runs it, and a command, and the ruff loop on calcipy is the same
      change-triggered loop the Go gates give
 
+   Driving a Python TUI project end to end on 2026-09-02 found eleven more,
+   every one of them invisible from this tree because this tree is Go, is
+   driven by a Bubble Tea client, and has no dependency manager with a cache
+   of its own:
+
+   - the LSP transport read a server request carrying id 0 as a notification
+     and answered it null, which ty answers by never serving another request,
+     so no Python file reached a rename or a diagnostic. `internal/lsp` owns
+     the transport now, and per-edit ty diagnostics on that project run at
+     4-20 ms
+   - `checks`, `cycles`, and `links` declared their pkl defaults without an
+     element type, so a project writing a gate the way the schema's own
+     example shows failed to load at all
+   - the sandbox made `~/.cache/uv` readable and not writable, so every uv
+     command failed and the model started working around it with `export`
+   - `list` answered that project with 4,480 files, nearly all of them
+     `.venv`, because the tool and the index kept separate skip lists
+   - `shellAllow` reached the shell tool and not the terminal one, so every
+     drive of a TUI cost an approval the shell would not have asked for
+   - the `pty` tool deadlocked on every Textual app: a terminal that never
+     answers a mode query blocks the program asking, and the emulator's
+     answers went into a pipe nothing read. That deadlock also held the
+     daemon through SIGTERM, since the shutdown waited on the handler
+     unbounded
+   - the guard read a heredoc body as commands, so writing markdown through
+     `cat > file <<'EOF'` stopped the run to approve a command named `#`; and
+     it read a Python file handed to an interpreter as a shell command line,
+     where a docstring became a command and a string holding `rm -rf /` would
+     have been refused
+   - an inbox row named why approval was needed and never what for
+   - `finish` read `ui/widgets/file_list.py` and
+     `src/vcr_tui/ui/widgets/file_list.py` as different files, and told a run
+     that had edited exactly that file that it had not done the task
+   - the reviewer never carried the tier's reasoning default, so GLM-5.3
+     spent all 200 tokens a verdict is allowed on a trace and returned empty
+     content: every review on that provider came back unreviewed
+   - `path.Match` reads `**` as one `*`, so every pattern scoping anything to
+     a subtree matched one depth and silently missed the rest
+
    A run which edits nothing was verified by nobody, since every gate and
    every other finish bound reads a change set. One such run reached a
    confident wrong conclusion about a stylesheet and drafted a correction to

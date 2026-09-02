@@ -5163,3 +5163,36 @@ linting to pre-push and CI.
 The step is in [my_go_template](https://github.com/KyleKing/my_go_template)
 now, so the numbers live here rather than in the comment: they were measured
 on this checkout and a freshly rendered project would report its own.
+
+## 2026-09-02: a Python TUI project, from loose notes to a released build
+
+The first sustained run against a project this tree did not write, driven
+from the TUI under tmux rather than headless: `../vcr-tui`, 906 lines of
+Textual and Click with zero tests, two roadmap files describing a project
+that did not exist, and no CI.
+
+What it produced there, over six threads and 333 model turns for about
+$3: one roadmap written from the tree, the calcipy_template adopted through
+copier with the project's own content merged back over it, 136 tests and
+seven golden Textual snapshots where there had been none, and six bugs
+fixed. Four of the six were found by driving the app rather than by reading
+it: the file list was empty for a cassette in the start directory, metadata
+never populated, and a fixed 30-column panel left nothing for the rest of
+the layout under 40.
+
+What it cost this tree is the eleven defects listed under Next item 2, and
+the shape of them is worth keeping rather than the count. Nine of the eleven
+are a Go assumption that nothing in a Go repository could contradict: one
+skip list per walker rather than one shared, a cache redirect naming only
+GOCACHE, a script classifier that reads any file as shell, a `**` that never
+had to span more than one directory. The other two are what a second client
+does to a protocol: ty numbers its first request 0 where gopls does not, and
+Textual asks the terminal a question where Bubble Tea does not. Neither
+could be reached by a test written against the servers already in use.
+
+The measurement that matters for the harness: per-edit ty diagnostics on
+that project run at 4-20 ms, and the four project checks (`ruff format`,
+`ruff check`, `ty check`, `pytest`) run at 0.5 s, 0.1 s, 0.3 s, and 8.2 s.
+The formatter is the one that had to change shape: as a reporting check it
+cost a run twenty gate rounds of guessing at whitespace, and as a rewriting
+pre-pass over `{files}` it costs none.
