@@ -42,7 +42,12 @@ const reviewSystem = "You check one code change against the task it was asked to
 	"\n\n" +
 	"Judge the task only. Style, naming, missing tests, and unrelated improvements are not your concern, " +
 	"and neither is code the diff does not touch. " +
-	"When you object, name the requirement the diff fails in one sentence."
+	"When you object, name the requirement the diff fails in one sentence.\n\n" +
+	// The schema is sent as a response format too, and an endpoint that
+	// ignores it answers in prose that no verdict can be read out of. Z.AI's
+	// coding endpoint is one, so the contract is stated here as well and
+	// parseVerdict takes the object out of whatever surrounds it.
+	`Answer with one JSON object and nothing else: {"verdict": "ok" or "objection", "reason": "one sentence"}.`
 
 // reviewSchema constrains the verdict to an enum and a sentence, so a small
 // model cannot answer in prose.
@@ -76,6 +81,7 @@ type Differ interface {
 // source-plus-test change on-box.
 type ModelReviewer struct {
 	providers   router.Tiers[llm.Provider]
+	thinking    router.Tiers[*bool]
 	differ      Differ
 	root        string
 	models      router.Tiers[string]
@@ -83,13 +89,17 @@ type ModelReviewer struct {
 }
 
 // NewModelReviewer builds a reviewer for the project at root, reading diffs
-// through differ and asking whichever tier the router picks.
+// through differ and asking whichever tier the router picks. It carries each
+// tier's reasoning default the way a turn does: a hybrid model left to reason
+// here spent every one of the 200 tokens a verdict is allowed on a trace and
+// answered with empty content.
 func NewModelReviewer(
-	root string, differ Differ, providers router.Tiers[llm.Provider], models router.Tiers[string],
+	root string, differ Differ, providers router.Tiers[llm.Provider],
+	models router.Tiers[string], thinking router.Tiers[*bool],
 ) *ModelReviewer {
 	return &ModelReviewer{
 		root: root, differ: differ, providers: providers,
-		models: models, tokenBudget: reviewTokenBudget,
+		models: models, thinking: thinking, tokenBudget: reviewTokenBudget,
 	}
 }
 
@@ -133,6 +143,7 @@ func (r *ModelReviewer) Review(ctx context.Context, rv agent.Review) agent.Verdi
 		MaxTokens:      reviewMaxTokens,
 		Temperature:    reviewTemperature,
 		ResponseFormat: &llm.ResponseFormat{Name: "review_verdict", Schema: reviewSchema},
+		Thinking:       r.thinking.For(route),
 	}
 
 	answer, err := collectText(ctx, r.providers.For(route), req)

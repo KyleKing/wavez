@@ -107,7 +107,7 @@ func TestModelReviewer_Review(t *testing.T) {
 
 			balanced := fake.New("balanced", jsonTurn(tt.answer))
 			differ := &stubDiffer{diff: tt.diff, err: tt.diffErr}
-			reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels())
+			reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels(), tierThinking())
 
 			got := reviewer.Review(context.Background(), review("make the empty state read differently", "a.go"))
 
@@ -129,7 +129,7 @@ func TestModelReviewer_PromptCarriesTaskAndDiff(t *testing.T) {
 
 	balanced := fake.New("balanced", jsonTurn(`{"verdict":"ok","reason":""}`))
 	differ := &stubDiffer{diff: "--- a/empty.go\n+++ b/empty.go\n+no results for that filter\n"}
-	reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels())
+	reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels(), tierThinking())
 
 	reviewer.Review(context.Background(), review("branch the empty-state string on the filter", "empty.go", "empty.go"))
 
@@ -192,7 +192,8 @@ func TestModelReviewer_RoutesAboveItsFloor(t *testing.T) {
 			answer := jsonTurn(`{"verdict":"ok","reason":""}`)
 			fast, balanced := fake.New("fast", answer), fake.New("balanced", answer)
 			reviewer := app.NewModelReviewer("/repo", &stubDiffer{diff: tt.diff},
-				router.Tiers[llm.Provider]{Fast: fast, Balanced: balanced, Deep: fake.New("deep")}, tierModels())
+				router.Tiers[llm.Provider]{Fast: fast, Balanced: balanced, Deep: fake.New("deep")},
+				tierModels(), tierThinking())
 
 			got := reviewer.Review(context.Background(), review("change both", "a.go", "a_test.go"))
 			if got.Result != agent.ReviewOK {
@@ -218,6 +219,15 @@ func TestModelReviewer_RoutesAboveItsFloor(t *testing.T) {
 // answer rather than which tier gave it.
 func tierProviders(p llm.Provider) router.Tiers[llm.Provider] {
 	return router.Tiers[llm.Provider]{Fast: p, Balanced: p, Deep: p}
+}
+
+// tierThinking is the reasoning default each tier carries into a review: off
+// everywhere, because a verdict is 200 tokens and a trace does not fit beside
+// one.
+func tierThinking() router.Tiers[*bool] {
+	off := false
+
+	return router.Tiers[*bool]{Fast: &off, Balanced: &off, Deep: &off}
 }
 
 func tierModels() router.Tiers[string] {

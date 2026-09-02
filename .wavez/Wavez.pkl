@@ -2,6 +2,11 @@
 /// (v0.1)"). A project's `.wavez.pkl` amends this module. Wavez writes this
 /// file into the project's `.wavez/` directory on every load, so amend it as
 /// `".wavez/Wavez.pkl"`, not a copy checked into the project.
+///
+/// The typed constructor in every class-valued default below is load-bearing.
+/// A `Mapping` or `Listing` default written as `new Mapping {}` loses its
+/// element type, and every `["name"] { ... }` an amending file writes then
+/// fails to evaluate as a `Dynamic`.
 module wavez.Wavez
 
 /// Files or headed sections (e.g. "AGENTS.md#architecture") that enter the
@@ -111,7 +116,7 @@ astGrepRules: Listing<String> = new Listing {}
 /// Checks this project runs on its own changes, by name. Every built-in gate
 /// speaks Go, so a project in another language reaches the model with nothing
 /// behind its edits until it declares one here.
-checks: Mapping<String, Check> = new Mapping {}
+checks: Mapping<String, Check> = new Mapping<String, Check> {}
 
 /// Functions `wavez -deadcode` should not report, as `package.Function`
 /// globs. A function no main reaches is not always a mistake: functional
@@ -282,11 +287,6 @@ class Routine {
 /// steps when it declares none: to turn a gate off, declare it with
 /// `enabled = false`, and to opt into `semgrep`, declare it with
 /// `enabled = true`.
-///
-/// The typed constructor in the default is load-bearing. A `Mapping` or
-/// `Listing` default written as `new Mapping {}` loses its element type, and
-/// every `["name"] { ... }` an amending file writes then fails to evaluate
-/// as a `Dynamic`.
 routines: Mapping<String, Routine> = new Mapping<String, Routine> {}
 
 /// Long-running things a routine can hold while it works: a compose target, a
@@ -336,7 +336,7 @@ class Cycle {
 }
 
 /// Cycles this project can run, beside the built-in fix cycle.
-cycles: Listing<Cycle> = new Listing {}
+cycles: Listing<Cycle> = new Listing<Cycle> {}
 
 /// One identifier-linking rule: text matching `pattern` renders as a
 /// hyperlink to `url`, which may reference the pattern's capture groups with
@@ -351,4 +351,4 @@ class LinkPattern {
 /// per-laptop user config on a clash; a pattern that fails to compile as a
 /// Go regexp fails the config load.
 /// Example: new LinkPattern { pattern = "#(\\d+)"; url = "https://github.com/kyleking/wavez/pull/$1" }
-links: Listing<LinkPattern> = new Listing {}
+links: Listing<LinkPattern> = new Listing<LinkPattern> {}

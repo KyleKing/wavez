@@ -128,7 +128,8 @@ func TestModelReviewer_LocalModel(t *testing.T) { //nolint:paralleltest // see t
 			fast := openaic.New("fast", openaic.WithBaseURL(baseURL), openaic.WithModel("qwen3:8b"))
 			reviewer := app.NewModelReviewer("/repo", fixedDiffer{diff: tt.diff},
 				router.Tiers[llm.Provider]{Fast: fast},
-				router.Tiers[string]{Fast: "qwen3:8b"})
+				router.Tiers[string]{Fast: "qwen3:8b"},
+				router.Tiers[*bool]{})
 
 			agreed := 0
 

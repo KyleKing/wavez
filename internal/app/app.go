@@ -332,7 +332,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 
 	runner, adapter, verifier := bundle.runner, bundle.adapter, bundle.verifier
 
-	reviewer := NewModelReviewer(root, vcs.NewJj(), providers, tierModels(cfg))
+	reviewer := NewModelReviewer(root, vcs.NewJj(), providers, tierModels(cfg), tierThinking(cfg))
 	changeGate := NewChangeGate(runner, bundle.runScope)
 	registry := buildRegistry(registryDeps{
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
