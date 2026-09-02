@@ -146,3 +146,57 @@ func insideRoot(arg, root string) (string, bool) {
 
 	return rel, true
 }
+
+// ReadableAsShell reports a script body this package can classify, which is
+// the shells shellInterpreters names. A Python
+// file read as a shell command line produces findings about its prose: a
+// docstring became a command named after its first word, and a string holding
+// `rm -rf /` would be refused as if the script ran it.
+//
+// A shebang decides where there is one. Without it the extension does, and a
+// file with neither is taken as shell, which is what an executable in a
+// project's own tree usually is.
+func ReadableAsShell(path string, body []byte) bool {
+	if line, ok := shebang(body); ok {
+		return shellInterpreters[baseName(interpreterOf(line))]
+	}
+
+	switch ext := strings.ToLower(filepath.Ext(path)); ext {
+	case "", ".sh", ".bash", ".zsh", ".ksh":
+		return true
+	default:
+		return false
+	}
+}
+
+func shebang(body []byte) (string, bool) {
+	if !strings.HasPrefix(string(body), "#!") {
+		return "", false
+	}
+
+	line, _, _ := strings.Cut(string(body), "\n")
+
+	return strings.TrimSpace(strings.TrimPrefix(line, "#!")), true
+}
+
+// interpreterOf reads the program a shebang names, skipping `env` and any
+// variable assignments after it, which is how `#!/usr/bin/env python3` spells
+// the same thing as `#!/usr/bin/python3`.
+func interpreterOf(line string) string {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return ""
+	}
+
+	if baseName(fields[0]) != "env" {
+		return fields[0]
+	}
+
+	for _, f := range fields[1:] {
+		if !strings.HasPrefix(f, "-") && !strings.Contains(f, "=") {
+			return f
+		}
+	}
+
+	return ""
+}

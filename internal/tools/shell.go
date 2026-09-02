@@ -375,6 +375,14 @@ func (s *Shell) classifyScript(rel string) guard.Result {
 		}
 	}
 
+	if !guard.ReadableAsShell(rel, body) {
+		return guard.Result{
+			Verdict:  guard.NeedsApproval,
+			Reason:   "runs " + rel + ", which is not shell and cannot be read before running it",
+			Fragment: rel,
+		}
+	}
+
 	inner := guard.Classify(string(body), s.env)
 	if inner.Verdict == guard.Allow {
 		return inner

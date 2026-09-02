@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
 
@@ -30,13 +32,39 @@ func assertShellOutcome(t *testing.T, wantAsked, asked, wantRefused, wantRun, is
 	}
 }
 
+func runShellCommand(
+	t *testing.T, root, command string, allow []string, gate permission.GateFunc,
+) tool.Result {
+	t.Helper()
+
+	in, err := json.Marshal(map[string]any{"command": command})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var opts []tools.Option
+	if len(allow) > 0 {
+		opts = append(opts, tools.WithAllowedCommands(allow))
+	}
+
+	res, err := tools.NewShell(root, t.TempDir(), "t1", gate, opts...).Run(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	return res
+}
+
 func TestShellJudgesTheScriptItRuns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name        string
+		file        string
 		script      string
 		command     string
+		wantReason  string
+		allow       []string
 		wantAsked   bool
 		wantRun     bool
 		wantRefused bool
@@ -72,6 +100,19 @@ func TestShellJudgesTheScriptItRuns(t *testing.T) {
 			command: "echo hi",
 			wantRun: true,
 		},
+		{
+			// Read as shell, this file's docstring is a command named after
+			// its first word and its print line is an `rm -rf /` to refuse.
+			// It is neither: it is Python, and nothing here parses Python.
+			name:        "a script in another language is not read as shell",
+			file:        "gen.py",
+			script:      "\"\"\"Post-Generation Script to be run from Copier.\"\"\"\nprint(\"rm -rf /\")\n",
+			command:     "python3 gen.py",
+			allow:       []string{"python3"},
+			wantAsked:   true,
+			wantRefused: true,
+			wantReason:  "is not shell",
+		},
 	}
 
 	for _, tt := range tests {
@@ -79,26 +120,28 @@ func TestShellJudgesTheScriptItRuns(t *testing.T) {
 			t.Parallel()
 
 			root := t.TempDir()
+
+			name := tt.file
+			if name == "" {
+				name = "s.sh"
+			}
+
 			if tt.script != "" {
 				//nolint:gosec // the guard's whole job here is to judge an executable script
-				if err := os.WriteFile(filepath.Join(root, "s.sh"), []byte(tt.script), 0o750); err != nil {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(tt.script), 0o750); err != nil {
 					t.Fatal(err)
 				}
 			}
 
 			gate, asked := recordingGate(t, permission.Deny)
 
-			in, err := json.Marshal(map[string]any{"command": tt.command})
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			res, err := tools.NewShell(root, t.TempDir(), "t1", gate).Run(context.Background(), in)
-			if err != nil {
-				t.Fatalf("Run: %v", err)
-			}
+			res := runShellCommand(t, root, tt.command, tt.allow, gate)
 
 			assertShellOutcome(t, tt.wantAsked, *asked, tt.wantRefused, tt.wantRun, res.IsError, res.Content)
+
+			if tt.wantReason != "" && !strings.Contains(res.Content, tt.wantReason) {
+				t.Errorf("Content = %q, want it to say %q", res.Content, tt.wantReason)
+			}
 		})
 	}
 }
