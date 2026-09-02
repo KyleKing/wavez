@@ -122,3 +122,104 @@ func TestCommandGatesSkipAnIncompleteCheck(t *testing.T) {
 		t.Fatalf("NewCommandGates built %d gates, want none", len(gates))
 	}
 }
+
+// A formatter rewrites the files the other gates are about to read, so it
+// takes the worktree exclusively the way the built-in Go formatter does:
+// without that, lint and the tests read a file while it is being rewritten,
+// which is what all 25 retractions over an unchanged tree came from.
+func TestCommandGate_ARewritingCheckTakesTheWorktree(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	tests := map[string]struct {
+		want     string
+		rewrites bool
+	}{
+		"a formatter": {want: gate.WorktreeResource, rewrites: true},
+		"a reporter":  {want: "check:format", rewrites: false},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			gates := gate.NewCommandGates(root, []gate.CommandCheck{
+				{Name: "format", Command: "true", Paths: []string{"*.py"}, Rewrites: tt.rewrites},
+			})
+
+			if len(gates) != 1 {
+				t.Fatalf("built %d gates, want 1", len(gates))
+			}
+
+			if got := gates[0].Resources(); len(got) != 1 || got[0] != tt.want {
+				t.Errorf("Resources = %v, want [%s]", got, tt.want)
+			}
+		})
+	}
+}
+
+// What a monorepo needs of a project check: run in the stack's own
+// directory, over the files the run actually changed, so one repository can
+// declare a formatter per stack and neither reformats the other's tree.
+func TestCommandGate_RunsInItsDirectoryOverTheChangedFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "apps", "api"), 0o750); err != nil {
+		t.Fatalf("creating the stack: %v", err)
+	}
+
+	for _, rel := range []string{"apps/api/main.py", "apps/api/other.py", "apps/web/app.ts"} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("creating %s: %v", rel, err)
+		}
+
+		if err := os.WriteFile(path, []byte("x\n"), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", rel, err)
+		}
+	}
+
+	gates := gate.NewCommandGates(root, []gate.CommandCheck{{
+		Name:    "format:api",
+		Dir:     "apps/api",
+		Paths:   []string{"apps/api/**/*.py"},
+		Command: "pwd > ran.txt; echo {files} >> ran.txt",
+	}})
+
+	if len(gates) != 1 {
+		t.Fatalf("built %d gates, want 1", len(gates))
+	}
+
+	res, err := gates[0].Run(t.Context(), gate.RunContext{
+		Changes: []tool.Change{{Path: "apps/api/main.py"}, {Path: "apps/web/app.ts"}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.Pass {
+		t.Fatalf("Result = %+v, want a pass", res)
+	}
+
+	//nolint:gosec // a file this test's own command wrote inside its temp dir
+	out, err := os.ReadFile(filepath.Join(root, "apps", "api", "ran.txt"))
+	if err != nil {
+		t.Fatalf("the command did not run in its own directory: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("ran.txt = %q, want the directory and the files", out)
+	}
+
+	if !strings.HasSuffix(lines[0], filepath.Join("apps", "api")) {
+		t.Errorf("ran in %q, want apps/api", lines[0])
+	}
+
+	// The web file changed too and this check does not name it.
+	if lines[1] != "main.py" {
+		t.Errorf("files = %q, want the one changed file it names, relative to its directory", lines[1])
+	}
+}

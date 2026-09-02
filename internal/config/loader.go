@@ -80,8 +80,10 @@ type pklService struct {
 
 // pklCheck mirrors the Check class in pkl/Wavez.pkl.
 type pklCheck struct {
-	Command string   `pkl:"command"`
-	Paths   []string `pkl:"paths"`
+	Command  string   `pkl:"command"`
+	Dir      string   `pkl:"dir"`
+	Paths    []string `pkl:"paths"`
+	Rewrites bool     `pkl:"rewrites"`
 }
 
 // pklTier mirrors the Tier class in pkl/Wavez.pkl.
@@ -368,7 +370,9 @@ func fromPkl(root string, p pklConfig) Config {
 func projectChecks(in map[string]pklCheck) []ProjectCheck {
 	out := make([]ProjectCheck, 0, len(in))
 	for name, c := range in {
-		out = append(out, ProjectCheck{Name: name, Command: c.Command, Paths: c.Paths})
+		out = append(out, ProjectCheck{
+			Name: name, Command: c.Command, Dir: c.Dir, Paths: c.Paths, Rewrites: c.Rewrites,
+		})
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

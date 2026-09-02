@@ -208,7 +208,15 @@ func Defaults(root string) Config {
 type ProjectCheck struct {
 	Name    string
 	Command string
-	Paths   []string
+	// Dir is where the command runs, relative to the project root. A
+	// repository holding several stacks runs each one's checks in its own
+	// directory.
+	Dir   string
+	Paths []string
+	// Rewrites marks a check that edits the files it reads, which is what a
+	// formatter does. It runs before the checks that read the tree and its
+	// output never reaches the model, the way the Go formatter's does not.
+	Rewrites bool
 }
 
 // Service is one long-running thing a routine can hold while it works. It is

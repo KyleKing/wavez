@@ -1021,7 +1021,7 @@ func buildGates(
 
 	gates := append(conventionGates(gate.NewFormatGate(root), convention),
 		gate.NewLintGate(root), gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root))
-	gates = append(gates, projectChecks...)
+	gates = append(replaced(gates, projectChecks), projectChecks...)
 
 	routines, err := buildRoutines(root, stateDir, cfg, resources,
 		append(append([]gate.Gate(nil), gates...), gate.NewBuildGate(root)))
@@ -1050,13 +1050,53 @@ func buildGates(
 	verifyGates := append(conventionGates(gate.NewFormatGate(root), convention),
 		gate.NewBuildGate(root), gate.NewLSPGate(root, lspPool), gate.NewGoTestGate(root),
 		gate.NewFailToPassGate(root, jj, jj))
-	verifyGates = append(verifyGates, projectChecks...)
+	verifyGates = append(replaced(verifyGates, projectChecks), projectChecks...)
 	verifier := NewGateVerifier(root, adapter, graph, gateLog, gate.RealClock{}, verifyGates, resources, writers)
 
 	return gateBundle{
 		runner: runner, adapter: adapter, verifier: verifier, routines: routines,
 		runScope: runScope,
 	}, nil
+}
+
+// replaced drops each built-in gate a project declared a check for, the way a
+// routine declared in the config replaces the built-in of that name. It is
+// how a project chooses its own formatter: `gofumpt -w .` on a Go tree,
+// `ruff format .` on a Python one, and no two formatters rewriting the same
+// file in the same round.
+//
+// A name is matched up to its first colon, so one repository holding several
+// stacks declares `format:api` and `format:web` and replaces the single
+// built-in formatter with both.
+func replaced(builtin, checks []gate.Gate) []gate.Gate {
+	if len(checks) == 0 {
+		return builtin
+	}
+
+	declared := make(map[string]struct{}, len(checks))
+	for _, c := range checks {
+		declared[gateFamily(c.Name())] = struct{}{}
+	}
+
+	out := make([]gate.Gate, 0, len(builtin))
+
+	for _, g := range builtin {
+		if _, ok := declared[gateFamily(g.Name())]; ok {
+			continue
+		}
+
+		out = append(out, g)
+	}
+
+	return out
+}
+
+// gateFamily is a gate name up to its first colon: `format:api` belongs to
+// the same family as the built-in `format`.
+func gateFamily(name string) string {
+	family, _, _ := strings.Cut(name, ":")
+
+	return family
 }
 
 // enabledGates drops the gates a project turned off by disabling their
@@ -1181,7 +1221,9 @@ func (a *App) Close() error {
 func commandChecks(checks []config.ProjectCheck) []gate.CommandCheck {
 	out := make([]gate.CommandCheck, 0, len(checks))
 	for _, c := range checks {
-		out = append(out, gate.CommandCheck{Name: c.Name, Command: c.Command, Paths: c.Paths})
+		out = append(out, gate.CommandCheck{
+			Name: c.Name, Command: c.Command, Dir: c.Dir, Paths: c.Paths, Rewrites: c.Rewrites,
+		})
 	}
 
 	return out

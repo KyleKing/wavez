@@ -8,15 +8,20 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/glob"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
 // CommandCheck is one check a project declares for itself: a name, the paths
-// whose change runs it, and the command line that runs it.
+// whose change runs it, the directory it runs in, and the command line that
+// runs it. Rewrites marks a check that edits the files it looks at, which is
+// a formatter.
 type CommandCheck struct {
-	Name    string
-	Command string
-	Paths   []string
+	Name     string
+	Command  string
+	Dir      string
+	Paths    []string
+	Rewrites bool
 }
 
 // CommandGate runs one command a project declared, when the change set holds
@@ -52,8 +57,16 @@ func NewCommandGates(repoRoot string, checks []CommandCheck) []Gate {
 func (g *CommandGate) Name() string { return g.check.Name }
 
 // Resources reports the command's own name, so two changes do not run the
-// same project command at once while different commands still overlap.
-func (g *CommandGate) Resources() []string { return []string{"check:" + g.check.Name} }
+// same project command at once while different commands still overlap. A
+// check that rewrites the worktree takes it exclusively instead, which is
+// what runs a formatter to completion before anything reads what it wrote.
+func (g *CommandGate) Resources() []string {
+	if g.check.Rewrites {
+		return []string{WorktreeResource}
+	}
+
+	return []string{"check:" + g.check.Name}
+}
 
 // Run executes the command when the change set holds a path this check
 // names. A non-zero exit is reported through Result, since that is what
@@ -65,9 +78,11 @@ func (g *CommandGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 			"the change set holds no path this check names"), nil
 	}
 
+	dir := filepath.Join(g.repoRoot, filepath.FromSlash(g.check.Dir))
+
 	//nolint:gosec // the command line comes from the project's own configuration, like every other gate's
-	cmd := exec.CommandContext(ctx, "sh", "-c", g.check.Command)
-	cmd.Dir = g.repoRoot
+	cmd := exec.CommandContext(ctx, "sh", "-c", expandFiles(g.check.Command, matched, g.check.Dir))
+	cmd.Dir = dir
 
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -89,6 +104,44 @@ func (g *CommandGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 		Examined: len(matched),
 		Failures: []TrimmedFailure{failure},
 	}, nil
+}
+
+// filesPlaceholder is what a command writes where it wants the changed files
+// this check matched.
+const filesPlaceholder = "{files}"
+
+// expandFiles substitutes the changed files into the command, each quoted and
+// relative to the directory the command runs in.
+//
+// A check without the placeholder runs over whatever its command names, which
+// is what a test suite wants. One with it runs over the change set, which is
+// what a formatter wants: `ruff format .` in a repository of any size
+// rewrites files the run never touched, and every one of them lands in the
+// diff a human then has to read.
+func expandFiles(command string, matched []string, dir string) string {
+	if !strings.Contains(command, filesPlaceholder) {
+		return command
+	}
+
+	quoted := make([]string, 0, len(matched))
+
+	for _, m := range matched {
+		rel := m
+		if dir != "" && dir != "." {
+			if r, err := filepath.Rel(dir, m); err == nil {
+				rel = r
+			}
+		}
+
+		quoted = append(quoted, shellQuote(filepath.ToSlash(rel)))
+	}
+
+	return strings.ReplaceAll(command, filesPlaceholder, strings.Join(quoted, " "))
+}
+
+// shellQuote wraps a path so `sh -c` reads it as one word whatever it holds.
+func shellQuote(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
 }
 
 // matching is the changed paths this check names. A check with no paths
@@ -115,11 +168,7 @@ func (g *CommandGate) names(path string) bool {
 	}
 
 	for _, pattern := range g.check.Paths {
-		if ok, err := filepath.Match(pattern, path); err == nil && ok {
-			return true
-		}
-
-		if ok, err := filepath.Match(pattern, filepath.Base(path)); err == nil && ok {
+		if glob.Match(pattern, filepath.ToSlash(path)) {
 			return true
 		}
 	}
