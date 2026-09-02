@@ -313,3 +313,43 @@ func TestClassify_ProjectWidensTheList(t *testing.T) {
 		t.Fatalf("Classify(uvx ruff) = %v, want needs_approval: uvx is not uv", got)
 	}
 }
+
+// The sandbox denies the network, so a package manager asked to fetch fails
+// partway and leaves an environment the project's own tests cannot run in.
+// One run met that, answered it by re-syncing under a different cache, and
+// spent eleven turns in an environment it had broken and could not repair.
+func TestClassify_RefusesADependencyFetchWithSomewhereToGo(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		command string
+		want    guard.Verdict
+	}{
+		"uv add":                 {command: "uv add pytest-textual-snapshot", want: guard.Refuse},
+		"uv sync":                {command: "uv sync --all-groups", want: guard.Refuse},
+		"uv run --with":          {command: "uv run --with rich==14.2.0 python x.py", want: guard.Refuse},
+		"pip install":            {command: "pip install ruff", want: guard.Refuse},
+		"npm install":            {command: "npm install", want: guard.Refuse},
+		"go get":                 {command: "go get example.com/x", want: guard.Refuse},
+		"uv run is not a fetch":  {command: "uv run pytest -q", want: guard.Allow},
+		"go test is not a fetch": {command: "go test ./...", want: guard.Allow},
+		"npm run is not a fetch": {command: "npm run build", want: guard.NeedsApproval},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			res := guard.Classify(tt.command, guard.Env{
+				ProjectRoot: t.TempDir(), AllowedCommands: []string{"uv", "pip"},
+			})
+			if res.Verdict != tt.want {
+				t.Fatalf("Classify(%q) = %s (%s), want %s", tt.command, res.Verdict, res.Reason, tt.want)
+			}
+
+			if tt.want == guard.Refuse && !strings.Contains(res.Reason, "Say what the project needs") {
+				t.Errorf("Reason = %q, want it to say what to do instead", res.Reason)
+			}
+		})
+	}
+}

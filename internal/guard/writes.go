@@ -24,7 +24,7 @@ var (
 
 var (
 	inPlaceCommands  = map[string]bool{"perl": true, "ruby": true, "sed": true}
-	moveCopyCommands = map[string]bool{"cp": true, "install": true, "mv": true, "rsync": true}
+	moveCopyCommands = map[string]bool{"cp": true, subInstall: true, "mv": true, "rsync": true}
 	removeCommands   = map[string]bool{"rm": true, "rmdir": true, "shred": true, "unlink": true}
 )
 

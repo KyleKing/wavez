@@ -123,7 +123,7 @@ func classifyCommand(cmd string, env Env) finding {
 	case "xargs":
 		candidates = append(candidates, classifyXargs(cmd, tokens, env))
 	}
-	candidates = append(candidates, byName(cmd, tokens[0], name, env)...)
+	candidates = append(candidates, byName(cmd, tokens[0], name, tokens[1:], env)...)
 	if killallProcessWide(name, tokens) {
 		candidates = append(candidates, finding{
 			Verdict: NeedsApproval, Reason: "kills processes by name across the whole user", Fragment: cmd,
@@ -138,7 +138,7 @@ func classifyCommand(cmd string, env Env) finding {
 
 // byName gathers the rules that key off the command's own name rather than
 // its arguments.
-func byName(cmd, prog, name string, env Env) []finding {
+func byName(cmd, prog, name string, args []string, env Env) []finding {
 	var out []finding
 
 	if !env.allowed(prog, name) {
@@ -151,6 +151,10 @@ func byName(cmd, prog, name string, env Env) []finding {
 			Reason:   name + " is not available here: " + instead,
 			Fragment: cmd,
 		})
+	}
+
+	if fetch, fetches := fetchesDependency(name, args); fetches {
+		out = append(out, finding{Verdict: Refuse, Reason: fetch + reasonNoNetwork, Fragment: cmd})
 	}
 
 	if strings.HasPrefix(name, "mkfs") {
@@ -559,4 +563,66 @@ func cleanRoot(root string) string {
 	}
 
 	return filepath.Clean(root)
+}
+
+// fetchesDependencies names the package-manager commands that reach the
+// network for something the environment does not already have, by program
+// and by the first argument that means "go and get it".
+//
+// The sandbox denies the network, so every one of these fails, and it fails
+// after doing part of the work: one run met the uv cache error, answered it
+// by re-syncing under a different cache, and left an environment its own
+// tests could not run in, with no way back because repairing it needs the
+// same network. Refusing with the reason costs one turn where finding out
+// cost eleven.
+var fetchesDependencies = map[string][]string{
+	"cargo": {subAdd, "fetch", subInstall, subUpdate},
+	"go":    {"get"},
+	"npm":   {"ci", "i", subInstall, subUpdate},
+	"pip":   {"download", subInstall, "uninstall"},
+	"pip3":  {"download", subInstall, "uninstall"},
+	"pnpm":  {subAdd, subInstall, subUpdate},
+	"uv":    {subAdd, "lock", "pip", "remove", "sync", "tool"},
+	"yarn":  {subAdd, subInstall, "up"},
+}
+
+// The subcommands several package managers spell the same way.
+const (
+	subAdd     = "add"
+	subInstall = "install"
+	subUpdate  = "update"
+)
+
+// reasonNoNetwork explains a refusal every dependency fetch gets, and says
+// what to do instead, since a run that cannot install has to hand the need
+// back rather than work around it.
+const reasonNoNetwork = " cannot reach the network here, and a partial run of it leaves the " +
+	"environment worse than it was. Say what the project needs installed instead"
+
+// fetchesDependency reports a command that would go to the network for a
+// dependency: the subcommands above, and `uv run --with`, which installs
+// before it runs.
+func fetchesDependency(prog string, tokens []string) (string, bool) {
+	subs, known := fetchesDependencies[prog]
+	if !known {
+		return "", false
+	}
+
+	for _, arg := range tokens {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		if slices.Contains(subs, arg) {
+			return prog + " " + arg, true
+		}
+
+		break
+	}
+
+	if prog == "uv" && slices.Contains(tokens, "--with") {
+		return "uv run --with", true
+	}
+
+	return "", false
 }
