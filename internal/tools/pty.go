@@ -368,38 +368,21 @@ func (s *ptyScreen) expect(key string) {
 	s.sent = time.Now()
 }
 
-// echoOf is what a terminal in canonical mode writes back for the bytes
-// written to it: \r arrives as \r\n, and a control byte arrives as the two
-// printable characters the tty renders it with, so an Escape comes back as
-// `^[` rather than as 0x1b. Matching the raw bytes instead never matched, and
-// every reply to a program's query then read as the program drawing.
-//
-// The constants are ASCII's: a byte under 0x20 is a control character, 0x40
-// is what the tty adds to render it printable, and 0x7f is delete.
+// echoOf is what a terminal writes back for the bytes written to it, as far
+// as every platform agrees: ONLCR turns a \r into \r\n. Whether a control
+// byte then arrives raw or as `^[` is the tty's own choice, which note reads
+// either way.
 func echoOf(written string) []byte {
-	const (
-		firstPrintable = 0x20
-		caretOffset    = 0x40
-		del            = 0x7f
-	)
-
 	var out []byte
 
 	for i := range len(written) {
-		c := written[i]
-
-		switch {
-		case c == '\r':
+		if written[i] == '\r' {
 			out = append(out, '\r', '\n')
-		case c == '\n' || c == '\t':
-			out = append(out, c)
-		case c < firstPrintable:
-			out = append(out, '^', c+caretOffset)
-		case c == del:
-			out = append(out, '^', '?')
-		default:
-			out = append(out, c)
+
+			continue
 		}
+
+		out = append(out, written[i])
 	}
 
 	return out
@@ -420,17 +403,61 @@ func (s *ptyScreen) expectEcho(b []byte) {
 // note consumes whatever of b the terminal still owed as echo and reads the
 // rest as the program answering. The echo can arrive split across writes or
 // joined to the answer, so it is matched byte by byte rather than whole.
+//
+// A control byte is matched either raw or as the two printable characters a
+// tty with ECHOCTL renders it with, since macOS echoes an Escape as `^[`
+// where Linux echoes it raw. A match written for one platform read the
+// other's echo as the program drawing, and the wait ended before the program
+// had run.
 func (s *ptyScreen) note(b []byte) {
-	n := 0
-	for n < len(b) && n < len(s.echo) && b[n] == s.echo[n] {
-		n++
+	i := 0
+
+	for i < len(b) && len(s.echo) > 0 {
+		want := s.echo[0]
+
+		if b[i] == want {
+			i++
+			s.echo = s.echo[1:]
+
+			continue
+		}
+
+		caret, printable := caretForm(want)
+		if printable && i+1 < len(b) && b[i] == caret[0] && b[i+1] == caret[1] {
+			i += 2
+			s.echo = s.echo[1:]
+
+			continue
+		}
+
+		break
 	}
 
-	s.echo = s.echo[n:]
-
-	if n < len(b) {
+	if i < len(b) {
 		s.echo = nil
 		s.answer = true
+	}
+}
+
+// caretForm is how a tty renders one control byte when it echoes it, and
+// whether it renders that byte at all: a newline and a tab are echoed as
+// themselves.
+func caretForm(c byte) ([2]byte, bool) {
+	const (
+		firstPrintable = 0x20
+		caretOffset    = 0x40
+		del            = 0x7f
+	)
+
+	switch {
+	case c == '\n' || c == '\t':
+		return [2]byte{}, false
+	case c < firstPrintable:
+		return [2]byte{'^', c + caretOffset}, true
+	case c == del:
+		return [2]byte{'^', '?'}, true
+	default:
+		return [2]byte{}, false
 	}
 }
 
