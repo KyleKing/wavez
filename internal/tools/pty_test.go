@@ -241,3 +241,40 @@ func TestPTY_DrawsAtTheSizeTheCallAsksFor(t *testing.T) {
 		})
 	}
 }
+
+// A project's own toolchain starts its TUI, and the shell and the terminal
+// have to judge that command the same way: the allowlist reaching only one of
+// them means every drive of a Python app costs an approval the shell would
+// not have asked for.
+func TestPTY_HonorsTheProjectAllowlist(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	for name, allowed := range map[string]bool{"unlisted": false, "allowed": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			gate, consulted := recordingGate(t, permission.Allow)
+
+			var opts []tools.Option
+			if allowed {
+				opts = append(opts, tools.WithAllowedCommands([]string{"uv"}))
+			}
+
+			res, err := tools.NewPTY(root, "t", gate, opts...).
+				Run(t.Context(), mustJSON(t, map[string]any{"command": "uv --version"}))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if res.IsError {
+				t.Fatalf("Result = %+v, want the screen", res)
+			}
+
+			if *consulted == allowed {
+				t.Errorf("gate consulted = %v for an allowlist that %s the command", *consulted, name)
+			}
+		})
+	}
+}

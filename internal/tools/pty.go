@@ -85,8 +85,15 @@ type PTY struct {
 
 // NewPTY builds a PTY tool rooted at root, asking gate before it runs
 // anything, since the command it is handed is as arbitrary as the shell's.
-func NewPTY(root, threadID string, gate permission.Gate) *PTY {
-	return &PTY{root: root, threadID: threadID, gate: gate, env: guard.Env{ProjectRoot: root}}
+// It judges a command by the same list the shell does, so a project whose
+// TUI is started by its own toolchain does not pay an approval per drive.
+func NewPTY(root, threadID string, gate permission.Gate, opts ...Option) *PTY {
+	d := newDeps(opts)
+
+	return &PTY{
+		root: root, threadID: threadID, gate: gate,
+		env: guard.Env{ProjectRoot: root, AllowedCommands: d.allowedCommands},
+	}
 }
 
 // Name implements tool.Tool.
