@@ -1,0 +1,355 @@
+   Building vcr-tui @ file:///Users/kyleking/Developer/kyleking/vcr-tui
+      Built vcr-tui @ file:///Users/kyleking/Developer/kyleking/vcr-tui
+Uninstalled 1 package in 1ms
+Installed 1 package in 4ms
+src/vcr_tui/__main__.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/app.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/app.py:9:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/app.py:13:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/app.py:24:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/cli.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/cli.py:19:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/cli.py:37:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/cli.py:50:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/cli.py:63:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/cli.py:79:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/config/defaults.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/config/defaults.py:4:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/config/loader.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/config/loader.py:36:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/config/loader.py:45:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/config/models.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/config/models.py:9:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/config/models.py:16:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/config/models.py:26:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/config/models.py:33:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/config/models.py:44:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/config/models.py:50:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/config/models.py:59:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/config/models.py:65:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/preview/engine.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/preview/engine.py:13:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/preview/engine.py:14:9: missing-return-type-special-method: Missing return type annotation for special method `__init__`
+src/vcr_tui/preview/engine.py:14:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/preview/engine.py:17:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/preview/engine.py:41:9: no-self-use: Method `_relativize_pattern` could be a function, class method, or static method
+src/vcr_tui/preview/engine.py:59:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/preview/engine.py:59:9: no-self-use: Method `get_keys` could be a function, class method, or static method
+src/vcr_tui/preview/engine.py:62:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/preview/engine.py:88:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/preview/engine.py:123:9: no-self-use: Method `_path_matches_rule` could be a function, class method, or static method
+src/vcr_tui/preview/engine.py:170:9: no-self-use: Method `_get_base_path` could be a function, class method, or static method
+src/vcr_tui/preview/formatters.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/preview/formatters.py:14:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/preview/formatters.py:59:9: import-outside-top-level: `import` should be at the top-level of a file
+src/vcr_tui/preview/formatters.py:59:14: suspicious-xml-minidom-import: `xml.dom.minidom` is vulnerable to XML attacks
+src/vcr_tui/preview/formatters.py:61:15: suspicious-xml-mini-dom-usage: Using `xml` to parse untrusted data is known to be vulnerable to XML attacks; use `defusedxml` equivalents
+src/vcr_tui/preview/types.py:8:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/preview/types.py:17:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/preview/yaml_parser.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/preview/yaml_parser.py:12:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/preview/yaml_parser.py:13:10: unspecified-encoding: `pathlib.Path(...).open` in text mode without explicit `encoding` argument
+src/vcr_tui/preview/yaml_parser.py:54:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/preview/yaml_parser.py:59:5: undocumented-public-function: Missing docstring in public function
+src/vcr_tui/ui/screens/main_screen.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/ui/screens/main_screen.py:23:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/ui/screens/main_screen.py:24:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/screens/main_screen.py:29:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/ui/screens/main_screen.py:33:16: mutable-class-default: Mutable default value for class attribute
+src/vcr_tui/ui/screens/main_screen.py:44:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/screens/main_screen.py:59:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:62:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:74:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:79:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:85:27: magic-value-comparison: Magic value used in comparison, consider replacing `2` with a constant variable
+src/vcr_tui/ui/screens/main_screen.py:116:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:120:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:125:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:153:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:173:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:182:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/screens/main_screen.py:198:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/file_list.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/ui/widgets/file_list.py:9:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/ui/widgets/file_list.py:10:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/widgets/file_list.py:18:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/widgets/file_list.py:24:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/file_list.py:27:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/file_list.py:56:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/file_list.py:61:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/metadata_bar.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/ui/widgets/metadata_bar.py:6:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/ui/widgets/metadata_bar.py:7:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/widgets/metadata_bar.py:11:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/metadata_bar.py:19:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/preview_panel.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/ui/widgets/preview_panel.py:17:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/ui/widgets/preview_panel.py:18:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/widgets/preview_panel.py:22:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/preview_panel.py:35:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/yaml_viewer.py:1:1: undocumented-public-module: Missing docstring in public module
+src/vcr_tui/ui/widgets/yaml_viewer.py:11:7: undocumented-public-class: Missing docstring in public class
+src/vcr_tui/ui/widgets/yaml_viewer.py:12:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/widgets/yaml_viewer.py:20:16: mutable-class-default: Mutable default value for class attribute
+src/vcr_tui/ui/widgets/yaml_viewer.py:25:9: undocumented-public-init: Missing docstring in `__init__`
+src/vcr_tui/ui/widgets/yaml_viewer.py:31:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/yaml_viewer.py:34:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/yaml_viewer.py:65:9: undocumented-public-method: Missing docstring in public method
+src/vcr_tui/ui/widgets/yaml_viewer.py:69:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:20:17: pytest-fixture-autouse: Avoid using `autouse=True` in `pytest.fixture` decorators
+tests/test_cli.py:36:7: undocumented-public-class: Missing docstring in public class
+tests/test_cli.py:37:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:37:9: no-self-use: Method `test_lists_cassette_relative_paths` could be a function, class method, or static method
+tests/test_cli.py:43:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:43:9: no-self-use: Method `test_yaml_channel_lists_all_yaml` could be a function, class method, or static method
+tests/test_cli.py:49:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:49:9: no-self-use: Method `test_unknown_channel_lists_nothing` could be a function, class method, or static method
+tests/test_cli.py:52:33: compare-to-empty-string: `result.output == ''` can be simplified to `not result.output` as an empty string is falsey
+tests/test_cli.py:54:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:54:9: no-self-use: Method `test_nonexistent_directory_fails` could be a function, class method, or static method
+tests/test_cli.py:59:7: undocumented-public-class: Missing docstring in public class
+tests/test_cli.py:60:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:60:9: no-self-use: Method `test_lists_key_tree_indented` could be a function, class method, or static method
+tests/test_cli.py:70:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:70:9: no-self-use: Method `test_nonexistent_file_fails` could be a function, class method, or static method
+tests/test_cli.py:75:7: undocumented-public-class: Missing docstring in public class
+tests/test_cli.py:77:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:77:9: no-self-use: Method `cassette` could be a function, class method, or static method
+tests/test_cli.py:80:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:80:9: no-self-use: Method `test_file_preview_prints_yaml_document` could be a function, class method, or static method
+tests/test_cli.py:89:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:89:9: no-self-use: Method `test_key_preview_formats_json` could be a function, class method, or static method
+tests/test_cli.py:103:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:103:9: no-self-use: Method `test_key_preview_metadata_on_default_channel` could be a function, class method, or static method
+tests/test_cli.py:120:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:120:9: no-self-use: Method `test_nonexistent_file_fails` could be a function, class method, or static method
+tests/test_cli.py:125:7: undocumented-public-class: Missing docstring in public class
+tests/test_cli.py:126:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:126:9: no-self-use: Method `test_lists_default_channels` could be a function, class method, or static method
+tests/test_cli.py:133:9: undocumented-public-method: Missing docstring in public method
+tests/test_cli.py:133:9: no-self-use: Method `test_local_config_adds_channel` could be a function, class method, or static method
+tests/test_config/test_loader.py:13:17: pytest-fixture-autouse: Avoid using `autouse=True` in `pytest.fixture` decorators
+tests/test_config/test_loader.py:26:5: unspecified-encoding: `pathlib.Path(...).write_text` without explicit `encoding` argument
+tests/test_config/test_loader.py:30:7: undocumented-public-class: Missing docstring in public class
+tests/test_config/test_loader.py:31:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:31:9: no-self-use: Method `test_no_config_files` could be a function, class method, or static method
+tests/test_config/test_loader.py:35:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:35:9: no-self-use: Method `test_finds_both_config_names` could be a function, class method, or static method
+tests/test_config/test_loader.py:39:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:39:9: no-self-use: Method `test_walks_up_and_collects_innermost_first` could be a function, class method, or static method
+tests/test_config/test_loader.py:46:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:46:9: no-self-use: Method `test_root_true_stops_the_walk` could be a function, class method, or static method
+tests/test_config/test_loader.py:58:7: undocumented-public-class: Missing docstring in public class
+tests/test_config/test_loader.py:59:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:59:9: no-self-use: Method `test_defaults_when_no_files` could be a function, class method, or static method
+tests/test_config/test_loader.py:62:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:62:9: no-self-use: Method `test_global_adds_channels_to_defaults` could be a function, class method, or static method
+tests/test_config/test_loader.py:62:69: unused-method-argument: Unused method argument: `global_config`
+tests/test_config/test_loader.py:67:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:67:9: no-self-use: Method `test_local_adds_channel` could be a function, class method, or static method
+tests/test_config/test_loader.py:77:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:77:9: no-self-use: Method `test_local_overrides_default_channel` could be a function, class method, or static method
+tests/test_config/test_loader.py:81:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:81:9: no-self-use: Method `test_innermost_file_wins_for_scalars` could be a function, class method, or static method
+tests/test_config/test_loader.py:87:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:87:9: no-self-use: Method `test_root_true_layers_global_but_stops_local_walk` could be a function, class method, or static method
+tests/test_config/test_loader.py:88:31: unused-method-argument: Unused method argument: `global_config`
+tests/test_config/test_loader.py:105:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:105:9: no-self-use: Method `test_full_stack_defaults_global_local` could be a function, class method, or static method
+tests/test_config/test_loader.py:105:69: unused-method-argument: Unused method argument: `global_config`
+tests/test_config/test_loader.py:116:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_loader.py:116:9: no-self-use: Method `test_local_overrides_global_channel` could be a function, class method, or static method
+tests/test_config/test_loader.py:116:67: unused-method-argument: Unused method argument: `global_config`
+tests/test_config/test_models.py:10:7: undocumented-public-class: Missing docstring in public class
+tests/test_config/test_models.py:11:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:11:9: no-self-use: Method `test_empty_dict_gives_defaults` could be a function, class method, or static method
+tests/test_config/test_models.py:57:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:57:9: no-self-use: Method `test_from_dict` could be a function, class method, or static method
+tests/test_config/test_models.py:60:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:60:9: no-self-use: Method `test_channel_defaults` could be a function, class method, or static method
+tests/test_config/test_models.py:68:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:68:9: no-self-use: Method `test_channel_disabled` could be a function, class method, or static method
+tests/test_config/test_models.py:72:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:72:9: no-self-use: Method `test_rule_defaults` could be a function, class method, or static method
+tests/test_config/test_models.py:80:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:80:9: no-self-use: Method `test_get_channel` could be a function, class method, or static method
+tests/test_config/test_models.py:88:9: pytest-composite-assertion: [*] Assertion should be broken down into multiple parts
+tests/test_config/test_models.py:91:9: pytest-composite-assertion: [*] Assertion should be broken down into multiple parts
+tests/test_config/test_models.py:94:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:94:9: no-self-use: Method `test_get_channel_falls_back_to_first` could be a function, class method, or static method
+tests/test_config/test_models.py:100:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:100:9: no-self-use: Method `test_get_channel_empty_config` could be a function, class method, or static method
+tests/test_config/test_models.py:104:7: undocumented-public-class: Missing docstring in public class
+tests/test_config/test_models.py:105:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:105:9: no-self-use: Method `test_merge_adds_new_channels` could be a function, class method, or static method
+tests/test_config/test_models.py:111:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:111:9: no-self-use: Method `test_merge_overrides_existing_channel` could be a function, class method, or static method
+tests/test_config/test_models.py:130:9: undocumented-public-method: Missing docstring in public method
+tests/test_config/test_models.py:130:9: no-self-use: Method `test_merge_scalars` could be a function, class method, or static method
+tests/test_preview/conftest.py:17:5: import-outside-top-level: `import` should be at the top-level of a file
+tests/test_preview/test_engine.py:17:10: unspecified-encoding: `pathlib.Path(...).open` in text mode without explicit `encoding` argument
+tests/test_preview/test_engine.py:46:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_engine.py:47:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:47:9: no-self-use: Method `test_finds_yaml_directly_in_start_directory` could be a function, class method, or static method
+tests/test_preview/test_engine.py:56:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:56:9: no-self-use: Method `test_finds_vcr_cassette_directly_under_start` could be a function, class method, or static method
+tests/test_preview/test_engine.py:66:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:66:9: no-self-use: Method `test_finds_yaml_in_cassettes_dirs` could be a function, class method, or static method
+tests/test_preview/test_engine.py:71:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:71:9: no-self-use: Method `test_excluded_dirs_are_skipped` could be a function, class method, or static method
+tests/test_preview/test_engine.py:82:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:82:9: no-self-use: Method `test_unknown_channel_returns_empty` could be a function, class method, or static method
+tests/test_preview/test_engine.py:85:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:85:9: no-self-use: Method `test_explicit_channel` could be a function, class method, or static method
+tests/test_preview/test_engine.py:89:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:89:9: no-self-use: Method `test_top_level_cassettes_dir_is_not_matched` could be a function, class method, or static method
+tests/test_preview/test_engine.py:100:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:100:9: no-self-use: Method `test_tree_walked_once_for_overlapping_patterns` could be a function, class method, or static method
+tests/test_preview/test_engine.py:136:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_engine.py:146:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:146:9: no-self-use: Method `test_matching_rule_sets_formatter_and_label` could be a function, class method, or static method
+tests/test_preview/test_engine.py:160:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:160:9: no-self-use: Method `test_unmatched_key_falls_back_to_yaml` could be a function, class method, or static method
+tests/test_preview/test_engine.py:168:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:168:9: no-self-use: Method `test_default_channel_metadata_is_extracted` could be a function, class method, or static method
+tests/test_preview/test_engine.py:172:50: magic-value-comparison: Magic value used in comparison, consider replacing `200` with a constant variable
+tests/test_preview/test_engine.py:184:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:184:9: no-self-use: Method `test_rule_matches_only_paths_without_leading_dot` could be a function, class method, or static method
+tests/test_preview/test_engine.py:191:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:191:9: no-self-use: Method `test_yaml_rule_expands_embedded_json_strings` could be a function, class method, or static method
+tests/test_preview/test_engine.py:192:36: unused-method-argument: Unused method argument: `cassette_data`
+tests/test_preview/test_engine.py:206:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_engine.py:207:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:207:9: no-self-use: Method `test_uses_first_rule_of_channel` could be a function, class method, or static method
+tests/test_preview/test_engine.py:215:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:215:9: no-self-use: Method `test_json_body_string_renders_as_nested_keys` could be a function, class method, or static method
+tests/test_preview/test_engine.py:223:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:223:9: no-self-use: Method `test_plain_string_value_survives_untouched` could be a function, class method, or static method
+tests/test_preview/test_engine.py:230:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:230:9: no-self-use: Method `test_metadata_is_empty` could be a function, class method, or static method
+tests/test_preview/test_engine.py:234:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:234:9: no-self-use: Method `test_channel_without_rules_uses_yaml` could be a function, class method, or static method
+tests/test_preview/test_engine.py:243:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_engine.py:262:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:262:9: no-self-use: Method `test_path_matches_rule` could be a function, class method, or static method
+tests/test_preview/test_engine.py:263:69: boolean-type-hint-positional-argument: Boolean-typed positional argument in function definition
+tests/test_preview/test_engine.py:265:16: private-member-access: Private member accessed: `_path_matches_rule`
+tests/test_preview/test_engine.py:287:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_engine.py:295:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:295:9: no-self-use: Method `test_metadata_resolved_relative_to_key_parent` could be a function, class method, or static method
+tests/test_preview/test_engine.py:308:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:308:9: no-self-use: Method `test_missing_metadata_keys_are_omitted` could be a function, class method, or static method
+tests/test_preview/test_engine.py:313:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:313:9: no-self-use: Method `test_no_rule_gives_empty_metadata` could be a function, class method, or static method
+tests/test_preview/test_engine.py:317:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_engine.py:317:9: no-self-use: Method `test_rule_without_metadata_keys_gives_empty_metadata` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:13:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_formatters.py:14:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:14:9: no-self-use: Method `test_dict_is_pretty_printed` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:19:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:19:9: no-self-use: Method `test_string_with_embedded_json_is_parsed_and_pretty_printed` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:24:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:24:9: no-self-use: Method `test_malformed_json_string_falls_back_to_verbatim` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:27:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:27:9: no-self-use: Method `test_none` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:30:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:30:9: no-self-use: Method `test_list` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:34:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_formatters.py:35:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:35:9: no-self-use: Method `test_dict` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:39:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:39:9: no-self-use: Method `test_string_content_is_dumped_as_scalar` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:43:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:43:9: no-self-use: Method `test_embedded_json_string_expands_into_nested_keys` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:49:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:49:9: no-self-use: Method `test_embedded_json_array_string_expands` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:53:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:53:9: no-self-use: Method `test_nested_embedded_json_string_expands_recursively` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:61:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:61:9: no-self-use: Method `test_plain_string_value_survives_untouched` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:65:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:65:9: no-self-use: Method `test_invalid_and_scalar_json_strings_stay_strings` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:80:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:80:9: no-self-use: Method `test_input_is_not_mutated` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:86:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_formatters.py:87:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:87:9: no-self-use: Method `test_plain_string_unchanged` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:90:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:90:9: no-self-use: Method `test_non_string_is_str_coerced` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:94:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:94:9: no-self-use: Method `test_literal_backslash_n_is_unescaped` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:97:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:97:9: no-self-use: Method `test_literal_backslash_t_is_unescaped` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:100:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:100:9: no-self-use: Method `test_backslash_r_is_stripped` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:105:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_formatters.py:106:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:106:9: no-self-use: Method `test_valid_xml_is_pretty_printed` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:111:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:111:9: no-self-use: Method `test_malformed_markup_falls_back_to_verbatim` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:114:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:114:9: no-self-use: Method `test_non_string_is_str_coerced` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:118:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_formatters.py:119:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:119:9: no-self-use: Method `test_dict_is_dumped` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:125:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:125:9: no-self-use: Method `test_non_table_content_falls_back_to_verbatim_instead_of_raising` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:129:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:129:9: no-self-use: Method `test_string_is_returned_verbatim` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:133:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_formatters.py:143:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:143:9: no-self-use: Method `test_scalar_paths` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:146:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:146:9: no-self-use: Method `test_yaml_scalar_path_has_no_document_end_marker` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:150:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:150:9: no-self-use: Method `test_toml_scalar_path_falls_back_to_verbatim` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:154:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:154:9: no-self-use: Method `test_response_body_key_renders_json` could be a function, class method, or static method
+tests/test_preview/test_formatters.py:160:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_formatters.py:160:9: no-self-use: Method `test_yaml_key_path_expands_embedded_json` could be a function, class method, or static method
+tests/test_preview/test_yaml_parser.py:13:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_yaml_parser.py:14:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_yaml_parser.py:14:9: no-self-use: Method `test_top_level_document` could be a function, class method, or static method
+tests/test_preview/test_yaml_parser.py:18:54: magic-value-comparison: Magic value used in comparison, consider replacing `2` with a constant variable
+tests/test_preview/test_yaml_parser.py:20:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_yaml_parser.py:20:9: no-self-use: Method `test_interaction_methods` could be a function, class method, or static method
+tests/test_preview/test_yaml_parser.py:25:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_yaml_parser.py:42:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_yaml_parser.py:42:9: no-self-use: Method `test_extracted_keys` could be a function, class method, or static method
+tests/test_preview/test_yaml_parser.py:48:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_yaml_parser.py:48:9: no-self-use: Method `test_only_top_level_keys_have_depth_zero` could be a function, class method, or static method
+tests/test_preview/test_yaml_parser.py:52:7: undocumented-public-class: Missing docstring in public class
+tests/test_preview/test_yaml_parser.py:82:9: undocumented-public-method: Missing docstring in public method
+tests/test_preview/test_yaml_parser.py:82:9: no-self-use: Method `test_paths` could be a function, class method, or static method
+tests/test_ui/test_screens/test_main_screen.py:22:28: magic-value-comparison: Magic value used in comparison, consider replacing `2` with a constant variable
+tests/test_ui/test_screens/test_main_screen.py:34:33: private-member-access: Private member accessed: `_files`
+tests/test_ui/test_screens/test_main_screen.py:42:33: private-member-access: Private member accessed: `_visible_files`
+tests/test_ui/test_screens/test_main_screen.py:47:33: private-member-access: Private member accessed: `_visible_files`
+tests/test_ui/test_screens/test_main_screen.py:48:42: magic-value-comparison: Magic value used in comparison, consider replacing `2` with a constant variable
+tests/test_ui/test_screens/test_main_screen.py:90:42: private-member-access: Private member accessed: `_files`
+tests/test_ui/test_screens/test_main_screen.py:91:37: private-member-access: Private member accessed: `_keys`
+tests/test_ui/test_screens/test_main_screen.py:110:36: private-member-access: Private member accessed: `_visible_keys`
+tests/test_ui/test_screens/test_main_screen.py:114:33: private-member-access: Private member accessed: `_visible_files`
+tests/test_ui/test_screens/test_main_screen.py:121:33: private-member-access: Private member accessed: `_visible_keys`
+tests/test_ui/test_screens/test_main_screen.py:141:33: private-member-access: Private member accessed: `_files`
+tests/test_ui/test_screens/test_main_screen.py:150:34: private-member-access: Private member accessed: `_files`
+tests/test_ui/test_screens/test_main_screen.py:179:16: private-member-access: Private member accessed: `_resolved_channel_name`
+tests/test_ui/test_screens/test_main_screen.py:180:34: private-member-access: Private member accessed: `_files`
+tests/test_ui/test_screens/test_main_screen.py:189:34: private-member-access: Private member accessed: `_files`
+tests/test_ui/test_screens/test_main_screen.py:200:16: private-member-access: Private member accessed: `_resolved_channel_name`
+tests/test_ui/test_screens/test_main_screen.py:201:56: private-member-access: Private member accessed: `_files`
+tests/test_ui/test_widgets_snapshot.py:37:9: import-outside-top-level: `import` should be at the top-level of a file
+tests/test_ui/test_widgets_snapshot.py:42:17: no-self-use: Method `compose` could be a function, class method, or static method
+tests/test_ui/test_widgets_snapshot.py:42:33: unused-noqa: [*] Unused `noqa` directive (unused: `D102`; non-enabled: `ANN201`)
+tests/test_ui/test_widgets_snapshot.py:71:5: import-outside-top-level: `import` should be at the top-level of a file
+tests/test_ui/test_widgets_snapshot.py:74:13: no-self-use: Method `compose` could be a function, class method, or static method
+tests/test_ui/test_widgets_snapshot.py:74:29: unused-noqa: [*] Unused `noqa` directive (non-enabled: `ANN201`)
+tests/test_ui/test_widgets_snapshot.py:84:24: private-member-access: Private member accessed: `_visible_keys`
+tests/test_ui/test_widgets_snapshot.py:88:16: private-member-access: Private member accessed: `_visible_keys`
+tests/test_ui/test_widgets_snapshot.py:92:20: private-member-access: Private member accessed: `_visible_keys`
+tests/test_ui/test_widgets_snapshot.py:98:5: import-outside-top-level: `import` should be at the top-level of a file
+tests/test_ui/test_widgets_snapshot.py:101:13: no-self-use: Method `compose` could be a function, class method, or static method
+tests/test_ui/test_widgets_snapshot.py:101:29: unused-noqa: [*] Unused `noqa` directive (non-enabled: `ANN201`)
+tests/test_ui/test_widgets_snapshot.py:146:30: compare-to-empty-string: `widget.content == ''` can be simplified to `not widget.content` as an empty string is falsey
+Found 349 errors.
+[*] 5 fixable with the `--fix` option (4 hidden fixes can be enabled with the `--unsafe-fixes` option).

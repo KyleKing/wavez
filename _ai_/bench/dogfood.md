@@ -5196,3 +5196,43 @@ that project run at 4-20 ms, and the four project checks (`ruff format`,
 The formatter is the one that had to change shape: as a reporting check it
 cost a run twenty gate rounds of guessing at whitespace, and as a rewriting
 pre-pass over `{files}` it costs none.
+
+## 2026-09-03: 349 findings reached the model as 40 lines
+
+The ruff `select = ['ALL']` migration on `../vcr-tui` finished on the
+balanced tier in 75 turns, 155 tool calls, and 12m02s, taking 349 findings
+to zero with `ty` clean and 156 tests passing. Reading the thread log
+afterward is where the numbers are.
+
+Wall clock, attributed by the event that ends each gap: model 93.2%, shell
+3.5%, gates 1.4%, edits 1.2%. The harness is not the cost. Regressing the 75
+turn durations on their usage splits the model time into a flat 3.74 s per
+turn (40%), generation at 62 tok/s (49%), the cached prefix at 25 µs/token
+over 2.48M tokens (9%), and real prefill (2%). Turn count and output volume
+are the two levers and they are the same size.
+
+Of the 50,991 bytes the run emitted, 80% are `str_replace` arguments. Inside
+those, `old_string` is 11,627 bytes of pure echo and only 8,578 bytes of
+`new_string` is text a diff calls new, so 55% of the edit payload is the
+file's own contents retyped, which at 16.1 ms per output token is about 22%
+of the run's wall clock. The `edits` batch branch was used zero times, as
+`schemaFor` predicts, and it would have saved bytes rather than turns:
+parallel calls already batch at 2.07 per turn, reaching 9 in one turn.
+
+**The finding that turned into a change.** Twelve of the 75 turns, 16% of
+the run, went to grep pipelines bucketing `ruff check` output by rule before
+a single edit. That is not the model being thorough. `trimOutput` caps shell
+output at 20 head and 20 tail lines, so the run saw 40 of 349 findings and
+grepping was the only way to the rest. `internal/reduce` now groups
+location-prefixed diagnostics by what they say and reports each kind once
+with a count and up to three sites, and a reduction that accounts for every
+input line says so in `Result.Complete` so `trimOutput` does not window it.
+On the captured output (`internal/reduce/testdata/ruff_check.txt`, the real
+349) that is 355 lines and 41,335 bytes in, 52 lines and 4,403 bytes out,
+with all 22 kinds visible where 40 lines showed part of three. It declines
+anything it cannot halve, so a handful of distinct compiler errors still
+arrives one per line.
+
+Not yet measured: whether a run given the distribution up front actually
+spends those twelve turns elsewhere. That is the next lane from
+`ruff-all-start`, against this run as the baseline.

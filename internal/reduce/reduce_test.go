@@ -1,6 +1,7 @@
 package reduce_test
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -124,5 +125,67 @@ func TestOutput(t *testing.T) {
 				t.Errorf("reducing twice changed the text:\n%s\n\n%s", got, again)
 			}
 		})
+	}
+}
+
+// ruffFindings is the shape a `ruff check` run emits: a location, a rule code,
+// and a message that names the thing it fired on.
+func ruffFindings() string {
+	var b strings.Builder
+
+	for i := range 8 {
+		fmt.Fprintf(&b, "src/vcr_tui/preview.py:%d:5: D102 Missing docstring in public method\n", 10+i)
+	}
+
+	for i := range 4 {
+		fmt.Fprintf(&b, "tests/test_ui.py:%d:1: D103 Missing docstring in public function\n", 20+i)
+	}
+
+	fmt.Fprint(&b, "src/vcr_tui/app.py:7:1: ANN201 Missing return type annotation for `run`\n")
+	fmt.Fprint(&b, "src/vcr_tui/cli.py:9:1: ANN201 Missing return type annotation for `main`\n")
+	fmt.Fprint(&b, "Found 14 errors.\n")
+
+	return b.String()
+}
+
+func TestOutputGroupsManyFindingsByKind(t *testing.T) {
+	t.Parallel()
+
+	got := reduce.Output(ruffFindings()).Text
+
+	for _, want := range []string{
+		"14 findings across 4 files in 3 kinds",
+		"   8x D102 Missing docstring in public method",
+		"   4x D103 Missing docstring in public function",
+		"   2x ANN201 Missing return type annotation for `run`",
+		"src/vcr_tui/preview.py:10:5, src/vcr_tui/preview.py:11:5, src/vcr_tui/preview.py:12:5 and 5 more",
+		"Found 14 errors.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+
+	if second := reduce.Output(got).Text; second != got {
+		t.Errorf("second pass changed the text:\n%s", second)
+	}
+}
+
+// Grouping that does not halve the output costs a reader the sites and buys
+// nothing, so a handful of distinct errors stays one per line.
+func TestOutputLeavesDistinctDiagnosticsAlone(t *testing.T) {
+	t.Parallel()
+
+	raw := "# github.com/kyleking/wavez/internal/tool\n" +
+		"internal/tool/a.go:12:2: declared and not used: name\n" +
+		"internal/tool/b.go:44:9: undefined: Helper\n"
+
+	got := reduce.Output(raw).Text
+	if strings.Contains(got, "kinds") {
+		t.Errorf("grouped output it should have left alone:\n%s", got)
+	}
+
+	if !strings.Contains(got, "undefined: Helper") {
+		t.Errorf("dropped a diagnostic:\n%s", got)
 	}
 }

@@ -480,13 +480,20 @@ func (s *Shell) spill(text string) string {
 // trimOutput reduces s to what names a failure, then caps whatever survives
 // at shellHeadLines/shellTailLines. The reducer is what makes the cap safe:
 // head and tail alone put the fixed windows at the two ends of a verbose test
-// run, which is exactly where the assertion is not.
+// run, which is exactly where the assertion is not. A reduction that accounts
+// for every input line and bounds itself skips the cap, since windowing a
+// summary drops the kinds it exists to show.
 func trimOutput(s string, spill func(string) string) string {
 	if s == "" {
 		return "(empty)"
 	}
 
-	s = reduce.Output(s).Text
+	res := reduce.Output(s)
+	if res.Complete {
+		return res.Text
+	}
+
+	s = res.Text
 
 	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 	if len(lines) <= shellHeadLines+shellTailLines {
