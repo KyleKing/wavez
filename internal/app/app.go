@@ -191,6 +191,7 @@ type Options struct {
 	// nil tier is built from config.
 	Providers           router.Tiers[llm.Provider]
 	Asker               tools.Asker
+	Spawns              tools.Spawns
 	Scheduler           *sched.Scheduler
 	LocalRuntime        runtime.Config
 	MaxTurns            int
@@ -261,6 +262,13 @@ func WithStrictScope() Option {
 // tool regardless, and this only decides whether the gate consults it.
 func WithGatedWrites() Option {
 	return func(o *Options) { o.GatedWrites = true }
+}
+
+// WithSpawnRegistry records the processes this project's tools start, so a
+// daemon that dies mid-call leaves its successor a record to sweep rather
+// than a process nothing knows about.
+func WithSpawnRegistry(s tools.Spawns) Option {
+	return func(o *Options) { o.Spawns = s }
 }
 
 // WithAsker sets the Asker backing the question tool. A headless run and
@@ -338,6 +346,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
 		checks: changeGate, changes: changeGate, shellAllow: cfg.ShellAllow,
+		spawns:    options.Spawns,
 		extraDirs: reachableDirs(root, cfg.ExtraDirs),
 		web:       cfg.Web, webSearchURL: cfg.WebSearchURL,
 		vision: visionProvider(ctx, cfg), visionModel: visionModel(cfg),
@@ -823,6 +832,7 @@ type registryDeps struct {
 	servers  tools.Servers
 	checks   tools.Checks
 	changes  tools.Changes
+	spawns   tools.Spawns
 	// vision is the tier a `look` call asks, nil where the project named
 	// none, in which case the tool is not offered at all.
 	vision      llm.Provider
@@ -854,7 +864,8 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases, reach,
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
 			tools.WithAllowedCommands(d.shellAllow)),
-		tools.NewPTY(d.root, d.sandboxDir, DefaultThreadID, d.permGate, tools.WithAllowedCommands(d.shellAllow)),
+		tools.NewPTY(d.root, d.sandboxDir, DefaultThreadID, d.permGate,
+			tools.WithAllowedCommands(d.shellAllow), tools.WithSpawnRegistry(d.spawns)),
 		tools.NewSearch(d.indexer, d.root, reach),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),

@@ -80,6 +80,7 @@ var ptySchema = buildSchema(map[string]schemaProperty{
 // screen they produced.
 type PTY struct {
 	gate       permission.Gate
+	spawns     Spawns
 	root       string
 	sessionTmp string
 	threadID   string
@@ -95,7 +96,8 @@ func NewPTY(root, sessionTmp, threadID string, gate permission.Gate, opts ...Opt
 
 	return &PTY{
 		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate,
-		env: guard.Env{ProjectRoot: root, AllowedCommands: d.allowedCommands},
+		spawns: d.spawns,
+		env:    guard.Env{ProjectRoot: root, AllowedCommands: d.allowedCommands},
 	}
 }
 
@@ -249,6 +251,13 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("opening a terminal for %q: %w", in.Command, err)
 	}
+
+	// Recorded while it runs, so a daemon killed before the teardown below
+	// leaves the next one a pid to kill rather than a process nothing knows
+	// about. A failure to record is not worth failing the call over, since
+	// the teardown below is what ends this program in every ordinary case.
+	p.record(cmd.Process.Pid, in.Command)
+	defer p.forget(cmd.Process.Pid)
 
 	screen := &ptyScreen{emulator: vt.NewSafeEmulator(cols, rows)}
 	done := make(chan struct{})
@@ -590,4 +599,20 @@ func settle(ctx context.Context, screen *ptyScreen, exited <-chan struct{}, boun
 			}
 		}
 	}
+}
+
+func (p *PTY) record(pid int, command string) {
+	if p.spawns == nil {
+		return
+	}
+
+	_ = p.spawns.Add(pid, command) //nolint:errcheck // the call still runs unrecorded
+}
+
+func (p *PTY) forget(pid int) {
+	if p.spawns == nil {
+		return
+	}
+
+	_ = p.spawns.Remove(pid) //nolint:errcheck // a stale entry is swept, not leaked
 }

@@ -46,6 +46,7 @@ type deps struct {
 	checks  Checks
 	changes Changes
 	symbols SymbolSearch
+	spawns  Spawns
 	// allowedCommands widen the guard's built-in list of shell commands that
 	// run without a prompt, from what the project named.
 	allowedCommands []string
@@ -84,6 +85,21 @@ func WithChecks(c Checks) Option {
 // what this run has written, from what the harness recorded as it wrote it.
 func WithChanges(c Changes) Option {
 	return func(d *deps) { d.changes = c }
+}
+
+// Spawns records a process for as long as it runs, so a daemon that dies
+// mid-call leaves behind something its successor can act on. A tool given
+// none of these still runs, and what it starts is nobody's to clean up
+// afterwards.
+type Spawns interface {
+	Add(pid int, command string) error
+	Remove(pid int) error
+}
+
+// WithSpawnRegistry records what a tool starts, so a process that outlives
+// the daemon is killed by the next one rather than left running.
+func WithSpawnRegistry(s Spawns) Option {
+	return func(d *deps) { d.spawns = s }
 }
 
 // WithAllowedCommands widens the guard's list of shell commands that run

@@ -22,6 +22,7 @@ import (
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/daemon"
 	"github.com/kyleking/wavez/internal/ollama"
+	"github.com/kyleking/wavez/internal/proc"
 	"github.com/kyleking/wavez/internal/runtime"
 	"github.com/kyleking/wavez/internal/sched"
 	"github.com/kyleking/wavez/internal/sysinfo"
@@ -97,10 +98,13 @@ func serve(ctx context.Context, dir, sock string) error {
 		sched.WithLocalSlots(runtime.ServedSlots),
 	)
 	settingsPath := filepath.Join(userDir, "models.json")
+	// Scoped to this socket, so a scratch daemon sweeps only what a previous
+	// daemon on the same socket left and never the daily daemon's work.
+	spawns := proc.NewRegistry(sock)
 
 	srv, err := daemon.New(sock,
 		daemon.WithBroker(broker),
-		daemon.WithLoader(projectLoader(broker, scheduler, settingsPath)),
+		daemon.WithLoader(projectLoader(broker, scheduler, settingsPath, spawns)),
 		daemon.WithStatsSource(&machineStats{ctx: ctx}),
 		daemon.WithModelStore(ollama.New()),
 		daemon.WithScheduler(scheduler),
@@ -126,6 +130,11 @@ func serve(ctx context.Context, dir, sock string) error {
 		}
 	}
 
+	// Everything still recorded belongs to a daemon that is gone, since a
+	// daemon unwinds its own record as each call ends. One incident left 19
+	// of these running at 40-49% CPU each for as long as 10 hours.
+	sweep(ctx, spawns)
+
 	fmt.Fprintf(os.Stderr, "wavezd listening on %s\n", sock)
 
 	if err := srv.Serve(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -140,7 +149,9 @@ func serve(ctx context.Context, dir, sock string) error {
 // sharing broker and scheduler with every other project this daemon loads,
 // and serving the local model with whatever the models screen saved for it
 // at settingsPath.
-func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler, settingsPath string) daemon.Loader {
+func projectLoader(
+	broker *daemon.Broker, scheduler *sched.Scheduler, settingsPath string, spawns *proc.Registry,
+) daemon.Loader {
 	return func(ctx context.Context, root string) (*daemon.Project, error) {
 		cfg, err := loadConfig(ctx, root)
 		if err != nil {
@@ -149,6 +160,7 @@ func projectLoader(broker *daemon.Broker, scheduler *sched.Scheduler, settingsPa
 
 		a, err := app.New(ctx, root, cfg, broker.Gate(),
 			app.WithAsker(broker.Asker()), app.WithManagedLocalServer(), app.WithScheduler(scheduler),
+			app.WithSpawnRegistry(spawns),
 			app.WithLocalRuntime(daemon.SavedLocalRuntime(settingsPath, cfg.Tiers.Fast.Model)))
 		if err != nil {
 			return nil, fmt.Errorf("building project %s: %w", root, err)
@@ -285,4 +297,22 @@ Flags:
   -socket <path>  unix socket path (defaults to the per-laptop user config dir)
   -v              print version information
 `)
+}
+
+// sweep kills what a previous daemon on this socket left running. A sweep
+// that fails is reported and not fatal: the daemon serves either way, and a
+// leaked process is a thing to say out loud rather than a reason to refuse
+// to start.
+func sweep(ctx context.Context, spawns *proc.Registry) {
+	killed, err := spawns.Sweep(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wavezd: sweeping leftover processes: %v\n", err)
+
+		return
+	}
+
+	for _, leak := range killed {
+		fmt.Fprintf(os.Stderr, "wavezd: killed %d left by an earlier daemon: %s\n",
+			leak.PID, leak.Command)
+	}
 }

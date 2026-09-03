@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -337,5 +339,72 @@ func TestPTY_WritesOnlyInsideTheProjectRoot(t *testing.T) {
 
 	if _, err := os.Stat(outside); err == nil {
 		t.Errorf("a write outside the project root landed at %s", outside)
+	}
+}
+
+// spawnLog is what a call recorded, with the child's liveness read at the
+// moment it was recorded: a pid written down after the program has gone is
+// a record a later sweep can only act on wrongly.
+type spawnLog struct {
+	mu         sync.Mutex
+	added      []int
+	removed    []int
+	aliveAtAdd bool
+}
+
+func (l *spawnLog) Add(pid int, _ string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.added = append(l.added, pid)
+	l.aliveAtAdd = syscall.Kill(pid, 0) == nil
+
+	return nil
+}
+
+func (l *spawnLog) Remove(pid int) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.removed = append(l.removed, pid)
+
+	return nil
+}
+
+// A daemon killed mid-call leaves whatever it was driving with no record
+// anywhere of what it was, which is how 19 orphaned processes ran for as
+// long as 10 hours. The record is what a later daemon sweeps.
+func TestPTY_RecordsTheProgramWhileItRuns(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gate, _ := recordingGate(t, permission.Allow)
+	log := &spawnLog{}
+	p := tools.NewPTY(root, t.TempDir(), "t", gate, tools.WithSpawnRegistry(log))
+
+	res, err := p.Run(t.Context(), mustJSON(t, map[string]any{"command": "echo RAN"}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError || !strings.Contains(res.Content, "RAN") {
+		t.Fatalf("Result = %+v, want the screen", res)
+	}
+
+	log.mu.Lock()
+	defer log.mu.Unlock()
+
+	if len(log.added) != 1 {
+		t.Fatalf("recorded %v, want the one program the call started", log.added)
+	}
+
+	if !log.aliveAtAdd {
+		t.Errorf("pid %d was recorded after it had already gone", log.added[0])
+	}
+
+	// Released once the call is over, so the record holds only what is still
+	// running and a finished pid is not swept once the number is reused.
+	if len(log.removed) != 1 || log.removed[0] != log.added[0] {
+		t.Errorf("released %v, want the recorded pid %v", log.removed, log.added)
 	}
 }
