@@ -71,16 +71,20 @@ var symbolPattern = regexp.MustCompile("`([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)(?:
 // that the tree and the index do not hold. It is exactly what `h1`
 // invented: asked to name a file and a function, a run answered with both
 // and neither existed.
-func NamedThingsExist(ctx context.Context, root, answer string, index Index, changed []string) (Report, error) {
+func NamedThingsExist(
+	ctx context.Context, root, answer string, index Index, changed []string, transcript string,
+) (Report, error) {
 	var report Report
 
-	for _, path := range missingPaths(root, answer) {
+	seen := sawName(root, changed, transcript)
+
+	for _, path := range missingPaths(root, answer, seen) {
 		report.Findings = append(report.Findings, Finding{
 			Check: "named path does not exist", Detail: path,
 		})
 	}
 
-	missing, err := missingSymbols(ctx, answer, index, newText(root, changed))
+	missing, err := missingSymbols(ctx, answer, index, seen)
 	if err != nil {
 		return Report{}, err
 	}
@@ -94,11 +98,15 @@ func NamedThingsExist(ctx context.Context, root, answer string, index Index, cha
 	return report, nil
 }
 
-func missingPaths(root, answer string) []string {
+func missingPaths(root, answer string, seen func(string) bool) []string {
 	var out []string
 
 	for _, path := range dedupe(pathPattern.FindAllString(answer, -1)) {
 		if strings.HasPrefix(path, "/") || strings.Contains(path, "..") {
+			continue
+		}
+
+		if seen(path) {
 			continue
 		}
 
@@ -110,7 +118,7 @@ func missingPaths(root, answer string) []string {
 	return out
 }
 
-func missingSymbols(ctx context.Context, answer string, index Index, written func(string) bool) ([]string, error) {
+func missingSymbols(ctx context.Context, answer string, index Index, seen func(string) bool) ([]string, error) {
 	if index == nil {
 		return nil, nil
 	}
@@ -123,7 +131,7 @@ func missingSymbols(ctx context.Context, answer string, index Index, written fun
 			continue
 		}
 
-		if written(name) {
+		if seen(name) {
 			continue
 		}
 
@@ -145,13 +153,20 @@ func missingSymbols(ctx context.Context, answer string, index Index, written fun
 // index would hold.
 const minSymbolLen = 3
 
-// newText reports whether a name is written in one of the files this run
-// changed. The index is built before a run and never during one, so a
-// declaration the run just wrote is absent from both halves of indexHolds:
-// a lane that had written `classifyTokens` a turn earlier was told it had
-// invented the name.
-func newText(root string, changed []string) func(string) bool {
-	var bodies []string
+// sawName reports whether a name appears in what the run actually saw: the
+// files it changed, and its own transcript. This bound is about invention
+// rather than correctness, and a name the run read out of a real tool result
+// was not invented wherever it lives.
+//
+// Both halves were learned the hard way. The index is built before a run and
+// never during one, so a lane that had written `classifyTokens` a turn
+// earlier was told it had invented the name. And the index holds this
+// project's functions, methods, and types and nothing else, so a run quoting
+// `CliRunner`, `tmp_path`, `GET`, `null`, or a pyright rule name off its own
+// tool output was called out for every one: nine runs on a Python project
+// produced nine symbol findings and not one of them was a real invention.
+func sawName(root string, changed []string, transcript string) func(string) bool {
+	bodies := []string{transcript}
 
 	loaded := false
 

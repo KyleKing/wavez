@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kyleking/wavez/internal/event"
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -21,6 +22,9 @@ type Finish struct {
 	// from the paths.
 	Checkpoint string
 	Changes    []tool.Change
+	// History is the run's own transcript, which is what tells a name the
+	// run read somewhere real apart from one it invented.
+	History []llm.Message
 }
 
 // Finisher answers deterministically whether a finished run did something
@@ -50,7 +54,7 @@ func (r *run) runFinishChecks(ctx context.Context) error {
 
 	findings, err := r.loop.options.Finisher.Check(ctx, Finish{
 		Task: r.task, Goal: r.thread.Goal(), Answer: r.answer,
-		Checkpoint: r.outcome.Checkpoint, Changes: r.changes,
+		Checkpoint: r.outcome.Checkpoint, Changes: r.changes, History: r.thread.History(),
 	})
 	if err != nil {
 		return fmt.Errorf("running the finish checks: %w", err)

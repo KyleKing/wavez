@@ -39,9 +39,10 @@ func TestNamedThingsExistCatchesAnInventedAnswer(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		answer string
-		want   []string
+		name       string
+		answer     string
+		transcript string
+		want       []string
 	}{
 		{
 			name:   "an answer naming what is there passes",
@@ -61,13 +62,23 @@ func TestNamedThingsExistCatchesAnInventedAnswer(t *testing.T) {
 			name:   "prose naming a symbol without marking it as code is not guessed at",
 			answer: "The loop calls repairToolCall and moves on.",
 		},
+		{
+			// The index holds this project's declarations and nothing else, so
+			// a name quoted off a real tool result is not an invention: nine
+			// runs on a Python project reported `CliRunner`, `tmp_path`, `GET`,
+			// and a pyright rule name, and every one had been read somewhere.
+			name:       "a name the run read in its own transcript is grounded",
+			answer:     "The failure is `reportOptionalMemberAccess` on `tmp_path`.",
+			transcript: "error: reportOptionalMemberAccess on the tmp_path fixture\n",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			report, err := finish.NamedThingsExist(t.Context(), root, tt.answer, stubIndex{"recover": true}, nil)
+			report, err := finish.NamedThingsExist(t.Context(), root, tt.answer,
+				stubIndex{"recover": true}, nil, tt.transcript)
 			if err != nil {
 				t.Fatalf("NamedThingsExist: %v", err)
 			}
@@ -115,7 +126,7 @@ func TestNamedThingsExistReadsPastWhatTheIndexDeclares(t *testing.T) {
 	}
 
 	report, err := finish.NamedThingsExist(t.Context(), root,
-		"`Only` reads `maxReadFiles`, and `Invented` is not there.", store, nil)
+		"`Only` reads `maxReadFiles`, and `Invented` is not there.", store, nil, "")
 	if err != nil {
 		t.Fatalf("NamedThingsExist: %v", err)
 	}
@@ -133,7 +144,7 @@ func TestNamedThingsExistReadsPastWhatTheIndexDeclares(t *testing.T) {
 	}
 
 	report, err = finish.NamedThingsExist(t.Context(), root,
-		"`classifyTokens` holds the switch now.", store, []string{"fresh.go"})
+		"`classifyTokens` holds the switch now.", store, []string{"fresh.go"}, "")
 	if err != nil {
 		t.Fatalf("NamedThingsExist: %v", err)
 	}

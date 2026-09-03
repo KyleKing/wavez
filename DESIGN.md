@@ -1400,7 +1400,19 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      without the leading `**` first and matched only a snapshot directory in
      the repository root, which is the same one-depth trap `path.Match` set
      above and the reason the bound is tested through the app rather than the
-     check alone
+     check alone. The first build read the edit tools' change set, which a
+     regenerated fixture never reaches, since the rewrite comes from a test
+     command through the shell. It reads version control's answer about the
+     run instead, and caught the case live on the next lane
+   - `NamedThingsExist` read "absent from the index" as "does not exist", and
+     the index holds this project's functions, methods, and types and nothing
+     else. Nine runs on a Python project produced nine symbol findings and not
+     one was a real invention: `CliRunner`, `tmp_path`, `GET`, `null`,
+     `__version__`, a pyright rule name, and a path inside site-packages, each
+     quoted off the run's own tool output. The bound is invention rather than
+     correctness, so a name the run read anywhere in its own transcript is
+     grounded whatever the index holds, and the run's transcript reaches the
+     check on `agent.Finish`
 
    The same lane measured what a lane's size costs. Asked to replace the
    splitter, move every caller, and add the tests in one run, it stopped on
