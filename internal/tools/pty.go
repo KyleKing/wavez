@@ -16,6 +16,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/guard"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/proc"
 	"github.com/kyleking/wavez/internal/sandbox"
 	"github.com/kyleking/wavez/internal/tool"
 )
@@ -281,9 +282,12 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 
 	// Killing the program is what ends the reader for one that would
 	// otherwise sit at a prompt. A program that already exited is past this.
-	_ = cmd.Process.Kill()      //nolint:errcheck // best effort: the program may have exited already
-	_ = tty.Close()             //nolint:errcheck // as above
-	_ = screen.emulator.Close() //nolint:errcheck // ends the goroutine answering the program
+	// The whole group goes: pty.Start made the child a session leader, so the
+	// group holds it and whatever it forked, and a program left behind here
+	// is one nothing will ever close a terminal on again.
+	_ = proc.Kill(cmd.Process.Pid) //nolint:errcheck // best effort: the program may have exited already
+	_ = tty.Close()                //nolint:errcheck // as above
+	_ = screen.emulator.Close()    //nolint:errcheck // ends the goroutine answering the program
 	<-done
 	<-exited
 

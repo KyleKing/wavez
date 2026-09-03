@@ -5,9 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kyleking/wavez/internal/proc"
 	"github.com/kyleking/wavez/internal/sandbox"
 )
 
@@ -151,4 +154,77 @@ func TestExecDropsSecretNamedEnv(t *testing.T) {
 	if !strings.Contains(result.Stdout, "plain=[visible]") {
 		t.Errorf("an ordinary variable was dropped too: %q", result.Stdout)
 	}
+}
+
+// A canceled command whose shell forked leaves the fork running unless the
+// cancel reaches the process group. Nothing else reaches it here: there is no
+// terminal to hang up, and the pid the cancel knows about is the shell's.
+func TestExec_CancelKillsWhatTheCommandForked(t *testing.T) {
+	t.Parallel()
+	requireSandboxExec(t)
+
+	root := t.TempDir()
+	pidFile := filepath.Join(root, "child.pid")
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		_, _ = sandbox.Exec(ctx, root, t.TempDir(), //nolint:errcheck // the cancel is the point
+			"sh", "-c", "sleep 60 & echo $! > child.pid; wait")
+	}()
+
+	pid := waitForPID(t, pidFile)
+
+	cancel()
+	<-done
+
+	t.Cleanup(func() { _ = proc.Kill(pid) }) //nolint:errcheck // the cancel is what should have
+
+	if procRunning(t, pid) {
+		t.Errorf("pid %d outlived the canceled command that forked it", pid)
+	}
+}
+
+func waitForPID(t *testing.T, path string) int {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		body, err := os.ReadFile(path) //nolint:gosec // a path this test chose
+		if err == nil {
+			if pid, cerr := strconv.Atoi(strings.TrimSpace(string(body))); cerr == nil && pid > 0 {
+				return pid
+			}
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("the command never recorded a forked pid in %s", path)
+
+	return 0
+}
+
+// procRunning excludes a zombie, which is a status the kernel is still
+// holding rather than a process that is executing.
+func procRunning(t *testing.T, pid int) bool {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		//nolint:gosec,noctx // a pid this test spawned
+		out, err := exec.Command("ps", "-o", "state=", "-p", strconv.Itoa(pid)).Output()
+
+		state := strings.TrimSpace(string(out))
+		if err != nil || state == "" || strings.HasPrefix(state, "Z") {
+			return false
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	return true
 }

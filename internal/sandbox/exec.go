@@ -9,12 +9,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
+
+	"github.com/kyleking/wavez/internal/proc"
 )
 
 // ErrNoCommand reports Exec called with no command to run.
 var ErrNoCommand = errors.New("sandbox: no command given")
 
 const sessionDirPerm = 0o700
+
+// cancelGrace is how long Wait waits after a canceled command's group has
+// been killed before giving up on the output pipes.
+const cancelGrace = 2 * time.Second
 
 // Result is the outcome of a command run under Exec.
 type Result struct {
@@ -46,6 +54,11 @@ func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (
 	}
 	defer done()
 
+	// Its own group, so canceling reaches what the command forked. Only the
+	// no-terminal path sets this: a caller driving the command on a pty makes
+	// it a session leader instead, and setpgid on a session leader is EPERM.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	var stdout, stderr bytes.Buffer
 
 	cmd.Stdout = &stdout
@@ -75,6 +88,11 @@ func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (
 //
 // The returned function removes the profile file and must be called once the
 // command has finished, which is why the command is not started here.
+//
+// The command is canceled by killing its process group. A caller that starts
+// it itself must make the child a group leader, either with Setpgid or with
+// the Setsid that starting it on a pty already sets, or the cancel reaches
+// only whichever group the child inherited.
 func Command(
 	ctx context.Context, projectRoot, sessionTmp string, args ...string,
 ) (*exec.Cmd, func(), error) {
@@ -199,6 +217,14 @@ func sandboxCommand(
 	// #nosec G204 -- args is the command this sandbox exists to confine, not passed to an unsandboxed shell.
 	cmd := exec.CommandContext(ctx, "sandbox-exec", sandboxArgs...)
 	cmd.Dir = projectRoot
+	// Canceling kills the whole group rather than the one pid. sandbox-exec
+	// execs the command in place and a simple `sh -c` execs again, which is
+	// what makes cmd.Process look like the program itself. Anything with a
+	// shell operator forks a child that a single-pid kill leaves running.
+	cmd.Cancel = func() error { return proc.Kill(cmd.Process.Pid) }
+	// Wait returns even when a killed child left a grandchild holding the
+	// output pipes open, which is the same fork the group kill is for.
+	cmd.WaitDelay = cancelGrace
 	cmd.Env = append(scrubbedEnv(os.Environ()),
 		"GOCACHE="+dirs.goCache,
 		"GOLANGCI_LINT_CACHE="+dirs.goCache,
