@@ -347,8 +347,10 @@ func TestPTY_WritesOnlyInsideTheProjectRoot(t *testing.T) {
 // a record a later sweep can only act on wrongly.
 type spawnLog struct {
 	mu         sync.Mutex
-	added      []int
-	removed    []int
+	adds       int
+	removes    int
+	addedPID   int
+	removedPID int
 	aliveAtAdd bool
 }
 
@@ -356,7 +358,8 @@ func (l *spawnLog) Add(pid int, _ string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.added = append(l.added, pid)
+	l.adds++
+	l.addedPID = pid
 	l.aliveAtAdd = syscall.Kill(pid, 0) == nil
 
 	return nil
@@ -366,7 +369,8 @@ func (l *spawnLog) Remove(pid int) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.removed = append(l.removed, pid)
+	l.removes++
+	l.removedPID = pid
 
 	return nil
 }
@@ -394,17 +398,18 @@ func TestPTY_RecordsTheProgramWhileItRuns(t *testing.T) {
 	log.mu.Lock()
 	defer log.mu.Unlock()
 
-	if len(log.added) != 1 {
-		t.Fatalf("recorded %v, want the one program the call started", log.added)
+	if log.adds != 1 {
+		t.Fatalf("recorded %d processes, want the one the call started", log.adds)
 	}
 
 	if !log.aliveAtAdd {
-		t.Errorf("pid %d was recorded after it had already gone", log.added[0])
+		t.Errorf("pid %d was recorded after it had already gone", log.addedPID)
 	}
 
 	// Released once the call is over, so the record holds only what is still
 	// running and a finished pid is not swept once the number is reused.
-	if len(log.removed) != 1 || log.removed[0] != log.added[0] {
-		t.Errorf("released %v, want the recorded pid %v", log.removed, log.added)
+	if log.removes != 1 || log.removedPID != log.addedPID {
+		t.Errorf("released pid %d after %d calls, want the recorded pid %d once",
+			log.removedPID, log.removes, log.addedPID)
 	}
 }
