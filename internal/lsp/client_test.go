@@ -327,3 +327,40 @@ func TestPoolCloseStopsTheServer(t *testing.T) {
 		t.Error("a closed client must not accept a document")
 	}
 }
+
+// A project installs its language server into its own tool directory, which
+// is not on the PATH of a shell that never activated it: ty sat in
+// `.venv/bin` on a real project and every Python file went unchecked because
+// exec.LookPath answered for the ambient PATH alone.
+func TestPoolPrefersTheProjectsOwnToolDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := writeModule(t, map[string]string{"main.go": "package main\n"})
+	server := lsptest.Server(t, lsptest.Script{})
+
+	binDir := filepath.Join(root, ".venv", "bin")
+	if err := os.MkdirAll(binDir, 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	local := filepath.Join(binDir, "wavez-project-local-server")
+	if err := os.Symlink(server.Command, local); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	server.Command = filepath.Base(local)
+
+	ctx, cancel := context.WithTimeout(t.Context(), waitBudget)
+	defer cancel()
+
+	pool := lsp.NewPool(root, server)
+	defer func() {
+		if err := pool.Close(ctx); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	}()
+
+	if _, err := pool.Client(ctx, "main.go"); err != nil {
+		t.Errorf("Client: %v, want the server found under .venv/bin", err)
+	}
+}

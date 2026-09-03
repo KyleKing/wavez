@@ -217,7 +217,7 @@ func TestLSPGateReportsNoPassWhenTheServerIsNotInstalled(t *testing.T) {
 		t.Errorf("failures = %+v, want none", result.Failures)
 	}
 
-	if !strings.Contains(result.Reason, "not found on PATH") {
+	if !strings.Contains(result.Reason, "wavez-no-such-language-server") {
 		t.Errorf("Reason = %q, want it to name the missing binary", result.Reason)
 	}
 }

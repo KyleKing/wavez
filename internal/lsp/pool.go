@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,10 +14,11 @@ import (
 // ErrNoServer reports a file no configured server handles.
 var ErrNoServer = errors.New("lsp: no server configured for this file type")
 
-// ErrServerUnavailable reports a server whose binary is not on PATH. It is a
-// property of the machine rather than of the project, which is why callers
-// separate it from a server that starts and then fails.
-var ErrServerUnavailable = errors.New("lsp: server binary not found on PATH")
+// ErrServerUnavailable reports a server whose binary is in neither the
+// project's own tool directories nor on PATH. It is a property of the
+// machine rather than of the project, which is why callers separate it from
+// a server that starts and then fails.
+var ErrServerUnavailable = errors.New("lsp: server binary not found in the project or on PATH")
 
 // Server describes how to launch one language server and which files it
 // handles.
@@ -90,9 +92,12 @@ func (p *Pool) Client(ctx context.Context, path string) (*Client, error) {
 		return nil, fmt.Errorf("%w: %s", ErrNoServer, filepath.Ext(path))
 	}
 
-	if _, err := exec.LookPath(srv.Command); err != nil {
+	bin, ok := p.lookup(srv.Command)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServerUnavailable, srv.Command)
 	}
+
+	srv.Command = bin
 
 	p.mu.Lock()
 	e, ok := p.entries[srv.Language]
@@ -118,6 +123,43 @@ func (p *Pool) Client(ctx context.Context, path string) (*Client, error) {
 	e.client = client
 
 	return client, nil
+}
+
+// projectBinDirs are the directories a project keeps its own tools in,
+// relative to the root. A Python project installs `ty` into its virtualenv
+// and a Node one installs its server into `node_modules`, so neither is on
+// the PATH of a shell that never activated anything, and wavez reported a
+// server it was standing next to as absent.
+var projectBinDirs = []string{
+	filepath.Join(".venv", "bin"),
+	filepath.Join("node_modules", ".bin"),
+	filepath.Join("venv", "bin"),
+}
+
+// lookup resolves a server command to an executable, preferring the
+// project's own tool directories over the ambient PATH so the server that
+// runs is the version the project pinned. An absolute command is taken as
+// given.
+func (p *Pool) lookup(command string) (string, bool) {
+	if filepath.IsAbs(command) {
+		_, err := os.Stat(command)
+
+		return command, err == nil
+	}
+
+	for _, dir := range projectBinDirs {
+		candidate := filepath.Join(p.root, dir, command)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate, true
+		}
+	}
+
+	path, err := exec.LookPath(command)
+	if err != nil {
+		return "", false
+	}
+
+	return path, true
 }
 
 // Close shuts every running server down.

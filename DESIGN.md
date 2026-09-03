@@ -1413,6 +1413,14 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      correctness, so a name the run read anywhere in its own transcript is
      grounded whatever the index holds, and the run's transcript reaches the
      check on `agent.Finish`
+   - the language server pool resolved a command with `exec.LookPath` alone,
+     which reads the ambient PATH, and a Python project installs `ty` into
+     `.venv/bin`. Every Python file on that project went unchecked with the
+     gate reporting the server "not found on PATH" while it sat in the tree,
+     and a lane read that as an environment problem and moved on. The pool
+     reads the project's own tool directories first (`.venv/bin`,
+     `node_modules/.bin`, `venv/bin`), so the server that runs is also the
+     version the project pinned
 
    The same lane measured what a lane's size costs. Asked to replace the
    splitter, move every caller, and add the tests in one run, it stopped on
