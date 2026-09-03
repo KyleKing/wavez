@@ -855,9 +855,11 @@ func buildRegistry(d registryDeps) *tool.Registry {
 	withLeases := tools.WithLeases(d.leases)
 	reach := tools.WithExtraRoots(d.extraDirs)
 
+	seen := tools.WithSeen(tools.NewSeenFiles())
+
 	set := []tool.Tool{
 		tools.NewList(d.root, reach),
-		tools.NewRead(d.root, d.scope, reach),
+		tools.NewRead(d.root, d.scope, reach, seen),
 		tools.NewStrReplace(d.root, d.scope, withLeases, reach, tools.WithSymbols(d.indexer)),
 		tools.NewUndo(d.root, d.scope, withLeases, reach),
 		tools.NewWrite(d.root, d.scope, withLeases, reach),
@@ -872,6 +874,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
 		tools.NewDocument(d.root, d.indexer, d.scope, withLeases),
 		tools.NewMove(d.root, d.indexer, d.scope, withLeases),
+		tools.NewReplaceLines(d.root, d.scope, withLeases, reach, seen),
 		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),
 	}
 

@@ -149,10 +149,10 @@ func (r *Read) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 		return tool.Fail(tool.CauseBadInput, "%v", err), nil
 	}
 
-	return r.readAll(paths, in.StartLine, in.EndLine), nil
+	return r.readAll(ctx, paths, in.StartLine, in.EndLine), nil
 }
 
-func (r *Read) readAll(paths []string, start, end int) tool.Result {
+func (r *Read) readAll(ctx context.Context, paths []string, start, end int) tool.Result {
 	blocks := make([]string, 0, len(paths))
 	for _, raw := range paths {
 		p, pStart, pEnd, err := splitRange(raw)
@@ -164,7 +164,7 @@ func (r *Read) readAll(paths []string, start, end int) tool.Result {
 			pStart, pEnd = start, end
 		}
 
-		block, failure := r.readOne(p, pStart, pEnd)
+		block, failure := r.readOne(ctx, p, pStart, pEnd)
 		if failure != nil {
 			return *failure
 		}
@@ -177,7 +177,7 @@ func (r *Read) readAll(paths []string, start, end int) tool.Result {
 
 // readOne answers for one path, which is a directory listing, an outline, or
 // a line range.
-func (r *Read) readOne(p string, start, end int) (string, *tool.Result) {
+func (r *Read) readOne(ctx context.Context, p string, start, end int) (string, *tool.Result) {
 	abs, err := resolvePath(r.root, r.deps.extraRoots, p)
 	if err != nil {
 		return "", failure(tool.CauseRefused, "%v", err)
@@ -204,6 +204,9 @@ func (r *Read) readOne(p string, start, end int) (string, *tool.Result) {
 	}
 
 	r.scope.Observe(abs)
+	// Only past the outline branch above, since an outline is not the bytes
+	// and a line number taken from one means nothing.
+	r.deps.seen.Note(ctx, abs, data)
 
 	result := rangeResult(p, data, start, end)
 	if result.IsError {

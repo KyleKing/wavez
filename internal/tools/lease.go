@@ -47,6 +47,7 @@ type deps struct {
 	changes Changes
 	symbols SymbolSearch
 	spawns  Spawns
+	seen    *SeenFiles
 	// allowedCommands widen the guard's built-in list of shell commands that
 	// run without a prompt, from what the project named.
 	allowedCommands []string
@@ -180,4 +181,10 @@ func existingDirs(targets []string) []string {
 	}
 
 	return out
+}
+
+// WithSeen shares the record of what a run has been shown, which is what lets
+// an edit addressed by line number be checked instead of trusted.
+func WithSeen(s *SeenFiles) Option {
+	return func(d *deps) { d.seen = s }
 }
