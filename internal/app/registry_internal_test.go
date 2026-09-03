@@ -17,8 +17,9 @@ func (nopAsker) Ask(context.Context, string) (string, error) { return "", nil }
 // A tool nothing can answer is worse than an absent one. Every one of the 8
 // `question` calls in the recorded corpus failed with `reading answer: EOF`,
 // because a replay's stdin is not a terminal, and each one cost a turn plus
-// the 107 preamble tokens the tool carries on every other turn too.
-func TestQuestionIsOfferedOnlyWhereSomethingCanAnswer(t *testing.T) {
+// the 107 preamble tokens the tool carries on every other turn too. `demo`
+// waits on the same person and costs 225.
+func TestToolsThatWaitOnAPersonAreOfferedOnlyWhereSomethingCanAnswer(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -33,8 +34,10 @@ func TestQuestionIsOfferedOnlyWhereSomethingCanAnswer(t *testing.T) {
 			t.Parallel()
 
 			names := buildRegistry(registryDeps{root: t.TempDir(), asker: tc.asker}).Names()
-			if got := slices.Contains(names, "question"); got != tc.want {
-				t.Errorf("question offered = %v, want %v (tools: %v)", got, tc.want, names)
+			for _, name := range []string{"demo", "question"} {
+				if got := slices.Contains(names, name); got != tc.want {
+					t.Errorf("%s offered = %v, want %v (tools: %v)", name, got, tc.want, names)
+				}
 			}
 
 			if !slices.Contains(names, "read") {

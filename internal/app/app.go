@@ -117,7 +117,12 @@ var ReadOnlyTools = []string{"list", "read", "search", "context", "question", "w
 // terminal, which is a heavier `shell`, and omitting the lighter one while
 // advertising the heavier would be incoherent. It costs 179 tokens of the
 // 7,168 a fast turn can use.
-var FastTierOmits = []string{"pty", "shell", "write"}
+//
+// `demo` is the same trade at 225 tokens, 3.1% of a fast turn. Deciding a
+// milestone is worth a person's time is the judgment the escalated tier is
+// there for, and a fast turn shown the tool spends that budget on every
+// turn to reach it once.
+var FastTierOmits = []string{"demo", "pty", "shell", "write"}
 
 // Prefix is the fixed prefix a thread's turns pay, with the fast tier's
 // narrower tool surface filled in. Both entry points build it from here so
@@ -884,7 +889,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 	// failed with `reading answer: EOF`, because a replay's stdin is not a
 	// terminal and there was nobody on the other end.
 	if d.asker != nil {
-		set = append(set, tools.NewQuestion(d.asker))
+		set = append(set, tools.NewQuestion(d.asker), tools.NewDemo(StateDir(d.root), d.asker))
 	}
 
 	if d.vision != nil {

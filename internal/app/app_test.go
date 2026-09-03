@@ -45,12 +45,7 @@ func TestNew_ConstructsAndClosesTwiceWithoutError(t *testing.T) {
 		t.Errorf("len(Tools.Names()) = %d, want %d: %v", got, want, a.Tools.Names())
 	}
 
-	// This case supplies no Asker, so question must be absent rather than
-	// present and failing every call. buildRegistry drops a nil Asker, so a
-	// non-nil default here would have offered the tool past that check.
-	if _, err := a.Tools.Get("question"); err == nil {
-		t.Error("Tools.Get(\"question\") succeeded with no Asker wired")
-	}
+	assertNeedsAnAsker(t, a)
 
 	// A plan thread must be unable to reach an editing tool, not merely be
 	// told not to: the registry refuses what it dropped, so a model naming
@@ -159,8 +154,11 @@ func TestPrefix_NarrowsOnlyWhatTheFastTierIsShown(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "AGENTS.md"), agentsMD)
 
+	// An Asker is wired because FastTierOmits names `demo`, and a tool the
+	// registry never built cannot be checked for being withheld from one
+	// tier and offered to another.
 	a, err := app.New(context.Background(), root, config.Defaults(root), permission.AllowAll(),
-		app.WithProviders(tierProviders(fake.New("balanced"))))
+		app.WithProviders(tierProviders(fake.New("balanced"))), app.WithAsker(silentAsker{}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -201,4 +199,24 @@ func named(specs []llm.ToolSpec, name string) bool {
 	}
 
 	return false
+}
+
+// silentAsker stands in for a person so an asker-gated tool is registered.
+// No case here calls one.
+type silentAsker struct{}
+
+func (silentAsker) Ask(context.Context, string) (string, error) { return "", nil }
+
+// assertNeedsAnAsker checks that every tool which waits on a person is
+// absent rather than present and failing every call, for an App built with
+// no Asker. A nil Asker is dropped by buildRegistry, so a non-nil default
+// would have offered them past this check.
+func assertNeedsAnAsker(t *testing.T, a *app.App) {
+	t.Helper()
+
+	for _, name := range []string{"demo", "question"} {
+		if _, err := a.Tools.Get(name); err == nil {
+			t.Errorf("Tools.Get(%q) succeeded with no Asker wired", name)
+		}
+	}
 }
