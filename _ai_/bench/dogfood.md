@@ -5498,3 +5498,39 @@ Verified both directions. With the answering goroutine removed the sleepless
 fixture still fails, so it catches the deadlock it was written for. With the
 answering goroutine back, 30 runs under 24-way load all pass, where 10 runs
 failed before the change.
+
+## 2026-09-03: two tools nothing calls came off the fast tier
+
+`_ai_/bench/corpus.py tools` over every recorded thread on both projects:
+
+```
+$ _ai_/bench/corpus.py tools .wavez/threads
+tool               calls  changes
+read                1968        0
+str_replace         1700     1117
+shell               1512        0
+...
+$ _ai_/bench/corpus.py tools ../vcr-tui/.wavez/threads
+str_replace          350      339
+...
+replace_lines          1        1
+```
+
+`document` has never been called. `replace_lines` has been called once, in the
+demo lane above. Between them they cost 329 tokens of every fast turn, 4.6% of
+the 7,168 a fast turn can use, and the project's own rule is that a tool
+nothing reaches is worse than an absent one.
+
+Both join `FastTierOmits`, which is a budget rather than a permission: the
+hosted tiers still see them. The fast tier's fixed prefix falls from 3,107 to
+2,775 tokens, 43% to 39%.
+
+The removal condition for `document` is written beside it. The reason it
+exists was writing many docs in one call, and `str_replace`'s edits list now
+does that, so what is left is knowing where a Go doc comment goes rather than
+a Python docstring. If the next corpus read still shows zero calls, that is
+not worth 172 tokens a turn and it goes.
+
+That `shell` row, 1,512 calls and 0 changes, is the hole the entry above
+closed. Every number in it predates the fix, so the next corpus read is where
+it gets tested against a live run.

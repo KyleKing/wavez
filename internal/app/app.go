@@ -122,7 +122,17 @@ var ReadOnlyTools = []string{"list", "read", "search", "context", "question", "w
 // milestone is worth a person's time is the judgment the escalated tier is
 // there for, and a fast turn shown the tool spends that budget on every
 // turn to reach it once.
-var FastTierOmits = []string{"demo", "pty", "shell", "write"}
+//
+// `document` and `replace_lines` are here on measured disuse: across every
+// recorded thread on two projects, `document` has never been called and
+// `replace_lines` has been called once, while costing 172 and 157 tokens of
+// every fast turn between them. Both stay in the registry because the
+// hosted tiers still see them. `document` is the one to remove outright if
+// the next corpus read still shows zero: the reason it exists was writing
+// many docs in one call, and `str_replace`'s edits list now does that, so
+// what is left is knowing where a Go doc comment goes rather than a Python
+// docstring.
+var FastTierOmits = []string{"demo", "document", "pty", "replace_lines", "shell", "write"}
 
 // Prefix is the fixed prefix a thread's turns pay, with the fast tier's
 // narrower tool surface filled in. Both entry points build it from here so
