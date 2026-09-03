@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/config"
 )
 
@@ -144,5 +146,41 @@ func TestSplitSchemaAccountsForEveryByte(t *testing.T) {
 
 	if cost.Prose <= len("where the file is") {
 		t.Errorf("prose = %d, want it to carry the description's key and quoting too", cost.Prose)
+	}
+}
+
+// A run whose second review still objects completes carrying the objection,
+// which only the log used to hold. One lane rebutted a correct objection
+// twice with a claim its own file contradicted, and the terminal showed the
+// rebuttal and nothing else.
+func TestReportStandingObjection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		verdict agent.Verdict
+		want    string
+	}{
+		{
+			name:    "an objection the run completed with is printed",
+			verdict: agent.Verdict{Result: agent.ReviewObjection, Note: "the Usage section has no example"},
+			want:    "review still objects: the Usage section has no example\n",
+		},
+		{name: "a clean review says nothing", verdict: agent.Verdict{Result: agent.ReviewOK}},
+		{name: "an objection with no note says nothing", verdict: agent.Verdict{Result: agent.ReviewObjection}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var b bytes.Buffer
+
+			reportStandingObjection(&b, tt.verdict)
+
+			if b.String() != tt.want {
+				t.Errorf("output = %q, want %q", b.String(), tt.want)
+			}
+		})
 	}
 }

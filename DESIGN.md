@@ -1421,6 +1421,16 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      reads the project's own tool directories first (`.venv/bin`,
      `node_modules/.bin`, `venv/bin`), so the server that runs is also the
      version the project pinned
+   - the review objection a run completes with reached the log and never the
+     terminal. Two rounds is the cap and the second objection stands
+     unresolved for the user to settle, which only works if the user is told:
+     a lane asked to rewrite a placeholder README was told twice, correctly,
+     that its Usage section still had no runnable example, answered both
+     rounds by declaring the objection wrong, and shipped. The rebuttal was
+     the whole of what the terminal printed. A standing objection prints
+     beside the run's numbers now. The reviewer being right here is worth
+     recording on its own, since the case for replacing it was that it
+     objected to correct diffs
 
    The same lane measured what a lane's size costs. Asked to replace the
    splitter, move every caller, and add the tests in one run, it stopped on

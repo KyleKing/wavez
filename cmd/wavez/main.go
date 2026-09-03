@@ -762,6 +762,7 @@ func reportRun(th *thread.Thread, a *app.App, outcome agent.Outcome, opt options
 		th.ID(), outcome.Stop, outcome.Elapsed.Round(time.Second), outcome.Turns, outcome.ToolCalls,
 		outcome.HostedSpendUSD, outcome.ThreadSpendUSD, outcome.Checkpoint)
 	reportResume(th.ID(), outcome)
+	reportStandingObjection(os.Stderr, outcome.Review)
 	reportStrayedEdits(a.Scope.Strayed(), root, opt.strictScope)
 
 	return nil
@@ -809,6 +810,20 @@ func relStrayed(strayed []string, root string) []string {
 	}
 
 	return out
+}
+
+// reportStandingObjection prints a review objection the run completed with.
+// Two rounds is the cap, and a run whose second review still objects
+// completes carrying it for the user to settle, which the terminal never
+// said. One lane answered a correct objection twice with a claim the file it
+// had just written contradicted, and that rebuttal was the whole of what the
+// terminal showed.
+func reportStandingObjection(w io.Writer, v agent.Verdict) {
+	if v.Result != agent.ReviewObjection || v.Note == "" {
+		return
+	}
+
+	_, _ = fmt.Fprintf(w, "review still objects: %s\n", v.Note) //nolint:errcheck // a report line
 }
 
 // reportStrayedEdits names the files a run reached for without ever reading
