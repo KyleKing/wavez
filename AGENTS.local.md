@@ -178,6 +178,17 @@ are specific to this codebase and not visible from the code.
   `ptyAnswerWait` (2 s), and that window is measured from the write so the
   two waits one key gets do not each spend it
 
+- A TUI check runs in a named tmux session and is killed when the screen has
+  been read (`tmux new -d -s wz-check ...`, then `tmux kill-session -t
+  wz-check`). [AGENTS.md](AGENTS.md#tui-testing) carries the rule and
+  my_go_template renders it. A detached session outlives the check, and a
+  Textual app whose terminal goes away spins at 100% CPU rather than exiting
+- `wavezd` sweeps leftover spawned processes at startup from a record beside
+  its own socket, so a daemon started on a fresh path sweeps nothing. Reusing
+  one scratch socket across runs (`/tmp/wz-vcr/d.sock`) is what makes the
+  sweep reach the previous run's leaks, and it is also how a stale daemon
+  goes unnoticed: check `pgrep -fl wavezd` before assuming a socket is free
+
 ## Go conventions
 
 - Define interfaces where they are consumed, keep them to 1-3 methods, and add one

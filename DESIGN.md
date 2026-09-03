@@ -1453,6 +1453,47 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    to build it read the tree, found it, and spent its turns verifying what
    was already there.
 
+   A run that drove a TUI left the program running. On 2026-09-02 nineteen
+   orphaned `vcr-tui` processes were found at 40-49% CPU each, the oldest
+   about 10 hours old, beside an orphaned `wavezd`. The cause is upstream and
+   proven rather than argued: a Textual app whose pty master closes spins in
+   `LinuxDriver.run_input_thread`, where the closed fd stays readable, `read`
+   returns `b""` forever, and the loop re-enters `select` with no sleep. A
+   six-line Textual app reproduces it, going from 0.0% to 99.4% CPU the
+   moment its parent exits. The writeup is filable in vcr-tui's
+   `TEXTUAL_ISSUE_DRAFT.md` and nothing is worked around here, since a driver
+   subclass would hide a defect every Textual app still has.
+
+   What was wavez's to fix is that it orphaned the child at all, and two
+   things did:
+
+   - a canceled command was killed by pid, so anything the shell forked kept
+     running. `sandbox-exec` execs in place and a simple `sh -c` execs again,
+     which is what made `cmd.Process` look like the program itself. Every
+     sandboxed command runs in its own process group now and cancel kills the
+     group (`proc.Kill`). Removing either half leaves the fork alive in
+     `TestExec_CancelKillsWhatTheCommandForked`. The pty path already gets a
+     group from the `Setsid` that starting on a pty sets, and setting
+     `Setpgid` as well is EPERM on a session leader, which broke every pty
+     call until the tests said so
+   - a daemon killed mid-call left no record anywhere of what it was running.
+     `proc.Registry` records each pty child beside that daemon's socket and
+     `wavezd` sweeps the record at startup, where everything left belongs to
+     a daemon that is gone. It is scoped by socket so a scratch daemon never
+     sweeps the daily one's work, and an entry whose pid is live under a
+     different start time is a reused pid and left alone. End to end on the
+     real binary: an orphan spinning at 91% CPU, then
+     `wavezd: killed 13339 left by an earlier daemon: vcr-tui
+     fixtures/cassettes`, then gone.
+
+   Two things this does not do. A live reaper that samples a running child's
+   CPU and kills what is hot, long-running, and drawing nothing would have
+   caught this incident without any record to read, and it can mask the bug
+   it cleans up, so it logs what it killed and why or it is worse than
+   nothing. Nothing caps the aggregate spawned-child count either, and a
+   daemon holding twenty children is its own signal that a caller is not
+   waiting. Neither is built.
+
 3. **`no_match` is the only class in the edit tools that is still live.**
    Since 2026-08-28 `str_replace` runs 94 calls at a 7% error rate, `no_match`
    5 and `ambiguous` 2, and `rename` 12 calls with no failure at all. Every

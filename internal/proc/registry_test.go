@@ -50,8 +50,26 @@ func alive(pid int) bool {
 	return state != "" && !strings.HasPrefix(state, "Z")
 }
 
-// groupMembers is every process sharing pid's group, which is what a single
-// pid kill would have left behind.
+// waitForGroup blocks until pgid holds at least want processes, which is
+// what a single pid kill would have left behind.
+func waitForGroup(t *testing.T, pgid, want int) []int {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		members := groupMembers(t, pgid)
+		if len(members) >= want {
+			return members
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("group %d holds %v, want at least %d processes", pgid, members, want)
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func groupMembers(t *testing.T, pgid int) []int {
 	t.Helper()
 
@@ -106,12 +124,9 @@ func TestSweepKillsWhatADeadDaemonLeft(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	// The shell forked, so the group holds more than the pid on record.
-	members := groupMembers(t, cmd.Process.Pid)
-	if len(members) < 2 {
-		t.Fatalf("group %d holds %v, want the shell and the sleep it forked",
-			cmd.Process.Pid, members)
-	}
+	// The shell forks, so the group comes to hold more than the pid on
+	// record. Reading it straight after Start races the fork.
+	members := waitForGroup(t, cmd.Process.Pid, 2)
 
 	killed, err := reg.Sweep(t.Context())
 	if err != nil {
