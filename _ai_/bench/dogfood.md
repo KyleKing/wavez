@@ -5236,3 +5236,60 @@ arrives one per line.
 Not yet measured: whether a run given the distribution up front actually
 spends those twelve turns elsewhere. That is the next lane from
 `ruff-all-start`, against this run as the baseline.
+
+## 2026-09-03: the second lane routed around both new tools
+
+The same task from the same base (`ruff-all-start` in `../vcr-tui`, 349
+findings), the same prompt, the same flags, against a tree carrying the
+grouped reducer, `document`, and `replace_lines`. It completed: ruff 0, `ty`
+clean, 156 tests passing.
+
+| | 2026-09-02 | 2026-09-03 |
+| --- | --- | --- |
+| wall | 12m02s | 7m54s |
+| turns | 75 | 97 |
+| tool calls | 155 | 104 |
+| output tokens | 21,531 | 16,341 |
+| `str_replace` | 90 | 27 |
+| `shell` | 43 | 62 |
+| retrieval turns | 29 | 58 |
+| gate rounds (failed) | 25 (13) | 21 (16) |
+
+Wall clock is down a third and output tokens a quarter, on one lane, where
+repeated runs of one task vary 40-70% in turns. Take the direction and not
+the size.
+
+**`document` and `replace_lines` were called zero times.** Both were
+advertised, `wavez -preamble -dir ../vcr-tui` confirms it, and together they
+cost 349 tokens of every turn of that run for nothing. By this project's own
+rule a tool nothing reaches is worse than an absent one.
+
+**What the model did instead is the finding.** It wrote its own batch editor
+in Python and ran it through `shell`:
+
+```python
+def doc(path, pairs):
+    s = open(path).read()
+    for old, new in pairs:
+        assert s.count(old) == 1, (path, old, s.count(old))
+        s = s.replace(old, new)
+    open(path, 'w').write(s)
+```
+
+That is `str_replace`'s `edits` branch, reinvented, and `edits` is the branch
+`openaic.schemaFor` drops because GLM-5.3 answers a top-level `oneOf` with
+`{}`. The model wanted the shape the schema was hiding and built it out of
+the one tool that takes arbitrary text. It is also why `str_replace` fell
+from 90 calls to 27 and why the wall clock fell with it.
+
+The cost is invisible edits. Nine shell calls wrote source files and recorded
+zero changes between them, against 26 changes from 27 `str_replace` calls, so
+those edits reached no change set, took no lease, are attributed to no gate,
+and cannot be undone. A faster run that the harness cannot see is not the
+trade this project wants.
+
+The reducer fired four times and grouped what it saw, and the run spent much
+of its shell budget on `ruff --output-format json` piped through its own
+Python counter, which the grouper does not touch because JSON is not
+location-prefixed lines. Grouping a check's structured output is the same job
+one level down.
