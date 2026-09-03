@@ -64,6 +64,13 @@ func TestExec_Probes(t *testing.T) {
 			args:   []string{"sh", "-c", "echo x > \"$UV_CACHE_DIR/probe\" && echo x > \"$XDG_CACHE_HOME/probe\""},
 			wantOK: true,
 		},
+		{
+			// A TUI a run wants to drive needs a pty, and allocating one
+			// writes to the multiplexer and to the slave it returns.
+			name:   "allocate a pty",
+			args:   []string{"/usr/bin/python3", "-c", "import pty; pty.openpty()"},
+			wantOK: true,
+		},
 	}
 
 	for _, tt := range tests {

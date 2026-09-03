@@ -58,7 +58,12 @@ func (p *Profile) Render() string {
 // Writes are scoped to projectRoot and sessionTmp. Reads of the credential
 // and history directories under home listed by secretSubpaths are denied.
 // /dev/null and /dev/tty are allowed explicitly (git needs the former even
-// under a deny-by-default write policy). Network is loopback-only.
+// under a deny-by-default write policy), along with the pty multiplexer and
+// the slave devices it hands out, since a run that cannot allocate a pty
+// cannot drive a terminal program at all. Seatbelt cannot name the one
+// slave a process just allocated, so the allowance covers every /dev/ttys*,
+// which is write access to any terminal this user owns. Network is
+// loopback-only.
 func RenderProfile(projectRoot, sessionTmp, home string) string {
 	var b strings.Builder
 	b.WriteString("; Wavez v0.1 sandbox profile (macOS Seatbelt / sandbox-exec).\n")
@@ -72,7 +77,13 @@ func RenderProfile(projectRoot, sessionTmp, home string) string {
 	fmt.Fprintf(&b, "  (subpath %s)\n", sbLiteral(projectRoot))
 	fmt.Fprintf(&b, "  (subpath %s)\n", sbLiteral(sessionTmp))
 	b.WriteString("  (literal \"/dev/null\")\n")
-	b.WriteString("  (literal \"/dev/tty\"))\n\n")
+	b.WriteString("  (literal \"/dev/tty\")\n")
+	// Allocating a pty writes to the multiplexer and then to the slave the
+	// kernel hands back, whose name is not known until it exists. Without
+	// both, openpty(3) fails as "out of pty devices" and nothing a run
+	// starts can drive a terminal program.
+	b.WriteString("  (literal \"/dev/ptmx\")\n")
+	b.WriteString("  (regex #\"^/dev/ttys[0-9]+$\"))\n\n")
 
 	b.WriteString("; --- reads: everything except secrets ---\n")
 	b.WriteString("(deny file-read*\n")

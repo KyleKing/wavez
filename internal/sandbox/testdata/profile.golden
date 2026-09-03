@@ -10,7 +10,9 @@
   (subpath "/PROJECT_ROOT")
   (subpath "/SESSION_TMP")
   (literal "/dev/null")
-  (literal "/dev/tty"))
+  (literal "/dev/tty")
+  (literal "/dev/ptmx")
+  (regex #"^/dev/ttys[0-9]+$"))
 
 ; --- reads: everything except secrets ---
 (deny file-read*
