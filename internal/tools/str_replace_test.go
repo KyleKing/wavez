@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -316,12 +317,14 @@ func TestStrReplace_EmptyNewStringDeletes(t *testing.T) {
 }
 
 // A local turn decodes tool arguments under a grammar compiled from this
-// schema, so a property a branch leaves out of required is an exit the
-// model can take mid-call. Measured against llama-server on qwen3:8b:
-// asked for a path-only call, the schema as it was accepted one 6 times
-// out of 6, and branches that require every property they declare forced
-// the pair 5 times out of 5.
-func TestStrReplace_EveryBranchRequiresEveryPropertyItDeclares(t *testing.T) {
+// schema, so a property the schema leaves out of required is an exit the
+// model can take mid-call. Measured against llama-server on qwen3:8b: asked
+// for a path-only call, an earlier schema with only path required accepted
+// one 6 times out of 6, and requiring every property it declares forced the
+// pair 5 times out of 5. The one list keeps that: an edit requires the text
+// it replaces and the text that replaces it, so a call cut short after
+// old_string loses that edit rather than sending an unnamed replacement.
+func TestStrReplace_RequiresEveryPropertyItDeclares(t *testing.T) {
 	t.Parallel()
 
 	var schema jsonSchema
@@ -329,22 +332,48 @@ func TestStrReplace_EveryBranchRequiresEveryPropertyItDeclares(t *testing.T) {
 		t.Fatalf("Schema() is not valid JSON: %v", err)
 	}
 
-	if len(schema.OneOf) < 2 {
-		t.Fatalf("oneOf has %d branches, want the pair and the edits shapes stated separately", len(schema.OneOf))
+	if len(schema.OneOf) > 0 {
+		t.Fatalf("the schema states %d branches, and schemaFor shows a non-composing dialect "+
+			"only the first, which is how the batch shape went unreachable", len(schema.OneOf))
 	}
 
-	for i, b := range schema.OneOf {
-		required := make(map[string]bool, len(b.Required))
-		for _, name := range b.Required {
-			required[name] = true
-		}
+	required := make(map[string]bool, len(schema.Required))
+	for _, name := range schema.Required {
+		required[name] = true
+	}
 
-		for name := range b.Properties {
-			if !required[name] {
-				t.Errorf("branch %d leaves %q optional, which lets a call close without it", i, name)
-			}
+	for name := range schema.Properties {
+		if !required[name] {
+			t.Errorf("%q is optional, which lets a call close without it", name)
 		}
 	}
+
+	for _, name := range []string{"old_string", "new_string"} {
+		if !editRequires(t, schema, name) {
+			t.Errorf("an edit leaves %q optional", name)
+		}
+	}
+}
+
+func editRequires(t *testing.T, schema jsonSchema, name string) bool {
+	t.Helper()
+
+	raw, ok := schema.Properties["edits"]
+	if !ok {
+		t.Fatal("the schema declares no edits list")
+	}
+
+	var edits struct {
+		Items struct {
+			Required []string `json:"required"`
+		} `json:"items"`
+	}
+
+	if err := json.Unmarshal(raw, &edits); err != nil {
+		t.Fatalf("edits is not an array schema: %v", err)
+	}
+
+	return slices.Contains(edits.Items.Required, name)
 }
 
 // The batch shape's own description says an edit may name its own path, and

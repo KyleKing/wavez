@@ -80,15 +80,18 @@ are specific to this codebase and not visible from the code.
 - A tool's JSON schema is a grammar on the fast tier, not documentation. A
   local turn decodes tool arguments under a grammar `llama-server` compiles
   from the schema, so any property left out of `required` is an exit the
-  model can take mid-call. State alternative input shapes as a top-level
-  `oneOf` of whole objects (`buildOneOf`), because an `anyOf` written beside
-  `properties` is silently ignored, and never let an absent field mean
-  something destructive. That shape is the local tier's and no one else's:
-  GLM-5.3 answers any top-level `oneOf` or `anyOf` with `{}` in six
-  completion tokens, and the same call with one branch answers with every
-  argument, so `openaic.schemaFor` sends z.ai the first branch. A tool
-  reached only through `buildOneOf`'s later branches is a tool the hosted
-  tiers cannot reach at all
+  model can take mid-call, and an absent field must never mean something
+  destructive. State one shape and never alternatives. A top-level `oneOf`
+  binds on the fast tier where an `anyOf` beside `properties` is ignored, and
+  it is unreachable everywhere else: GLM-5.3 answers any top-level `oneOf` or
+  `anyOf` with `{}` in six completion tokens, so `openaic.schemaFor` sends
+  z.ai the first branch alone. Where a tool serves one input and many, take
+  the list as the only shape (`str_replace`'s `edits`, `document`'s `docs`),
+  which costs a single call about ten tokens of array syntax and costs a
+  branch nothing, because there is no branch. The 2026-09-03 ruff lane is why:
+  the hosted tier could not see the batch branch, so it wrote its own batch
+  editor in Python and ran it through `shell`, and nine calls wrote source
+  files while recording no change between them
 - A replay record's `model` is a tier name, and `served` is what actually
   answered it. Moving the fast tier from the loopback llama-server to a
   hosted endpoint keeps the tier name and changes the machine, the window,

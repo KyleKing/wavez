@@ -998,6 +998,16 @@ surface. So the benchmark harness comes first, the efficiency work runs
 against it, and the machine probes and the Claude Code comparison wait until
 the loop underneath them has stopped moving.
 
+**Data comes with the script that produced it.** A table, a count, or a
+measurement reported on its own is a claim nobody can re-run, and the number
+that mattered last week is the number someone wants again next month against
+a changed tree. So anything reporting data says what was run to get it, in a
+form that can be run again, and shows the two together. This is a rule for
+the harness's own output and for every report written about it, and the
+2026-09-02 and 2026-09-03 lanes are the worked example: every figure in
+`_ai_/bench/dogfood.md` came from a query over the thread logs, and the ones
+worth repeating belong in a script rather than in a session that ended.
+
 **A layer that only ever met one project has only ever been tested against
 its shape.** Wavez ran on a Python repository for the first time on
 2026-08-29 and four defects came out of one afternoon: the build gate ran
@@ -1832,8 +1842,9 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   so it costs one wasted round trip ever. `openaic.schemaFor` is the deny-list
   stage of exactly this: `Dialect.composesSchemas()` is a single boolean, and a
   dialect that answers false has every branch but the first silently dropped,
-  which is why a tool reachable only through a later `buildOneOf` branch is a
-  tool the hosted tiers cannot reach at all. Generalizing the boolean to a
+  which is why no tool states branches any more: one that could be reached
+  only through a later branch was a tool the hosted tiers could not reach at
+  all, and the run answered that by building the shape itself out of `shell`. Generalizing the boolean to a
   declared keyword set is small. The part worth copying whole is the
   conformance check, which asserts over the real tool registry that a
   normalized schema neither keeps a construct the dialect rejects nor drops one
@@ -2031,6 +2042,9 @@ it.
 - **A decisions store.** Structured memory for what is already settled, so a judgment is made once and referenced after. Repo-local and global entries, retrieval fast and semi-deterministic enough to load conservatively, a CLI and a panel for reading and editing, de-duplication and condensing as a maintained property rather than an append log, and an expiry notion, because a decision taken in 2026 can stop applying without anyone noticing. The same store holds the other structured memories one user accumulates: cross-repository observations, dependency facts, a private reducer for a tool nobody else runs, and prompt templates. Two laptops sharing it is a file problem and Syncthing answers it. The blocker is garbage in, since an unreviewed store is worse than none for making wrong context cheap to load, so the review surface and the entry criteria come before the retrieval
 - **Draft safety in the composer.** A typed prompt is easy to lose and expensive to retype. Persist the composer buffer per thread as it is typed, restore it on reopen, and keep an undo that survives the keypress that cleared it. Small, and blocked only on scoping it against the inline and fullscreen composers, which handle keys differently
 - **Reading like a person wrote it.** Model output reaches the transcript in the register the model was trained into: obscure words for ordinary parts of the program, passive constructions, and sentence shapes that read as a fingerprint. The preamble is the only lever wavez holds, and prose in the preamble costs every turn of every thread, which is the spend the tool-surface decision above went to some trouble to cut. So the question is whether a short voice rule pays for itself, measured the way the schema prose was: `wavez -preamble` for what it costs and a lane for whether the output moved
+- **A finding with a mechanical fix should never reach a turn.** `ruff --fix`, `ast-grep`, and `gofmt` all rewrite what they diagnose, and a list rewritten to a set, an import reordered, or a quote style changed is a difference no judgment resolves. The format gate already runs as a rewriting pre-pass over `{files}` for exactly this reason and it cost a run twenty gate rounds before it did. Generalizing it means a check declaring which of its findings it can fix itself, applying those before reporting, and telling the run what it applied rather than what it found. The blocker is trust: a fixer that changes behaviour is a silent edit nobody reviewed, so this wants the safe-fix distinction the tools already draw (`ruff --fix` against `--unsafe-fixes`) and a record of every rewrite in the change set
+- **Statistics as a maintained subsystem rather than a side effect.** The thread log, the sidecar, the usage per turn, and the gate verdicts already carry enough to attribute a run's wall clock and output tokens, and reading them is a by-hand exercise every time. What is missing is a retention policy (the logs grow without bound and a thread from three months ago is evidence about a harness that no longer exists), a schema for what a record must carry to stay comparable across a tool-surface change, and something that runs the attribution on a schedule rather than when someone thinks to. `Usage.ReasoningBytes` is the standing example of the gap: it is measured in `internal/llm/openaic` and dropped before the log, so `-stats` cannot report it. The blocker is deciding what the unit of comparison is, since a run's numbers only mean something against a fixed task and a fixed tool surface, which is the benchmark harness's job
+- **A milestone demo the user critiques.** A run that finishes every check has proved the code does what the task said and nothing about whether the task was worth doing. The missing step is the run showing the current state, saying how it expects the thing to be used, and asking for that reading to be corrected, which is the one question no gate and no reviewer model can answer. It is close to `question` and `annotate`, which already block a run on a person, and the blocker is when to fire: per milestone rather than per run, and only where there is something to show
 
 The timed comparison runs off a fixed list rather than rediscovering steps: the setup and run loop in `_ai_/bench/timing/README.md`.
 

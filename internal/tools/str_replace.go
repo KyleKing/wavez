@@ -43,47 +43,49 @@ var strReplacePathProp = schemaProperty{
 	Description: "File path, relative to the project root, of an existing file.",
 }
 
-// strReplaceSchema offers the single-replacement and the several-at-once
-// shapes as separate branches so that each one requires every field it
-// needs. Stating them as one object with only path required let a local
-// turn close the call after old_string and lose new_string entirely, which
-// is what 52 of 52 fast-tier calls across this project's thread logs did.
-var strReplaceSchema = buildOneOf(
-	branch(map[string]schemaProperty{
-		propPath: strReplacePathProp,
-		propOldString: {
-			Type: schemaTypeString,
-			Description: "Exact text to replace, copied from a prior read. Anchor on the " +
-				"shortest snippet that appears exactly once.",
-		},
-		propNewString: {
-			Type: schemaTypeString,
-			Description: "What old_string becomes, replacing it entirely: to insert around " +
-				"existing code, repeat that code here or it is deleted. \"\" deletes it.",
-		},
-		propReplaceAll: replaceAllProp,
-	}, propPath, propOldString, propNewString, propReplaceAll),
-	branch(map[string]schemaProperty{
-		propPath: strReplacePathProp,
-		propEdits: {
-			Type: schemaTypeArray,
-			Description: "Several replacements in one call. All of them land or none do. Each " +
-				"one may name its own path, so a change spanning two files is one call.",
-			Items: &schemaItems{
-				Type: schemaTypeObject,
-				Properties: map[string]schemaProperty{
-					propOldString: {Type: schemaTypeString, Description: "Exact text to replace, as above."},
-					propNewString: {Type: schemaTypeString, Description: "Text that replaces it, as above."},
-					propPath: {
-						Type:        schemaTypeString,
-						Description: "File this edit applies to. Omit to use the call's own path.",
-					},
+// strReplaceSchema states one shape: a list of replacements, even for one.
+//
+// The branches it replaced were unreachable where they mattered. `schemaFor`
+// drops every branch but the first for a dialect that cannot compose, so the
+// hosted tier was never shown the batch shape at all, and the 2026-09-03 ruff
+// lane answered that by writing its own batch editor in Python and running it
+// through `shell`: nine calls that wrote source files and recorded no change
+// between them. A run that wants to send N edits will send them, and the only
+// question is whether the harness sees it.
+//
+// One list also keeps what the branches were for. Every field an edit needs
+// is required on the edit, so a turn cut short after `old_string` loses that
+// edit rather than sending a replacement it never named, which is what 52 of
+// 52 fast-tier calls did against a flat object with only `path` required.
+var strReplaceSchema = buildSchema(map[string]schemaProperty{
+	propPath: strReplacePathProp,
+	propEdits: {
+		Type: schemaTypeArray,
+		Description: "The replacements, one entry even for a single edit. All of them land or " +
+			"none do. Each may name its own path, so a change spanning two files is one call.",
+		Items: &schemaItems{
+			Type: schemaTypeObject,
+			Properties: map[string]schemaProperty{
+				propOldString: {
+					Type: schemaTypeString,
+					Description: "Exact text to replace, copied from a prior read. Anchor on the " +
+						"shortest snippet that appears exactly once.",
 				},
-				Required: []string{propOldString, propNewString},
+				propNewString: {
+					Type: schemaTypeString,
+					Description: "What it becomes, replacing it entirely: to insert around existing " +
+						"code, repeat that code here or it is deleted. \"\" deletes it.",
+				},
+				propPath: {
+					Type:        schemaTypeString,
+					Description: "File this edit applies to. Omit to use the call's own path.",
+				},
+				propReplaceAll: replaceAllProp,
 			},
+			Required: []string{propOldString, propNewString},
 		},
-	}, propPath, propEdits),
-)
+	},
+}, propPath, propEdits)
 
 // StrReplace edits an existing file by replacing one exact (or
 // whitespace-fuzzy) occurrence of old_string with new_string, wrapping
@@ -112,8 +114,8 @@ func (*StrReplace) Name() string { return "str_replace" }
 
 // Description implements tool.Tool.
 func (*StrReplace) Description() string {
-	return "Replace text in an existing file: one occurrence of old_string with new_string, or " +
-		"several at once with edits."
+	return "Replace text in existing files. Send every replacement you have as one edits list, " +
+		"each entry anchored on text copied from a read."
 }
 
 // Schema implements tool.Tool.
