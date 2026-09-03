@@ -3,6 +3,7 @@ package guard
 import (
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -26,6 +27,7 @@ var (
 	inPlaceCommands  = map[string]bool{"perl": true, "ruby": true, "sed": true}
 	moveCopyCommands = map[string]bool{"cp": true, subInstall: true, "mv": true, "rsync": true}
 	removeCommands   = map[string]bool{"rm": true, "rmdir": true, "shred": true, "unlink": true}
+	teeCommands      = map[string]bool{cmdTee: true}
 )
 
 // formatters rewrite files in place, either always or behind one of the
@@ -55,12 +57,178 @@ const (
 // to the project root where they fall inside it. An empty result means the
 // command was not recognized as writing.
 func WriteTargets(command string, env Env) []string {
-	if strings.TrimSpace(command) == "" {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
 		return nil
 	}
 
 	root := cleanRoot(env.ProjectRoot)
 
+	if p := walk(trimmed); p != nil {
+		return normalizeTargets(parsedTargets(p), root)
+	}
+
+	// The parser rejected the text, so the regexps answer. They read the whole
+	// line at once, so a target named in one command reaches the rules of
+	// another, which errs toward leasing more than the command writes.
+	return normalizeTargets(textTargets(trimmed), root)
+}
+
+// parsedTargets collects what every command writes, each judged against its
+// own words. A substitution runs its commands too, so its writes count.
+func parsedTargets(p *parsed) []string {
+	var targets []string
+
+	for _, pipe := range p.top {
+		for _, stage := range pipe.stages {
+			targets = append(targets, stageTargets(stage.words)...)
+		}
+	}
+
+	for _, sub := range p.subs {
+		for _, pipe := range sub.top {
+			for _, stage := range pipe.stages {
+				targets = append(targets, stageTargets(stage.words)...)
+			}
+		}
+	}
+
+	return targets
+}
+
+// stageTargets reads one command's words for the files it rewrites.
+func stageTargets(words []string) []string {
+	targets := redirectTargets(words)
+
+	if hasInPlaceFlag(words) {
+		targets = append(targets, wordsAfter(words, inPlaceCommands)...)
+	}
+
+	if stageFormats(words) {
+		targets = append(targets, wordsAfter(words, formatterNames())...)
+	}
+
+	for _, names := range []map[string]bool{moveCopyCommands, removeCommands, teeCommands} {
+		targets = append(targets, wordsAfter(words, names)...)
+	}
+
+	return targets
+}
+
+// redirectTargets reads the file each output redirection names. A duplication
+// (`2>&1`) names a descriptor rather than a file, so it is skipped.
+func redirectTargets(words []string) []string {
+	var out []string
+
+	for i, word := range words {
+		if !isWriteRedirect(word) || i+1 >= len(words) {
+			continue
+		}
+
+		target := words[i+1]
+		if strings.Contains(word, "&") && isDescriptor(target) {
+			continue
+		}
+
+		out = append(out, target)
+	}
+
+	return out
+}
+
+// isWriteRedirect reports whether word is a redirection operator that opens
+// its target for writing, with any leading file descriptor stripped.
+func isWriteRedirect(word string) bool {
+	op := strings.TrimLeft(word, "0123456789")
+
+	switch op {
+	case ">", ">>", ">|", ">&", ">>&", "&>", "&>>", "<>":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDescriptor(word string) bool {
+	if word == "-" {
+		return true
+	}
+
+	return word != "" && strings.TrimLeft(word, "0123456789") == ""
+}
+
+func hasInPlaceFlag(words []string) bool {
+	if !holdsCommand(words, inPlaceCommands) {
+		return false
+	}
+
+	for _, word := range words {
+		if word == "-i" || strings.HasPrefix(word, "-i.") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// stageFormats reports whether this command rewrites the files it is given,
+// either always or behind one of the subcommands or flags it is listed with.
+func stageFormats(words []string) bool {
+	for _, word := range words {
+		flags, ok := formatters[baseName(word)]
+		if !ok {
+			continue
+		}
+
+		if flags == nil {
+			return true
+		}
+
+		for _, flag := range flags {
+			if slices.Contains(words, flag) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func holdsCommand(words []string, names map[string]bool) bool {
+	for _, word := range words {
+		if names[baseName(word)] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// wordsAfter collects the non-flag words following any of names, which is
+// where a command of this shape puts the files it rewrites.
+func wordsAfter(words []string, names map[string]bool) []string {
+	var out []string
+
+	collecting := false
+
+	for _, word := range words {
+		switch {
+		case names[baseName(word)]:
+			collecting = true
+		case !collecting:
+		case strings.HasPrefix(word, "-"):
+		case isWriteRedirect(word):
+			collecting = false
+		default:
+			out = append(out, word)
+		}
+	}
+
+	return out
+}
+
+// textTargets is the pre-parser reading, kept for text bash rejects.
+func textTargets(command string) []string {
 	var targets []string
 
 	for _, m := range reRedirect.FindAllStringSubmatch(command, -1) {
@@ -85,7 +253,7 @@ func WriteTargets(command string, env Env) []string {
 		}
 	}
 
-	return normalizeTargets(targets, root)
+	return targets
 }
 
 func formatterNames() map[string]bool {

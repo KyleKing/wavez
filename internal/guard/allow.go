@@ -27,7 +27,7 @@ var defaultAllowed = map[string]bool{
 	cmdMise: true, "mkdir": true, "mktemp": true, "mv": true, "pkl": true,
 	"printf": true, "pwd": true, "readlink": true, "realpath": true, "rg": true,
 	"rm": true, "sed": true, "seq": true, "sort": true, "stat": true,
-	"tail": true, "tee": true, "test": true, "touch": true, "tr": true,
+	"tail": true, cmdTee: true, "test": true, "touch": true, "tr": true,
 	"tree": true, "true": true, "uniq": true, "wc": true, "which": true,
 	cmdXargs: true, "yq": true,
 }

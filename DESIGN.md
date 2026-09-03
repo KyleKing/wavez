@@ -1697,11 +1697,16 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   because a static parser is defense in depth and never a sandbox. So text the
   parser rejects falls back to the hand-rolled splitters rather than being
   skipped, and a verdict never depends on the parse succeeding:
-  `rm -rf / ; echo 'unterminated` still refuses. What has not moved is
-  `writes.go`, whose three redirection regexps the parse tree's own targets
-  should replace, and the `Env` argument and the expansion rules stay as they
-  are, since a parser answers what a command is and not what its variables
-  hold
+  `rm -rf / ; echo 'unterminated` still refuses. `WriteTargets` reads the same
+  tree, so a lease covers what each command writes rather than what the line
+  contains: `2> err.log` is a target the redirection regexp could not see
+  (its guard against `2>&1` also blindfolded it to every numbered redirect),
+  `2>&1` names a descriptor and not a file, and a quoted heredoc body no
+  longer donates the paths of the commands quoted inside it. Each command is
+  judged against its own words, so an in-place flag in one stage no longer
+  reaches the arguments of another. The `Env` argument and the expansion
+  rules stay as they are, since a parser answers what a command is and not
+  what its variables hold
 - A finding needs a baseline, and [fallow](https://github.com/fallow-rs/fallow)
   names the mechanism. The `lint` gate reads a changed file's whole package,
   filters out what it cannot attribute to the run, and so says nothing about a

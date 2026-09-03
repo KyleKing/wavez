@@ -39,6 +39,23 @@ func TestWriteTargets(t *testing.T) {
 		{name: "remove", command: "rm -rf internal/tmp", want: []string{"/repo/internal/tmp"}},
 		{name: "absolute target stays absolute", command: "echo x > /tmp/scratch", want: []string{"/tmp/scratch"}},
 		{name: "a target the guard cannot reduce is dropped", command: "echo x > $OUT/file", want: nil},
+		{
+			name:    "a redirect from a numbered descriptor still names a file",
+			command: "go test ./... 2> internal/api/err.log",
+			want:    []string{"/repo/internal/api/err.log"},
+		},
+		{
+			name:    "a descriptor duplication names no file",
+			command: "echo hi > out.txt 2>&1",
+			want:    []string{"/repo/out.txt"},
+		},
+		{
+			// A quoted delimiter keeps the body literal, so the `rm` inside it
+			// is data and only the redirect writes.
+			name:    "a quoted heredoc body writes nothing of its own",
+			command: "cat > NOTES.md <<'EOF'\nrm -rf build\nEOF\n",
+			want:    []string{"/repo/NOTES.md"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

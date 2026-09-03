@@ -37,6 +37,7 @@ const (
 	cmdDiff  = "diff"
 	cmdGofmt = "gofmt"
 	cmdMise  = "mise"
+	cmdTee   = "tee"
 	cmdXargs = "xargs"
 )
 
@@ -451,7 +452,7 @@ func jjDiscards(name, sub string) (string, bool) {
 // through an interpreter or an editor this never sees. The list is where
 // the guarantee lives, and this keeps the obvious route from being open.
 func writesProtected(tokens []string, env Env) (string, bool) {
-	writers := map[string]bool{"rm": true, "mv": true, "cp": true, "tee": true, "truncate": true}
+	writers := map[string]bool{"rm": true, "mv": true, "cp": true, cmdTee: true, "truncate": true}
 	isWriter := writers[baseName(tokens[0])]
 
 	for i, tok := range tokens {
