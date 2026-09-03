@@ -64,6 +64,39 @@ Do the predictable parts deterministically, keep the model for judgment, and kee
 
 Everything else copies a reference implementation.
 
+## Standing assumptions
+
+Three things are true of wavez and of nothing that has to serve a team. Each
+is load-bearing and each is underspent, which is worth naming, because an
+assumption nobody collects on is a constraint the project pays for and gets
+nothing back from.
+
+**jj is a hard dependency, so the tree's history is queryable and not merely
+recoverable.** Checkpointing and undo spend this already. The edit path does
+not: a run regenerates text it was shown a turn earlier, and 55% of the
+`str_replace` argument bytes in the 2026-09-02 ruff lane were an echo of
+what the file already held. Anything the operation log can address (the
+state before a call, the diff between two calls, the text a run has already
+been given) is cheap to name and expensive to re-emit, and today every edit
+pays the expensive form.
+
+**One user on one laptop, so the harness may know the user's tooling by
+name.** Locks, permissions, and the sandbox spend this already. Output
+parsing does not: mise, hk, ruff, ty, pytest, and golangci-lint are a fixed
+set with stable machine formats, so a gate's findings can reach a turn as
+records rather than as a wall of text the model re-derives structure from.
+The same assumption reaches across repositories, because every project here
+is rendered from a copier template, so a finding answered in the template
+answers it in every render and a run treating a template-owned file as local
+work is doing the work twice.
+
+**Every run emits a classified structured record, so the corpus is an input
+and not an archive.** The event log, the usage per turn, the untruncated
+tool inputs in the sidecar, and the gate verdicts are enough to attribute a
+run's wall clock and its output tokens without instrumenting anything new.
+Nothing reads them on a schedule yet, which is the gap Dogfooding below
+names.
+
 ## Architecture
 
 ```mermaid
@@ -557,6 +590,18 @@ Coverage says a line ran, not that anything checked it, and this project has alr
 - Serena's symbol tools are the reference for the token argument
 
 ### Threads and scheduling (M2)
+
+Threads exist for three things and the mechanics below serve them in order.
+Organization first: a Goal groups the work so that resuming means reading a
+few objects rather than the twenty short-lived sessions a context limit
+forces elsewhere. Context economy second: sibling threads under one Goal
+divide the context that would otherwise grow until compaction throws away
+what mattered, so the user opens fewer windows rather than more.
+Parallelism third, and this one is not yet what the word implies. Threads as
+shipped are concurrent writers against one tree, fenced by leases and by
+scoped gate reports, which is isolation. Nothing splits a task into lanes,
+hands each a disjoint piece, and rejoins them. The fan-out entry under
+Parked is where that lives.
 
 - A thread is a directory set plus a history plus a compaction state. Threads across directories are the norm, worktrees optional
 - Event log per thread with a retention policy from day one: a ring buffer in memory and overflow to disk on both daemon and client. The daemon and TUI spike held 105k events fine at 30 MB daemon RSS but showed the client's heap-driven CPU creep and the daemon's unbounded slice growth. Fan-out to subscribers blocks on backlog replay and sheds only on live streams, and per-connection channels are never closed by a producer
@@ -1053,6 +1098,18 @@ failure it could not attribute. When a run behaves strangely, suspect the
 harness before the model: the last two efficiency wins were both harness
 bugs presenting as a confused model, and both were found by re-running the
 task rather than by reasoning about it.
+
+**The corpus is the other half of the loop.** A replay lane answers a change
+someone already thought of. The thread logs say what to think of, and
+reading them is cheap enough to do weekly and after any run that felt slow.
+The 2026-09-02 ruff lane is the worked example: 93% of its 722 seconds was
+model round trips, that model time split 40% flat per-turn cost against 49%
+generation at 62 tok/s, and 55% of the edit payload was text the file
+already contained. None of the three is visible from inside a run and all
+three came out of the logs in an hour. A number the loop cannot produce is
+the standing argument for emitting it, and there is one: reasoning bytes are
+counted in `internal/llm/openaic` and dropped before the thread log, so
+`-stats` cannot report them.
 
 **Every lane ends in `_ai_/bench/dogfood.md`**, dated, with what was
 measured and what it did not settle.
@@ -1966,6 +2023,12 @@ it.
 - **Replaying a recorded run from a chosen turn.** Distinct from `wavez -recall`, which repeats one call and reaches the tree by replaying the calls before it. Resuming a run mid-flight needs the tree those messages were about, and a replay workspace is a real checkout the run mutated and the harness then deleted, so turn 30's filesystem is gone and re-running the turn answers against the wrong state. The blocker is retention, not replay: a per-tool-call jj operation id would make the workspace addressable at every turn for about what checkpointing already costs. Worth revisiting once the single-call version has been used enough to say whether the full resume is wanted
 - **A goal the model can propose.** The goal is user-authored by decision, and the case that keeps coming back is a thread whose goal is stale because the work turned out to be something else. A model-authored replacement is exactly the claim about progress that Cycles exist to stop trusting, so the version worth building is a harness observation ("this run has not touched what the goal names") rather than a rewrite
 - **Per-change commits with the goal as the description.** Superseded for recoverability by per-edit operation ids, and still open as a way to make the change log readable: one commit per accepted change described by the goal it serves. It waits on wanting that log, since the operation log already answers what a run did
+- **Fan-out and fan-in as a first-party shape.** A task too wide for one prompt gets split into lanes, each handed a disjoint slice, and rejoined. Every piece but the split and the join exists: leases fence the writes, scoped reports keep one lane's failure off another, and a thread already forks one level. The blocker is that nothing produces a work set whose disjointness the harness can check, which is why the categorizer below comes first. Fanning out over a list nobody proved disjoint is how two lanes edit one file
+- **A categorizer over tool output.** Linter findings, test failures, tracebacks, and the output of a program nobody wrote an adapter for all arrive as text the model reads in full and then re-derives structure from. The 2026-09-02 lane spent 12 of its 75 turns, 16% of the run, on grep pipelines bucketing `ruff check` output by rule before it made a single edit. The shape wanted is general: group the lines, count each group, and hand a turn the counts plus one example per group instead of the wall. `internal/reduce` already dispatches by tool and shape and is where it belongs. The blocker is how much of it is per-tool parsers, since a parser per tool is the maintenance this project refuses everywhere else, and a format-agnostic grouper has not been tried against real output
+- **Being critical about a category before acting on it 86 times.** The same lane wrote 86 docstrings without once asking whether the rule should have been ignored instead, how the other repositories on this laptop answer it, or whether `calcipy_template` had already settled it. One example per category is the natural unit of that review and is nearly free, where reviewing 86 edits is neither. The open half is when judgment is worth a call at all, with a category above some count, a change to a shared or template-owned config file, and a category no recorded decision covers as the candidates. Running the judge beside the work is what keeps it off the critical path, and the decisions store below is what keeps the same question from being asked twice
+- **A decisions store.** Structured memory for what is already settled, so a judgment is made once and referenced after. Repo-local and global entries, retrieval fast and semi-deterministic enough to load conservatively, a CLI and a panel for reading and editing, de-duplication and condensing as a maintained property rather than an append log, and an expiry notion, because a decision taken in 2026 can stop applying without anyone noticing. The same store holds the other structured memories one user accumulates: cross-repository observations, dependency facts, a private reducer for a tool nobody else runs, and prompt templates. Two laptops sharing it is a file problem and Syncthing answers it. The blocker is garbage in, since an unreviewed store is worse than none for making wrong context cheap to load, so the review surface and the entry criteria come before the retrieval
+- **Draft safety in the composer.** A typed prompt is easy to lose and expensive to retype. Persist the composer buffer per thread as it is typed, restore it on reopen, and keep an undo that survives the keypress that cleared it. Small, and blocked only on scoping it against the inline and fullscreen composers, which handle keys differently
+- **Reading like a person wrote it.** Model output reaches the transcript in the register the model was trained into: obscure words for ordinary parts of the program, passive constructions, and sentence shapes that read as a fingerprint. The preamble is the only lever wavez holds, and prose in the preamble costs every turn of every thread, which is the spend the tool-surface decision above went to some trouble to cut. So the question is whether a short voice rule pays for itself, measured the way the schema prose was: `wavez -preamble` for what it costs and a lane for whether the output moved
 
 The timed comparison runs off a fixed list rather than rediscovering steps: the setup and run loop in `_ai_/bench/timing/README.md`.
 
@@ -2054,6 +2117,8 @@ No:
   `_ai_/research/browser-simulator-automation.md` recommends `chromedp` for
   CDP coverage generated from the protocol spec rather than hand-written. One
   of the two is stale and neither has been built against
+- Threads: what parallelism means here, given that the shipped concept is concurrent writers against one tree rather than a decomposition. Whether a fanned-out lane is a sub-thread, whether the join is a merge or a report, and what one lane sends a sibling mid-run are all unanswered, and the answers decide whether message passing between lanes is a feature or is what the Goal and the shared change set already carry
+- Early turns: what a run can be handed at creation so it stops spending turns discovering its problem. The repo map and the one-hop neighbourhood are the current answer and they cover retrieval, not the shape the 2026-09-02 lane spent 16% of its turns on, which was a categorized reading of a check's own output
 - Web search API and version-pinning strategy
 - Snippets: `Tab` completes only in the fullscreen composer, because in the inline composer `Tab` still cycles panels. Whether the inline composer should give up the cycle while insert mode holds text, or a sigil (`:name`, as `@file` already does) should trigger completion in both, is open. Whether an expanded snippet stays editable text or becomes a chip the composer tracks is the same question one layer down
 - Progress estimate: how well a thread's own turn and gate-round durations predict its remaining wall clock, and whether the project's history for the same shape of work improves it enough to be worth storing. Answered on 138 thread logs (`_ai_/demos/progress-estimate`): the remaining run is not predictable (23% within a factor of two at best) and the project's history does not improve on the run's own, so no store. The turn is (54%), which is what the progress line renders
