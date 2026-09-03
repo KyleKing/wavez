@@ -12,28 +12,46 @@ import (
 	"github.com/kyleking/wavez/internal/tool"
 )
 
-var documentSchema = buildSchema(map[string]schemaProperty{
-	propSymbol: {
-		Type:        schemaTypeString,
-		Description: "Name of the declaration, exactly as declared.",
-	},
-	propDoc: {
-		Type:        schemaTypeString,
-		Description: "The doc as plain prose. It replaces any doc the declaration has now.",
-	},
-	propPath: {
-		Type:        schemaTypeString,
-		Description: "File holding it, relative to the project root. Needed only for a name declared twice.",
-	},
-}, propSymbol, propDoc)
+const propDocs = "docs"
 
-// Document writes one declaration's doc by name and touches nothing else.
+var documentSchema = buildSchema(map[string]schemaProperty{
+	propDocs: {
+		Type:        schemaTypeArray,
+		Description: "One entry per declaration. Send every doc you have in one call.",
+		Items: &schemaItems{
+			Type: schemaTypeObject,
+			Properties: map[string]schemaProperty{
+				propSymbol: {
+					Type:        schemaTypeString,
+					Description: "Name of the declaration, exactly as declared.",
+				},
+				propDoc: {
+					Type:        schemaTypeString,
+					Description: "The doc as plain prose. It replaces any doc the declaration has now.",
+				},
+				propPath: {
+					Type:        schemaTypeString,
+					Description: "File holding it. Needed only for a name declared twice.",
+				},
+			},
+			Required: []string{propSymbol, propDoc},
+		},
+	},
+}, propDocs)
+
+// Document writes declarations' docs by name and touches nothing else.
 //
 // It is the insertion `declare` cannot express: `declare` needs the whole
 // source, so documenting an existing 30-line method costs those 30 lines to
 // leave them unchanged. Measured on the 2026-09-02 ruff lane, 86 docstrings
 // went in through `str_replace` at roughly 190 output tokens each, of which
 // the anchor and the re-typed body were 55%.
+//
+// The input is a list rather than one entry with a batch alternative, because
+// a top-level `oneOf` is unreachable on the hosted tier and a run answering a
+// check's whole findings list has N answers to give at once. Entries are
+// independent, so one name the index cannot resolve costs its own entry and
+// not the other eighty-five.
 type Document struct {
 	scope *Scope
 	index SymbolSearch
@@ -52,8 +70,8 @@ func (*Document) Name() string { return "document" }
 
 // Description implements tool.Tool.
 func (*Document) Description() string {
-	return "Write a declaration's doc comment or docstring by name, leaving its body alone. " +
-		"No anchor to match and no body to repeat."
+	return "Write declarations' doc comments or docstrings by name, leaving their bodies alone. " +
+		"No anchor to match and no body to repeat, and every doc you have goes in one call."
 }
 
 // Schema implements tool.Tool.
@@ -62,10 +80,14 @@ func (*Document) Schema() json.RawMessage { return documentSchema }
 // Risk implements tool.Tool.
 func (*Document) Risk() tool.RiskClass { return tool.RiskWriteLocal }
 
-type documentInput struct {
+type documentEntry struct {
 	Symbol string `json:"symbol"`
 	Doc    string `json:"doc"`
 	Path   string `json:"path"`
+}
+
+type documentInput struct {
+	Docs []documentEntry `json:"docs"`
 }
 
 // Run implements tool.Tool.
@@ -79,56 +101,104 @@ func (d *Document) Run(ctx context.Context, input json.RawMessage) (tool.Result,
 		return tool.Fail(tool.CauseBadInput, "invalid input: %v", err), nil
 	}
 
-	if in.Symbol == "" || strings.TrimSpace(in.Doc) == "" {
-		return tool.Fail(tool.CauseBadInput,
-			"document needs both symbol and doc: the name to document and the prose to write"), nil
+	if len(in.Docs) == 0 {
+		return tool.Fail(tool.CauseBadInput, "document needs at least one docs entry"), nil
 	}
 
-	doc := plainDoc(in.Doc)
+	done := make([]string, 0, len(in.Docs))
+	refused := make([]string, 0)
+	changes := make([]tool.Change, 0, len(in.Docs))
 
-	decl, err := locate(ctx, d.index, d.root, in.Symbol, in.Path)
+	for _, entry := range in.Docs {
+		change, why := d.one(ctx, entry)
+		if why != "" {
+			refused = append(refused, entry.Symbol+": "+why)
+
+			continue
+		}
+
+		done = append(done, entry.Symbol)
+		changes = append(changes, change)
+	}
+
+	return documentResult(done, refused, changes), nil
+}
+
+// documentResult reports the whole call in one line plus the entries that did
+// not land, since a run given only a count cannot tell which name to fix.
+func documentResult(done, refused []string, changes []tool.Change) tool.Result {
+	content := fmt.Sprintf("documented %d of %d: %s",
+		len(done), len(done)+len(refused), strings.Join(done, ", "))
+	if len(done) == 0 {
+		content = fmt.Sprintf("documented none of %d", len(refused))
+	}
+
+	if len(refused) > 0 {
+		content += "\nnot done:\n  " + strings.Join(refused, "\n  ")
+	}
+
+	return tool.Result{
+		Content: content,
+		Changes: changes,
+		IsError: len(done) == 0,
+		Cause:   documentCause(done),
+	}
+}
+
+func documentCause(done []string) tool.Cause {
+	if len(done) == 0 {
+		return tool.CauseBadInput
+	}
+
+	return ""
+}
+
+// one writes a single entry, answering with the reason it could not rather
+// than an error, because the other entries in the call still apply.
+func (d *Document) one(ctx context.Context, entry documentEntry) (tool.Change, string) {
+	if entry.Symbol == "" || strings.TrimSpace(entry.Doc) == "" {
+		return tool.Change{}, "an entry needs both symbol and doc"
+	}
+
+	decl, err := locate(ctx, d.index, d.root, entry.Symbol, entry.Path)
 	if err != nil {
-		return failWith(err), nil
+		return tool.Change{}, err.Error()
 	}
 
 	abs, err := resolvePath(d.root, d.deps.extraRoots, decl.path)
 	if err != nil {
-		return failWith(err), nil
+		return tool.Change{}, err.Error()
 	}
 
 	if err := d.scope.Edit(abs); err != nil {
-		return failWith(err), nil
+		return tool.Change{}, err.Error()
 	}
 
 	release, err := d.deps.hold(ctx, abs)
 	if err != nil {
-		return failWith(err), nil
+		return tool.Change{}, err.Error()
 	}
 	defer release()
 
 	body, err := os.ReadFile(abs) //nolint:gosec // a path already resolved under the project root
 	if err != nil {
-		return failWith(fmt.Errorf("reading %s: %w", decl.path, err)), nil
+		return tool.Change{}, err.Error()
 	}
 
-	span, why := docSpan(strings.Split(string(body), "\n"), decl, doc)
+	span, why := docSpan(strings.Split(string(body), "\n"), decl, plainDoc(entry.Doc))
 	if why != "" {
-		return tool.Fail(tool.CauseBadInput, "%s", why), nil
+		return tool.Change{}, why
 	}
 
 	change, err := edit.ApplySpansToFile(abs, []edit.Span{span})
 	if err != nil {
-		return failWith(err), nil
+		return tool.Change{}, err.Error()
 	}
 
-	rel := relativeTo(d.root, decl.path)
-	change.Path = rel
+	change.Path = relativeTo(d.root, decl.path)
 	d.scope.Wrote(abs)
 
-	return tool.Result{
-		Content: fmt.Sprintf("%s: documented %s, +%d -%d lines", rel, in.Symbol, change.Added, change.Removed),
-		Changes: []tool.Change{change},
-	}, nil
+	return change, ""
 }
 
 // plainDoc strips the comment markers and quotes a model writes out of habit.

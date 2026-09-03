@@ -126,7 +126,9 @@ func TestDocumentWritesPythonDocstrings(t *testing.T) {
 
 			root, d := documentProject(t, "engine.py", pySource)
 
-			res, err := d.Run(t.Context(), mustJSON(t, map[string]any{"symbol": tt.symbol, "doc": tt.doc}))
+			res, err := d.Run(t.Context(), mustJSON(t, map[string]any{
+				"docs": []map[string]any{{"symbol": tt.symbol, "doc": tt.doc}},
+			}))
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -153,7 +155,7 @@ func TestDocumentWritesGoCommentsAboveTheDeclaration(t *testing.T) {
 	root, d := documentProject(t, "memory.go", "package sysinfo\n\n// Old.\nfunc Free() uint64 { return 1 }\n")
 
 	if _, err := d.Run(t.Context(), mustJSON(t, map[string]any{
-		"symbol": "Free", "doc": "Free is what is left, in bytes.",
+		"docs": []map[string]any{{"symbol": "Free", "doc": "Free is what is left, in bytes."}},
 	})); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -166,5 +168,38 @@ func TestDocumentWritesGoCommentsAboveTheDeclaration(t *testing.T) {
 	want := "// Free is what is left, in bytes.\nfunc Free() uint64 { return 1 }\n"
 	if !strings.Contains(string(body), want) || strings.Contains(string(body), "// Old.") {
 		t.Errorf("want %q with the old comment gone, got:\n%s", want, body)
+	}
+}
+
+// A check emitting 86 findings of one class has 86 answers to give at once,
+// and one name the index cannot resolve must not cost the other 85.
+func TestDocumentWritesEveryEntryItCan(t *testing.T) {
+	t.Parallel()
+
+	root, d := documentProject(t, "engine.py", pySource)
+
+	res, err := d.Run(t.Context(), mustJSON(t, map[string]any{"docs": []map[string]any{
+		{"symbol": "render", "doc": "Read the file at path."},
+		{"symbol": "load", "doc": "Load a config."},
+		{"symbol": "nosuchthing", "doc": "Never lands."},
+	}}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.IsError {
+		t.Fatalf("a call with two good entries failed whole: %s", res.Content)
+	}
+
+	if !strings.Contains(res.Content, "documented 2 of 3") || !strings.Contains(res.Content, "nosuchthing") {
+		t.Errorf("result does not say what landed and what did not: %q", res.Content)
+	}
+
+	assertText(t, readBack(t, root, "engine.py"),
+		[]string{`"""Read the file at path."""`, `"""Load a config."""`},
+		[]string{"One line that goes away."})
+
+	if len(res.Changes) != 2 {
+		t.Errorf("len(Changes) = %d, want 2: %v", len(res.Changes), res.Changes)
 	}
 }
