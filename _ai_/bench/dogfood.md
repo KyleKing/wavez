@@ -5321,3 +5321,65 @@ shell                 62        0
 str_replace           27       26
 read                  15        0
 ```
+
+## 2026-09-03: the demo tool changed what the run built, inside the same run
+
+`demo` ships. A run names a milestone, says what to run and what the user will
+see, states how it expects the thing to be used, and blocks on being told where
+that reading is wrong. One record per milestone lands under `.wavez/demos/`, so
+a second call under the same name is answered with what was already said rather
+than asking twice.
+
+Dogfooded on vcr-tui under tmux, because `stdinCanAnswer()` gates the asker and
+a piped headless run registers no asker at all, which means `demo` is absent
+rather than failing. Pinned `-model balanced`, 14-turn cap.
+
+The run called `demo` on its first turn and read vcr-tui as a cassette browser:
+a developer whose recorded HTTP test fails, opening `vcr-tui cassettes/` instead
+of reading escaped JSON by hand. It also volunteered the alternative it was
+unsure of, that the tool might be a general machine-generated-file previewer.
+
+The critique it was given said the reading was half wrong, that the
+non-cassette half is the part nobody else covers, and that `shows` was a
+paragraph rather than a demo because the run never ran anything.
+
+What happened next is the finding. The run added a `json` channel to
+`get_default_config`, updated the two tests that assert the channel set, and
+finished with ruff, ty, and the 156-test suite all green. The critique
+reached the code in the same run that asked for it, which is what the tool is
+for and is not something a gate or a reviewer model produces.
+
+```
+$ _ai_/bench/corpus.py tools ../vcr-tui/.wavez/threads/p-dl5q3uz1sbso.jsonl
+tool               calls  changes
+read                   9        0
+str_replace            4        3
+shell                  3        0
+list                   2        0
+demo                   1        0
+replace_lines          1        1
+```
+
+14 turns, 3m52s, 6,969 output tokens, 79% cache read on input. `replace_lines`
+records its first call and its first change since it was added, against zero in
+the previous two lanes, so the tool is reachable rather than merely advertised.
+Three shell calls, all reads: `ls`, a `find`, and the pytest run. No source file
+was written through `shell` this time, which is what the `edits`-only
+`str_replace` was changed to fix, and one lane is direction rather than proof.
+
+Two defects the run exposed:
+
+- The prompt said to change no file, and the critique said what to do next, and
+  the run took the critique. `demo`'s result text ends "this is their reading of
+  what it is for, so it outranks yours", which is what produced that. It is
+  correct for a reading and wrong for a permission: a critique should be able to
+  change what the run believes and not what the run is allowed to write
+- The record ran a markdown heading straight onto the paragraph above it, so
+  `## What the user said` was not a heading. Fixed, with the blank line asserted
+
+One thing to be clear about, because the record is a durable artifact and its
+heading names an author: the critique above was written by the session standing
+in for the user, not by the user. The record was moved out of the project rather
+than left to be read later as the user's judgment. The tool has no way to know
+who is behind the asker, and the asker is the user by construction, so the
+stand-in is the anomaly and not a shape the tool should try to detect.

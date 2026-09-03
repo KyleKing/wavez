@@ -181,7 +181,7 @@ func (d *Demo) recorded(slug string) (string, bool) {
 	return said, said != ""
 }
 
-const demoSaidHeading = "\n## What the user said\n"
+const demoSaidHeading = "\n\n## What the user said\n"
 
 func (d *Demo) record(slug string, in demoInput, said string) error {
 	if err := os.MkdirAll(d.dir, demoDirPerm); err != nil {

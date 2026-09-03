@@ -80,6 +80,12 @@ func TestDemoAsksOncePerMilestoneAndKeepsWhatWasSaid(t *testing.T) {
 			t.Errorf("record is missing %q:\n%s", want, body)
 		}
 	}
+
+	// The record is markdown a person reads, so a heading needs the blank
+	// line before it that markdown requires to be a heading at all.
+	if !strings.Contains(string(body), "\n\n## What the user said\n") {
+		t.Errorf("a heading runs straight onto the paragraph above it:\n%s", body)
+	}
 }
 
 func TestDemoRefusesACallThatShowsNothing(t *testing.T) {
