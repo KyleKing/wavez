@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -128,10 +129,21 @@ checks {
 	if cfg.HookTimeout != 250*time.Millisecond {
 		t.Errorf("HookTimeout = %v, want 250ms", cfg.HookTimeout)
 	}
+	assertSchemaFixtures(t, cfg)
 	// A check written the way the schema's own example does, without naming
 	// its class: the default has to carry the element type or every such
 	// entry evaluates as a Dynamic and the whole config fails to load.
 	assertOneLintCheck(t, cfg)
+}
+
+// A project that declares no fixtures still gets the schema's defaults,
+// which is what makes the bound work without every repo opting in.
+func assertSchemaFixtures(t *testing.T, cfg config.Config) {
+	t.Helper()
+
+	if !slices.Contains(cfg.Fixtures, "*.golden") {
+		t.Errorf("Fixtures = %v, want the schema defaults", cfg.Fixtures)
+	}
 }
 
 func assertOneLintCheck(t *testing.T, cfg config.Config) {

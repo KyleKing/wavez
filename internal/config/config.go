@@ -106,6 +106,9 @@ type Config struct {
 	// order does not depend on map iteration.
 	Checks        []ProjectCheck
 	DeadcodeAllow []string
+	// Fixtures are the path globs naming this project's golden files, which
+	// a run may rewrite only if its answer says it did.
+	Fixtures []string
 	// Links are this project's identifier-to-URL patterns (PR numbers, issue
 	// keys, ticket ids), matched against transcript and -p output text and
 	// rendered as hyperlinks. Entries here take precedence over the per-laptop

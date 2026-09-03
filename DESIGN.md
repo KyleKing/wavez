@@ -1389,10 +1389,18 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      let the next lane drive the app it had just changed and report what the
      header said
    - a lane broke a Textual layout, regenerated the golden snapshot, and
-     shipped green. Nothing asks a run to justify regenerating a fixture,
-     and the fixture is the only thing that would have caught it. A gate
-     that reports a golden file rewritten by the run, the way `lint` reports
-     a diagnostic, is the missing check
+     shipped green. The fixture was the only thing that would have caught
+     it, and nothing asked the run to justify rewriting one.
+     `finish.FixturesAreAccountedFor` is that bound: a golden file in the
+     change set that the closing answer never names fails the run. It judges
+     nothing about whether the regeneration was right, since naming it is
+     what puts the diff in front of a reader. `fixtures` in `.wavez.pkl`
+     declares the globs, defaulting to `*.ambr`, `*.golden`, `*.raw`,
+     `*.snap`, and `**/__snapshots__/**`. That last default was written
+     without the leading `**` first and matched only a snapshot directory in
+     the repository root, which is the same one-depth trap `path.Match` set
+     above and the reason the bound is tested through the app rather than the
+     check alone
 
    The same lane measured what a lane's size costs. Asked to replace the
    splitter, move every caller, and add the tests in one run, it stopped on

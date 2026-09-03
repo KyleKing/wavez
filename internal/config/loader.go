@@ -52,6 +52,7 @@ type pklConfig struct {
 	ShellAllow       []string   `pkl:"shellAllow"`
 	AstGrepRules     []string   `pkl:"astGrepRules"`
 	DeadcodeAllow    []string   `pkl:"deadcodeAllow"`
+	Fixtures         []string   `pkl:"fixtures"`
 	Cycles           []pklCycle `pkl:"cycles"`
 	Links            []pklLink  `pkl:"links"`
 	PreToolUseHook   []string   `pkl:"preToolUseHook"`
@@ -356,6 +357,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.Vision = visionFromPkl(p.Vision)
 	cfg.Services = projectServices(p.Services)
 	cfg.DeadcodeAllow = p.DeadcodeAllow
+	cfg.Fixtures = p.Fixtures
 	cfg.Cycles = toSpecs(p.Cycles)
 	cfg.Links = toLinkPatterns(p.Links)
 	cfg.PreToolUseHook = p.PreToolUseHook

@@ -13,11 +13,12 @@ import (
 // bounds, each able to fail a run on its own, and none of them a claim that
 // the diff is correct.
 type FinishChecker struct {
-	index  finish.Index
-	cov    finish.Coverage
-	differ Differ
-	opened finish.Opened
-	root   string
+	index    finish.Index
+	cov      finish.Coverage
+	differ   Differ
+	opened   finish.Opened
+	root     string
+	fixtures []string
 }
 
 // NewFinishChecker builds a checker rooted at root. A nil index or coverage
@@ -26,8 +27,11 @@ type FinishChecker struct {
 // workspace's reason.
 func NewFinishChecker(
 	root string, index finish.Index, cov finish.Coverage, differ Differ, opened finish.Opened,
+	fixtures []string,
 ) *FinishChecker {
-	return &FinishChecker{root: root, index: index, cov: cov, differ: differ, opened: opened}
+	return &FinishChecker{
+		root: root, index: index, cov: cov, differ: differ, opened: opened, fixtures: fixtures,
+	}
 }
 
 // Check implements agent.Finisher.
@@ -65,7 +69,8 @@ func (c *FinishChecker) Check(ctx context.Context, f agent.Finish) ([]string, er
 	}
 
 	reports = append(reports, tested, c.substance(ctx, f, changed),
-		finish.AnswerReadsWhatItNames(c.root, f.Answer, changed, c.opened))
+		finish.AnswerReadsWhatItNames(c.root, f.Answer, changed, c.opened),
+		finish.FixturesAreAccountedFor(f.Answer, changed, c.fixtures))
 
 	return findings(reports), nil
 }
