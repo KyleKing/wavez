@@ -1372,6 +1372,28 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
      other from a cache. A name the run wrote into a file it changed is
      grounded whatever the index still says
 
+   A second round on the same Python TUI on 2026-09-02, seven lanes of one
+   task each, found three more:
+
+   - scope tracking is per process and `-resume` is a new process, so a
+     resumed run remembered nothing its own thread had read. It reported
+     three files edited without reading that the same thread had read a turn
+     before, and the strict refusal reads the same `seen` set, so
+     `-strict-scope` would have refused all three. A resumed run replays the
+     thread's history first
+   - the Seatbelt profile denied `/dev/ptmx` and the slave devices, so a
+     command inside the sandbox could not allocate a pty and `openpty`
+     answered "out of pty devices". The `pty` tool allocates outside the
+     sandbox and passes the terminal in, which is why nothing had caught it,
+     and a lane read the failure as a limit of the machine. Allowing both
+     let the next lane drive the app it had just changed and report what the
+     header said
+   - a lane broke a Textual layout, regenerated the golden snapshot, and
+     shipped green. Nothing asks a run to justify regenerating a fixture,
+     and the fixture is the only thing that would have caught it. A gate
+     that reports a golden file rewritten by the run, the way `lint` reports
+     a diagnostic, is the missing check
+
    The same lane measured what a lane's size costs. Asked to replace the
    splitter, move every caller, and add the tests in one run, it stopped on
    the cost ceiling at 51 turns and $1.00 with the callers half moved.
