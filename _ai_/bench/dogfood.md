@@ -5469,3 +5469,32 @@ It stops at the plan. Nothing runs the lanes, nothing rejoins them, and the
 scheduler does not know a lane from a thread. The shape it cannot handle at
 all is a fix in one file that requires a matching edit in another, and nothing
 detects that shape yet, so a run whose findings are that shape has to say so.
+
+## 2026-09-03: the PTY flake was the fixture straddling the settle window
+
+`TestPTY_AnswersATerminalQuery` failed once per session in two sessions and
+passed every time when run alone, which reads as a timing-sensitive test to
+leave alone. It is not.
+
+The fixture wrote a DECRQM query, slept 200 ms, then wrote `DREW`. `ptySettle`
+is 250 ms, and `settle` ends a wait when the screen has been quiet that long,
+because a quiet screen is how a program that has finished answering looks from
+outside. The last draw was the query, so under load the 200 ms sleep stretched
+past the 250 ms window, `settle` returned mid-sleep, the program was killed
+before it wrote `DREW`, and the assertion failed on a screen holding the
+query's answer and nothing else.
+
+Reproduced deterministically rather than inferred: 24 CPU burners beside
+`-count=10` fails, and the failing screen carries `^[[?2026;0$y` alone.
+
+The tool's behavior is right. A quiet screen is a settled screen, which is
+what a live TUI waiting for input looks like, and widening the window would
+slow every real drive to accommodate one fixture. The fixture is what was
+wrong, so the pause is gone: the two writes are back to back, the emulator
+parses the buffer in order, and a blocked answer still stops it before `DREW`
+whether or not the two arrive in one read.
+
+Verified both directions. With the answering goroutine removed the sleepless
+fixture still fails, so it catches the deadlock it was written for. With the
+answering goroutine back, 30 runs under 24-way load all pass, where 10 runs
+failed before the change.

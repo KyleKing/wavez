@@ -181,6 +181,13 @@ are specific to this codebase and not visible from the code.
   `ptyAnswerWait` (2 s), and that window is measured from the write so the
   two waits one key gets do not each spend it
 
+- A pty fixture must not pause longer than `ptySettle` (250 ms) between two
+  writes. `settle` reads a quiet screen as a program that has finished
+  answering, so a gap wider than the window ends the wait while the program
+  is still sleeping, the program is killed, and everything after the gap
+  never lands. `TestPTY_AnswersATerminalQuery` slept 200 ms against that
+  250 ms window and failed under load in two sessions, passing every time on
+  an idle machine. Reproduce with 24 CPU burners beside `-count=10`
 - A TUI check runs in a named tmux session and is killed when the screen has
   been read (`tmux new -d -s wz-check ...`, then `tmux kill-session -t
   wz-check`). [AGENTS.md](AGENTS.md#tui-testing) carries the rule and

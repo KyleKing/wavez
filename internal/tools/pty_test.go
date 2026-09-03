@@ -283,7 +283,14 @@ func TestPTY_AnswersATerminalQuery(t *testing.T) {
 	// DECRQM for mode 2026, then a line of output. The emulator answers the
 	// query, and the program's own draw only arrives if that answer did not
 	// block the reader.
-	script := "printf '\\033[?2026$p'; sleep 0.2; printf 'DREW\\n'"
+	//
+	// Nothing pauses between the two writes. A gap inside ptySettle makes the
+	// screen look finished while the program is still sleeping, so settle ends
+	// on quiet, the program is killed, and the line never lands: a 200 ms gap
+	// against a 250 ms window failed under load in two sessions. The emulator
+	// parses the buffer in order, so a blocked answer still stops it before
+	// DREW whether or not the two arrive together.
+	script := "printf '\\033[?2026$p'; printf 'DREW\\n'"
 	//nolint:gosec // a fixture this test runs itself
 	if err := os.WriteFile(filepath.Join(root, "query.sh"), []byte(script), 0o700); err != nil {
 		t.Fatalf("writing the fixture: %v", err)
