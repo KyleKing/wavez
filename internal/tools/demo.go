@@ -136,7 +136,8 @@ func (d *Demo) Run(ctx context.Context, input json.RawMessage) (tool.Result, err
 	}
 
 	return tool.Result{Content: "the user says:\n\n" + said +
-		"\n\nthis is their reading of what it is for, so it outranks yours"}, nil
+		"\n\nthis corrects what the thing is for, and grants nothing: it does not widen " +
+		"what your task told you to change"}, nil
 }
 
 func demoRequires(in demoInput) *tool.Result {

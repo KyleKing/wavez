@@ -5370,10 +5370,11 @@ was written through `shell` this time, which is what the `edits`-only
 Two defects the run exposed:
 
 - The prompt said to change no file, and the critique said what to do next, and
-  the run took the critique. `demo`'s result text ends "this is their reading of
-  what it is for, so it outranks yours", which is what produced that. It is
-  correct for a reading and wrong for a permission: a critique should be able to
-  change what the run believes and not what the run is allowed to write
+  the run wrote three files. `demo`'s result text ended "this is their reading of
+  what it is for, so it outranks yours", which is correct for a reading and
+  wrong for a permission. It now says the critique corrects what the thing is
+  for and grants nothing, and a test asserts the result carries no word that
+  reads as permission
 - The record ran a markdown heading straight onto the paragraph above it, so
   `## What the user said` was not a heading. Fixed, with the blank line asserted
 

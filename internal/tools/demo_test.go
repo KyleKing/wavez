@@ -51,6 +51,13 @@ func TestDemoAsksOncePerMilestoneAndKeepsWhatWasSaid(t *testing.T) {
 	if !strings.Contains(first, asker.answer) {
 		t.Errorf("first call did not carry the critique: %q", first)
 	}
+
+	// A critique corrects the reading and grants nothing. One run was told to
+	// change no file, was handed a critique naming what to do next, and wrote
+	// three files, because the result said the critique outranked its task.
+	if strings.Contains(first, "outranks") || !strings.Contains(first, "grants nothing") {
+		t.Errorf("the result reads as permission rather than a correction: %q", first)
+	}
 	if len(asker.asked) != 1 {
 		t.Fatalf("asked %d times, want 1: %v", len(asker.asked), asker.asked)
 	}
