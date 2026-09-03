@@ -95,6 +95,25 @@ func groupFindings(lines []string) findingSet {
 	return set
 }
 
+// Sites counts the location-prefixed diagnostics in s per file. It is the
+// same parse the grouping uses, so a caller partitioning work by file reads
+// the files the reducer already found rather than writing a second parser
+// for the same text. A file with no diagnostics is absent rather than zero.
+func Sites(s string) map[string]int {
+	counts := map[string]int{}
+
+	for _, line := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
+		m := findingSite.FindStringSubmatch(strings.TrimLeft(line, " \t"))
+		if m == nil {
+			continue
+		}
+
+		counts[m[1][:strings.IndexByte(m[1], ':')]]++
+	}
+
+	return counts
+}
+
 func findingsGroupingPays(lines []string) bool {
 	set := groupFindings(lines)
 

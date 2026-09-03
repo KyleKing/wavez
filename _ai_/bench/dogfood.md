@@ -5426,3 +5426,46 @@ cannot tell the two contents apart. A command that only reads records nothing.
 
 What this does not cover is a file version control ignores, which stays
 invisible and is correct for a build artifact.
+
+## 2026-09-03: the split fan-out was waiting on
+
+The parked fan-out entry named one blocker: nothing produced a work set whose
+disjointness the harness could check. Leases fence concurrent writes and
+scoped gate reports keep one lane's failure off another, and neither answers
+who should write what. Fanning out over a list nobody proved disjoint is how
+two lanes edit one file, wait on each other's lease, and read each other's
+failures as their own, which is the shape two dogfood lanes already died in.
+
+`internal/fanout` is that work set. `Split` partitions tasks into at most n
+lanes, and any two tasks whose paths overlap or nest are joined into one lane
+first, so overlap decides the count and n is a ceiling rather than a promise.
+A task naming no path is refused with `ErrUnscoped`, because it cannot be
+fenced and including it would make every lane's disjointness a guess.
+`Check` verifies a split that something other than `Split` proposed, which is
+what a model-written or hand-written plan needs.
+
+Path overlap follows the lease rule rather than string equality: a lane
+holding `internal/tui` and a lane holding `internal/tui/home.go` are one
+lane's work.
+
+The first work set worth splitting is a check's own output, because a
+partition by file is disjoint before anything checks it. `FromFindings` reads
+the same parse `internal/reduce` already uses for grouping, so there is one
+diagnostic parser rather than two.
+
+```
+$ wavez -fanout 'uv run ruff check . --select ALL --output-format concise 2>&1' -fanout-lanes 4
+121 findings across 42 files, split into 4 disjoint lanes
+lane 1  31 findings in 10 files
+lane 2  30 findings in 10 files
+lane 3  30 findings in 11 files
+lane 4  30 findings in 11 files
+```
+
+Balanced by finding count rather than file count, so the file with 200
+findings does not finish last while the others idle.
+
+It stops at the plan. Nothing runs the lanes, nothing rejoins them, and the
+scheduler does not know a lane from a thread. The shape it cannot handle at
+all is a fix in one file that requires a matching edit in another, and nothing
+detects that shape yet, so a run whose findings are that shape has to say so.

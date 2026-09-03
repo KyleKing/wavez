@@ -68,7 +68,9 @@ type options struct {
 	replayLabel         string
 	replayReport        string
 	recall              string
+	fanoutCheck         string
 	preambleMax         int
+	fanoutLanes         int
 	recallTurn          int
 	maxTurns            int
 	maxToolCallsPerTurn int
@@ -133,32 +135,11 @@ func run(args []string) error {
 		"report functions no main reaches, an orphan check the compiler cannot do")
 	fs.BoolVar(&opt.mutate, "mutate", false,
 		"mutate the working copy's changed lines and report the mutants the tests missed")
-	fs.StringVar(&opt.stats, "stats", "",
-		"report what a finished run spent, by thread id or log path")
-	fs.StringVar(&opt.timeline, "timeline", "",
-		"print one line per turn of a finished run, by thread id or log path")
-	fs.StringVar(&opt.statsVs, "stats-vs", "",
-		"with -stats, name a second run the same way to diff against it")
-	fs.StringVar(&opt.replay, "replay", "",
-		"run one task of the fixed set in a throwaway workspace and record what it spent")
-	fs.StringVar(&opt.replayLabel, "replay-label", "",
-		"with -replay, name the lane the record measures (defaults to the current commit)")
-	fs.StringVar(&opt.replayReport, "replay-report", "",
-		"print every recorded run of one task and diff the last two")
-	fs.StringVar(&opt.recall, "recall", "",
-		"repeat one tool call a finished run made, by thread id, and print what the harness answers now")
-	fs.IntVar(&opt.recallTurn, "recall-turn", 0,
-		"with -recall, the turn to repeat (0 takes the first call the run was told had failed)")
-	fs.StringVar(&opt.statsSince, "stats-since", "",
-		"with -stats-corpus, read only runs recorded on or after this date (2006-01-02)")
-	fs.BoolVar(&opt.models, "models", false,
-		"list the models ollama has pulled on this machine")
-	fs.BoolVar(&opt.statsCorpus, "stats-corpus", false,
-		"report the rates across every recorded replay run, which one run cannot show")
-	fs.BoolVar(&opt.preamble, "preamble", false,
-		"account for the fixed prefix every turn pays, by section")
-	fs.IntVar(&opt.preambleMax, "preamble-max", 0,
-		"with -preamble, fail when the fixed prefix costs more than this many tokens")
+	fs.StringVar(&opt.fanoutCheck, "fanout", "",
+		"run a check and print the disjoint lanes its findings split into")
+	fs.IntVar(&opt.fanoutLanes, "fanout-lanes", defaultFanoutLanes,
+		"with -fanout, the most lanes to split into")
+	registerReportFlags(fs, &opt)
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -271,19 +252,11 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 		return true, err
 	}
 
+	if run, ok := namedSubcommand(opt); ok {
+		return true, run(ctx, root, opt)
+	}
+
 	switch {
-	case opt.undo != "":
-		return true, undo(ctx, root, opt.undo)
-	case opt.stats != "":
-		return true, statsReport(root, opt.stats, opt.statsVs, opt.jsonOut)
-	case opt.timeline != "":
-		return true, timelineReport(root, opt.timeline)
-	case opt.replay != "":
-		return true, replayRun(ctx, root, opt)
-	case opt.replayReport != "":
-		return true, replayReport(root, opt.replayReport)
-	case opt.recall != "":
-		return true, recallRun(ctx, root, opt)
 	case opt.models:
 		return true, modelsReport(ctx)
 	case opt.statsCorpus:
@@ -308,7 +281,7 @@ func wantsSubcommand(opt options) bool {
 	return opt.undo != "" || opt.stats != "" || opt.timeline != "" ||
 		opt.replay != "" || opt.replayReport != "" ||
 		opt.recall != "" || opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus ||
-		opt.models
+		opt.fanoutCheck != "" || opt.models
 }
 
 func headless(ctx context.Context, opt options) error {
@@ -703,6 +676,7 @@ Flags:
   -allow-all      approve every permission prompt without asking
   -strict-scope   refuse an edit to a file this run never read or created
   -mutate         mutate the working copy's changed lines and report what the tests missed
+  -fanout <cmd>   run a check and print the disjoint lanes its findings split into
   -stats <id>     report what a finished run spent, by thread id or log path
   -stats-vs <id>  with -stats, name a second run the same way to diff against it
   -replay <task>  run one task of the fixed set in a throwaway workspace and record it
@@ -878,4 +852,68 @@ func servedTiers(cfg config.Config) map[string]string {
 		"balanced": where(cfg.Tiers.Balanced),
 		"deep":     where(cfg.Tiers.Deep),
 	}
+}
+
+// registerReportFlags declares the flags for the reports and one-shot
+// checks, which are every flag that makes wavez do one job and exit.
+func registerReportFlags(fs *flag.FlagSet, opt *options) {
+	fs.StringVar(&opt.stats, "stats", "",
+		"report what a finished run spent, by thread id or log path")
+	fs.StringVar(&opt.timeline, "timeline", "",
+		"print one line per turn of a finished run, by thread id or log path")
+	fs.StringVar(&opt.statsVs, "stats-vs", "",
+		"with -stats, name a second run the same way to diff against it")
+	fs.StringVar(&opt.replay, "replay", "",
+		"run one task of the fixed set in a throwaway workspace and record what it spent")
+	fs.StringVar(&opt.replayLabel, "replay-label", "",
+		"with -replay, name the lane the record measures (defaults to the current commit)")
+	fs.StringVar(&opt.replayReport, "replay-report", "",
+		"print every recorded run of one task and diff the last two")
+	fs.StringVar(&opt.recall, "recall", "",
+		"repeat one tool call a finished run made, by thread id, and print what the harness answers now")
+	fs.IntVar(&opt.recallTurn, "recall-turn", 0,
+		"with -recall, the turn to repeat (0 takes the first call the run was told had failed)")
+	fs.StringVar(&opt.statsSince, "stats-since", "",
+		"with -stats-corpus, read only runs recorded on or after this date (2006-01-02)")
+	fs.BoolVar(&opt.models, "models", false,
+		"list the models ollama has pulled on this machine")
+	fs.BoolVar(&opt.statsCorpus, "stats-corpus", false,
+		"report the rates across every recorded replay run, which one run cannot show")
+	fs.BoolVar(&opt.preamble, "preamble", false,
+		"account for the fixed prefix every turn pays, by section")
+	fs.IntVar(&opt.preambleMax, "preamble-max", 0,
+		"with -preamble, fail when the fixed prefix costs more than this many tokens")
+}
+
+// namedSubcommand picks the one-shot job whose flag carries an argument, so
+// the switch below it holds only the flags that are a bare bool.
+func namedSubcommand(opt options) (func(context.Context, string, options) error, bool) {
+	switch {
+	case opt.undo != "":
+		return func(ctx context.Context, root string, opt options) error {
+			return undo(ctx, root, opt.undo)
+		}, true
+	case opt.stats != "":
+		return func(_ context.Context, root string, opt options) error {
+			return statsReport(root, opt.stats, opt.statsVs, opt.jsonOut)
+		}, true
+	case opt.timeline != "":
+		return func(_ context.Context, root string, opt options) error {
+			return timelineReport(root, opt.timeline)
+		}, true
+	case opt.replay != "":
+		return replayRun, true
+	case opt.replayReport != "":
+		return func(_ context.Context, root string, opt options) error {
+			return replayReport(root, opt.replayReport)
+		}, true
+	case opt.recall != "":
+		return recallRun, true
+	case opt.fanoutCheck != "":
+		return func(ctx context.Context, root string, opt options) error {
+			return fanoutPlan(ctx, root, opt.fanoutCheck, opt.fanoutLanes)
+		}, true
+	}
+
+	return nil, false
 }
