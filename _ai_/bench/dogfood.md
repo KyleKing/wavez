@@ -5293,3 +5293,31 @@ of its shell budget on `ruff --output-format json` piped through its own
 Python counter, which the grouper does not touch because JSON is not
 location-prefixed lines. Grouping a check's structured output is the same job
 one level down.
+
+## 2026-09-03: one edits list, measured on the tier it was feared for
+
+`str_replace` now states one shape, a list of replacements, even for a single
+edit. The branches it replaced were unreachable where they mattered:
+`schemaFor` shows a non-composing dialect only the first, so the hosted tier
+was never offered the batch shape and answered by building it out of `shell`.
+
+The branches existed for the fast tier, where a flat object with only `path`
+required let 52 of 52 recorded calls close after `old_string`, so the risk was
+that an array is more grammar to get wrong than a flat object. Measured
+against llama-server on qwen3:8b at temperature 0.01 with
+`_ai_/bench/schema-probe.py`: 5 of 5 single-edit calls complete, and 3 of 3
+two-edit calls carried both edits whole. The array's item `required` is what
+does it, so a turn cut short after `old_string` loses that edit rather than
+sending a replacement it never named.
+
+`_ai_/bench/corpus.py` holds the queries the last two entries quote, because a
+figure without the script that produced it is a claim nobody can re-run. The
+row that found the invisible edits is one line of it:
+
+```
+$ _ai_/bench/corpus.py tools ../vcr-tui/.wavez/threads/p-dl5odzf7fhog.jsonl
+tool               calls  changes
+shell                 62        0
+str_replace           27       26
+read                  15        0
+```
