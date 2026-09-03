@@ -77,6 +77,19 @@ func (*Jj) WorkingCopyDiff(ctx context.Context, repoRoot string) (string, error)
 	return out, nil
 }
 
+// WorkingCopyFiles lists the paths version control reports as changed in
+// the working copy, relative to the repository root. It is the cheapest
+// question jj answers about the tree, which is what makes it callable around
+// a single command rather than once a run.
+func (*Jj) WorkingCopyFiles(ctx context.Context, repoRoot string) ([]string, error) {
+	out, err := runJJ(ctx, repoRoot, "diff", "--from", "@-", "--to", "@", "--name-only")
+	if err != nil {
+		return nil, fmt.Errorf("listing the working copy of %s: %w", repoRoot, err)
+	}
+
+	return dedupeLines(out), nil
+}
+
 // DiffStat summarizes the changes between marker and the working copy as
 // jj's per-file counts: what an undo of that checkpoint would discard. A
 // repository with nothing changed still reports a "0 files changed" line,

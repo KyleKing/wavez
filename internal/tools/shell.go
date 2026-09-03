@@ -155,12 +155,22 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	}
 	defer release()
 
+	// A command may write whatever it likes, and no classification of its
+	// text decides which files, so the tree is read either side of it. The
+	// 2026-09-03 ruff lane is why: nine shell calls wrote source through a
+	// Python batch editor and recorded no change between them, so those
+	// edits reached no change set, no gate, and no undo.
+	before := snapshot(ctx, s.deps.tree, s.root)
+
 	result, err := sandbox.Exec(ctx, s.root, s.sessionTmp, "sh", "-c", in.Command)
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("shell: %w", err)
 	}
 
-	return tool.Result{Content: s.formatShellResult(result)}, nil
+	return tool.Result{
+		Content: s.formatShellResult(result),
+		Changes: wrote(before, snapshot(ctx, s.deps.tree, s.root)),
+	}, nil
 }
 
 // inPlaceEditRefusal declines an edit made through a stream editor and

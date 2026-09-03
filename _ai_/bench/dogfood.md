@@ -5384,3 +5384,45 @@ in for the user, not by the user. The record was moved out of the project rather
 than left to be read later as the user's judgment. The tool has no way to know
 who is behind the asker, and the asker is the user by construction, so the
 stand-in is the anomaly and not a shape the tool should try to detect.
+
+## 2026-09-03: a shell command that writes now records what it wrote
+
+A source file written through `shell` reached no change set, took no gate
+attribution, and could not be undone. `_ai_/bench/corpus.py tools` measured it
+on the 2026-09-03 ruff lane: 62 shell calls, 0 recorded changes, 9 of them
+writing source through a Python batch editor.
+
+The guard already names a command's declared write targets, and takes the
+leases covering them, so the easy half was covered. It cannot see a file an
+interpreter opens, which is the half that ran.
+
+Nothing decides from a command's text which files it writes, so the tree is
+read either side of it: `jj diff --from @- --to @ --name-only` before and
+after, with each named path fingerprinted by size and modification time. A
+path whose fingerprint moved is what the command wrote. Reading version
+control both times rather than once is what keeps another lane's concurrent
+edit out of this call's attribution, since the window is one command instead
+of the whole run.
+
+Line ranges are left empty. Nothing observed here knows which lines moved, and
+a change with no ranges already falls back to package-level gate selection,
+where a guessed range would narrow it wrongly.
+
+```
+$ for repo in wavez vcr-tui; do time jj diff --from @- --to @ --name-only; done
+wavez    41.3 ms per snapshot
+vcr-tui  32.7 ms per snapshot
+```
+
+Two snapshots per shell call, so about 80 ms. On the 62-call lane that is 5
+seconds of 476, near 1%. A shell call already costs a subprocess and a model
+round trip, so this is not where a run's time goes.
+
+Three cases are covered and each fails without the change: a file written by
+`python3 -c` in a tree that was already dirty (so reporting everything version
+control calls changed would be wrong), a file the command rewrote having
+written it in an earlier call, and a same-length rewrite where size alone
+cannot tell the two contents apart. A command that only reads records nothing.
+
+What this does not cover is a file version control ignores, which stays
+invisible and is correct for a build artifact.

@@ -870,7 +870,7 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewWrite(d.root, d.scope, withLeases, reach),
 		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases, reach,
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
-			tools.WithAllowedCommands(d.shellAllow)),
+			tools.WithTree(vcs.NewJj()), tools.WithAllowedCommands(d.shellAllow)),
 		tools.NewPTY(d.root, d.sandboxDir, DefaultThreadID, d.permGate,
 			tools.WithAllowedCommands(d.shellAllow), tools.WithSpawnRegistry(d.spawns)),
 		tools.NewSearch(d.indexer, d.root, reach),

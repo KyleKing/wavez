@@ -47,6 +47,7 @@ type deps struct {
 	changes Changes
 	symbols SymbolSearch
 	spawns  Spawns
+	tree    Tree
 	seen    *SeenFiles
 	// allowedCommands widen the guard's built-in list of shell commands that
 	// run without a prompt, from what the project named.
@@ -86,6 +87,14 @@ func WithChecks(c Checks) Option {
 // what this run has written, from what the harness recorded as it wrote it.
 func WithChanges(c Changes) Option {
 	return func(d *deps) { d.changes = c }
+}
+
+// WithTree lets a tool report what a command it ran wrote, by asking version
+// control either side of it. Without one a shell command that writes source
+// records no change, so its edits reach no change set, take no gate
+// attribution, and cannot be undone.
+func WithTree(t Tree) Option {
+	return func(d *deps) { d.tree = t }
 }
 
 // Spawns records a process for as long as it runs, so a daemon that dies
