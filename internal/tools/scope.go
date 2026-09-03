@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/kyleking/wavez/internal/guard"
+	"github.com/kyleking/wavez/internal/llm"
 )
 
 // ErrOutOfScope reports an edit to a file the run has neither read nor
@@ -234,4 +236,35 @@ func (s *Scope) Strayed() []string {
 	sort.Strings(out)
 
 	return out
+}
+
+// ObserveHistory brings back into scope every file an earlier turn of this
+// thread named. A resumed run is a new process with a new Scope, so a thread
+// otherwise forgets what it read between invocations: its next edit is
+// reported as made without reading, and under a strict Scope it is refused
+// outright. A path a turn only reached for counts, since looking is what
+// scope tracks and the earlier turn is what any refusal already answered.
+func (s *Scope) ObserveHistory(extra []string, msgs []llm.Message) {
+	if s == nil {
+		return
+	}
+
+	for _, msg := range msgs {
+		for _, call := range msg.ToolCalls {
+			var in struct {
+				Path string `json:"path"`
+			}
+
+			if err := json.Unmarshal(call.Input, &in); err != nil || in.Path == "" {
+				continue
+			}
+
+			abs, err := resolvePath(s.root, extra, in.Path)
+			if err != nil {
+				continue
+			}
+
+			s.Observe(abs)
+		}
+	}
 }

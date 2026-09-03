@@ -362,6 +362,10 @@ func headlessRun(ctx context.Context, opt options) (runInfo, error) {
 		return runInfo{}, fmt.Errorf("opening thread: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "thread %s\n", th.ID())
+
+	if opt.resume != "" {
+		a.Scope.ObserveHistory(cfg.ExtraDirs, th.History())
+	}
 	ctx = lease.WithHolder(ctx, string(th.ID()))
 
 	hint, err := routerHint(opt.model)

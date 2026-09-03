@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kyleking/wavez/internal/llm"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
 )
@@ -20,8 +21,9 @@ type scopeFixture struct {
 }
 
 // newScopeFixture writes one editable file under a fresh root, having read
-// it first when readFirst.
-func newScopeFixture(t *testing.T, strict, readFirst bool) scopeFixture {
+// it first when readFirst, or replayed a resumed thread's history when
+// resumed.
+func newScopeFixture(t *testing.T, strict, readFirst, resumed bool) scopeFixture {
 	t.Helper()
 
 	root := t.TempDir()
@@ -39,6 +41,13 @@ func newScopeFixture(t *testing.T, strict, readFirst bool) scopeFixture {
 		}
 	}
 
+	if resumed {
+		scope.ObserveHistory(nil, []llm.Message{{
+			Role:      llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{{Name: "read", Input: mustJSON(t, map[string]any{"path": "greet.go"})}},
+		}})
+	}
+
 	return scopeFixture{root: root, path: path, scope: scope}
 }
 
@@ -49,6 +58,7 @@ func TestScopeTracksEditsAgainstWhatARunOpened(t *testing.T) {
 		name        string
 		strict      bool
 		readFirst   bool
+		resumed     bool
 		wantIsError bool
 		wantStrayed bool
 	}{
@@ -56,13 +66,19 @@ func TestScopeTracksEditsAgainstWhatARunOpened(t *testing.T) {
 		{name: "an edit to a file the run never read is recorded and allowed", wantStrayed: true},
 		{name: "strict refuses the same edit", strict: true, wantIsError: true, wantStrayed: true},
 		{name: "strict allows an edit to a file the run read", strict: true, readFirst: true},
+		{
+			// A resumed run is a new process with an empty Scope, so the
+			// thread's own earlier reads are what put the file back in scope.
+			name:   "strict allows an edit to a file an earlier turn of the thread read",
+			strict: true, resumed: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			fx := newScopeFixture(t, tt.strict, tt.readFirst)
+			fx := newScopeFixture(t, tt.strict, tt.readFirst, tt.resumed)
 
 			replace := tools.NewStrReplace(fx.root, fx.scope)
 			result, err := replace.Run(context.Background(), mustJSON(t, map[string]any{
