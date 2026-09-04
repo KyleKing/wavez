@@ -12,6 +12,7 @@ import (
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/permission"
+	"github.com/kyleking/wavez/internal/tool"
 )
 
 // ErrNoThreadContext reports a question Ask call whose context was not
@@ -170,6 +171,7 @@ func (b *Broker) wait(ctx context.Context, threadID string, info api.PendingInfo
 		b.mu.Lock()
 		delete(b.items, info.ID)
 		b.mu.Unlock()
+		tool.CreditHumanWait(ctx, time.Since(info.Asked))
 		b.setState(threadID, event.StateWorking)
 		b.fireChange()
 	}()

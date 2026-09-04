@@ -591,10 +591,13 @@ func stdinCanAnswer() bool {
 
 type stdinAsker struct{}
 
-func (stdinAsker) Ask(_ context.Context, question string) (string, error) {
+func (stdinAsker) Ask(ctx context.Context, question string) (string, error) {
 	fmt.Fprintf(os.Stderr, "\n%s\n> ", question)
 
+	asked := time.Now()
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	tool.CreditHumanWait(ctx, time.Since(asked))
+
 	if err != nil {
 		return "", fmt.Errorf("reading answer: %w", err)
 	}

@@ -1145,6 +1145,18 @@ func (r *run) admitSlot(ctx context.Context, choice router.Choice) (func(), erro
 	return release, nil
 }
 
+// creditHumanWait pushes the deadline out by time a tool call spent parked
+// on a person. The bound exists to stop a run that has lost its way, and a
+// thread waiting for an answer has not: without this, walking away from a
+// question kills the thread that asked it.
+func (r *run) creditHumanWait(waited time.Duration) {
+	if waited <= 0 || r.deadline.IsZero() {
+		return
+	}
+
+	r.deadline = r.deadline.Add(waited)
+}
+
 func (r *run) logVerify(verdict GateVerdict) error {
 	ev := event.Event{
 		Kind: event.KindGate,
@@ -1525,6 +1537,7 @@ func (r *run) runTool(ctx context.Context, call llm.ToolCall) (tool.Result, erro
 	// reaches the tool carrying the writer's identity, and the shell reads it
 	// back to answer gate questions for this writer alone.
 	ctx = tool.WithWriter(ctx, string(r.thread.ID()))
+	ctx = tool.WithHumanWait(ctx, r.creditHumanWait)
 
 	result, err := t.Run(ctx, call.Input)
 	if err != nil {

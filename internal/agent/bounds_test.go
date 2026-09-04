@@ -468,6 +468,52 @@ func TestRun_DeadlineTripsWithinATurn(t *testing.T) {
 	}
 }
 
+// parkingTool models a tool that blocks on a person: it moves the clock
+// forward and reports that whole span as a human wait.
+type parkingTool struct {
+	clock *fakeClock
+	echoTool
+	waits time.Duration
+}
+
+func (t *parkingTool) Run(ctx context.Context, _ json.RawMessage) (tool.Result, error) {
+	t.clock.Advance(t.waits)
+	tool.CreditHumanWait(ctx, t.waits)
+
+	return tool.Result{Content: "answered"}, nil
+}
+
+// The deadline bounds the model's own work, so a thread parked on a question
+// must not spend it. Walking away from a question used to kill the thread
+// that asked it, the instant the answer arrived.
+func TestRun_HumanWaitDoesNotSpendTheDeadline(t *testing.T) {
+	t.Parallel()
+
+	inner := fake.New("local",
+		fake.Turn{
+			ToolCalls:  []llm.ToolCall{{ID: "0", Name: "echo", Input: json.RawMessage(`{}`)}},
+			StopReason: llm.StopToolUse,
+		},
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+	)
+
+	clock := newFakeClock(time.Unix(0, 0))
+	local := &advancingProvider{inner: inner, clock: clock, advance: time.Second}
+	ask := &parkingTool{echoTool: echoTool{name: "echo"}, clock: clock, waits: time.Hour}
+
+	th := newThread(t)
+	loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(ask), permission.AllowAll(),
+		agent.WithClock(clock), agent.WithMaxWallClock(5*time.Second))
+
+	out, err := loop.Run(context.Background(), th, basicPrefix(), "do it", router.Input{})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out.Stop == agent.StopDeadline {
+		t.Fatalf("Stop = deadline: an hour spent waiting for a person spent the run's budget")
+	}
+}
+
 // A run stopped at the ceiling is meant to be picked back up: the ceiling is
 // a runaway guard on one unattended run, not a budget for the work. Before
 // the history sidecar, resuming handed the model an empty transcript, so

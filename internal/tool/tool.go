@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 )
 
 // ErrNotFound reports a tool call naming a tool that is not registered.
@@ -48,6 +49,31 @@ func WithWriter(ctx context.Context, writer string) context.Context {
 func WriterFromContext(ctx context.Context) (string, bool) {
 	w, ok := ctx.Value(writerKey{}).(string)
 	return w, ok
+}
+
+// humanWaitKey is the context key carrying the run's credit for time a tool
+// call spent blocked on a person. Same reason as writerKey: the registry is
+// shared across threads, so the call's context is the only path down.
+type humanWaitKey struct{}
+
+// WithHumanWait returns ctx carrying credit, called with how long a tool call
+// sat waiting for a person to answer. A run's wall-clock bound is a budget for
+// the model's own work, so a thread parked on a question must not spend it.
+func WithHumanWait(ctx context.Context, credit func(time.Duration)) context.Context {
+	return context.WithValue(ctx, humanWaitKey{}, credit)
+}
+
+// CreditHumanWait reports waited to whoever is bounding this call, and does
+// nothing when nobody is. Call it once per finished wait, from the code that
+// brackets the wait rather than from the tool around it.
+func CreditHumanWait(ctx context.Context, waited time.Duration) {
+	if waited <= 0 {
+		return
+	}
+
+	if credit, ok := ctx.Value(humanWaitKey{}).(func(time.Duration)); ok {
+		credit(waited)
+	}
 }
 
 // Result is what a tool returns. Content is the only part the model sees, so it
