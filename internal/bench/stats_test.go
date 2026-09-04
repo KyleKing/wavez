@@ -1,6 +1,7 @@
 package bench_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -349,5 +350,39 @@ func TestSummarizeExtractsShellCommandsWithResultSizes(t *testing.T) {
 		if !strings.HasSuffix(cmd, "…") || strings.ContainsRune(cmd, '\n') {
 			t.Errorf("command is not one truncated line: %q", cmd)
 		}
+	}
+}
+
+// Reasoning is billed as output and never reaches the transcript, so a run
+// spending most of its output budget thinking looks ordinary without this.
+// It has been in the thread log since usage was logged at all, and nothing
+// read it: 250 of 1,396 usage events across this project's threads carry it.
+func TestStats_CountsTheReasoningAThinkingModelBilledFor(t *testing.T) {
+	t.Parallel()
+
+	// float64 is what a decoded thread log carries, which is the only shape
+	// intField reads.
+	thinking := turn("balanced", 100, 20, 0)
+
+	usage, ok := thinking.Detail["usage"].(map[string]any)
+	if !ok {
+		t.Fatal("the turn fixture stopped carrying usage")
+	}
+
+	usage["reasoning_bytes"] = float64(3400)
+
+	s := bench.Summarize([]event.Event{thinking, turn("balanced", 100, 20, 0)})
+
+	if s.ReasoningBytes != 3400 || s.ReasoningTurns != 1 {
+		t.Fatalf("reasoning = %d bytes over %d turns, want 3400 over 1", s.ReasoningBytes, s.ReasoningTurns)
+	}
+
+	var out bytes.Buffer
+	if err := s.Render(&out); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "reasoning 3400 bytes over 1 of 2 turns") {
+		t.Errorf("Render did not report the reasoning:\n%s", out.String())
 	}
 }

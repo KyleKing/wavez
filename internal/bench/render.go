@@ -20,6 +20,11 @@ func (s Stats) Render(w io.Writer) error {
 	fmt.Fprintf(&b, "tokens in %d, out %d, cache read %d (%s of input)\n",
 		s.InputTokens, s.OutputTokens, s.CacheReadTokens, percent(s.CacheReadTokens, s.InputTokens))
 
+	if s.ReasoningBytes > 0 {
+		fmt.Fprintf(&b, "reasoning %d bytes over %d of %d turns\n",
+			s.ReasoningBytes, s.ReasoningTurns, s.Turns)
+	}
+
 	if len(s.TierTurns) > 0 {
 		fmt.Fprintf(&b, "tiers %s\n", tierLine(s.TierTurns))
 	}

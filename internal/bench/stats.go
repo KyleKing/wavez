@@ -84,26 +84,32 @@ type Stats struct {
 	// check name. A run that completed with a finding did something of the
 	// wrong shape while every gate passed, which is the only place that
 	// distinction is recorded.
-	FinishFindings   map[string]int `json:"finish_findings,omitempty"`
-	ThreadID         string         `json:"thread_id"`
-	Tools            []ToolStat     `json:"tools"`
-	ShellCmds        []ShellCmd     `json:"shell_cmds"`
-	Elapsed          time.Duration  `json:"elapsed"`
-	Turns            int            `json:"turns"`
-	ToolCalls        int            `json:"tool_calls"`
-	InputTokens      int            `json:"input_tokens"`
-	OutputTokens     int            `json:"output_tokens"`
-	CacheReadTokens  int            `json:"cache_read_tokens"`
-	RepeatReads      int            `json:"repeat_reads"`
-	RepeatReadBytes  int            `json:"repeat_read_bytes"`
-	ErrorResults     int            `json:"error_results"`
-	EmptySearches    int            `json:"empty_searches"`
-	GateRounds       int            `json:"gate_rounds"`
-	GateFailures     int            `json:"gate_failures"`
-	GateFalseAlarms  int            `json:"gate_false_alarms"`
-	TurnsBy          Attribution    `json:"turn_attribution"`
-	ReviewObjections int            `json:"review_objections"`
-	CompactionSaved  int            `json:"compaction_saved"`
+	FinishFindings  map[string]int `json:"finish_findings,omitempty"`
+	ThreadID        string         `json:"thread_id"`
+	Tools           []ToolStat     `json:"tools"`
+	ShellCmds       []ShellCmd     `json:"shell_cmds"`
+	Elapsed         time.Duration  `json:"elapsed"`
+	Turns           int            `json:"turns"`
+	ToolCalls       int            `json:"tool_calls"`
+	InputTokens     int            `json:"input_tokens"`
+	OutputTokens    int            `json:"output_tokens"`
+	CacheReadTokens int            `json:"cache_read_tokens"`
+	// ReasoningTurns and ReasoningBytes count the turns a reasoning model
+	// spent thinking and how much it wrote doing it. Reasoning is billed as
+	// output and never reaches the transcript, so a run whose output tokens
+	// look modest can still be spending most of them here.
+	ReasoningTurns   int         `json:"reasoning_turns"`
+	ReasoningBytes   int         `json:"reasoning_bytes"`
+	RepeatReads      int         `json:"repeat_reads"`
+	RepeatReadBytes  int         `json:"repeat_read_bytes"`
+	ErrorResults     int         `json:"error_results"`
+	EmptySearches    int         `json:"empty_searches"`
+	GateRounds       int         `json:"gate_rounds"`
+	GateFailures     int         `json:"gate_failures"`
+	GateFalseAlarms  int         `json:"gate_false_alarms"`
+	TurnsBy          Attribution `json:"turn_attribution"`
+	ReviewObjections int         `json:"review_objections"`
+	CompactionSaved  int         `json:"compaction_saved"`
 }
 
 // Read decodes a thread log written by internal/eventlog.
@@ -195,6 +201,11 @@ func (s *Stats) countTurn(ev *event.Event) {
 	s.InputTokens += intField(usage, "input_tokens")
 	s.OutputTokens += intField(usage, "output_tokens")
 	s.CacheReadTokens += intField(usage, "cache_read_tokens")
+
+	if n := intField(usage, "reasoning_bytes"); n > 0 {
+		s.ReasoningTurns++
+		s.ReasoningBytes += n
+	}
 }
 
 func (s *Stats) countTool(ev *event.Event, tools map[string]*ToolStat, tracker *readTracker) {
