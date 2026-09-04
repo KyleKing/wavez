@@ -262,6 +262,7 @@ Scope resolves like gh-repo-dashboard: CLI args, then config `scan_paths`, then 
 - Sits behind `i` from any screen and is the default landing view for the mobile client
 - A thread going idle is a notification too, not only a question: done, `verify_failed`, and a tripped bound raise the same footer toast `▲` does and, on mobile, a push. This is the thread-finished hook the Decisions section names as the one hook with a real job
 - Input queues while work continues. A thread that blocks on a question parks its work (jj has already snapshotted it as a side effect of the last command) and the scheduler admits the next thread that is not blocked, so the inbox lists what is parked and on what, and only when every thread is blocked on input does the fleet stand still. Schedule lanes show parked segments distinctly from waiting-on-lock
+- The same inbox is reachable without the TUI: `wavez -inbox` lists every parked prompt across the fleet, `wavez -answer <id> -p '<text>'` resolves one, and `wavez -detach -p '...'` opens a thread in the daemon rather than running it in-process. That is what makes walking away work, since an in-process run asks on stdin and a run with no tty is given no `question` tool at all. `CmdPending` exists because the pending list otherwise only pushes on change, so a client connecting after every thread has parked would see nothing
 
 ### Schedule (M2)
 
