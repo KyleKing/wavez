@@ -202,8 +202,9 @@ are specific to this codebase and not visible from the code.
   lands, and each fails differently. Without a colocated jj repository the
   run dies in 200 ms capturing its checkpoint. Without a `.wavez.pkl` every
   tier falls back to an empty `baseURL` and the first turn is a 401. Without
-  `checks` every built-in gate speaks Go, so a Python or TypeScript project
-  reaches the model with nothing behind its edits
+  `checks` the only gate that speaks anything but Go is `lsp`, which starts
+  `ty server` for Python, so a project in another language gets type errors
+  and no lint, no format, and no tests
 - A `shellAllow` entry is the only allow-list keyed by program name.
   `permission.Store` records one whole command line on purpose, so answering
   a prompt for `uv run ruff check a.py` does not cover the same command with
