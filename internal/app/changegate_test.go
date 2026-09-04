@@ -466,3 +466,49 @@ func TestChangeGate_AFixersRewriteJoinsTheChangeSet(t *testing.T) {
 		t.Fatalf("Changed() = %v, want the rewritten file", paths)
 	}
 }
+
+// Lanes are split so no two write the same subtree, and a whole-tree check
+// reads every lane's edits whatever the split says. On the first three-lane
+// run against vcr-tui, lane 1 wrote a `type` alias its Python cannot parse
+// and lane 3 was handed the resulting pytest collection errors three times,
+// running to its turn cap on a file it had never opened.
+func TestChangeGate_ANeighboursFailureStopsAtTheGateLogWhileLanesRun(t *testing.T) {
+	t.Parallel()
+
+	unattributed := gate.Result{Gate: "test", Failures: []gate.TrimmedFailure{{
+		Test: "test", Context: []string{"ERROR collecting tests/test_cli.py"},
+	}}}
+
+	t.Run("a lane working beside another is not handed it", func(t *testing.T) {
+		t.Parallel()
+
+		g := app.NewChangeGate(nil, gate.NewRunScope())
+		g.Enqueue(tool.Change{Path: "lane1/b.py", Writer: "lane1"})
+		g.Enqueue(tool.Change{Path: "lane3/a.py", Writer: "lane3"})
+		g.Collect(gate.RunResult{
+			Changes: []tool.Change{{Path: "lane3/a.py", Writer: "lane3"}},
+			Gates:   []gate.Result{unattributed},
+		})
+
+		got, failed := g.TakeFeedback("lane3")
+		if failed {
+			t.Fatalf("handed a run another lane's failure:\n%s", got)
+		}
+	})
+
+	t.Run("a lane working alone is told, because it is the tree it is in", func(t *testing.T) {
+		t.Parallel()
+
+		g := app.NewChangeGate(nil, gate.NewRunScope())
+		g.Enqueue(tool.Change{Path: "lane3/a.py", Writer: "lane3"})
+		g.Collect(gate.RunResult{
+			Changes: []tool.Change{{Path: "lane3/a.py", Writer: "lane3"}},
+			Gates:   []gate.Result{unattributed},
+		})
+
+		got, failed := g.TakeFeedback("lane3")
+		if !failed || !strings.Contains(got, "None of this names a file this run changed") {
+			t.Fatalf("a lone run was not told about the tree it is in:\n%s", got)
+		}
+	})
+}

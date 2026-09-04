@@ -343,6 +343,48 @@ func (g *ChangeGate) Status(writer string) (string, bool) {
 	return "they ran on your changes and passed: " + strings.Join(dedupe(passed), ", "), true
 }
 
+// soleWriter reports whether one thread has written this run. Callers hold
+// g.mu.
+//
+// It decides what an unattributed failure means. Alone, a whole-tree check
+// failing on nothing the run touched is still the tree the run is working
+// in, and saying so is worth a hedged delivery. Beside another lane it is
+// most likely that lane's, and handing it over sends a run to fix a file it
+// has never opened: on the first three-lane run against vcr-tui, lane 1 wrote
+// a `type` alias its Python cannot parse and lane 3 was handed the resulting
+// pytest collection errors three times, running to its turn cap.
+//
+// Disjoint writes do not make disjoint gates. Lanes are split so no two write
+// the same subtree, and `pytest -q` reads the whole tree whatever the split
+// says.
+func (g *ChangeGate) soleWriter() bool {
+	writers := 0
+
+	for _, st := range g.states {
+		if len(st.changed) > 0 {
+			writers++
+		}
+	}
+
+	return writers <= 1
+}
+
+// attributedOnly keeps the gate results that name a file the asking run
+// changed, dropping a failure no frame ties to it. The dropped result stays
+// in the gate log, which is where a neighbour's failure belongs: recorded,
+// and never handed to a run that cannot act on it.
+func attributedOnly(results []gate.Result) []gate.Result {
+	kept := make([]gate.Result, 0, len(results))
+
+	for i := range results {
+		if results[i].Pass || attributed(results[i:i+1]) {
+			kept = append(kept, results[i])
+		}
+	}
+
+	return kept
+}
+
 // failureReport renders every failing gate in results, which is what a run
 // asking whether the build is fixed needs in front of it.
 func failureReport(results []gate.Result) string {
@@ -367,7 +409,12 @@ func (g *ChangeGate) TakeFeedback(writer string) (string, bool) {
 	st := g.state(writer)
 	results := st.pending
 	st.pending = nil
+	alone := g.soleWriter()
 	g.mu.Unlock()
+
+	if !alone {
+		results = attributedOnly(results)
+	}
 
 	if len(results) == 0 {
 		return "", false
