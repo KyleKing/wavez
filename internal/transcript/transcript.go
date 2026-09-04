@@ -225,9 +225,11 @@ type frozenChecks string
 
 func (c frozenChecks) Status(string) (string, bool) { return string(c), c != "" }
 
-// Covers is false, because a fixture declares one gate state and no change
-// set, so nothing names the packages a scoped sweep would ask about.
+// Covers and CoversPaths are false, because a fixture declares one gate state
+// and no change set, so nothing names what a scoped run would ask about.
 func (frozenChecks) Covers(string, []string) bool { return false }
+
+func (frozenChecks) CoversPaths(string, []string) bool { return false }
 
 func specs(registry *tool.Registry) []llm.ToolSpec {
 	built := registry.Specs()

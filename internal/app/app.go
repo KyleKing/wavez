@@ -24,6 +24,7 @@ import (
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/cycle"
 	"github.com/kyleking/wavez/internal/gate"
+	"github.com/kyleking/wavez/internal/guard"
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/lease"
 	"github.com/kyleking/wavez/internal/llm"
@@ -361,7 +362,7 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
 		checks: changeGate, changes: changeGate, shellAllow: cfg.ShellAllow,
-		spawns:    options.Spawns,
+		spawns: options.Spawns, declared: declaredChecks(cfg.Checks),
 		extraDirs: reachableDirs(root, cfg.ExtraDirs),
 		web:       cfg.Web, webSearchURL: cfg.WebSearchURL,
 		vision: visionProvider(ctx, cfg), visionModel: visionModel(cfg),
@@ -860,6 +861,9 @@ type registryDeps struct {
 	// shellAllow widens the guard's list of shell commands that run without
 	// asking, from what the project named.
 	shellAllow []string
+	// declared are the project's own checks, so re-running one is answered
+	// from the gates rather than run again.
+	declared []guard.Declared
 	// extraDirs are the directories outside the project root the project
 	// declared reachable, already resolved and vetted.
 	extraDirs []string
@@ -880,7 +884,8 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewWrite(d.root, d.scope, withLeases, reach),
 		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases, reach,
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
-			tools.WithTree(vcs.NewJj()), tools.WithAllowedCommands(d.shellAllow)),
+			tools.WithTree(vcs.NewJj()), tools.WithAllowedCommands(d.shellAllow),
+			tools.WithDeclaredChecks(d.declared)),
 		tools.NewPTY(d.root, d.sandboxDir, DefaultThreadID, d.permGate,
 			tools.WithAllowedCommands(d.shellAllow), tools.WithSpawnRegistry(d.spawns)),
 		tools.NewSearch(d.indexer, d.root, reach),
@@ -1254,6 +1259,17 @@ func commandChecks(checks []config.ProjectCheck) []gate.CommandCheck {
 		out = append(out, gate.CommandCheck{
 			Name: c.Name, Command: c.Command, Dir: c.Dir, Paths: c.Paths, Rewrites: c.Rewrites,
 		})
+	}
+
+	return out
+}
+
+// declaredChecks names each project check for the guard, so a command
+// re-running one is recognized whatever language the check speaks.
+func declaredChecks(checks []config.ProjectCheck) []guard.Declared {
+	out := make([]guard.Declared, 0, len(checks))
+	for _, c := range checks {
+		out = append(out, guard.Declared{Name: c.Name, Command: c.Command})
 	}
 
 	return out

@@ -490,6 +490,42 @@ func failureName(f gate.TrimmedFailure) string {
 	return "build"
 }
 
+// CoversPaths reports whether the gates already ran, for writer, over every
+// path in paths. A path covers a change when it is the changed file or a
+// directory holding it, which is how a check pointed at a subtree is
+// answered by the gates that ran over the files inside it.
+func (g *ChangeGate) CoversPaths(writer string, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	changed := g.asked(writer).changed
+
+	for _, p := range paths {
+		if !coversAny(p, changed) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func coversAny(target string, changed []tool.Change) bool {
+	clean := path.Clean(target)
+
+	for _, c := range changed {
+		p := path.Clean(c.Path)
+		if p == clean || strings.HasPrefix(p, clean+"/") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Covers reports whether the gates that ran over writer's changes cover
 // every package in pkgs, each named as a directory relative to the module
 // root. A package this run never wrote a Go file in is one the change-

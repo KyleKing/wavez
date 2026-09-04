@@ -311,12 +311,34 @@ func (s *Shell) checkRerun(ctx context.Context, command string) (string, bool) {
 
 	writer, _ := tool.WriterFromContext(ctx)
 
+	if name, ok := s.declaredRerun(writer, command); ok {
+		return name, true
+	}
+
 	pkgs, ok := guard.GoPackageSweep(command)
 	if !ok || !s.deps.checks.Covers(writer, pkgs) {
 		return "", false
 	}
 
 	return "the tests of a package you changed", true
+}
+
+// declaredRerun names the project-declared check command re-runs, under the
+// same scoping rule the Go sweep gets: a command naming no path asks for the
+// report the gates already ran, and one naming paths is answered only where
+// the gates covered every one of them. A check pointed at a file the run
+// never changed is work rather than a re-run.
+func (s *Shell) declaredRerun(writer, command string) (string, bool) {
+	name, paths, ok := guard.DeclaredCheck(command, s.deps.declared)
+	if !ok {
+		return "", false
+	}
+
+	if len(paths) > 0 && !s.deps.checks.CoversPaths(writer, paths) {
+		return "", false
+	}
+
+	return "this project's " + name + " check", true
 }
 
 // maxScriptBytes bounds how much of a script the guard reads. A file

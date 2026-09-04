@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kyleking/wavez/internal/guard"
 	"github.com/kyleking/wavez/internal/permission"
 	"github.com/kyleking/wavez/internal/tool"
 	"github.com/kyleking/wavez/internal/tools"
@@ -194,67 +195,103 @@ func (s stubChecks) Covers(_ string, pkgs []string) bool {
 	return len(pkgs) > 0
 }
 
+func (s stubChecks) CoversPaths(writer string, paths []string) bool {
+	return s.Covers(writer, paths)
+}
+
 // The system prompt has told runs not to re-run the project's checks since
 // the gates shipped, and 37 of 278 logged shell calls did it anyway. What
 // the harness knows, it answers.
+// A gateAnswerCase is one command put to a shell that knows what the gates
+// already ran.
+type gateAnswerCase struct {
+	declared []guard.Declared
+	name     string
+	command  string
+	want     string
+	checks   stubChecks
+	ran      bool
+}
+
+var gateAnswerCases = []gateAnswerCase{
+	{
+		name:    "a module sweep is answered from what the gates found",
+		command: "go test ./...",
+		checks:  stubChecks{status: "they ran on your changes and passed: go-test", known: true},
+		want:    "Not run: this runs tests",
+	},
+	{
+		name:    "a package the gates ran over is answered too",
+		command: "go test ./internal/edit/...",
+		checks: stubChecks{
+			status: "they ran on your changes and passed: go-test",
+			covers: []string{"internal/edit"},
+			known:  true,
+		},
+		want: "Not run: this runs the tests of a package you changed",
+	},
+	{
+		name:    "a package they never ran over still runs",
+		command: "go test ./internal/edit",
+		checks:  stubChecks{status: "they ran on your changes and passed: go-test", known: true},
+		ran:     true,
+	},
+	{
+		name:    "watching one failure still runs",
+		command: "go test -run TestOne ./internal/edit",
+		checks: stubChecks{
+			status: "they ran on your changes and passed: go-test",
+			covers: []string{"internal/edit"},
+			known:  true,
+		},
+		ran: true,
+	},
+	{
+		name:    "a sweep runs when the harness knows nothing yet",
+		command: "go test ./...",
+		checks:  stubChecks{},
+		ran:     true,
+	},
+	{
+		name:    "a project's own declared check is answered like a built-in one",
+		command: "uv run ruff check src/a.py --select ALL --output-format concise 2>&1",
+		checks: stubChecks{
+			status: "they ran on your changes and passed: lint",
+			covers: []string{"src/a.py"}, known: true,
+		},
+		declared: []guard.Declared{{Name: "lint", Command: "uv run ruff check {files}"}},
+		want:     "Not run: this runs this project's lint check",
+	},
+	{
+		name:    "a declared check pointed at a file the run never changed still runs",
+		command: "uv run ruff check src/untouched.py",
+		checks: stubChecks{
+			status: "they ran on your changes and passed: lint",
+			covers: []string{"src/a.py"}, known: true,
+		},
+		declared: []guard.Declared{{Name: "lint", Command: "uv run ruff check {files}"}},
+		ran:      true,
+	},
+	{
+		name:    "a project declaring nothing keeps running its commands",
+		command: "uv run ruff check src/a.py",
+		checks:  stubChecks{status: "they ran on your changes and passed: lint", known: true},
+		ran:     true,
+	},
+}
+
 func TestShellAnswersAGateItAlreadyRan(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 
-	tests := []struct {
-		name    string
-		command string
-		want    string
-		checks  stubChecks
-		ran     bool
-	}{
-		{
-			name:    "a module sweep is answered from what the gates found",
-			command: "go test ./...",
-			checks:  stubChecks{status: "they ran on your changes and passed: go-test", known: true},
-			want:    "Not run: this runs tests",
-		},
-		{
-			name:    "a package the gates ran over is answered too",
-			command: "go test ./internal/edit/...",
-			checks: stubChecks{
-				status: "they ran on your changes and passed: go-test",
-				covers: []string{"internal/edit"},
-				known:  true,
-			},
-			want: "Not run: this runs the tests of a package you changed",
-		},
-		{
-			name:    "a package they never ran over still runs",
-			command: "go test ./internal/edit",
-			checks:  stubChecks{status: "they ran on your changes and passed: go-test", known: true},
-			ran:     true,
-		},
-		{
-			name:    "watching one failure still runs",
-			command: "go test -run TestOne ./internal/edit",
-			checks: stubChecks{
-				status: "they ran on your changes and passed: go-test",
-				covers: []string{"internal/edit"},
-				known:  true,
-			},
-			ran: true,
-		},
-		{
-			name:    "a sweep runs when the harness knows nothing yet",
-			command: "go test ./...",
-			checks:  stubChecks{},
-			ran:     true,
-		},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range gateAnswerCases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			gate, _ := recordingGate(t, permission.Allow)
-			sh := tools.NewShell(root, t.TempDir(), "t", gate, tools.WithChecks(tt.checks))
+			sh := tools.NewShell(root, t.TempDir(), "t", gate,
+				tools.WithChecks(tt.checks), tools.WithDeclaredChecks(tt.declared))
 
 			res, err := sh.Run(t.Context(), mustJSON(t, map[string]any{"command": tt.command}))
 			if err != nil {

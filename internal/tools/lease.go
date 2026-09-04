@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/kyleking/wavez/internal/guard"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -28,6 +29,11 @@ type Checks interface {
 	// package in pkgs, each a directory relative to the module root. An
 	// empty writer covers what any writer changed.
 	Covers(writer string, pkgs []string) bool
+	// CoversPaths reports whether the gates already ran, for writer, over
+	// every path in paths, each a file or directory relative to the project
+	// root. It is separate from Covers because a project in another language
+	// has no package to name, only the files its own declared check took.
+	CoversPaths(writer string, paths []string) bool
 }
 
 // Changes reports what the current run has written. *app.ChangeGate
@@ -48,7 +54,9 @@ type deps struct {
 	symbols SymbolSearch
 	spawns  Spawns
 	tree    Tree
-	seen    *SeenFiles
+
+	declared []guard.Declared
+	seen     *SeenFiles
 	// allowedCommands widen the guard's built-in list of shell commands that
 	// run without a prompt, from what the project named.
 	allowedCommands []string
@@ -81,6 +89,14 @@ func WithLeases(l Leases) Option {
 // ran the checks anyway.
 func WithChecks(c Checks) Option {
 	return func(d *deps) { d.checks = c }
+}
+
+// WithDeclaredChecks lets a tool recognize the checks a project declares for
+// itself, so re-running one is answered from the gates the way re-running a
+// built-in Go check already is. Without them only the Go tool names are
+// recognized, which on a project in another language is none of them.
+func WithDeclaredChecks(d []guard.Declared) Option {
+	return func(dp *deps) { dp.declared = d }
 }
 
 // WithChanges lets a tool answer a version-control command that only asks
