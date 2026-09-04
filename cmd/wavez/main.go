@@ -42,6 +42,10 @@ var (
 	errStoppedEarly      = errors.New("thread stopped early")
 	errUnreachableCode   = errors.New("unreachable code found")
 	errUnknownModel      = errors.New("unknown -model: want fast, balanced, or deep")
+	errUnknownDecision   = errors.New("unknown -answer")
+	errNoPending         = errors.New("no pending prompt with that id")
+	errDetachNoPrompt    = errors.New("-detach needs -p: it hands one prompt to the daemon")
+	errReplyNoThread     = errors.New("reply carried no thread")
 	errCycleStopped      = errors.New("cycle stopped")
 )
 
@@ -69,6 +73,7 @@ type options struct {
 	replayReport        string
 	recall              string
 	fanoutCheck         string
+	answer              string
 	preambleMax         int
 	fanoutLanes         int
 	recallTurn          int
@@ -81,6 +86,8 @@ type options struct {
 	strictScope         bool
 	gateWrites          bool
 	fanoutRun           bool
+	inbox               bool
+	detach              bool
 	mutate              bool
 	jsonOut             bool
 	plan                bool
@@ -143,6 +150,12 @@ func run(args []string) error {
 	fs.BoolVar(&opt.fanoutRun, "fanout-run", false,
 		"with -fanout, run every lane concurrently instead of printing the plan")
 	registerReportFlags(fs, &opt)
+	fs.StringVar(&opt.answer, "answer", "",
+		"answer the pending prompt with this id, taking the text from -p")
+	fs.BoolVar(&opt.inbox, "inbox", false,
+		"print one line per pending prompt across the fleet, then exit")
+	fs.BoolVar(&opt.detach, "detach", false,
+		"with -p, open the thread in the daemon and print its id instead of running here")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
 	if err := fs.Parse(args); err != nil {
@@ -158,6 +171,10 @@ func run(args []string) error {
 
 	if handled, err := runSubcommand(ctx, opt); handled {
 		return err
+	}
+
+	if opt.detach {
+		return detachSubcommand(ctx, opt)
 	}
 
 	if opt.prompt == "" {
@@ -281,7 +298,7 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 // wantsSubcommand reports whether any flag that does one job and exits was
 // given.
 func wantsSubcommand(opt options) bool {
-	return opt.undo != "" || opt.stats != "" || opt.timeline != "" ||
+	return opt.answer != "" || opt.inbox || opt.undo != "" || opt.stats != "" || opt.timeline != "" ||
 		opt.replay != "" || opt.replayReport != "" ||
 		opt.recall != "" || opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus ||
 		opt.fanoutCheck != "" || opt.models
@@ -681,6 +698,9 @@ Flags:
   -mutate         mutate the working copy's changed lines and report what the tests missed
   -fanout <cmd>   run a check and print the disjoint lanes its findings split into
   -fanout-run     with -fanout, run every lane concurrently and report the join
+  -answer <id>    answer the pending prompt with this id, taking the text from -p
+  -inbox          print one line per pending prompt across the fleet, then exit
+  -detach         with -p, open the thread in the daemon and print its id
   -stats <id>     report what a finished run spent, by thread id or log path
   -stats-vs <id>  with -stats, name a second run the same way to diff against it
   -replay <task>  run one task of the fixed set in a throwaway workspace and record it
@@ -893,6 +913,14 @@ func registerReportFlags(fs *flag.FlagSet, opt *options) {
 // the switch below it holds only the flags that are a bare bool.
 func namedSubcommand(opt options) (func(context.Context, string, options) error, bool) {
 	switch {
+	case opt.answer != "":
+		return func(ctx context.Context, root string, opt options) error {
+			return answerRun(ctx, root, opt.socket, opt.answer, opt.prompt)
+		}, true
+	case opt.inbox:
+		return func(ctx context.Context, root string, opt options) error {
+			return inboxRun(ctx, root, opt.socket)
+		}, true
 	case opt.undo != "":
 		return func(ctx context.Context, root string, opt options) error {
 			return undo(ctx, root, opt.undo)

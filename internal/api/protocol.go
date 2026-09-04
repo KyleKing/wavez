@@ -65,6 +65,10 @@ const (
 	// when Archived is false. It hides nothing the log holds: the thread
 	// keeps its events, its state, and its transcript.
 	CmdArchive CommandKind = "archive"
+	// CmdPending asks for the current pending list. RepPending otherwise
+	// reaches a client only when the broker changes, so one that connects
+	// after every thread has parked sees nothing without asking.
+	CmdPending CommandKind = "pending"
 )
 
 // Command is one request. ID correlates the Reply and is chosen by the client.

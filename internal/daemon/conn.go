@@ -205,6 +205,8 @@ func (c *conn) handle(cmd api.Command) {
 		c.handleRoutines(cmd)
 	case api.CmdRunRoutine:
 		c.handleRunRoutine(cmd)
+	case api.CmdPending:
+		c.reply(cmd.ID, api.Reply{Kind: api.RepPending, Pending: c.srv.broker.List()})
 	default:
 		c.handleMachine(cmd)
 	}

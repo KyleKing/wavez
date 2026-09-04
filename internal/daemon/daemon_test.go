@@ -460,6 +460,52 @@ func TestPending_AnsweredFromSecondConnectionResolvesOnce(t *testing.T) {
 	})
 }
 
+// A client that connects while every thread is already parked sees no push,
+// because RepPending reaches it only when the broker changes. CmdPending is
+// how such a client asks for the list it missed, which is what makes a CLI
+// inbox possible without holding a subscription open.
+func TestPending_CommandAnswersOnDemand(t *testing.T) {
+	t.Parallel()
+
+	local := fake.New("local",
+		fake.Turn{
+			ToolCalls:  []llm.ToolCall{{ID: "1", Name: "gated", Input: []byte(`{}`)}},
+			StopReason: llm.StopToolUse,
+		},
+		fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+	)
+	h := newHarness(t, local, withTool(gatedTool{echoTool: echoTool{name: "gated"}, key: "gated-key"}))
+
+	watcher := dial(t, h)
+	watcher.hello()
+	th := watcher.newThread(nil)
+	watcher.send(api.Command{ID: "sub", Kind: api.CmdSubscribe, ThreadID: th.ID})
+	watcher.recvFor("sub")
+	watcher.send(api.Command{ID: "send", Kind: api.CmdSend, ThreadID: th.ID, Prompt: "go"})
+	watcher.recvFor("send")
+
+	waitForEvent(t, watcher, func(rep api.Reply) bool {
+		return rep.Kind == api.RepPending && len(rep.Pending) == 1
+	})
+
+	late := dial(t, h)
+	late.hello()
+	late.send(api.Command{ID: "ask", Kind: api.CmdPending})
+
+	rep := late.recvFor("ask")
+	if rep.Kind != api.RepPending {
+		t.Fatalf("reply kind = %q, want %q", rep.Kind, api.RepPending)
+	}
+	if len(rep.Pending) != 1 || rep.Pending[0].Tool != "gated" {
+		t.Fatalf("pending = %+v, want the gated prompt", rep.Pending)
+	}
+
+	late.send(api.Command{ID: "ask2", Kind: api.CmdPending})
+	if rep = late.recvFor("ask2"); len(rep.Pending) != 1 {
+		t.Fatalf("second ask saw %d prompts, want the same one", len(rep.Pending))
+	}
+}
+
 // TestConnections_ConcurrentSubscribeCycles reproduces the spike's load test
 // that surfaced the "send on closed channel" panic: 400 rapid
 // connect/subscribe/disconnect cycles under -race, against a thread with an

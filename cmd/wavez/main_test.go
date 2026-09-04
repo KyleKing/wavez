@@ -6,9 +6,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
+	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/permission"
 )
 
 // linkifyText is the pure function behind `-p` text mode's markdown-link
@@ -149,7 +152,89 @@ func TestSplitSchemaAccountsForEveryByte(t *testing.T) {
 	}
 }
 
-// A run whose second review still objects completes carrying the objection,
+// writePending is `-inbox`'s whole output, so what a parked fleet looks like
+// is checked here rather than against a live daemon.
+func TestWritePending(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+	t.Run("empty fleet names the empty state", func(t *testing.T) {
+		t.Parallel()
+
+		var b bytes.Buffer
+		if err := writePending(&b, nil, now); err != nil {
+			t.Fatalf("writePending: %v", err)
+		}
+		if b.String() != "no pending prompts\n" {
+			t.Errorf("output = %q", b.String())
+		}
+	})
+
+	t.Run("one line per prompt, question and permission alike", func(t *testing.T) {
+		t.Parallel()
+
+		var b bytes.Buffer
+		pending := []api.PendingInfo{
+			{
+				ID: "p1", Thread: "fix-login", Question: true,
+				Detail: "which  test\ndatabase?", Asked: now.Add(-90 * time.Second),
+			},
+			{
+				ID: "p2", ThreadID: "abc123", Tool: "shell",
+				Detail: "rm -rf build", Reason: "deletes a path", Asked: now.Add(-2 * time.Second),
+			},
+		}
+		if err := writePending(&b, pending, now); err != nil {
+			t.Fatalf("writePending: %v", err)
+		}
+
+		out := b.String()
+		for _, want := range []string{
+			"p1  fix-login     question   wait 1m30s   which test database?",
+			"p2  abc123        permission  wait 2s      deletes a path - rm -rf build",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
+		}
+	})
+}
+
+// parseDecision is the whole permission half of `-answer`: a decision read as
+// a person would type it, with a typed error for anything else.
+func TestParseDecision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		text string
+		want permission.Decision
+	}{
+		{text: "allow", want: permission.Allow},
+		{text: "YES", want: permission.Allow},
+		{text: "deny", want: permission.Deny},
+		{text: "No", want: permission.Deny},
+		{text: "n", want: permission.Deny},
+		{text: "always", want: permission.AllowAlways},
+		{text: "allow_always", want: permission.AllowAlways},
+	}
+	for _, tt := range tests {
+		t.Run(tt.text, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseDecision(tt.text)
+			if err != nil || got != tt.want {
+				t.Errorf("parseDecision(%q) = %v, %v; want %v", tt.text, got, err, tt.want)
+			}
+		})
+	}
+
+	_, err := parseDecision("maybe")
+	if !errors.Is(err, errUnknownDecision) {
+		t.Errorf("parseDecision(maybe) error = %v, want errUnknownDecision", err)
+	}
+}
+
 // which only the log used to hold. One lane rebutted a correct objection
 // twice with a claim its own file contradicted, and the terminal showed the
 // rebuttal and nothing else.
