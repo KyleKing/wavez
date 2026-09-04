@@ -192,6 +192,21 @@ func detachRun(ctx context.Context, root, socket string, opt options) error {
 		return err
 	}
 
+	// A run stopped at a bound tells the caller another prompt continues it,
+	// and -resume is how that prompt names the thread. Starting a fresh one
+	// instead loses the transcript the message just promised was kept.
+	if opt.resume != "" {
+		if _, err := client.Do(ctx, api.Command{
+			Kind: api.CmdSend, ThreadID: opt.resume, Prompt: opt.prompt,
+		}); err != nil {
+			return fmt.Errorf("continuing thread %s: %w", opt.resume, err)
+		}
+
+		fmt.Println(opt.resume)
+
+		return nil
+	}
+
 	rep, err := client.Do(ctx, api.Command{
 		Kind: api.CmdNew, Prompt: opt.prompt, Cycle: opt.cycle, Model: opt.model,
 	})
