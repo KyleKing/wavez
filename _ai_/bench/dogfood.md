@@ -5688,3 +5688,39 @@ account of itself is not evidence.
 
 The fixer pre-pass rode along on the same run: vcr-tui's `lint` check declares
 `fix = "uv run ruff check --fix {files}"`, ruff's safe fixes only.
+
+## 2026-09-03 A command-line inbox, built by one thread on itself
+
+Driving a fleet and walking away needed a client that is not the TUI. The
+daemon already parked a thread blocking on a question, handed its admission
+back, and admitted the next thread that was not blocked, so what was missing
+was reach: `wavez -p` runs in-process and asks on stdin, and a run with no tty
+gets no `question` tool at all, which made "can ask" and "can be left alone"
+mutually exclusive.
+
+One thread on the balanced tier built all four parts (`p-dl68cufc5vo8`):
+`CmdPending`, the daemon handler, `-inbox` and `-answer`, and `-detach`.
+
+```
+53 turns  8m25s  76 tool calls  $0.70  stop=complete
+```
+
+Verified against a live daemon on a scratch socket rather than from its own
+report:
+
+```
+thread 1  working -> needs_input        parked on its question
+thread 2  working -> done               ran to completion while 1 was parked
+wavez -answer <id> -p '...'             answered 2492edd51c4e7705; 0 remain
+thread 1  needs_input -> working -> done
+```
+
+That second line is the claim the feature exists for, and it is measured
+rather than argued.
+
+**Two of the run's first fifteen reads were refused for the same reason.**
+`{"end_line":205,"path":"..."}` with no `start_line`, twice, from a model
+plainly meaning "read the first 205 lines". `normalizeRange` filled in an
+omitted `end_line` and not an omitted `start_line`, so half of a symmetric
+rule was missing and each miss cost a turn. Fixed with the mirror of the
+branch beside it.
