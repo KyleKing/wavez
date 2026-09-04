@@ -223,3 +223,72 @@ func TestCommandGate_RunsInItsDirectoryOverTheChangedFiles(t *testing.T) {
 		t.Errorf("files = %q, want the one changed file it names, relative to its directory", lines[1])
 	}
 }
+
+// A finding a tool rewrites itself is a difference no judgment settles, so
+// paying a turn for it is waste. The fixer runs first, what it changed is
+// named to the run, and a file it left alone is not.
+func TestCommandGate_AppliesItsOwnFixesAndNamesWhatItRewrote(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for rel, body := range map[string]string{"needs_fix.py": "BAD\n", "already_fine.py": "GOOD\n"} {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(body), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", rel, err)
+		}
+	}
+
+	// The fixer rewrites one of the two files, then the check passes because
+	// nothing bad is left. Both files are handed to both commands.
+	gates := gate.NewCommandGates(root, []gate.CommandCheck{{
+		Name:    "lint",
+		Paths:   []string{"*.py"},
+		Fix:     "printf 'GOOD\\n' > needs_fix.py",
+		Command: "! grep -l BAD {files}",
+	}})
+
+	res, err := gates[0].Run(t.Context(), gate.RunContext{
+		Changes: []tool.Change{{Path: "needs_fix.py"}, {Path: "already_fine.py"}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !res.Pass {
+		t.Fatalf("Result = %+v, want a pass once the fixer had run", res)
+	}
+
+	if !slices.Equal(res.Rewrote, []string{"needs_fix.py"}) {
+		t.Fatalf("Rewrote = %v, want only the file the fixer changed", res.Rewrote)
+	}
+}
+
+// A fixer that fails must not also hide the findings: the report is what the
+// run acts on.
+func TestCommandGate_ReportsEvenWhenItsFixerFails(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.py"), []byte("BAD\n"), 0o600); err != nil {
+		t.Fatalf("writing a.py: %v", err)
+	}
+
+	gates := gate.NewCommandGates(root, []gate.CommandCheck{{
+		Name:    "lint",
+		Paths:   []string{"*.py"},
+		Fix:     "exit 3",
+		Command: "! grep -l BAD {files}",
+	}})
+
+	res, err := gates[0].Run(t.Context(), gate.RunContext{Changes: []tool.Change{{Path: "a.py"}}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if res.Pass || len(res.Failures) == 0 {
+		t.Fatalf("Result = %+v, want the check's failure reported", res)
+	}
+
+	if len(res.Rewrote) != 0 {
+		t.Fatalf("Rewrote = %v, want nothing from a fixer that failed", res.Rewrote)
+	}
+}

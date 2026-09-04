@@ -214,7 +214,12 @@ type ProjectCheck struct {
 	// Dir is where the command runs, relative to the project root. A
 	// repository holding several stacks runs each one's checks in its own
 	// directory.
-	Dir   string
+	Dir string
+	// Fix is a command that applies this check's own mechanical fixes to the
+	// same files, run before Command so a finding a tool can resolve itself
+	// never costs the run a turn. It is declared rather than inferred, and a
+	// project declaring none has nothing rewritten under it.
+	Fix   string
 	Paths []string
 	// Rewrites marks a check that edits the files it reads, which is what a
 	// formatter does. It runs before the checks that read the tree and its

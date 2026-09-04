@@ -203,8 +203,20 @@ func (g *ChangeGate) Collect(res gate.RunResult) {
 	st.latest = res.Gates
 
 	st.noteFalseAlarms(res.Gates)
+	st.noteRewrites(res.Gates)
 
 	st.queued = max(st.queued-len(res.Changes), 0)
+}
+
+// noteRewrites folds what a gate's own fixer changed into the run's change
+// set. A file rewritten under the run is the run's to answer for, so it has
+// to take gate attribution and reach undo like any other edit.
+func (st *runState) noteRewrites(results []gate.Result) {
+	for i := range results {
+		for _, p := range results[i].Rewrote {
+			st.changed = append(st.changed, tool.Change{Path: p})
+		}
+	}
 }
 
 // noteFalseAlarms records every gate in results that passes over the same
@@ -381,7 +393,7 @@ func (g *ChangeGate) TakeFeedback(writer string) (string, bool) {
 		}
 
 		return "Gates ran on your changes and passed: " + strings.Join(dedupe(passed), ", ") +
-			". Do not re-run these yourself.", false
+			". Do not re-run these yourself." + rewriteNote(results), false
 	}
 
 	b.WriteString("Gates ran on your changes and found this:\n")
@@ -396,6 +408,8 @@ func (g *ChangeGate) TakeFeedback(writer string) (string, bool) {
 		b.WriteString("\nNone of this names a file this run changed. Decide whether the change " +
 			"caused it before treating it as yours, and carry on with the task if it did not.")
 	}
+
+	b.WriteString(rewriteNote(results))
 
 	return b.String(), true
 }
@@ -556,4 +570,21 @@ func (g *ChangeGate) Covers(writer string, pkgs []string) bool {
 	}
 
 	return true
+}
+
+// rewriteNote names what a gate's own fixer rewrote, so a run is never
+// handed a file that changed under it without being told which.
+func rewriteNote(results []gate.Result) string {
+	var paths []string
+
+	for i := range results {
+		paths = append(paths, results[i].Rewrote...)
+	}
+
+	if len(paths) == 0 {
+		return ""
+	}
+
+	return "\n\nThese were fixed for you and are already in your change set: " +
+		strings.Join(dedupe(paths), ", ") + ". Read them before editing them again."
 }

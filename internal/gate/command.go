@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/glob"
@@ -17,9 +19,13 @@ import (
 // runs it. Rewrites marks a check that edits the files it looks at, which is
 // a formatter.
 type CommandCheck struct {
-	Name     string
-	Command  string
-	Dir      string
+	Name    string
+	Command string
+	Dir     string
+	// Fix applies the check's own mechanical fixes over the same files
+	// before Command reads them, so a finding the tool resolves itself never
+	// reaches the model as work. Empty rewrites nothing.
+	Fix      string
 	Paths    []string
 	Rewrites bool
 }
@@ -79,6 +85,7 @@ func (g *CommandGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 	}
 
 	dir := filepath.Join(g.repoRoot, filepath.FromSlash(g.check.Dir))
+	rewrote := g.applyFixes(ctx, dir, matched)
 
 	//nolint:gosec // the command line comes from the project's own configuration, like every other gate's
 	cmd := exec.CommandContext(ctx, "sh", "-c", expandFiles(g.check.Command, matched, g.check.Dir))
@@ -86,7 +93,10 @@ func (g *CommandGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		return Result{Gate: g.Name(), Level: rc.Selection.Level, Examined: len(matched), Pass: true}, nil
+		return Result{
+			Gate: g.Name(), Level: rc.Selection.Level,
+			Examined: len(matched), Rewrote: rewrote, Pass: true,
+		}, nil
 	}
 
 	var exitErr *exec.ExitError
@@ -102,8 +112,68 @@ func (g *CommandGate) Run(ctx context.Context, rc RunContext) (Result, error) {
 		Gate:     g.Name(),
 		Level:    rc.Selection.Level,
 		Examined: len(matched),
+		Rewrote:  rewrote,
 		Failures: []TrimmedFailure{failure},
 	}, nil
+}
+
+// applyFixes runs the check's own fixer over matched and reports the paths
+// it actually rewrote, by size and modification time either side. A fixer
+// that fails changes nothing about the check that follows: the report is
+// what the run acts on, and a broken fixer must not also hide the findings.
+//
+// Naming what was rewritten is not optional. A file edited under a run
+// without the run being told is a diff nobody reviewed, which is the whole
+// reason this is declared per project rather than inferred.
+func (g *CommandGate) applyFixes(ctx context.Context, dir string, matched []string) []string {
+	if g.check.Fix == "" {
+		return nil
+	}
+
+	before := g.fingerprints(matched)
+
+	//nolint:gosec // the fix command comes from the project's own configuration, like the check's
+	cmd := exec.CommandContext(ctx, "sh", "-c", expandFiles(g.check.Fix, matched, g.check.Dir))
+	cmd.Dir = dir
+
+	if _, err := cmd.CombinedOutput(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return nil
+		}
+	}
+
+	var rewrote []string
+
+	for _, rel := range matched {
+		if g.fingerprint(rel) != before[rel] {
+			rewrote = append(rewrote, rel)
+		}
+	}
+
+	return rewrote
+}
+
+func (g *CommandGate) fingerprints(paths []string) map[string]string {
+	out := make(map[string]string, len(paths))
+	for _, rel := range paths {
+		out[rel] = g.fingerprint(rel)
+	}
+
+	return out
+}
+
+// fingerprint is size and modification time, which separates two contents of
+// one path without reading it. A path that cannot be stat'd is absent, which
+// is what a fixer deleting a file leaves behind.
+func (g *CommandGate) fingerprint(rel string) string {
+	info, err := os.Stat(filepath.Join(g.repoRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		return "absent"
+	}
+
+	return strconv.FormatInt(info.Size(), 10) + ":" +
+		strconv.FormatInt(info.ModTime().UnixNano(), 10)
 }
 
 // filesPlaceholder is what a command writes where it wants the changed files

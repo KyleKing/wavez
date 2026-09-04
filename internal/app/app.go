@@ -1257,7 +1257,8 @@ func commandChecks(checks []config.ProjectCheck) []gate.CommandCheck {
 	out := make([]gate.CommandCheck, 0, len(checks))
 	for _, c := range checks {
 		out = append(out, gate.CommandCheck{
-			Name: c.Name, Command: c.Command, Dir: c.Dir, Paths: c.Paths, Rewrites: c.Rewrites,
+			Name: c.Name, Command: c.Command, Dir: c.Dir, Paths: c.Paths,
+			Fix: c.Fix, Rewrites: c.Rewrites,
 		})
 	}
 

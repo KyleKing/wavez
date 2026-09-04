@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,6 +28,13 @@ func TestChangeGateFeedback(t *testing.T) {
 			name:    "a pass names the gate, so the run does not check it again through the shell",
 			results: []gate.Result{{Gate: "go-test", Pass: true, Examined: 3}},
 			want:    []string{"passed: go-test", "Do not re-run"},
+		},
+		{
+			name: "a file the gate's own fixer rewrote is named to the run",
+			results: []gate.Result{{
+				Gate: "lint", Pass: true, Examined: 2, Rewrote: []string{"a.py"},
+			}},
+			want: []string{"passed: lint", "fixed for you", "a.py", "Read them before editing"},
 		},
 		{
 			name:     "a gate that examined nothing has abstained and says nothing",
@@ -423,5 +431,38 @@ func TestChangeGate_BeginClearsOnlyItsOwnWriter(t *testing.T) {
 
 	if got, _ := g.TakeFeedback("lane-a"); got == "" {
 		t.Error("lane-b starting cleared lane-a's pending report")
+	}
+}
+
+// A file rewritten by a gate's own fixer is the run's to answer for, so it
+// has to reach the change set the way the run's own edits do. Without that
+// the file is edited, reported as fixed, and then invisible to attribution
+// and to undo.
+func TestChangeGate_AFixersRewriteJoinsTheChangeSet(t *testing.T) {
+	t.Parallel()
+
+	g := app.NewChangeGate(nil, gate.NewRunScope())
+	g.Enqueue(tool.Change{Path: "src/pkg/a.py", Added: 1})
+
+	g.Collect(gate.RunResult{
+		Changes: []tool.Change{{Path: "src/pkg/a.py"}},
+		Gates: []gate.Result{{
+			Gate: "lint", Pass: true, Examined: 1, Rewrote: []string{"src/pkg/b.py"},
+		}},
+	})
+
+	if !g.CoversPaths("", []string{"src/pkg/b.py"}) {
+		t.Fatal("a file the fixer rewrote is outside the change set")
+	}
+
+	changed := g.Changed("")
+
+	paths := make([]string, 0, len(changed))
+	for _, c := range changed {
+		paths = append(paths, c.Path)
+	}
+
+	if !slices.Contains(paths, "src/pkg/b.py") {
+		t.Fatalf("Changed() = %v, want the rewritten file", paths)
 	}
 }

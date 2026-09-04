@@ -83,6 +83,7 @@ type pklService struct {
 type pklCheck struct {
 	Command  string   `pkl:"command"`
 	Dir      string   `pkl:"dir"`
+	Fix      string   `pkl:"fix"`
 	Paths    []string `pkl:"paths"`
 	Rewrites bool     `pkl:"rewrites"`
 }
@@ -373,7 +374,8 @@ func projectChecks(in map[string]pklCheck) []ProjectCheck {
 	out := make([]ProjectCheck, 0, len(in))
 	for name, c := range in {
 		out = append(out, ProjectCheck{
-			Name: name, Command: c.Command, Dir: c.Dir, Paths: c.Paths, Rewrites: c.Rewrites,
+			Name: name, Command: c.Command, Dir: c.Dir, Paths: c.Paths,
+			Fix: c.Fix, Rewrites: c.Rewrites,
 		})
 	}
 

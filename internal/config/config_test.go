@@ -77,6 +77,7 @@ checks {
   ["lint"] {
     paths { "*.py" }
     command = "ruff check ."
+    fix = "ruff check --fix ."
   }
 }
 `)
@@ -151,6 +152,10 @@ func assertOneLintCheck(t *testing.T, cfg config.Config) {
 
 	if len(cfg.Checks) != 1 || cfg.Checks[0].Name != "lint" || cfg.Checks[0].Command != "ruff check ." {
 		t.Errorf("Checks = %+v, want the one declared check", cfg.Checks)
+	}
+
+	if cfg.Checks[0].Fix != "ruff check --fix ." {
+		t.Errorf("Checks[0].Fix = %q, want the declared fixer", cfg.Checks[0].Fix)
 	}
 }
 

@@ -72,7 +72,11 @@ type Result struct {
 	// to fix one satisfies it by writing whatever silences it. A gate
 	// carrying only Advisories still passes.
 	Advisories []TrimmedFailure
-	Duration   time.Duration
+	// Rewrote names the paths this gate's own fixer changed before it
+	// reported. A file edited under a run reaches the run, because a silent
+	// rewrite is a diff nobody reviewed.
+	Rewrote  []string
+	Duration time.Duration
 	// Waited is how long the gate sat for its resource keys before it began.
 	// It is separate from Duration because a round is slow for two
 	// different reasons and only one of them is the gate's own work: the
