@@ -559,8 +559,10 @@ func loopOptions(root string, cfg config.Config, options Options) []agent.Option
 		out = append(out, agent.WithMaxWallClock(cfg.MaxRunWallClock))
 	}
 
-	if options.MaxHostedSpendUSD > 0 {
-		out = append(out, agent.WithMaxHostedSpendUSD(options.MaxHostedSpendUSD))
+	if spend := options.MaxHostedSpendUSD; spend > 0 {
+		out = append(out, agent.WithMaxHostedSpendUSD(spend))
+	} else if cfg.MaxHostedSpendUSD > 0 {
+		out = append(out, agent.WithMaxHostedSpendUSD(cfg.MaxHostedSpendUSD))
 	}
 
 	if options.MaxStagnantErrors > 0 {

@@ -82,6 +82,12 @@ localStartTimeoutSeconds: Int = 60
 /// as flags never reach one. Zero keeps the built-in default.
 maxRunSeconds: Int = 0
 
+/// Dollars of hosted-tier spend one run may accumulate before the harness
+/// stops it. Like `maxRunSeconds` this is the only bound a daemon thread has,
+/// since the caps a headless run takes as flags never reach one. Zero keeps
+/// the built-in default.
+maxHostedSpendUSD: Float = 0.0
+
 /// Free-memory fraction at or above which a turn on the local model and a
 /// gate run may overlap. Below it the scheduler serializes the two, since only
 /// one model fits in 16 GB. Measured on this laptop: qwen3:8b loaded leaves

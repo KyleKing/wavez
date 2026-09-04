@@ -73,6 +73,8 @@ preToolUseHook {
   "--strict"
 }
 hookTimeoutMs = 250
+maxRunSeconds = 2400
+maxHostedSpendUSD = 4.5
 checks {
   ["lint"] {
     paths { "*.py" }
@@ -130,11 +132,25 @@ checks {
 	if cfg.HookTimeout != 250*time.Millisecond {
 		t.Errorf("HookTimeout = %v, want 250ms", cfg.HookTimeout)
 	}
+	assertDaemonBounds(t, cfg)
 	assertSchemaFixtures(t, cfg)
 	// A check written the way the schema's own example does, without naming
 	// its class: the default has to carry the element type or every such
 	// entry evaluates as a Dynamic and the whole config fails to load.
 	assertOneLintCheck(t, cfg)
+}
+
+// The two bounds a daemon thread has, since it takes no flags.
+func assertDaemonBounds(t *testing.T, cfg config.Config) {
+	t.Helper()
+
+	if cfg.MaxRunWallClock != 40*time.Minute {
+		t.Errorf("MaxRunWallClock = %v, want 40m", cfg.MaxRunWallClock)
+	}
+
+	if cfg.MaxHostedSpendUSD != 4.5 {
+		t.Errorf("MaxHostedSpendUSD = %v, want 4.5", cfg.MaxHostedSpendUSD)
+	}
 }
 
 // A project that declares no fixtures still gets the schema's defaults,
