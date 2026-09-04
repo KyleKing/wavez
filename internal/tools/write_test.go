@@ -79,6 +79,41 @@ func TestWrite_RefusesExistingFile(t *testing.T) {
 	}
 }
 
+// A run refused a rewrite of the file it had just written deleted the file
+// through the shell and wrote it again, which loses the checkpoint undo
+// reaches the work through.
+func TestWrite_RewritesAFileThisRunHasRead(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "existing.go")
+	if err := os.WriteFile(path, []byte("package foo\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	scope := tools.NewScope(dir, false)
+	scope.Observe(path)
+
+	w := tools.NewWrite(dir, scope)
+	result, err := w.Run(context.Background(), mustJSON(t, map[string]any{
+		"path": "existing.go", "content": "package bar\n",
+	}))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("result = %+v, want the rewrite to go through", result)
+	}
+
+	got, err := os.ReadFile(path) //nolint:gosec // dir is a t.TempDir() fixture
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "package bar\n" {
+		t.Errorf("content = %q, want the rewrite", got)
+	}
+}
+
 func TestWrite_RefusesPathOutsideRoot(t *testing.T) {
 	t.Parallel()
 

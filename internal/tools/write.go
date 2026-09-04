@@ -113,10 +113,8 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 				"write the file's own text, without the leading number and tab"), nil
 	}
 
-	if _, statErr := os.Lstat(abs); statErr == nil {
-		return tool.Fail(tool.CauseRefused, "%s already exists; use str_replace to edit it", in.Path), nil
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return tool.Fail(tool.CauseIO, "checking %s: %v", in.Path, statErr), nil
+	if refusal, ok := w.admitOverwrite(abs, in.Path); !ok {
+		return refusal, nil
 	}
 
 	// A new file's directory may not exist yet, and a run that gets told
@@ -147,4 +145,32 @@ func (w *Write) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 		Content: fmt.Sprintf("%s: %d lines written", in.Path, lines),
 		Changes: []tool.Change{change},
 	}, nil
+}
+
+// admitOverwrite decides whether abs may be written over. Overwriting a file
+// this run has read is a rewrite it can account for, and refusing it costs
+// more than it saves: a run told to use str_replace on a file it wrote
+// itself deletes the file through the shell and writes it again, which loses
+// the checkpoint undo reaches the work through. Anything this run has not
+// read stays refused, since that is the blind clobber the guard exists for.
+func (w *Write) admitOverwrite(abs, shown string) (tool.Result, bool) {
+	_, statErr := os.Lstat(abs)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return tool.Result{}, true
+	}
+
+	if statErr != nil {
+		return tool.Fail(tool.CauseIO, "checking %s: %v", shown, statErr), false
+	}
+
+	if w.scope == nil || !w.scope.Read(abs) {
+		return tool.Fail(tool.CauseRefused,
+			"%s already exists and this run has not read it; read it first, or use str_replace", shown), false
+	}
+
+	if err := w.scope.Edit(abs); err != nil {
+		return failWith(err), false
+	}
+
+	return tool.Result{}, true
 }
