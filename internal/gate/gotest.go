@@ -163,13 +163,19 @@ func TrimFailure(failure FailedTest, changedFiles []string) TrimmedFailure {
 
 	var frames []string
 
-	for _, line := range failure.Output {
+	for i, line := range failure.Output {
 		for _, m := range fileLineRe.FindAllStringSubmatch(line, -1) {
-			if _, ok := changedBase[filepath.Base(m[1])]; ok {
-				frames = append(frames, strings.TrimRight(line, "\n"))
-
-				break
+			if _, ok := changedBase[filepath.Base(m[1])]; !ok {
+				continue
 			}
+
+			if lead := diagnosticLead(failure.Output, i); lead != "" {
+				frames = append(frames, lead)
+			}
+
+			frames = append(frames, strings.TrimRight(line, "\n"))
+
+			break
 		}
 	}
 
@@ -182,6 +188,27 @@ func TrimFailure(failure FailedTest, changedFiles []string) TrimmedFailure {
 	}
 
 	return TrimmedFailure{Test: failure.Name, Package: failure.Package, Frames: frames}
+}
+
+// locationOnlyRe matches a frame carrying nothing but its own location, the
+// shape ruff, ty, and rustc use (`  --> file.py:12:4`). Such a frame is
+// useless alone, since the diagnostic that names the rule sits above it.
+var locationOnlyRe = regexp.MustCompile(`^[\s>|^-]*[\w./-]+\.\w+:\d+(:\d+)?\s*$`)
+
+// diagnosticLead is the message belonging to a location-only frame at index
+// i, or empty when the frame speaks for itself. Trimming to lines naming a
+// changed file otherwise hands a run a file and a column and no complaint.
+func diagnosticLead(lines []string, i int) string {
+	if i == 0 || !locationOnlyRe.MatchString(lines[i]) {
+		return ""
+	}
+
+	lead := strings.TrimRight(lines[i-1], "\n")
+	if strings.TrimSpace(lead) == "" || fileLineRe.MatchString(lead) {
+		return ""
+	}
+
+	return lead
 }
 
 // outputHead is the first few meaningful lines of an untrimmed failure. It

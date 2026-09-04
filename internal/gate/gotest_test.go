@@ -166,6 +166,40 @@ func TestTrimFailure(t *testing.T) {
 	}
 }
 
+// ruff, ty, and rustc put the rule and the message on one line and the
+// location on the next, so trimming to lines naming a changed file used to
+// hand a run a column and no complaint.
+func TestTrimFailure_KeepsTheMessageAboveALocationOnlyFrame(t *testing.T) {
+	t.Parallel()
+
+	failure := gate.FailedTest{
+		Name: "lint",
+		Output: []string{
+			"error[unused-import] `os` imported but unused",
+			"  --> db_slice/schema.py:148:12",
+			"   |",
+			"note: this is unrelated",
+			"  --> other/untouched.py:3:1",
+		},
+	}
+
+	got := gate.TrimFailure(failure, []string{"db_slice/schema.py"})
+	want := []string{
+		"error[unused-import] `os` imported but unused",
+		"  --> db_slice/schema.py:148:12",
+	}
+
+	if len(got.Frames) != len(want) {
+		t.Fatalf("Frames = %q, want %q", got.Frames, want)
+	}
+
+	for i := range want {
+		if got.Frames[i] != want[i] {
+			t.Fatalf("Frames = %q, want %q", got.Frames, want)
+		}
+	}
+}
+
 func TestTrimFailureDropsFramesThatDoNotTouchChangedFiles(t *testing.T) {
 	t.Parallel()
 
