@@ -5648,3 +5648,43 @@ The same read is the first honest look at the `shell` change recording across
 both corpora: wavez shows 1,512 calls and 0 changes, every one of them logged
 before the fix, and vcr-tui shows 530 and 4, the four from the one lane that
 has run since. The wavez number stays stale until a lane runs here.
+
+## 2026-09-03 Three lanes at once, and the two things it found
+
+`wavez -fanout "uv run ruff check . --select ALL --output-format concise" -fanout-lanes 3
+-fanout-run` on vcr-tui, 101 findings across 41 files:
+
+```
+lane 1  p-dl65wfvfy954-l1  20 turns  3m9s
+lane 2  p-dl65wfvfym9c-l2  19 turns  2m14s
+lane 3  p-dl65wfvfy6ts-l3  30 turns  3m54s
+
+uv run ruff check . now reports 30 findings across 13 files
+```
+
+101 to 30 in 3m54s of wall clock, which is the longest lane rather than the
+sum of 69 turns. The single-lane run the day before took 6m50s to move 31
+findings to 11. Running the lanes needed no new coordination: leases fenced
+the writes, the change gate is keyed by writer, and nothing deadlocked.
+
+**Disjoint writes do not make disjoint gates.** Lane 1 wrote
+`type JsonLike = ...` into `preview/formatters.py`, which is PEP 695 and this
+project targets py311, so every test collection failed. `pytest -q` reads the
+whole tree whatever the split says, so lane 3 was handed lane 1's collection
+errors three times and ran to its 30-turn cap on a file it had never opened.
+The attribution hedge was already firing ("no output line named a changed
+file"), and a hedge is not enough when the answer is knowable: with more than
+one writer holding changes, a failure no frame ties to the asking run is now
+kept in the gate log and not delivered. Alone, it is still delivered with the
+hedge, because a whole-tree failure is the tree that run is working in.
+
+**A lane that failed reported `done`.** Lane 1 stopped on `StopVerifyFailed`
+after two rounds and its change set was recorded abandoned, and my report read
+only whether `Run` returned an error. Most bounds end a run with a nil error,
+so the lane line said `done` while the tree was broken. It names the stop
+reason and any finish findings now. The joined check is what caught it: the
+whole reason to re-run the command after the lanes is that a lane's own
+account of itself is not evidence.
+
+The fixer pre-pass rode along on the same run: vcr-tui's `lint` check declares
+`fix = "uv run ruff check --fix {files}"`, ruff's safe fixes only.
