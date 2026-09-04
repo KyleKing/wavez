@@ -108,7 +108,9 @@ func runReplaceLinesCase(t *testing.T, tt replaceLinesCase) {
 		t.Fatalf("replace_lines failed: %s", res.Content)
 	}
 
-	assertText(t, readBack(t, root, "memory.go"), []string{tt.want}, nil)
+	if body := readBack(t, root, "memory.go"); !strings.Contains(body, tt.want) {
+		t.Errorf("missing:\n%s\ngot:\n%s", tt.want, body)
+	}
 
 	// A range off by ten lines is otherwise invisible until a gate.
 	if !strings.Contains(res.Content, "return 1") {

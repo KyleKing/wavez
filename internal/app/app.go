@@ -133,7 +133,7 @@ var ReadOnlyTools = []string{"list", "read", "search", "context", "question", "w
 // many docs in one call, and `str_replace`'s edits list now does that, so
 // what is left is knowing where a Go doc comment goes rather than a Python
 // docstring.
-var FastTierOmits = []string{"demo", "document", "pty", "replace_lines", "shell", "write"}
+var FastTierOmits = []string{"demo", "pty", "replace_lines", "shell", "write"}
 
 // Prefix is the fixed prefix a thread's turns pay, with the fast tier's
 // narrower tool surface filled in. Both entry points build it from here so
@@ -892,7 +892,6 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),
 		tools.NewDelete(d.root, d.indexer, d.servers, d.scope, withLeases),
-		tools.NewDocument(d.root, d.indexer, d.scope, withLeases),
 		tools.NewMove(d.root, d.indexer, d.scope, withLeases),
 		tools.NewReplaceLines(d.root, d.scope, withLeases, reach, seen),
 		tools.NewRename(d.root, d.indexer, d.servers, d.scope, withLeases),

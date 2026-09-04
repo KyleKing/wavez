@@ -5620,3 +5620,31 @@ whatever it is given, and a project declaring `--unsafe-fixes` there has
 chosen a behaviour change nobody reviewed. Checking that from here means
 knowing every tool's flags, which is the per-tool maintenance this project
 refuses everywhere else, so the schema says it and the gate does not.
+
+## 2026-09-03 The removal condition fired
+
+`document` is gone. The condition was written beside it on 2026-09-02: if the
+next corpus read still showed zero calls, 173 tokens a turn was not worth
+knowing where a Go doc comment goes rather than a Python docstring.
+
+The read:
+
+```
+wavez     document  0 calls
+vcr-tui   document  0 calls
+```
+
+Zero across both projects and every recorded thread. What answered the case
+for it was a different change: `str_replace`'s `edits` list became the only
+shape, so the 86 docstrings that motivated `document` go in through one call
+anyway. Measured on the prefix, `-preamble` with it restored and removed:
+3,829 against 3,656 hosted tokens, 173 of them. The fast tier is unchanged at
+2,775, because `document` was already in `FastTierOmits`.
+
+`replace_lines` stays for now on one call, which is thin evidence in the other
+direction, and it is the next thing this condition should be written against.
+
+The same read is the first honest look at the `shell` change recording across
+both corpora: wavez shows 1,512 calls and 0 changes, every one of them logged
+before the fix, and vcr-tui shows 530 and 4, the four from the one lane that
+has run since. The wavez number stays stale until a lane runs here.
