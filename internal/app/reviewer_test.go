@@ -79,6 +79,13 @@ func TestModelReviewer_Review(t *testing.T) {
 			wantNote:   "off-schema",
 		},
 		{
+			name:       "an empty answer names itself rather than trailing a blank",
+			answer:     "  \n",
+			diff:       "--- a/a.go\n+++ b/a.go\n+ok\n",
+			wantResult: agent.ReviewSkipped,
+			wantNote:   "answered with nothing",
+		},
+		{
 			name:       "a diff over the budget is reported unreviewed",
 			answer:     `{"verdict":"ok","reason":""}`,
 			diff:       strings.Repeat("+ a line of diff\n", 20000),

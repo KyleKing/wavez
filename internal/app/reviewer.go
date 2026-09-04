@@ -146,12 +146,14 @@ func (r *ModelReviewer) Review(ctx context.Context, rv agent.Review) agent.Verdi
 		Thinking:       r.thinking.For(route),
 	}
 
+	served := string(route.Choice) + "/" + req.Model
+
 	answer, err := collectText(ctx, r.providers.For(route), req)
 	if err != nil {
-		return skipped("the reviewer model failed: %v", err)
+		return withServed(skipped("the reviewer model failed: %v", err), served)
 	}
 
-	return parseVerdict(answer)
+	return withServed(parseVerdict(answer), served)
 }
 
 func reviewPrompt(task, diff string) string {
@@ -177,6 +179,10 @@ func parseVerdict(answer string) agent.Verdict {
 	var out struct {
 		Verdict string `json:"verdict"`
 		Reason  string `json:"reason"`
+	}
+
+	if strings.TrimSpace(answer) == "" {
+		return skipped("the reviewer answered with nothing")
 	}
 
 	if err := json.Unmarshal([]byte(jsonObject(answer)), &out); err != nil {
@@ -223,6 +229,12 @@ func firstLine(s string) string {
 	}
 
 	return s
+}
+
+func withServed(v agent.Verdict, served string) agent.Verdict {
+	v.Served = served
+
+	return v
 }
 
 func skipped(format string, args ...any) agent.Verdict {

@@ -36,6 +36,11 @@ type Verdict struct {
 	// Note carries the objection when Result is ReviewObjection and why no
 	// review happened when it is ReviewSkipped.
 	Note string
+	// Served names the tier and model that answered, empty when the review
+	// was skipped before one was asked. A skip that names no machine cannot
+	// be chased: the same note reads as a bad model, a disabled reasoning
+	// toggle, or a truncated answer.
+	Served string
 }
 
 // Review is what a Reviewer is given: the task as the user stated it, and the
@@ -123,6 +128,10 @@ func (r *run) logReview(v Verdict) error {
 	detail := map[string]any{"round": r.reviewRounds, "result": string(v.Result)}
 	if v.Note != "" {
 		detail["note"] = v.Note
+	}
+
+	if v.Served != "" {
+		detail["served"] = v.Served
 	}
 
 	ev := event.Event{Kind: event.KindReview, Text: reviewText(v), Detail: detail}
