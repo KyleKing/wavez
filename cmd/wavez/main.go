@@ -80,6 +80,7 @@ type options struct {
 	allowAll            bool
 	strictScope         bool
 	gateWrites          bool
+	fanoutRun           bool
 	mutate              bool
 	jsonOut             bool
 	plan                bool
@@ -139,6 +140,8 @@ func run(args []string) error {
 		"run a check and print the disjoint lanes its findings split into")
 	fs.IntVar(&opt.fanoutLanes, "fanout-lanes", defaultFanoutLanes,
 		"with -fanout, the most lanes to split into")
+	fs.BoolVar(&opt.fanoutRun, "fanout-run", false,
+		"with -fanout, run every lane concurrently instead of printing the plan")
 	registerReportFlags(fs, &opt)
 	fs.BoolVar(&showVersion, "v", false, "print version information")
 
@@ -677,6 +680,7 @@ Flags:
   -strict-scope   refuse an edit to a file this run never read or created
   -mutate         mutate the working copy's changed lines and report what the tests missed
   -fanout <cmd>   run a check and print the disjoint lanes its findings split into
+  -fanout-run     with -fanout, run every lane concurrently and report the join
   -stats <id>     report what a finished run spent, by thread id or log path
   -stats-vs <id>  with -stats, name a second run the same way to diff against it
   -replay <task>  run one task of the fixed set in a throwaway workspace and record it
@@ -911,6 +915,10 @@ func namedSubcommand(opt options) (func(context.Context, string, options) error,
 		return recallRun, true
 	case opt.fanoutCheck != "":
 		return func(ctx context.Context, root string, opt options) error {
+			if opt.fanoutRun {
+				return fanoutRunAll(ctx, root, opt)
+			}
+
 			return fanoutPlan(ctx, root, opt.fanoutCheck, opt.fanoutLanes)
 		}, true
 	}
