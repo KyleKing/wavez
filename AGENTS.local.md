@@ -198,6 +198,22 @@ are specific to this codebase and not visible from the code.
   one scratch socket across runs (`/tmp/wz-vcr/d.sock`) is what makes the
   sweep reach the previous run's leaks, and it is also how a stale daemon
   goes unnoticed: check `pgrep -fl wavezd` before assuming a socket is free
+- Pointing wavez at a new project costs three things before the first turn
+  lands, and each fails differently. Without a colocated jj repository the
+  run dies in 200 ms capturing its checkpoint. Without a `.wavez.pkl` every
+  tier falls back to an empty `baseURL` and the first turn is a 401. Without
+  `checks` every built-in gate speaks Go, so a Python or TypeScript project
+  reaches the model with nothing behind its edits
+- A `shellAllow` entry is the only allow-list keyed by program name.
+  `permission.Store` records one whole command line on purpose, so answering
+  a prompt for `uv run ruff check a.py` does not cover the same command with
+  a different `tail -n`, and a project whose checks live in a virtualenv asks
+  once per variant until the program is named in `shellAllow`
+- A lint rule that fights the design loops the run rather than stopping it.
+  `no-self-use` fires on every method implementing an interface, and
+  `typing.override` needs 3.12, so a run on a 3.11 project alternated between
+  the two for ten minutes. Read what a gate is actually complaining about
+  before assuming the code is wrong
 
 ## Go conventions
 
