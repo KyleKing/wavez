@@ -5571,8 +5571,52 @@ project with no header convention.
 
 One of the eleven it created. Fixing an `ANN401` by giving `counting_rglob` a
 real return type, it also wrote `# noqa: ANN202` on the same line, and ANN202
-cannot fire on an annotated function, so the suppression is dead and `ruff`
-reports it. The run ended having re-checked one file rather than its ten, so
-nothing showed it the finding it had just added. A lane that edits a file set
-should re-run its check over that set before it stops, and today only the
-prompt asks for that.
+cannot fire on an annotated function, so the suppression is dead.
+
+The run saw that itself. Event 94 is a shell call whose output is the finding,
+event 99 is `max turns reached (dead-man's switch): 40, 6m50s elapsed`, and
+event 100 is the harness recording that gates failed on the abandoned change
+set. It was cut off mid-fix rather than finishing blind, and the leftover is a
+budget result rather than a judgment one.
+
+Where the budget went is the finding worth keeping. Nine of the twenty-one
+shell calls re-ran `uv run ruff check` over the same ten files with different
+flags, which is 43% of the lane's shell calls spent on a report the gates
+deliver unasked. `alreadyChecked` exists to answer exactly that and could not:
+`guard.harnessTools` is a hard-coded map of `golangci-lint`, `gofmt`,
+`goimports`, and `hk`, so a project whose checks are declared in `.wavez.pkl`
+has none of them recognized. Every built-in gate speaking Go was item 2's
+finding; this is the same defect one layer up, in the tool that keeps a run
+from re-running a gate.
+
+## 2026-09-03 Two gate defects the fan-out lane named
+
+**A project's own checks were invisible to the tool that stops a re-run.**
+`alreadyChecked` answers a command re-running a check the harness already ran,
+and `guard.harnessTools` was `golangci-lint`, `gofmt`, `goimports`, and `hk`.
+Every one of those is Go, so on a project declaring its checks in `.wavez.pkl`
+the tool could not fire at all. Measured on the lane: 9 of 21 shell calls
+re-ran `uv run ruff check` over the same ten files with different flags, 43% of
+its shell calls spent on a report the gates deliver unasked.
+
+The match is on the declaration's leading words (`uv run ruff check` out of
+`uv run ruff check {files}`), which identifies the tool whatever flags follow,
+and the scoping rule is the Go sweep's: a command naming no path asks for the
+report the gates already ran, and one naming paths is answered only where the
+gates covered every one of them. A check pointed at a file the run never
+changed is work rather than a re-run, so it still runs. Removing the branch
+makes the test run `uv run ruff check` for real, which is the waste itself.
+
+**A check can apply its own mechanical fixes.** The parked entry named two
+blockers and both are built. A `fix` command declared beside `command` runs
+over the same matched files first; every path it changed enters the change
+set, so it takes gate attribution and reaches undo; and the run is told which
+files were rewritten under it, because a file edited without the run being
+told is a diff nobody reviewed. A fixer that fails changes nothing about the
+report, since a broken fixer must not also hide the findings.
+
+What is deliberately not enforced is the safe-fix distinction. `fix` runs
+whatever it is given, and a project declaring `--unsafe-fixes` there has
+chosen a behaviour change nobody reviewed. Checking that from here means
+knowing every tool's flags, which is the per-tool maintenance this project
+refuses everywhere else, so the schema says it and the gate does not.
