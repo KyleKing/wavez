@@ -136,6 +136,29 @@ func lanePrompt(command string, lane fanout.Lane) string {
 		"changing nothing else: %s", command, strings.Join(lane.Paths, " "))
 }
 
+// laneStatus says how a lane ended, reading the outcome's own stop reason
+// rather than only whether Run returned an error.
+//
+// Most bounds end a run without an error: a lane whose changes failed
+// verification twice stops with StopVerifyFailed and a nil error, and
+// reading the error alone reported it as done while its change set had been
+// abandoned. A lane that is not complete has to say so, since the whole
+// point of the join is to catch a lane that claims more than it did.
+func laneStatus(r *laneResult) string {
+	switch {
+	case r.err != nil:
+		return "failed: " + r.err.Error()
+	case r.outcome.Turns == 0:
+		return "no turns"
+	case r.outcome.Stop != agent.StopComplete:
+		return "stopped: " + string(r.outcome.Stop)
+	case len(r.outcome.FinishFindings) > 0:
+		return "finished with " + strings.Join(r.outcome.FinishFindings, "; ")
+	}
+
+	return "done"
+}
+
 // reportLanes prints each lane's own result and then the check's verdict over
 // the whole tree, which is the only number that says whether the split
 // worked. A lane reporting success while the joined check still fails is the
@@ -145,17 +168,9 @@ func reportLanes(ctx context.Context, a *app.App, results []laneResult, command 
 
 	for i := range results {
 		r := &results[i]
-		status := "done"
-
-		switch {
-		case r.err != nil:
-			status = "failed: " + r.err.Error()
-		case r.outcome.Turns == 0:
-			status = "no turns"
-		}
 
 		fmt.Printf("lane %d  %s  %d turns  %s  %s\n",
-			r.index+1, r.id, r.outcome.Turns, r.elapsed.Round(time.Second), status)
+			r.index+1, r.id, r.outcome.Turns, r.elapsed.Round(time.Second), laneStatus(r))
 	}
 
 	after, err := checkFindings(ctx, a.Root, command)
