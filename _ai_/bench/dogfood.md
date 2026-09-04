@@ -5534,3 +5534,45 @@ not worth 172 tokens a turn and it goes.
 That `shell` row, 1,512 calls and 0 changes, is the hole the entry above
 closed. Every number in it predates the fix, so the next corpus read is where
 it gets tested against a live run.
+
+## 2026-09-03 The live run the shell fix was waiting for
+
+Lane 1 of the fan-out plan on vcr-tui, thread `p-dl5vw9zu6sfk`, 40 turns and
+44 tool calls in 6m50s on the balanced tier:
+
+```
+tool               calls  changes
+shell                 21        4
+read                  13        0
+str_replace            8        8
+search                 2        0
+```
+
+Four, against a corpus row that read 1,512 shell calls and zero changes. The
+one that matters wrote source:
+
+```
+uv run ruff check tests/test_preview/test_engine.py \
+  tests/test_ui/test_screens/test_main_screen.py --select COM812 --fix --no-cache
+```
+
+An autofixer reached through `shell` and rewrote two test files. Under the old
+code that call recorded nothing, so both files stayed outside the change set,
+outside gate attribution, and outside undo. The other two records are a
+`> ruff_out.txt` and the `rm` that removed it, which is the same tree read
+answering a create and a delete. Eighteen shell calls recorded nothing, so the
+fingerprint comparison produced no false positive across a whole live lane.
+
+The lane itself took its ten files from 31 findings to 11, with `ty` clean and
+156 tests passing. Eight of the eleven are `missing-copyright-notice`, which it
+investigated (it read the LICENSE, the `[tool.ruff]` block, and `ruff rule
+missing-copyright-notice`) before declining, and that is the right call for a
+project with no header convention.
+
+One of the eleven it created. Fixing an `ANN401` by giving `counting_rglob` a
+real return type, it also wrote `# noqa: ANN202` on the same line, and ANN202
+cannot fire on an annotated function, so the suppression is dead and `ruff`
+reports it. The run ended having re-checked one file rather than its ten, so
+nothing showed it the finding it had just added. A lane that edits a file set
+should re-run its check over that set before it stops, and today only the
+prompt asks for that.
