@@ -134,8 +134,9 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 	return data
 }
 
-// The model routinely sends start_line alone. Rejecting that cost a whole turn.
-func TestRead_OmittedEndLineReadsToEndOfFile(t *testing.T) {
+// The model routinely omits one end of the range. Rejecting either half
+// cost a whole turn, twice in one run's first fifteen reads.
+func TestRead_OmittedRangeEndReadsToTheFileEdge(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -144,18 +145,55 @@ func TestRead_OmittedEndLineReadsToEndOfFile(t *testing.T) {
 		t.Fatalf("writing fixture: %v", err)
 	}
 
-	res, err := tools.NewRead(root, nil).Run(t.Context(), json.RawMessage(`{"path":"a.txt","start_line":3}`))
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	tests := []struct {
+		name    string
+		input   string
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "start_line alone reads to the end",
+			input:   `{"path":"a.txt","start_line":3}`,
+			want:    []string{"three", "four"},
+			notWant: []string{"two"},
+		},
+		{
+			name:    "end_line alone reads from the top",
+			input:   `{"path":"a.txt","end_line":2}`,
+			want:    []string{"one", "two"},
+			notWant: []string{"three"},
+		},
 	}
-	if res.IsError {
-		t.Fatalf("omitting end_line was rejected: %s", res.Content)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := tools.NewRead(root, nil).Run(t.Context(), json.RawMessage(tt.input))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if res.IsError {
+				t.Fatalf("%s was rejected: %s", tt.input, res.Content)
+			}
+			assertRange(t, res.Content, tt.want, tt.notWant)
+		})
 	}
-	if !strings.Contains(res.Content, "three") || !strings.Contains(res.Content, "four") {
-		t.Fatalf("did not read to end of file: %s", res.Content)
+}
+
+func assertRange(t *testing.T, content string, want, notWant []string) {
+	t.Helper()
+
+	for _, line := range want {
+		if !strings.Contains(content, line) {
+			t.Fatalf("missing %q: %s", line, content)
+		}
 	}
-	if strings.Contains(res.Content, "two") {
-		t.Fatalf("read started before start_line: %s", res.Content)
+
+	for _, line := range notWant {
+		if strings.Contains(content, line) {
+			t.Fatalf("read past the range, found %q: %s", line, content)
+		}
 	}
 }
 

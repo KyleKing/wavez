@@ -101,11 +101,15 @@ type readInput struct {
 	EndLine   int    `json:"end_line"`
 }
 
-// normalizeRange fills in an omitted end_line and rejects a range that
-// cannot name any lines.
+// normalizeRange fills in whichever end of the range was omitted and
+// rejects one that cannot name any lines.
 func (in *readInput) normalizeRange() error {
 	if in.EndLine == 0 && in.StartLine >= minLineNum {
 		in.EndLine = maxInt
+	}
+
+	if in.StartLine == 0 && in.EndLine >= minLineNum {
+		in.StartLine = minLineNum
 	}
 
 	if in.StartLine == 0 && in.EndLine == 0 {
