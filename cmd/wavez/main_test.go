@@ -273,6 +273,9 @@ func TestReportStandingObjection(t *testing.T) {
 
 // -inbox answers what is blocked and -threads answers what exists, which was
 // otherwise readable only from the TUI or by parsing a thread's event log.
+// Spend and the share of the window a thread fills are the two numbers that
+// decide what leaving it parked costs, since past the provider's cache
+// lifetime the whole prefix is re-read.
 func TestWriteThreads(t *testing.T) {
 	t.Parallel()
 
@@ -288,6 +291,7 @@ func TestWriteThreads(t *testing.T) {
 		{
 			ID: "new0000000000000", Name: "a name long enough to be cut short here",
 			State: event.StateWorking, Step: "editing  traverse.py", LastEvent: now.Add(-30 * time.Second),
+			Context: 42, Window: 100,
 		},
 	}, now)
 	if err != nil {
@@ -301,6 +305,10 @@ func TestWriteThreads(t *testing.T) {
 
 	if !strings.HasPrefix(lines[0], "new0000000000000") {
 		t.Errorf("newest activity is not first:\n%s", buf.String())
+	}
+
+	if !strings.Contains(lines[0], "$0.00") || !strings.Contains(lines[0], "42%") {
+		t.Errorf("spend and context share are missing, which is what a parked thread costs:\n%s", buf.String())
 	}
 
 	if !strings.Contains(lines[0], "editing traverse.py") {

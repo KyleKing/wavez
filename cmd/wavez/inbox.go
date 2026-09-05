@@ -88,15 +88,28 @@ func writeThreads(w io.Writer, threads []api.ThreadInfo, now time.Time) error {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].LastEvent.After(sorted[j].LastEvent) })
 
 	for i := range sorted {
-		if _, err := fmt.Fprintf(w, "%s  %-*s  %-11s  %-8s  %s\n",
+		if _, err := fmt.Fprintf(w, "%s  %-*s  %-11s  %-8s  %7s  %5s  %s\n",
 			sorted[i].ID, threadNameWidth, truncate(sorted[i].Name, threadNameWidth), sorted[i].State,
 			now.Sub(sorted[i].LastEvent).Round(time.Second),
+			fmt.Sprintf("$%.2f", sorted[i].Spend), contextShare(sorted[i]),
 			strings.Join(strings.Fields(sorted[i].Step), " ")); err != nil {
 			return fmt.Errorf("writing the thread list: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// contextShare is how much of the routed window this thread's history fills.
+// It is what a parked thread costs to resume: past the provider's cache
+// lifetime the whole prefix is re-read, so the share is the price of leaving
+// a question unanswered.
+func contextShare(t api.ThreadInfo) string {
+	if t.Window <= 0 {
+		return "-"
+	}
+
+	return fmt.Sprintf("%d%%", 100*t.Context/t.Window)
 }
 
 func truncate(s string, n int) string {
