@@ -93,3 +93,29 @@ func TestDialectForNamesTheBackend(t *testing.T) {
 		})
 	}
 }
+
+// Network is denied outright and loopback is narrowed to the ports the
+// project names, so a project whose tests talk to a local database has to say
+// which port it uses or the connection is refused by the kernel.
+func TestLoopbackPorts(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults("/repo")
+	cfg.LocalPort = 8080
+	cfg.Tiers.Balanced.BaseURL = "https://api.z.ai/api/coding/paas/v4"
+	cfg.Tiers.Deep.BaseURL = "http://127.0.0.1:9999/v1"
+	cfg.LoopbackPorts = []int{5432}
+
+	want := map[int]bool{5432: true, 8080: true, 9999: true}
+	for _, port := range loopbackPorts(cfg) {
+		if !want[port] {
+			t.Errorf("port %d is reachable and should not be", port)
+		}
+
+		delete(want, port)
+	}
+
+	if len(want) != 0 {
+		t.Errorf("ports %v are not reachable and should be", want)
+	}
+}

@@ -110,6 +110,12 @@ extraDirs: Listing<String> = new Listing {}
 /// that refuses it.
 shellAllow: Listing<String> = new Listing {}
 
+/// Loopback ports a sandboxed command may reach, beyond the ports the
+/// configured model tiers are served on. Network is denied outright and
+/// loopback is narrowed to what the project names, so a test that talks to a
+/// local database or a dev server has to say which port it uses.
+loopbackPorts: Listing<Int(this > 0 && this < 65536)> = new Listing {}
+
 /// Language toolchains whose programs run without asking, named instead of
 /// listed one by one: "go", "javascript", "python", "ruby", "rust", "zig".
 /// A bundle is an ergonomic control rather than a security one, since every

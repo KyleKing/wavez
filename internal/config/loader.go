@@ -51,6 +51,7 @@ type pklConfig struct {
 	ExtraDirs        []string   `pkl:"extraDirs"`
 	ShellAllow       []string   `pkl:"shellAllow"`
 	Ecosystems       []string   `pkl:"ecosystems"`
+	LoopbackPorts    []int      `pkl:"loopbackPorts"`
 	AstGrepRules     []string   `pkl:"astGrepRules"`
 	DeadcodeAllow    []string   `pkl:"deadcodeAllow"`
 	Fixtures         []string   `pkl:"fixtures"`
@@ -360,6 +361,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.ExtraDirs = p.ExtraDirs
 	cfg.ShellAllow = p.ShellAllow
 	cfg.Ecosystems = p.Ecosystems
+	cfg.LoopbackPorts = p.LoopbackPorts
 	cfg.AstGrepRules = p.AstGrepRules
 	cfg.Checks = projectChecks(p.Checks)
 	cfg.Vision = visionFromPkl(p.Vision)

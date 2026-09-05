@@ -703,7 +703,7 @@ func loopbackPorts(cfg config.Config) []int {
 	tiers := []*config.Tier{
 		&cfg.Tiers.Fast, &cfg.Tiers.Balanced, &cfg.Tiers.Deep, cfg.Vision,
 	}
-	ports := make([]int, 0, len(tiers))
+	ports := append(make([]int, 0, len(tiers)+len(cfg.LoopbackPorts)), cfg.LoopbackPorts...)
 
 	for _, tier := range []*config.Tier{
 		&cfg.Tiers.Fast, &cfg.Tiers.Balanced, &cfg.Tiers.Deep, cfg.Vision,

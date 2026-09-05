@@ -94,6 +94,11 @@ type Config struct {
 	// asking, expanded into ShellAllow by the caller that knows the bundles.
 	// A name no bundle covers is an error rather than an empty bundle.
 	Ecosystems []string
+
+	// LoopbackPorts are the local ports a sandboxed command may reach beyond
+	// the ones the tiers are served on, which is how a project whose tests
+	// talk to a local database says so.
+	LoopbackPorts []int
 	// Cycles are the phased ways of working this project defines, beside the
 	// ones wavez ships. A definition here replaces a built-in of the same
 	// name outright.
