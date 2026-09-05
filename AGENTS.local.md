@@ -215,6 +215,43 @@ are specific to this codebase and not visible from the code.
   `typing.override` needs 3.12, so a run on a 3.11 project alternated between
   the two for ten minutes. Read what a gate is actually complaining about
   before assuming the code is wrong
+- The Seatbelt profile is the fence and `shellAllow` is ergonomics. Measured:
+  a script written into the project root and run through an allowed
+  interpreter had every dangerous syscall denied, so the allowlist decides how
+  often a run is interrupted and never what it can do. The one thing
+  indirection did defeat was the protected-path rule, which the profile now
+  denies on the syscall (`.wavez.pkl`, `hk.pkl`, the mise configs and tasks,
+  `.github/workflows`, `.wavez/approvals.jsonl`, and any `.git` or `.jj` under
+  the root). Read [DESIGN.md](DESIGN.md) for the two decision records
+- A deny placed under the project root reaches the session dir too, because
+  `.wavez/sessions/session-*` is under it. uv marks its sdist cache with a
+  file literally named `.git`, so the first version of that deny made every
+  `uv` command in a sandboxed run fail with `Failed to initialize cache`
+  before anything ran. The profile re-allows the session dir after the deny,
+  and `TestExec_WritesUnderTheSessionDirAreNotProtectedPaths` only reproduces
+  it when the session dir is built under the root the way the real one is
+- Reads are denied across `$HOME` and allowed back for the project, the
+  session dir, the toolchain caches, and `extraDirs`. Each ancestor of an
+  allowed path is allowed as a `literal`, not a `subpath`, so an upward walk
+  can stat each level without reading into it: pytest walks up looking for
+  its rootdir and dies with a bare `PermissionError` naming the ancestor
+  otherwise. A sibling repository is now unreadable until the project names
+  it in `extraDirs`
+- `ecosystems { "python" }` is the bundle form of `shellAllow`, and the pkl
+  schema is a union of the names so a typo fails the load rather than
+  expanding to nothing. A project's toolchain also lives at a path
+  (`.venv/bin/ty`), and reading a compiled binary before running it answers
+  nothing, so a program the project vouched for by name runs from a project
+  path without an approval
+- A language server resolves modules once at startup. `uv add sqlglot`
+  mid-run left every import of it reported unresolvable, and the run spent
+  twenty turns and a spend cap investigating an environment that was fine.
+  `lsp.Pool` restarts a server when its `Manifests` change, so a new
+  dependency costs one restart rather than a wrong diagnostic forever
+- A stage's words carry its redirects in source order, so a rule reading
+  arguments sees a redirect target as one unless it calls `argsOnly`.
+  `rm -rf .wavez/scratch 2>/dev/null` read as an rm of `/dev/null` and was
+  refused
 
 ## Go conventions
 
