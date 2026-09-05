@@ -254,10 +254,13 @@ type Server struct {
 	conns          map[*conn]struct{}
 	acceptDone     chan struct{}
 	sockPath       string
-	connsWG        sync.WaitGroup
-	grace          time.Duration
-	mu             sync.Mutex
-	serving        bool
+	// sockID identifies the socket file this daemon bound, so shutdown does
+	// not unlink one a replacement created at the same path.
+	sockID  string
+	connsWG sync.WaitGroup
+	grace   time.Duration
+	mu      sync.Mutex
+	serving bool
 }
 
 // New builds a Server bound to sockPath. It does not listen until Serve is
@@ -464,6 +467,24 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return err
 	}
 
+	return s.removeOwnSocket()
+}
+
+// removeOwnSocket unlinks the socket this daemon created, and leaves alone
+// whatever else is at that path. Restarting a daemon starts the replacement
+// while the old one is still draining, and a bare unlink took the socket the
+// new one had already bound: the replacement reported itself listening and
+// nothing could reach it.
+func (s *Server) removeOwnSocket() error {
+	now, err := sockIdentity(s.sockPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	if err == nil && s.sockID != "" && now != s.sockID {
+		return nil
+	}
+
 	if err := os.Remove(s.sockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("removing socket: %w", err)
 	}
@@ -599,7 +620,32 @@ func (s *Server) Bind(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listening on %s: %w", s.sockPath, err)
 	}
+	// A UnixListener unlinks its path on Close, which is the wrong rule
+	// during a restart: the replacement binds the same path while this one is
+	// still draining, and its socket is what gets unlinked. Shutdown removes
+	// the file itself, only when it is still the one bound here.
+	if unix, ok := ln.(*net.UnixListener); ok {
+		unix.SetUnlinkOnClose(false)
+	}
+
 	s.ln = ln
+	s.sockID, _ = sockIdentity(s.sockPath) //nolint:errcheck // an unreadable socket only costs the ownership check
 
 	return nil
+}
+
+// sockIdentity is the socket file's device and inode, which is what makes
+// "the socket I created" different from "whatever is at that path now".
+func sockIdentity(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", nil
+	}
+
+	return fmt.Sprintf("%d:%d", stat.Dev, stat.Ino), nil
 }

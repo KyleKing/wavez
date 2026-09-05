@@ -706,6 +706,60 @@ func TestListen_StaleSocketFileIsReplaced(t *testing.T) {
 	}
 }
 
+// Restarting a daemon starts the replacement while the old one is still
+// draining. A bare unlink on shutdown took the socket the replacement had
+// already bound, so it reported itself listening and nothing could reach it.
+func TestShutdown_LeavesAReplacementsSocketAlone(t *testing.T) {
+	t.Parallel()
+
+	sockPath := shortSockPath(t)
+	broker := daemon.NewBroker()
+	srv, err := daemon.New(sockPath,
+		daemon.WithLoop(agentLoopForTest(t, broker)),
+		daemon.WithBroker(broker),
+		daemon.WithLogDir(t.TempDir()),
+	)
+	if err != nil {
+		t.Fatalf("daemon.New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErr := make(chan error, 1)
+
+	go func() { serveErr <- srv.Serve(ctx) }()
+	waitForSocket(t, sockPath)
+
+	// The replacement, bound at the same path while the first is still up.
+	if err := os.Remove(sockPath); err != nil {
+		t.Fatalf("removing the first socket: %v", err)
+	}
+
+	var lc net.ListenConfig
+
+	replacement, err := lc.Listen(context.Background(), "unix", sockPath)
+	if err != nil {
+		t.Fatalf("binding the replacement: %v", err)
+	}
+	defer replacement.Close() //nolint:errcheck // the test's own listener
+
+	cancel()
+
+	if err := <-serveErr; err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	var d net.Dialer
+
+	c, err := d.DialContext(context.Background(), "unix", sockPath)
+	if err != nil {
+		t.Fatalf("the replacement's socket was unlinked by the daemon that shut down: %v", err)
+	}
+
+	if err := c.Close(); err != nil {
+		t.Errorf("closing connection: %v", err)
+	}
+}
+
 var errNoJJRepo = errors.New("capturing checkpoint: /x is not a jj repository")
 
 type failingCheckpointer struct{ err error }
