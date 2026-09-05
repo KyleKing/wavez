@@ -23,17 +23,28 @@ var ErrServerUnavailable = errors.New("lsp: server binary not found in the proje
 // Server describes how to launch one language server and which files it
 // handles.
 type Server struct {
-	Env        map[string]string
-	Language   string
-	Command    string
-	Args       []string
+	Env      map[string]string
+	Language string
+	Command  string
+	Args     []string
+	// Manifests are the project-relative dependency files whose contents
+	// decide what this server can resolve. A language server computes module
+	// resolution once at startup and never revisits it, so a dependency
+	// added mid-run reads as unresolvable until the server is restarted, and
+	// the run is handed a type error it cannot fix by editing anything.
+	Manifests  []string
 	Extensions []string
 }
 
 // GoServer is gopls, which speaks LSP over stdio when invoked with no
 // arguments.
 func GoServer() Server {
-	return Server{Language: "go", Command: "gopls", Extensions: []string{".go"}}
+	return Server{
+		Language:   "go",
+		Command:    "gopls",
+		Manifests:  []string{"go.mod", "go.sum"},
+		Extensions: []string{".go"},
+	}
 }
 
 // PythonServer is ty, Astral's type checker, which speaks LSP over stdio
@@ -44,6 +55,7 @@ func PythonServer() Server {
 		Language:   "python",
 		Command:    "ty",
 		Args:       []string{"server"},
+		Manifests:  []string{"Pipfile.lock", "poetry.lock", "pyproject.toml", "requirements.txt", "uv.lock"},
 		Extensions: []string{".py", ".pyi"},
 	}
 }
@@ -60,6 +72,7 @@ type Pool struct {
 
 type entry struct {
 	client *Client
+	stamp  string
 	mu     sync.Mutex
 }
 
@@ -111,8 +124,16 @@ func (p *Pool) Client(ctx context.Context, path string) (*Client, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.client != nil {
+	stamp := manifestStamp(p.root, srv.Manifests)
+
+	if e.client != nil && e.stamp == stamp {
 		return e.client, nil
+	}
+
+	if e.client != nil {
+		//nolint:errcheck // a server being replaced has nothing left to report
+		_ = e.client.Close(ctx)
+		e.client = nil
 	}
 
 	client, err := newClient(ctx, p.root, srv)
@@ -120,9 +141,32 @@ func (p *Pool) Client(ctx context.Context, path string) (*Client, error) {
 		return nil, err
 	}
 
-	e.client = client
+	e.client, e.stamp = client, stamp
 
 	return client, nil
+}
+
+// manifestStamp summarizes the dependency files a server resolves against,
+// so a changed one restarts it. Size and modification time are enough: this
+// answers whether the environment moved, not what it now holds, and reading
+// every lockfile on each diagnostic would cost more than the restart it
+// avoids. A missing file contributes its absence, which is what makes the
+// first `uv add` in a project count as a change.
+func manifestStamp(root string, manifests []string) string {
+	var b strings.Builder
+
+	for _, name := range manifests {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err != nil {
+			b.WriteString(name + ":-\n")
+
+			continue
+		}
+
+		fmt.Fprintf(&b, "%s:%d:%d\n", name, info.Size(), info.ModTime().UnixNano())
+	}
+
+	return b.String()
 }
 
 // projectBinDirs are the directories a project keeps its own tools in,

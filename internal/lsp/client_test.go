@@ -256,6 +256,54 @@ func TestPoolStartsOneProcessPerLanguageAndReusesIt(t *testing.T) {
 	}
 }
 
+// A dependency added mid-run is the case this exists for: ty resolves
+// modules once at startup, so `uv add sqlglot` left every import of it
+// reported as unresolvable and a run trying to satisfy a type error that
+// nothing in the tree could fix.
+func TestPoolRestartsTheServerWhenAManifestChanges(t *testing.T) {
+	t.Parallel()
+
+	root := writeModule(t, map[string]string{"a.go": "package main\n", "go.mod": "module x\n"})
+	startLog := filepath.Join(t.TempDir(), "starts")
+
+	server := lsptest.Server(t, lsptest.Script{StartLog: startLog})
+	server.Manifests = []string{"go.mod"}
+
+	pool := lsp.NewPool(root, server)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), waitBudget)
+		defer cancel()
+
+		if err := pool.Close(ctx); err != nil {
+			t.Errorf("closing pool: %v", err)
+		}
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), waitBudget)
+	defer cancel()
+
+	if _, err := pool.Client(ctx, "a.go"); err != nil {
+		t.Fatalf("starting server: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n\nrequire y v1\n"), 0o600); err != nil {
+		t.Fatalf("rewriting the manifest: %v", err)
+	}
+
+	if _, err := pool.Client(ctx, "a.go"); err != nil {
+		t.Fatalf("second client: %v", err)
+	}
+
+	starts, err := os.ReadFile(startLog) //nolint:gosec // path is this test's own temp file
+	if err != nil {
+		t.Fatalf("reading start log: %v", err)
+	}
+
+	if got := len(strings.Fields(string(starts))); got != 2 {
+		t.Errorf("%d server processes started, want 2: %q", got, starts)
+	}
+}
+
 func TestPoolClientRefusals(t *testing.T) {
 	t.Parallel()
 
