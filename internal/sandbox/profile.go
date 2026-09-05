@@ -124,12 +124,17 @@ func writeSection(b *strings.Builder, projectRoot, sessionTmp string) {
 	b.WriteString("; --- writes: not the files that decide what may run next ---\n")
 	b.WriteString("(deny file-write*\n")
 	for _, name := range guard.RepoInternals() {
-		fmt.Fprintf(b, "  (regex #\"%s\")\n", anywhereRegex(name))
+		fmt.Fprintf(b, "  (regex #\"%s\")\n", underRootRegex(projectRoot, name))
 	}
 	for _, rel := range guard.RootProtected() {
 		fmt.Fprintf(b, "  (subpath %s)\n", sbLiteral(filepath.Join(projectRoot, rel)))
 	}
-	b.WriteString(")\n\n")
+	b.WriteString(")\n")
+	// The session dir is wavez's own scratch and sits under the project root,
+	// so the deny above reaches into it. uv marks its sdist cache with a file
+	// literally named .git, which made every uv command in a sandboxed run
+	// fail to open its cache.
+	fmt.Fprintf(b, "(allow file-write* (subpath %s))\n\n", sbLiteral(sessionTmp))
 }
 
 // readSection inverts reads under the home directory: everything there is
@@ -232,10 +237,29 @@ func ancestorsWithin(home string, dirs []string) []string {
 	return out
 }
 
-// anywhereRegex matches a path component wherever it appears, which is how a
-// nested checkout's .git is covered the same as the project's own.
-func anywhereRegex(name string) string {
-	return "/" + strings.ReplaceAll(name, ".", `\.`) + "($|/)"
+// underRootRegex matches a path component at any depth below root, which is
+// how a nested checkout's .git is covered the same as the project's own. It
+// stays anchored to the root because the name is not reserved outside one: uv
+// marks its sdist cache with a file literally named .git, and an unanchored
+// rule made every uv command in a sandboxed run fail to open its cache.
+func underRootRegex(root, name string) string {
+	return "^" + quoteRegex(root) + "(/.*)?/" + quoteRegex(name) + "($|/)"
+}
+
+// quoteRegex escapes the characters Seatbelt's regex syntax reads specially,
+// so a path becomes a literal match.
+func quoteRegex(s string) string {
+	var b strings.Builder
+
+	for _, r := range s {
+		if strings.ContainsRune(`\.+*?()|[]{}^$`, r) {
+			b.WriteByte('\\')
+		}
+
+		b.WriteRune(r)
+	}
+
+	return b.String()
 }
 
 func dedupe(in []string) []string {

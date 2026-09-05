@@ -77,7 +77,7 @@ func TestRenderProfile_DeniesWhatTheGuardCannot(t *testing.T) {
 		`(deny file-read* (subpath "/Users/kyle"))`,
 		`(subpath "/Users/kyle/work/proj/.wavez.pkl")`,
 		`(subpath "/Users/kyle/work/proj/hk.pkl")`,
-		`(regex #"/\.git($|/)")`,
+		`(regex #"^/Users/kyle/work/proj(/.*)?/\.git($|/)")`,
 		`(literal "/Users/kyle/work")`,
 	} {
 		if !strings.Contains(got, want) {

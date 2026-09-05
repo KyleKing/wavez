@@ -131,6 +131,34 @@ func TestExec_GoBuildResolvesDependenciesWithoutNetwork(t *testing.T) {
 	}
 }
 
+// The protected-path deny sits under the project root, and so does the
+// session dir the caches are redirected into. A file literally named .git
+// marks uv's sdist cache, so a deny that reached into the session dir made
+// every uv command in a sandboxed run fail before it started.
+func TestExec_WritesUnderTheSessionDirAreNotProtectedPaths(t *testing.T) {
+	requireSandboxExec(t)
+	t.Parallel()
+
+	// The real session dir lives under the project root, which is what puts
+	// it inside the deny this test is about.
+	root := t.TempDir()
+	session := filepath.Join(root, ".wavez", "sessions", "session-probe")
+
+	if err := os.MkdirAll(session, 0o700); err != nil {
+		t.Fatalf("creating the session dir: %v", err)
+	}
+
+	result, err := sandbox.Exec(context.Background(), root, session, sandbox.Policy{},
+		[]string{"sh", "-c", `mkdir -p "$TMPDIR/../cache/x" && : > "$TMPDIR/../cache/x/.git"`})
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+
+	if result.ExitCode != 0 {
+		t.Errorf("writing a .git marker in the session dir exit=%d, want 0\nstderr: %s", result.ExitCode, result.Stderr)
+	}
+}
+
 // TestExecDropsSecretNamedEnv pins the leak the sandbox's network deny does
 // not cover: a command's stdout enters the thread's context, and the next
 // hosted turn sends that context to the provider. The API key the daemon

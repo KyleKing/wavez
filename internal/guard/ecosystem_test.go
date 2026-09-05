@@ -11,9 +11,9 @@ func TestEcosystemCommands(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		names   []string
 		command string
 		want    guard.Verdict
+		names   []string
 	}{
 		{name: "no bundle", command: "uv run pytest -q", want: guard.NeedsApproval},
 		{name: "python bundle", names: []string{"python"}, command: "uv run pytest -q", want: guard.Allow},
