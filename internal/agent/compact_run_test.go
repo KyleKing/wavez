@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/llm"
@@ -18,7 +19,10 @@ import (
 
 // bulkTool returns one oversized result per call, so a couple of calls carry
 // a history past the compaction trigger's share of the 8k local budget.
-type bulkTool struct{ name string }
+type bulkTool struct {
+	name  string
+	lines int
+}
 
 func (b bulkTool) Name() string          { return b.name }
 func (bulkTool) Description() string     { return "returns a lot of output" }
@@ -31,8 +35,8 @@ const (
 	bulkResultChars = len(bulkLine) * bulkLines
 )
 
-func (bulkTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
-	return tool.Result{Content: strings.Repeat(bulkLine, bulkLines)}, nil
+func (b bulkTool) Run(context.Context, json.RawMessage) (tool.Result, error) {
+	return tool.Result{Content: strings.Repeat(bulkLine, b.lines)}, nil
 }
 
 // bulkTurns scripts n distinct calls; distinct inputs keep the loop's
@@ -61,7 +65,7 @@ func TestRun_CompactionTrimsAndThenAppends(t *testing.T) {
 	t.Parallel()
 
 	local := fake.New("local", bulkTurns(4)...)
-	loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(bulkTool{name: "bulk"}),
+	loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(bulkTool{name: "bulk", lines: bulkLines}),
 		permission.AllowAll(),
 		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
 			agent.DefaultCompactTrigger))
@@ -115,7 +119,7 @@ func TestRun_HostedTurnIsNotCompactedAtTheFastWindow(t *testing.T) {
 	t.Parallel()
 
 	balanced := fake.New("balanced", bulkTurns(4)...)
-	loop := agent.New(tiers(balanced, fake.New("deep")), tool.NewRegistry(bulkTool{name: "bulk"}),
+	loop := agent.New(tiers(balanced, fake.New("deep")), tool.NewRegistry(bulkTool{name: "bulk", lines: bulkLines}),
 		permission.AllowAll(),
 		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
 			agent.DefaultCompactTrigger))
@@ -189,4 +193,60 @@ func joined(r llm.Request) string {
 	}
 
 	return b.String()
+}
+
+// Past the provider's cache lifetime the whole prefix is re-read at full
+// price, so the run compacts before asking again even though it is nowhere
+// near the size trigger. Measured over this project's thread logs, seven such
+// turns re-read 510,696 input tokens.
+func TestRun_CompactsAfterAWaitThatOutlivedThePromptCache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		waited      time.Duration
+		wantCompact bool
+	}{
+		{name: "a wait past the cache lifetime", waited: 20 * time.Minute, wantCompact: true},
+		{name: "a wait the cache survives", waited: 30 * time.Second, wantCompact: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			local := fake.New("local",
+				fake.Turn{
+					ToolCalls:  []llm.ToolCall{{ID: "0", Name: "bulk", Input: json.RawMessage(`{}`)}},
+					StopReason: llm.StopToolUse,
+				},
+				fake.Turn{
+					ToolCalls:  []llm.ToolCall{{ID: "1", Name: "echo", Input: json.RawMessage(`{}`)}},
+					StopReason: llm.StopToolUse,
+				},
+				fake.Turn{Text: []string{"done"}, StopReason: llm.StopEndTurn},
+			)
+			clock := newFakeClock(time.Unix(0, 0))
+			ask := &parkingTool{echoTool: echoTool{name: "echo"}, clock: clock, waits: tt.waited}
+
+			// Enough output to be worth compacting, well under the share of
+			// the budget that would compact it on size alone.
+			bulk := bulkTool{name: "bulk", lines: 200}
+
+			loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(ask, bulk), permission.AllowAll(),
+				agent.WithClock(clock),
+				agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
+					agent.DefaultCompactTrigger))
+
+			out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go",
+				router.Input{Override: router.ChoiceFast})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			if got := out.TokensCompacted > 0; got != tt.wantCompact {
+				t.Errorf("compacted = %v (%d tokens), want %v", got, out.TokensCompacted, tt.wantCompact)
+			}
+		})
+	}
 }

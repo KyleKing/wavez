@@ -367,6 +367,10 @@ type Options struct {
 	MaxWallClock        time.Duration
 	MaxHostedSpendUSD   float64
 	CompactTrigger      float64
+	// CacheLifetime is how long the provider's prompt cache is assumed to
+	// survive between requests, which decides when a wait has made the
+	// prefix worth compacting rather than re-reading whole.
+	CacheLifetime time.Duration
 	// FastPresencePenalty and FastRepeatPenalty bound repetition on the fast
 	// tier only, where every degenerate emission this project has recorded
 	// happened. Zero and zero leave llama.cpp's own defaults, which disable
@@ -556,6 +560,7 @@ func New(
 		MaxStagnantErrors:   DefaultMaxStagnantErrors,
 		TurnsBeforeNudge:    DefaultTurnsBeforeNudge,
 		CompactTrigger:      DefaultCompactTrigger,
+		CacheLifetime:       DefaultCacheLifetime,
 		Clock:               gate.RealClock{},
 		Pricing:             DefaultPricing,
 	}
@@ -811,6 +816,10 @@ type run struct {
 	// run fixes it.
 	stuckEscalated bool
 	editAttempted  bool
+	// prefixCold marks a run that has just come back from a wait longer than
+	// the provider's prompt cache lives, so the next request pays for the whole
+	// prefix again and compacting it first is free.
+	prefixCold bool
 }
 
 // nudgeIfNothingChanged tells a run that has read for many turns and
@@ -1150,6 +1159,10 @@ func (r *run) admitSlot(ctx context.Context, choice router.Choice) (func(), erro
 // thread waiting for an answer has not: without this, walking away from a
 // question kills the thread that asked it.
 func (r *run) creditHumanWait(waited time.Duration) {
+	if waited >= r.loop.options.CacheLifetime {
+		r.prefixCold = true
+	}
+
 	if waited <= 0 || r.deadline.IsZero() {
 		return
 	}

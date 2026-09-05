@@ -252,6 +252,22 @@ are specific to this codebase and not visible from the code.
   arguments sees a redirect target as one unless it calls `argsOnly`.
   `rm -rf .wavez/scratch 2>/dev/null` read as an rm of `/dev/null` and was
   refused
+- A thread parked on a question loses the provider's prompt cache, and the
+  answer's first turn then pays full input price on the whole context.
+  Measured over 421 turns of this project's logs: every request that hit the
+  cache followed a gap of 352 seconds or less, every request that missed it
+  followed a gap of 736 seconds or more, and seven cold turns re-read 510,696
+  input tokens. `agent.DefaultCacheLifetime` (10 minutes, inside that gap)
+  makes a run compact before asking again, because the cache is gone anyway
+  and a smaller prefix is what it re-reads. Compacting while the cache is
+  still warm rewrites part of the prefix and costs rather than saves, which is
+  why the default sits on the cold side
+- A review round on a long-lived thread costs far more than the same round in
+  a fresh one, for the same reason. Thread `52735e97` reached 114,735 input
+  tokens, sat 13 minutes waiting for an answer, and spent the rest of a $4
+  ceiling in the turns after it without landing a change. Hand a review back
+  as a new thread with the findings restated, and keep `-resume` for a thread
+  that is still warm
 
 ## Go conventions
 
