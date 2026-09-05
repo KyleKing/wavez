@@ -204,37 +204,6 @@ func TestWritePending(t *testing.T) {
 
 // parseDecision is the whole permission half of `-answer`: a decision read as
 // a person would type it, with a typed error for anything else.
-func TestParseDecision(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		text string
-		want permission.Decision
-	}{
-		{text: "allow", want: permission.Allow},
-		{text: "YES", want: permission.Allow},
-		{text: "deny", want: permission.Deny},
-		{text: "No", want: permission.Deny},
-		{text: "n", want: permission.Deny},
-		{text: "always", want: permission.AllowAlways},
-		{text: "allow_always", want: permission.AllowAlways},
-	}
-	for _, tt := range tests {
-		t.Run(tt.text, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := parseDecision(tt.text)
-			if err != nil || got != tt.want {
-				t.Errorf("parseDecision(%q) = %v, %v; want %v", tt.text, got, err, tt.want)
-			}
-		})
-	}
-
-	_, err := parseDecision("maybe")
-	if !errors.Is(err, errUnknownDecision) {
-		t.Errorf("parseDecision(maybe) error = %v, want errUnknownDecision", err)
-	}
-}
 
 // which only the log used to hold. One lane rebutted a correct objection
 // twice with a claim its own file contradicted, and the terminal showed the
@@ -317,5 +286,59 @@ func TestWriteThreads(t *testing.T) {
 
 	if strings.Contains(lines[0], "be cut short here") {
 		t.Errorf("a long name was not truncated:\n%s", buf.String())
+	}
+}
+
+// A bare refusal tells a run nothing about what to do instead, so it guesses,
+// and the usual guess is a way around the refusal. The decision word is all
+// the daemon takes, so anything after it is the reason and travels to the
+// thread as a message.
+func TestParseDecision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		text       string
+		want       permission.Decision
+		wantReason string
+		wantErr    bool
+	}{
+		{name: "bare word", text: "deny", want: permission.Deny},
+		{name: "uppercase", text: "YES", want: permission.Allow},
+		{name: "shorthand", text: "n", want: permission.Deny},
+		{name: "underscored", text: "allow_always", want: permission.AllowAlways},
+		{name: "always", text: "always", want: permission.AllowAlways},
+		{
+			name: "a reason on the same line", text: "deny: use uv, not npm",
+			want: permission.Deny, wantReason: "use uv, not npm",
+		},
+		{
+			name: "a reason on later lines", text: "no\n\nReach for the project's own tools.",
+			want: permission.Deny, wantReason: "Reach for the project's own tools.",
+		},
+		{name: "not a decision", text: "maybe", wantErr: true},
+	}
+
+	if _, _, err := parseDecision("maybe"); !errors.Is(err, errUnknownDecision) {
+		t.Errorf("parseDecision(maybe) error = %v, want errUnknownDecision", err)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, reason, err := parseDecision(tt.text)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseDecision(%q) error = %v, wantErr %v", tt.text, err, tt.wantErr)
+			}
+
+			if got != tt.want {
+				t.Errorf("decision = %q, want %q", got, tt.want)
+			}
+
+			if reason != tt.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tt.wantReason)
+			}
+		})
 	}
 }

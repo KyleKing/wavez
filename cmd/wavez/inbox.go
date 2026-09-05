@@ -195,14 +195,18 @@ func answerRun(ctx context.Context, root, socket, promptID, text string) error {
 	}
 
 	cmd := api.Command{Kind: api.CmdAnswer, PromptID: promptID}
+
+	var note string
+
 	if found.Question {
 		cmd.Answer = text
 	} else {
-		decision, derr := parseDecision(text)
+		decision, rest, derr := parseDecision(text)
 		if derr != nil {
 			return derr
 		}
-		cmd.Decision = decision
+
+		cmd.Decision, note = decision, rest
 	}
 
 	after, err := client.Do(ctx, cmd)
@@ -212,20 +216,47 @@ func answerRun(ctx context.Context, root, socket, promptID, text string) error {
 
 	fmt.Printf("answered %s; %d prompts remain\n", promptID, len(after.Pending))
 
+	return sendNote(ctx, client, found.ThreadID, note)
+}
+
+// sendNote follows a permission answer with the reason the person gave for
+// it, as an ordinary message to the same thread. A bare refusal tells a run
+// nothing about what to do instead, so it guesses, and the usual guess is a
+// way around the refusal rather than the thing that was actually wanted.
+func sendNote(ctx context.Context, client *api.Client, threadID, note string) error {
+	if strings.TrimSpace(note) == "" || threadID == "" {
+		return nil
+	}
+
+	if _, err := client.Do(ctx, api.Command{
+		Kind: api.CmdSend, ThreadID: threadID, Prompt: note,
+	}); err != nil {
+		return fmt.Errorf("sending the reason to thread %s: %w", threadID, err)
+	}
+
+	fmt.Printf("sent the reason to %s\n", threadID)
+
 	return nil
 }
 
-// parseDecision reads a permission decision the way a person would type it.
-func parseDecision(text string) (permission.Decision, error) {
-	switch strings.ToLower(strings.TrimSpace(text)) {
+// parseDecision reads a permission decision the way a person would type it,
+// and returns whatever followed it as the reason. A decision alone is all the
+// daemon takes, so the reason travels to the thread as a message instead.
+func parseDecision(text string) (permission.Decision, string, error) {
+	word, rest, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if first, tail, ok := strings.Cut(word, " "); ok {
+		word, rest = first, strings.TrimSpace(tail+"\n"+rest)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(strings.Trim(word, ":,."))) {
 	case "allow", "yes", "y":
-		return permission.Allow, nil
+		return permission.Allow, strings.TrimSpace(rest), nil
 	case "deny", "no", "n":
-		return permission.Deny, nil
+		return permission.Deny, strings.TrimSpace(rest), nil
 	case "always", "allow_always":
-		return permission.AllowAlways, nil
+		return permission.AllowAlways, strings.TrimSpace(rest), nil
 	default:
-		return "", fmt.Errorf("%w: %q (want allow, deny, or always)", errUnknownDecision, text)
+		return "", "", fmt.Errorf("%w: %q (want allow, deny, or always)", errUnknownDecision, word)
 	}
 }
 

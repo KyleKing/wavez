@@ -708,6 +708,8 @@ Flags:
   -fanout <cmd>   run a check and print the disjoint lanes its findings split into
   -fanout-run     with -fanout, run every lane concurrently and report the join
   -answer <id>    answer the pending prompt with this id, taking the text from -p
+                  (a permission answer may carry a reason after the decision word,
+                  which is sent to the thread as a message)
   -inbox          print one line per pending prompt across the fleet, then exit
   -threads        print one line per thread, newest activity first, then exit
   -all-roots      with -threads, list every project the daemon holds
