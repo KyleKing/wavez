@@ -139,3 +139,20 @@ func TestNewProfile_MissingDirFails(t *testing.T) {
 func sbSubpath(path string) string {
 	return `(subpath "` + path + `")`
 }
+
+// A string prefix would put /Users/kyleking2 under /Users/kyleking, allowing a
+// listing of a home directory that only shares a spelling.
+func TestRenderProfile_AncestorsMatchByComponent(t *testing.T) {
+	t.Parallel()
+
+	got := sandbox.RenderProfile("/Users/kyle/work/proj", "/tmp/session", "/Users/kyle",
+		sandbox.Policy{ReadDirs: []string{"/Users/kyle2/other"}})
+
+	if strings.Contains(got, `(literal "/Users/kyle2")`) {
+		t.Errorf("a home directory sharing a prefix was allowed as an ancestor:\n%s", got)
+	}
+
+	if !strings.Contains(got, `(literal "/Users/kyle/work")`) {
+		t.Errorf("a real ancestor is missing:\n%s", got)
+	}
+}

@@ -238,7 +238,7 @@ func ancestorsWithin(home string, dirs []string) []string {
 	out := []string{}
 
 	for _, dir := range dirs {
-		for cur := filepath.Dir(dir); strings.HasPrefix(cur, home); cur = filepath.Dir(cur) {
+		for cur := filepath.Dir(dir); under(home, cur); cur = filepath.Dir(cur) {
 			if !seen[cur] {
 				seen[cur] = true
 
@@ -256,6 +256,13 @@ func ancestorsWithin(home string, dirs []string) []string {
 	sort.Strings(out)
 
 	return out
+}
+
+// under reports path at or below root, by path component. A string prefix
+// would put /Users/kyleking2 under /Users/kyleking and allow a listing of a
+// home directory that only shares a spelling.
+func under(root, path string) bool {
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
 // repoExecRegex matches leaf at any depth inside a version-control directory
