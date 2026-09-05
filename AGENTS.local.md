@@ -268,6 +268,13 @@ are specific to this codebase and not visible from the code.
   ceiling in the turns after it without landing a change. Hand a review back
   as a new thread with the findings restated, and keep `-resume` for a thread
   that is still warm
+- A reasoning model spends its completion budget on reasoning before any
+  content, so a `maxTokens` sized for the answer alone comes back empty with
+  `finish_reason: "length"`. Every review this project ever ran failed that
+  way: measured against glm-5.3 on a 20 KB diff, 200 tokens went entirely to
+  reasoning. `collectText` now reports truncation separately, because a
+  truncated answer and a refused one both arrive as empty text and the two
+  want different fixes
 
 ## Go conventions
 
