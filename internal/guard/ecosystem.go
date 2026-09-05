@@ -6,10 +6,15 @@ import (
 )
 
 // ecosystems name the programs one language's toolchain runs, so a project
-// declares cmdPython once instead of answering a prompt per variant of
+// declares "python" once instead of answering a prompt per variant of
 // `uv run ruff check`. A permission answer is keyed on the whole command
 // line by design, which is what makes a bare program name the only thing
 // that generalizes.
+//
+// A key here is an ecosystem's name, which the config schema constrains as a
+// union, and a value is a program name. The two happen to share a spelling
+// for "python" and "ruby" and mean different things, so the keys stay
+// literals.
 //
 // A bundle is an ergonomic control and not a security one. Every program
 // here reads a script from a file or an argument, so allowing it hands the
@@ -22,13 +27,13 @@ var ecosystems = map[string][]string{
 		"bun", "bunx", "deno", "eslint", "node", "npm", "npx", "pnpm",
 		"prettier", "tsc", "tsx", "vitest", "yarn",
 	},
-	cmdPython: {
+	"python": {
 		"basedpyright", "mypy", cmdPip, "poetry", "py.test", "pyright", "pytest",
 		cmdPython, "python3", "ruff", "ty", "uv", "uvx",
 	},
-	cmdRuby: {"bundle", "gem", "rake", "rspec", "rubocop", cmdRuby},
-	"rust":  {cmdCargo, "clippy-driver", "rustc", "rustfmt"},
-	"zig":   {"zig"},
+	"ruby": {"bundle", "gem", "rake", "rspec", "rubocop", cmdRuby},
+	"rust": {cmdCargo, "clippy-driver", "rustc", "rustfmt"},
+	"zig":  {"zig"},
 }
 
 // EcosystemCommands returns the programs the named ecosystems run without a
