@@ -145,3 +145,36 @@ func TestShellJudgesTheScriptItRuns(t *testing.T) {
 		})
 	}
 }
+
+// A project's toolchain lives at a path, and reading a compiled binary
+// before running it answers nothing, so `.venv/bin/ty` cost one approval per
+// program even with the project's own ecosystem declared.
+func TestShellRunsAVouchedForProgramFromAProjectPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	binDir := filepath.Join(root, ".venv", "bin")
+
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// A binary rather than a script: unreadable as shell, which is what made
+	// every check refuse to vouch for it.
+	if err := os.WriteFile(filepath.Join(binDir, "ty"), []byte("\x7fELF\x02\x01\x01\x00"), 0o600); err != nil {
+		t.Fatalf("writing the fake binary: %v", err)
+	}
+
+	asked := false
+	gate := permission.GateFunc(func(context.Context, permission.Request) (permission.Decision, error) {
+		asked = true
+
+		return permission.Deny, nil
+	})
+
+	runShellCommand(t, root, ".venv/bin/ty --version", []string{"ty"}, gate)
+
+	if asked {
+		t.Error("a program the project named still cost an approval")
+	}
+}

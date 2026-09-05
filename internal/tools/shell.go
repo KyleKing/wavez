@@ -391,6 +391,15 @@ func (s *Shell) classifyScript(rel string) guard.Result {
 		return guard.Result{Verdict: guard.Allow, Reason: reasonNoScript, Fragment: rel}
 	}
 
+	// A project's own toolchain lives at a path (`.venv/bin/ty`), and reading
+	// it before running it answers nothing: it is a compiled binary, so every
+	// check below refuses to vouch and the run pays one approval per program.
+	// The project already named it, which is the same warrant a bare name on
+	// PATH gets.
+	if s.env.VouchedFor(filepath.Base(rel)) {
+		return guard.Result{Verdict: guard.Allow, Reason: reasonNoScript, Fragment: rel}
+	}
+
 	if info.Size() > maxScriptBytes {
 		return guard.Result{
 			Verdict:  guard.NeedsApproval,

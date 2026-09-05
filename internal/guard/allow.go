@@ -78,6 +78,20 @@ func (e Env) allowed(prog, name string) bool {
 	return false
 }
 
+// VouchedFor reports a bare program name the project itself named, through
+// shellAllow or an ecosystem bundle. It excludes the built-in list on
+// purpose: this answers "did this project say it runs this", which is a
+// narrower question than "is this program ordinarily harmless".
+func (e Env) VouchedFor(name string) bool {
+	for _, extra := range e.AllowedCommands {
+		if strings.TrimSpace(extra) == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 // projectRelative reports a program named by a path that stays inside the
 // project, as opposed to a bare name looked up on PATH or an absolute one.
 func projectRelative(prog string) bool {
