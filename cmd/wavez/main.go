@@ -87,6 +87,8 @@ type options struct {
 	gateWrites          bool
 	fanoutRun           bool
 	inbox               bool
+	threads             bool
+	allRoots            bool
 	detach              bool
 	mutate              bool
 	jsonOut             bool
@@ -154,6 +156,10 @@ func run(args []string) error {
 		"answer the pending prompt with this id, taking the text from -p")
 	fs.BoolVar(&opt.inbox, "inbox", false,
 		"print one line per pending prompt across the fleet, then exit")
+	fs.BoolVar(&opt.threads, "threads", false,
+		"print one line per thread, newest activity first, then exit")
+	fs.BoolVar(&opt.allRoots, "all-roots", false,
+		"with -threads, list every project the daemon holds and not just this one")
 	fs.BoolVar(&opt.detach, "detach", false,
 		"with -p, open the thread in the daemon and print its id instead of running here")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
@@ -298,7 +304,7 @@ func runSubcommand(ctx context.Context, opt options) (bool, error) {
 // wantsSubcommand reports whether any flag that does one job and exits was
 // given.
 func wantsSubcommand(opt options) bool {
-	return opt.answer != "" || opt.inbox || opt.undo != "" || opt.stats != "" || opt.timeline != "" ||
+	return opt.answer != "" || opt.inbox || opt.threads || opt.undo != "" || opt.stats != "" || opt.timeline != "" ||
 		opt.replay != "" || opt.replayReport != "" ||
 		opt.recall != "" || opt.deadcode || opt.mutate || opt.preamble || opt.statsCorpus ||
 		opt.fanoutCheck != "" || opt.models
@@ -703,6 +709,8 @@ Flags:
   -fanout-run     with -fanout, run every lane concurrently and report the join
   -answer <id>    answer the pending prompt with this id, taking the text from -p
   -inbox          print one line per pending prompt across the fleet, then exit
+  -threads        print one line per thread, newest activity first, then exit
+  -all-roots      with -threads, list every project the daemon holds
   -detach         with -p, open the thread in the daemon and print its id
   -stats <id>     report what a finished run spent, by thread id or log path
   -stats-vs <id>  with -stats, name a second run the same way to diff against it
@@ -923,6 +931,10 @@ func namedSubcommand(opt options) (func(context.Context, string, options) error,
 	case opt.inbox:
 		return func(ctx context.Context, root string, opt options) error {
 			return inboxRun(ctx, root, opt.socket)
+		}, true
+	case opt.threads:
+		return func(ctx context.Context, root string, opt options) error {
+			return threadsRun(ctx, root, opt.socket, opt.allRoots)
 		}, true
 	case opt.undo != "":
 		return func(ctx context.Context, root string, opt options) error {

@@ -11,6 +11,7 @@ import (
 	"github.com/kyleking/wavez/internal/agent"
 	"github.com/kyleking/wavez/internal/api"
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/event"
 	"github.com/kyleking/wavez/internal/permission"
 )
 
@@ -267,5 +268,46 @@ func TestReportStandingObjection(t *testing.T) {
 				t.Errorf("output = %q, want %q", b.String(), tt.want)
 			}
 		})
+	}
+}
+
+// -inbox answers what is blocked and -threads answers what exists, which was
+// otherwise readable only from the TUI or by parsing a thread's event log.
+func TestWriteThreads(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 9, 4, 22, 0, 0, 0, time.UTC)
+
+	var buf bytes.Buffer
+
+	err := writeThreads(&buf, []api.ThreadInfo{
+		{
+			ID: "old0000000000000", Name: "an older thread", State: event.StateDone,
+			Step: "done", LastEvent: now.Add(-time.Hour),
+		},
+		{
+			ID: "new0000000000000", Name: "a name long enough to be cut short here",
+			State: event.StateWorking, Step: "editing  traverse.py", LastEvent: now.Add(-30 * time.Second),
+		},
+	}, now)
+	if err != nil {
+		t.Fatalf("writeThreads: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2:\n%s", len(lines), buf.String())
+	}
+
+	if !strings.HasPrefix(lines[0], "new0000000000000") {
+		t.Errorf("newest activity is not first:\n%s", buf.String())
+	}
+
+	if !strings.Contains(lines[0], "editing traverse.py") {
+		t.Errorf("the step is not collapsed onto one line:\n%s", buf.String())
+	}
+
+	if strings.Contains(lines[0], "be cut short here") {
+		t.Errorf("a long name was not truncated:\n%s", buf.String())
 	}
 }

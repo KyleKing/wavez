@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -50,6 +51,60 @@ func inboxRun(ctx context.Context, root, socket string) error {
 	}
 
 	return writePending(os.Stdout, rep.Pending, time.Now())
+}
+
+// threadNameWidth is the column a thread's name is padded and cut to, wide
+// enough for the slug a prompt's first words produce.
+const threadNameWidth = 24
+
+// threadsRun prints one line per thread the daemon holds, newest activity
+// first. `-inbox` answers what is blocked and this answers what exists,
+// which is otherwise only readable from the TUI or by parsing the event log.
+func threadsRun(ctx context.Context, root, socket string, allRoots bool) error {
+	client, err := dialDaemon(ctx, root, socket)
+	if err != nil {
+		return err
+	}
+	defer closeDaemon(client)
+
+	rep, err := client.Do(ctx, api.Command{Kind: api.CmdList, AllRoots: allRoots})
+	if err != nil {
+		return fmt.Errorf("asking for threads: %w", err)
+	}
+
+	return writeThreads(os.Stdout, rep.Threads, time.Now())
+}
+
+func writeThreads(w io.Writer, threads []api.ThreadInfo, now time.Time) error {
+	if len(threads) == 0 {
+		if _, err := fmt.Fprintln(w, "no threads"); err != nil {
+			return fmt.Errorf("writing the thread list: %w", err)
+		}
+
+		return nil
+	}
+
+	sorted := append([]api.ThreadInfo(nil), threads...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].LastEvent.After(sorted[j].LastEvent) })
+
+	for i := range sorted {
+		if _, err := fmt.Fprintf(w, "%s  %-*s  %-11s  %-8s  %s\n",
+			sorted[i].ID, threadNameWidth, truncate(sorted[i].Name, threadNameWidth), sorted[i].State,
+			now.Sub(sorted[i].LastEvent).Round(time.Second),
+			strings.Join(strings.Fields(sorted[i].Step), " ")); err != nil {
+			return fmt.Errorf("writing the thread list: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+
+	return s[:n-1] + "\u2026"
 }
 
 func writePending(w io.Writer, pending []api.PendingInfo, now time.Time) error {
