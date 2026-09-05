@@ -44,14 +44,46 @@ func review(task string, paths ...string) agent.Review {
 func TestModelReviewer_Review(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		answer     string
-		diff       string
-		diffErr    error
-		wantResult agent.ReviewResult
-		wantNote   string
-	}{
+	for _, tt := range reviewCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			turn := jsonTurn(tt.answer)
+			if tt.truncated {
+				turn.StopReason = llm.StopMaxTokens
+			}
+
+			balanced := fake.New("balanced", turn)
+			differ := &stubDiffer{diff: tt.diff, err: tt.diffErr}
+			reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels(), tierThinking())
+
+			got := reviewer.Review(context.Background(), review("make the empty state read differently", "a.go"))
+
+			if got.Result != tt.wantResult {
+				t.Fatalf("Result = %q (note %q), want %q", got.Result, got.Note, tt.wantResult)
+			}
+			if tt.wantNote != "" && !strings.Contains(got.Note, tt.wantNote) {
+				t.Errorf("Note = %q, want it to carry %q", got.Note, tt.wantNote)
+			}
+			if tt.wantResult == agent.ReviewOK && got.Note != "" {
+				t.Errorf("Note = %q, want empty on a pass", got.Note)
+			}
+		})
+	}
+}
+
+type reviewCase struct {
+	name       string
+	answer     string
+	diff       string
+	diffErr    error
+	wantResult agent.ReviewResult
+	wantNote   string
+	truncated  bool
+}
+
+func reviewCases() []reviewCase {
+	return []reviewCase{
 		{
 			name:       "verdict ok",
 			answer:     `{"verdict":"ok","reason":""}`,
@@ -86,6 +118,18 @@ func TestModelReviewer_Review(t *testing.T) {
 			wantNote:   "answered with nothing",
 		},
 		{
+			// A reasoning model spends the completion budget on reasoning
+			// before any content, so an empty answer here means the budget
+			// was too small rather than the prompt wrong. Measured against
+			// glm-5.3 on a 20 KB diff, 200 tokens went entirely to reasoning.
+			name:       "a truncated answer names the budget",
+			answer:     "",
+			truncated:  true,
+			diff:       "--- a/a.go\n+++ b/a.go\n+ok\n",
+			wantResult: agent.ReviewSkipped,
+			wantNote:   "spent its whole 1000-token budget",
+		},
+		{
 			name:       "a diff over the budget is reported unreviewed",
 			answer:     `{"verdict":"ok","reason":""}`,
 			diff:       strings.Repeat("+ a line of diff\n", 20000),
@@ -106,28 +150,6 @@ func TestModelReviewer_Review(t *testing.T) {
 			wantResult: agent.ReviewSkipped,
 			wantNote:   "could not be read",
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			balanced := fake.New("balanced", jsonTurn(tt.answer))
-			differ := &stubDiffer{diff: tt.diff, err: tt.diffErr}
-			reviewer := app.NewModelReviewer("/repo", differ, tierProviders(balanced), tierModels(), tierThinking())
-
-			got := reviewer.Review(context.Background(), review("make the empty state read differently", "a.go"))
-
-			if got.Result != tt.wantResult {
-				t.Fatalf("Result = %q (note %q), want %q", got.Result, got.Note, tt.wantResult)
-			}
-			if tt.wantNote != "" && !strings.Contains(got.Note, tt.wantNote) {
-				t.Errorf("Note = %q, want it to carry %q", got.Note, tt.wantNote)
-			}
-			if tt.wantResult == agent.ReviewOK && got.Note != "" {
-				t.Errorf("Note = %q, want empty on a pass", got.Note)
-			}
-		})
 	}
 }
 

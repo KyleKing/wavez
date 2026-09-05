@@ -22,8 +22,13 @@ const (
 	// The tail of a task is what states the requirement often enough that the
 	// head is the half to drop.
 	reviewTaskBudgetBytes = 1500
-	// A verdict is one enum and one sentence.
-	reviewMaxTokens = 200
+	// A verdict is one enum and one sentence, about 40 tokens, and the rest
+	// of this is headroom a reasoning model needs. The reasoning is spent
+	// from the same completion budget before any content is: measured against
+	// glm-5.3 on a 20 KB diff, 200 tokens went entirely to reasoning and the
+	// answer came back empty with finish_reason "length", which is how every
+	// review in this project came back "answered with nothing".
+	reviewMaxTokens = 1000
 	// A verdict should not vary between runs on the same diff. Zero is not
 	// available: llm.Request omits an unset Temperature, which leaves the
 	// server's own default (0.8 on llama-server) in place.
@@ -148,9 +153,15 @@ func (r *ModelReviewer) Review(ctx context.Context, rv agent.Review) agent.Verdi
 
 	served := string(route.Choice) + "/" + req.Model
 
-	answer, err := collectText(ctx, r.providers.For(route), req)
+	answer, truncated, err := collectText(ctx, r.providers.For(route), req)
 	if err != nil {
 		return withServed(skipped("the reviewer model failed: %v", err), served)
+	}
+
+	if truncated && strings.TrimSpace(answer) == "" {
+		note := skipped("the reviewer spent its whole %d-token budget before answering", reviewMaxTokens)
+
+		return withServed(note, served)
 	}
 
 	return withServed(parseVerdict(answer), served)
@@ -260,20 +271,30 @@ func changedPaths(changes []tool.Change) []string {
 	return out
 }
 
-func collectText(ctx context.Context, provider llm.Provider, req llm.Request) (string, error) {
+// collectText joins a streamed answer, reporting separately whether the model
+// ran out of completion budget. A truncated answer and a refused one both
+// arrive as empty text, and telling them apart is the difference between
+// raising the budget and changing the prompt.
+func collectText(ctx context.Context, provider llm.Provider, req llm.Request) (string, bool, error) {
 	var text strings.Builder
+
+	truncated := false
 
 	for chunk, err := range provider.Stream(ctx, req) {
 		if err != nil {
-			return "", fmt.Errorf("streaming review: %w", err)
+			return "", false, fmt.Errorf("streaming review: %w", err)
 		}
 
 		if chunk.Kind == llm.ChunkText {
 			text.WriteString(chunk.Text)
 		}
+
+		if chunk.StopReason == llm.StopMaxTokens {
+			truncated = true
+		}
 	}
 
-	return text.String(), nil
+	return text.String(), truncated, nil
 }
 
 func estimateTokens(s string) int {
