@@ -75,6 +75,13 @@ func TestClassify_RM(t *testing.T) {
 			wantVerdict: guard.Refuse, wantReason: "at or outside the project root",
 		},
 		{name: "rm rf combined flags fr", command: "rm -fr /var/tmp/x", wantVerdict: guard.Refuse},
+		{
+			// A stage's words carry its redirects in source order, so a rule
+			// reading arguments sees the redirect target as one unless it
+			// drops them: this read as an rm of /dev/null and cost a run a turn.
+			name: "rm rf with a redirect", command: "rm -rf /repo/build 2>/dev/null",
+			wantVerdict: guard.Allow,
+		},
 		{name: "rm without force is not destructive", command: "rm -r /repo/build", wantVerdict: guard.Allow},
 		{
 			name: "writes to git internals", command: "rm -rf /repo/.git/hooks",

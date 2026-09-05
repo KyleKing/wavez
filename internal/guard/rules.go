@@ -32,13 +32,17 @@ const (
 // Command literals the allowlist, the rule switch, the already-answered
 // checks, and the write-target rules each repeat.
 const (
-	cmdChmod = "chmod"
-	cmdChown = "chown"
-	cmdDiff  = "diff"
-	cmdGofmt = "gofmt"
-	cmdMise  = "mise"
-	cmdTee   = "tee"
-	cmdXargs = "xargs"
+	cmdCargo  = "cargo"
+	cmdChmod  = "chmod"
+	cmdChown  = "chown"
+	cmdDiff   = "diff"
+	cmdGofmt  = "gofmt"
+	cmdMise   = "mise"
+	cmdPip    = "pip"
+	cmdPython = "python"
+	cmdRuby   = "ruby"
+	cmdTee    = "tee"
+	cmdXargs  = "xargs"
 )
 
 // propRestore is the subcommand name git and jj share.
@@ -244,7 +248,7 @@ func classifyRM(cmd string, tokens []string, env Env) finding {
 	}
 
 	var targets []string
-	for _, tok := range tokens[1:] {
+	for _, tok := range argsOnly(tokens)[1:] {
 		if strings.HasPrefix(tok, "-") {
 			continue
 		}
@@ -483,7 +487,7 @@ func protectedTarget(tok, root string) string {
 
 func classifyChmodChown(cmd string, tokens []string, env Env) finding {
 	var targets []string
-	for _, tok := range tokens[1:] {
+	for _, tok := range argsOnly(tokens)[1:] {
 		if strings.HasPrefix(tok, "-") {
 			continue
 		}
@@ -611,14 +615,14 @@ func cleanRoot(root string) string {
 // same network. Refusing with the reason costs one turn where finding out
 // cost eleven.
 var fetchesDependencies = map[string][]string{
-	"cargo": {subAdd, "fetch", subInstall, subUpdate},
-	"go":    {"get"},
-	"npm":   {"ci", "i", subInstall, subUpdate},
-	"pip":   {"download", subInstall, "uninstall"},
-	"pip3":  {"download", subInstall, "uninstall"},
-	"pnpm":  {subAdd, subInstall, subUpdate},
-	"uv":    {subAdd, "lock", "pip", "remove", "sync", "tool"},
-	"yarn":  {subAdd, subInstall, "up"},
+	cmdCargo: {subAdd, "fetch", subInstall, subUpdate},
+	"go":     {"get"},
+	"npm":    {"ci", "i", subInstall, subUpdate},
+	cmdPip:   {"download", subInstall, "uninstall"},
+	"pip3":   {"download", subInstall, "uninstall"},
+	"pnpm":   {subAdd, subInstall, subUpdate},
+	"uv":     {subAdd, "lock", cmdPip, "remove", "sync", "tool"},
+	"yarn":   {subAdd, subInstall, "up"},
 }
 
 // The subcommands several package managers spell the same way.

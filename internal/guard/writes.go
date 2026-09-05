@@ -24,7 +24,7 @@ var (
 )
 
 var (
-	inPlaceCommands  = map[string]bool{"perl": true, "ruby": true, "sed": true}
+	inPlaceCommands  = map[string]bool{"perl": true, cmdRuby: true, "sed": true}
 	moveCopyCommands = map[string]bool{"cp": true, subInstall: true, "mv": true, "rsync": true}
 	removeCommands   = map[string]bool{"rm": true, "rmdir": true, "shred": true, "unlink": true}
 	teeCommands      = map[string]bool{cmdTee: true}
@@ -35,7 +35,7 @@ var (
 var formatters = map[string][]string{
 	"biome":     {"--write"},
 	"black":     nil,
-	"cargo":     {subFmt},
+	cmdCargo:    {subFmt},
 	"go":        {subFmt, "generate"},
 	cmdGofmt:    {flagWrite},
 	"gofumpt":   {flagWrite},
@@ -134,6 +134,43 @@ func redirectTargets(words []string) []string {
 	}
 
 	return out
+}
+
+// argsOnly drops every redirection operator and the word each one names, so
+// a rule reading a command's arguments does not see a redirect target as
+// one. A stage renders both in source order, which is what let
+// `rm -rf .wavez/scratch 2>/dev/null` read as an rm targeting /dev/null.
+func argsOnly(words []string) []string {
+	out := make([]string, 0, len(words))
+
+	for i := 0; i < len(words); i++ {
+		if !isRedirect(words[i]) {
+			out = append(out, words[i])
+
+			continue
+		}
+
+		if i+1 < len(words) {
+			i++
+		}
+	}
+
+	return out
+}
+
+// isRedirect reports a redirection operator of any direction, with any
+// leading file descriptor stripped.
+func isRedirect(word string) bool {
+	if isWriteRedirect(word) {
+		return true
+	}
+
+	switch strings.TrimLeft(word, "0123456789") {
+	case "<", "<<", "<<-", "<<<", "<&":
+		return true
+	default:
+		return false
+	}
 }
 
 // isWriteRedirect reports whether word is a redirection operator that opens

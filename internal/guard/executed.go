@@ -10,7 +10,7 @@ import (
 // worth resolving.
 var interpreters = map[string]bool{
 	"ash": true, "bash": true, "dash": true, "ksh": true, "sh": true, "zsh": true,
-	"node": true, "perl": true, "python": true, "python3": true, "ruby": true,
+	"node": true, "perl": true, cmdPython: true, "python3": true, cmdRuby: true,
 }
 
 // ExecutedScripts returns the project-relative paths a command would run as
