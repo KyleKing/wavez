@@ -80,11 +80,10 @@ const (
 	// killing it, because a leaked server holds the model's memory.
 	serverStopTimeout = 10 * time.Second
 
-	// Deterministic compaction is tuned for an 8k served window: keep enough
-	// of a tool result to read a stack frame or a test name, and hold a
-	// result in full only while the turn that asked for it is still recent.
-	compactKeepLines  = 20
-	compactMaxToolAge = 4
+	// Enough of a tool result to read a stack frame or a test name. How many
+	// results survive at that size is a budget the agent sizes against the
+	// served window, not a constant.
+	compactKeepLines = 20
 )
 
 // ReadOnlyTools names the tools a plan thread may call: the ones that
@@ -539,7 +538,6 @@ func loopOptions(root string, cfg config.Config, options Options) []agent.Option
 		agent.WithFastSampling(fastPresencePenalty, fastRepeatPenalty),
 		agent.WithCompaction(thread.CompactOptions{
 			KeepLines:   compactKeepLines,
-			MaxToolAge:  compactMaxToolAge,
 			DedupeReads: true,
 		}, agent.DefaultCompactTrigger),
 	}

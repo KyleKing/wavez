@@ -67,7 +67,7 @@ func TestRun_CompactionTrimsAndThenAppends(t *testing.T) {
 	local := fake.New("local", bulkTurns(4)...)
 	loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(bulkTool{name: "bulk", lines: bulkLines}),
 		permission.AllowAll(),
-		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
+		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, DedupeReads: true},
 			agent.DefaultCompactTrigger))
 
 	hint := router.Input{Override: router.ChoiceFast}
@@ -121,7 +121,7 @@ func TestRun_HostedTurnIsNotCompactedAtTheFastWindow(t *testing.T) {
 	balanced := fake.New("balanced", bulkTurns(4)...)
 	loop := agent.New(tiers(balanced, fake.New("deep")), tool.NewRegistry(bulkTool{name: "bulk", lines: bulkLines}),
 		permission.AllowAll(),
-		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
+		agent.WithCompaction(thread.CompactOptions{KeepLines: 5, DedupeReads: true},
 			agent.DefaultCompactTrigger))
 
 	hint := router.Input{Override: router.ChoiceBalanced}
@@ -205,10 +205,15 @@ func TestRun_CompactsAfterAWaitThatOutlivedThePromptCache(t *testing.T) {
 	tests := []struct {
 		name        string
 		waited      time.Duration
+		lines       int
 		wantCompact bool
 	}{
-		{name: "a wait past the cache lifetime", waited: 20 * time.Minute, wantCompact: true},
-		{name: "a wait the cache survives", waited: 30 * time.Second, wantCompact: false},
+		{name: "a wait past the cache lifetime", waited: 20 * time.Minute, lines: 600, wantCompact: true},
+		{name: "a wait the cache survives", waited: 30 * time.Second, lines: 600, wantCompact: false},
+		// Compaction appends to a prefix it never rewrites, so a cold resume
+		// on a small history would mask that history for good to save a
+		// fraction of a window that was never close to full.
+		{name: "a cold wait on a history too small to pay", waited: 20 * time.Minute, lines: 20, wantCompact: false},
 	}
 
 	for _, tt := range tests {
@@ -229,13 +234,11 @@ func TestRun_CompactsAfterAWaitThatOutlivedThePromptCache(t *testing.T) {
 			clock := newFakeClock(time.Unix(0, 0))
 			ask := &parkingTool{echoTool: echoTool{name: "echo"}, clock: clock, waits: tt.waited}
 
-			// Enough output to be worth compacting, well under the share of
-			// the budget that would compact it on size alone.
-			bulk := bulkTool{name: "bulk", lines: 200}
+			bulk := bulkTool{name: "bulk", lines: tt.lines}
 
 			loop := agent.New(tiers(local, fake.New("hosted")), tool.NewRegistry(ask, bulk), permission.AllowAll(),
 				agent.WithClock(clock),
-				agent.WithCompaction(thread.CompactOptions{KeepLines: 5, MaxToolAge: 1, DedupeReads: true},
+				agent.WithCompaction(thread.CompactOptions{KeepLines: 5, DedupeReads: true},
 					agent.DefaultCompactTrigger))
 
 			out, err := loop.Run(context.Background(), newThread(t), basicPrefix(), "go",

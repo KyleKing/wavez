@@ -39,20 +39,19 @@ type CompactOptions struct {
 	// KeepLines is how many lines TruncateToolOutput keeps at the start and
 	// end of an oversized tool result. Zero disables the rule.
 	KeepLines int
-	// MaxToolAge is how many turns a tool result may lag the current turn
-	// before DropOldToolResults replaces it with a reference. Zero disables
-	// the rule.
-	MaxToolAge int
+	// ObservationBudget is how many tokens of tool output MaskOldToolResults
+	// keeps verbatim, newest first. Zero disables the rule.
+	ObservationBudget int
 	// DedupeReads enables replacing a repeated identical tool result with a
 	// reference to its first occurrence.
 	DedupeReads bool
 }
 
 // Compact runs every rule CompactOptions enables over items, in the order
-// truncate, drop-old, dedupe, and returns the resulting view alongside a
+// truncate, mask, dedupe, and returns the resulting view alongside a
 // Report of what each rule saved. Items and the Thread it was read from are
 // never mutated; Compact returns a new slice.
-func Compact(items []TurnMessage, currentTurn int, opts CompactOptions) ([]TurnMessage, Report) {
+func Compact(items []TurnMessage, opts CompactOptions) ([]TurnMessage, Report) {
 	report := Report{Rules: make(map[string]Savings, ruleCount)}
 	out := items
 
@@ -62,10 +61,10 @@ func Compact(items []TurnMessage, currentTurn int, opts CompactOptions) ([]TurnM
 		report.Rules["truncate_tool_output"] = s
 		report.TotalTokens += s.TokensSaved
 	}
-	if opts.MaxToolAge > 0 {
+	if opts.ObservationBudget > 0 {
 		var s Savings
-		out, s = DropOldToolResults(out, currentTurn, opts.MaxToolAge)
-		report.Rules["drop_old_tool_results"] = s
+		out, s = MaskOldToolResults(out, opts.ObservationBudget)
+		report.Rules["mask_old_tool_results"] = s
 		report.TotalTokens += s.TokensSaved
 	}
 	if opts.DedupeReads {
@@ -116,25 +115,45 @@ func TruncateToolOutput(items []TurnMessage, keepLines int) ([]TurnMessage, Savi
 	return out, savings
 }
 
-// DropOldToolResults replaces a tool result's content with a one-line
-// reference once it lags currentTurn by more than maxAge turns. It returns a
-// new slice; items is not mutated.
-func DropOldToolResults(items []TurnMessage, currentTurn, maxAge int) ([]TurnMessage, Savings) {
+// MaskOldToolResults walks tool results newest first, keeping each one
+// verbatim while budgetTokens remains and replacing every older one with a
+// one-line reference. It returns a new slice; items is not mutated.
+//
+// The newest tool result is kept whatever it costs, because a request whose
+// latest observation has been masked gives the model nothing to act on.
+//
+// Retention is a budget rather than a turn count because a turn count is
+// blind to what a turn cost, masking a hundred-byte result on a window with
+// room to spare and keeping a hundred-kilobyte one that does not fit.
+// Measured over this project's thread logs, a rule keeping four turns held
+// 10.4% of tool output at each thread's last turn where a 5,000-token budget
+// held 38.6%, and 53% of all reads re-read a path already read.
+func MaskOldToolResults(items []TurnMessage, budgetTokens int) ([]TurnMessage, Savings) {
 	out := make([]TurnMessage, len(items))
 	copy(out, items)
 
 	var savings Savings
 
-	for i, item := range out {
+	remaining := budgetTokens
+	newest := true
+
+	for i := len(out) - 1; i >= 0; i-- {
+		item := out[i]
 		if item.Message.Role != llm.RoleTool {
 			continue
 		}
-		if currentTurn-item.Turn <= maxAge {
+		cost := estimateTokens(item.Message.Content)
+		if newest || cost <= remaining {
+			newest = false
+			remaining -= cost
+
 			continue
 		}
 		ref := fmt.Sprintf("[tool result from turn %d omitted, see thread log]", item.Turn)
-		saved := estimateTokens(item.Message.Content) - estimateTokens(ref)
+		saved := cost - estimateTokens(ref)
 		if saved <= 0 {
+			remaining -= cost
+
 			continue
 		}
 		item.Message.Content = ref

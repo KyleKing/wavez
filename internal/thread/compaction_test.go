@@ -67,41 +67,64 @@ func TestTruncateToolOutput(t *testing.T) {
 	}
 }
 
-func TestDropOldToolResults(t *testing.T) {
+func TestMaskOldToolResults(t *testing.T) {
 	t.Parallel()
 
+	body := strings.Repeat("some tool result content here, spanning several sentences. ", 5)
+	one := len(body) / 4
+
 	tests := []struct {
-		name        string
-		currentTurn int
-		maxAge      int
-		itemTurn    int
-		wantDropped bool
+		name       string
+		wantMasked []int
+		budget     int
 	}{
-		{name: "within age untouched", currentTurn: 5, maxAge: 3, itemTurn: 3, wantDropped: false},
-		{name: "exactly at age untouched", currentTurn: 5, maxAge: 3, itemTurn: 2, wantDropped: false},
-		{name: "past age dropped", currentTurn: 5, maxAge: 3, itemTurn: 1, wantDropped: true},
+		{name: "budget holds everything", budget: one * 3, wantMasked: nil},
+		{name: "budget holds the two newest", budget: one * 2, wantMasked: []int{0}},
+		{name: "budget holds only the newest", budget: one, wantMasked: []int{0, 1}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			content := strings.Repeat("some tool result content here, spanning several sentences. ", 5)
-			items := []thread.TurnMessage{toolMsg(tt.itemTurn, content)}
-			out, savings := thread.DropOldToolResults(items, tt.currentTurn, tt.maxAge)
+			items := []thread.TurnMessage{toolMsg(1, body), toolMsg(2, body), toolMsg(3, body)}
+			out, savings := thread.MaskOldToolResults(items, tt.budget)
 
-			if (savings.ItemsChanged > 0) != tt.wantDropped {
-				t.Errorf("ItemsChanged = %d, wantDropped = %v", savings.ItemsChanged, tt.wantDropped)
+			if savings.ItemsChanged != len(tt.wantMasked) {
+				t.Errorf("ItemsChanged = %d, want %d", savings.ItemsChanged, len(tt.wantMasked))
 			}
-			if tt.wantDropped {
-				if !strings.Contains(out[0].Message.Content, "omitted") {
-					t.Errorf("content = %q, want a reference marker", out[0].Message.Content)
+			masked := map[int]bool{}
+			for _, i := range tt.wantMasked {
+				masked[i] = true
+			}
+			for i, item := range out {
+				got := strings.Contains(item.Message.Content, "omitted")
+				if got != masked[i] {
+					t.Errorf("item %d masked = %v, want %v", i, got, masked[i])
 				}
-				if savings.TokensSaved <= 0 {
-					t.Errorf("TokensSaved = %d, want > 0", savings.TokensSaved)
-				}
+			}
+			if items[0].Message.Content != body {
+				t.Error("source mutated")
 			}
 		})
+	}
+}
+
+// The newest result is kept whatever it costs, because a request whose latest
+// observation has been masked is one the model cannot act on at all.
+func TestMaskOldToolResults_KeepsTheNewestPastTheBudget(t *testing.T) {
+	t.Parallel()
+
+	big := strings.Repeat("x", 40000)
+	items := []thread.TurnMessage{toolMsg(1, big), toolMsg(2, big)}
+
+	out, savings := thread.MaskOldToolResults(items, 1)
+
+	if savings.ItemsChanged != 1 {
+		t.Fatalf("ItemsChanged = %d, want 1", savings.ItemsChanged)
+	}
+	if out[1].Message.Content != big {
+		t.Error("the newest tool result was masked")
 	}
 }
 
@@ -143,7 +166,7 @@ func TestCompactRunsEnabledRulesOnly(t *testing.T) {
 		toolMsg(1, strings.Repeat("output line\n", 40)),
 	}
 
-	out, report := thread.Compact(items, 1, thread.CompactOptions{})
+	out, report := thread.Compact(items, thread.CompactOptions{})
 	if len(report.Rules) != 0 {
 		t.Errorf("Rules = %v, want none run with zero-value options", report.Rules)
 	}
@@ -151,7 +174,7 @@ func TestCompactRunsEnabledRulesOnly(t *testing.T) {
 		t.Error("Compact with no rules enabled must not change content")
 	}
 
-	out, report = thread.Compact(items, 1, thread.CompactOptions{KeepLines: 5})
+	out, report = thread.Compact(items, thread.CompactOptions{KeepLines: 5})
 	if _, ok := report.Rules["truncate_tool_output"]; !ok {
 		t.Fatalf("Rules = %v, want truncate_tool_output", report.Rules)
 	}

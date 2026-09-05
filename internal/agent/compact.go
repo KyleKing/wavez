@@ -28,6 +28,19 @@ const DefaultCompactTrigger = 0.75
 // than saves. Seven cold turns in that sample re-read 510,696 input tokens.
 const DefaultCacheLifetime = 10 * time.Minute
 
+// ColdCompactTrigger is the share of the context budget a request must reach
+// before a run that lost the prompt cache compacts. Compaction appends to a
+// prefix that is never rewritten, so it cannot be undone: a resume on a small
+// history would mask that history permanently to save a fraction of a window
+// that was never close to full.
+const ColdCompactTrigger = 0.25
+
+// DefaultObservationShare is the share of the routed tier's context budget
+// that tool output may occupy before the oldest of it is masked. Sizing
+// retention against the served window is what keeps one rule right for a 12k
+// local window and a hosted one in the hundreds of thousands.
+const DefaultObservationShare = 0.4
+
 // WithCompaction configures Run to compact its history once an estimated
 // request crosses trigger of the local context budget. Trigger is a share
 // of that budget; zero leaves DefaultCompactTrigger.
@@ -115,7 +128,12 @@ func (r *run) maybeCompact(estimated int) error {
 	cold := r.prefixCold
 	r.prefixCold = false
 
-	if !cold && float64(estimated) < r.loop.options.CompactTrigger*float64(r.compactBudget(estimated)) {
+	trigger := r.loop.options.CompactTrigger
+	if cold {
+		trigger = ColdCompactTrigger
+	}
+
+	if float64(estimated) < trigger*float64(r.compactBudget(estimated)) {
 		return nil
 	}
 
@@ -124,7 +142,10 @@ func (r *run) maybeCompact(estimated int) error {
 		return nil
 	}
 
-	fresh, report := thread.Compact(full[r.compactedThrough:], r.thread.Turn(), r.loop.options.Compact)
+	opts := r.loop.options.Compact
+	opts.ObservationBudget = int(DefaultObservationShare * float64(r.compactBudget(estimated)))
+
+	fresh, report := thread.Compact(full[r.compactedThrough:], opts)
 	if report.TotalTokens <= 0 {
 		return nil
 	}
