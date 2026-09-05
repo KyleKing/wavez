@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -361,10 +362,10 @@ func New(ctx context.Context, root string, cfg config.Config, permGate permissio
 	registry := buildRegistry(registryDeps{
 		root: root, sandboxDir: sandboxDir, indexer: indexer, store: store, scope: scope,
 		permGate: permGate, asker: options.Asker, leases: leases, servers: lspPool,
-		checks: changeGate, changes: changeGate, shellAllow: cfg.ShellAllow,
+		checks: changeGate, changes: changeGate, shellAllow: allowedCommands(cfg),
 		spawns: options.Spawns, declared: declaredChecks(cfg.Checks),
-		extraDirs: reachableDirs(root, cfg.ExtraDirs),
-		web:       cfg.Web, webSearchURL: cfg.WebSearchURL,
+		extraDirs: reachableDirs(root, cfg.ExtraDirs), loopbackPorts: loopbackPorts(cfg),
+		web: cfg.Web, webSearchURL: cfg.WebSearchURL,
 		vision: visionProvider(ctx, cfg), visionModel: visionModel(cfg),
 	})
 	loopBase := append(loopOptions(root, cfg, options), agent.WithLocalSlots(scheduler))
@@ -687,6 +688,67 @@ func dialectFor(baseURL string) openaic.Dialect {
 	}
 }
 
+// allowedCommands are the shell programs that run without a prompt: what
+// the project named, plus the ecosystem bundles it declared.
+func allowedCommands(cfg config.Config) []string {
+	return append(append([]string(nil), cfg.ShellAllow...), guard.EcosystemCommands(cfg.Ecosystems)...)
+}
+
+// loopbackPorts are the ports the project's configured tiers listen on
+// here, which is what a sandboxed command needs to reach and all it needs to
+// reach. A tier served over the network contributes nothing, and a project
+// with no local tier at all gets the empty list, which leaves every loopback
+// port open rather than cutting a local model off from a run that needs it.
+func loopbackPorts(cfg config.Config) []int {
+	tiers := []*config.Tier{
+		&cfg.Tiers.Fast, &cfg.Tiers.Balanced, &cfg.Tiers.Deep, cfg.Vision,
+	}
+	ports := make([]int, 0, len(tiers))
+
+	for _, tier := range []*config.Tier{
+		&cfg.Tiers.Fast, &cfg.Tiers.Balanced, &cfg.Tiers.Deep, cfg.Vision,
+	} {
+		ports = append(ports, tierLoopbackPorts(tier, cfg.LocalPort)...)
+	}
+
+	return ports
+}
+
+func tierLoopbackPorts(tier *config.Tier, localPort int) []int {
+	if tier == nil {
+		return nil
+	}
+
+	ports := loopbackPort(tier.BaseURL, localPort)
+
+	return append(ports, tierLoopbackPorts(tier.Overflow, localPort)...)
+}
+
+// loopbackPort is raw's port when raw names a loopback host, nothing
+// otherwise. An empty base URL is the built-in local default, which is the
+// most common way a project reaches a model on this laptop.
+func loopbackPort(raw string, localPort int) []int {
+	if strings.TrimSpace(raw) == "" {
+		return []int{localPort}
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil
+	}
+
+	if host := parsed.Hostname(); host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		return nil
+	}
+
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		return nil
+	}
+
+	return []int{port}
+}
+
 // tierModels is the model name each tier sends in its request.
 func tierModels(cfg config.Config) router.Tiers[string] {
 	return router.Tiers[string]{
@@ -869,7 +931,10 @@ type registryDeps struct {
 	// extraDirs are the directories outside the project root the project
 	// declared reachable, already resolved and vetted.
 	extraDirs []string
-	web       bool
+	// loopbackPorts are the local ports a sandboxed command may reach, which
+	// are the ports the project's own tiers are served on.
+	loopbackPorts []int
+	web           bool
 }
 
 func buildRegistry(d registryDeps) *tool.Registry {
@@ -887,9 +952,10 @@ func buildRegistry(d registryDeps) *tool.Registry {
 		tools.NewShell(d.root, d.sandboxDir, DefaultThreadID, d.permGate, withLeases, reach,
 			tools.WithChecks(d.checks), tools.WithChanges(d.changes),
 			tools.WithTree(vcs.NewJj()), tools.WithAllowedCommands(d.shellAllow),
-			tools.WithDeclaredChecks(d.declared)),
+			tools.WithDeclaredChecks(d.declared), tools.WithLoopbackPorts(d.loopbackPorts)),
 		tools.NewPTY(d.root, d.sandboxDir, DefaultThreadID, d.permGate,
-			tools.WithAllowedCommands(d.shellAllow), tools.WithSpawnRegistry(d.spawns)),
+			tools.WithAllowedCommands(d.shellAllow), tools.WithSpawnRegistry(d.spawns),
+			tools.WithLoopbackPorts(d.loopbackPorts)),
 		tools.NewSearch(d.indexer, d.root, reach),
 		tools.NewContext(tools.StoreIndex{Indexer: d.indexer, Store: d.store}),
 		tools.NewDeclare(d.root, d.indexer, d.scope, withLeases),

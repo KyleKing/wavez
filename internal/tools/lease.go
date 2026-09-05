@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/kyleking/wavez/internal/guard"
+	"github.com/kyleking/wavez/internal/sandbox"
 	"github.com/kyleking/wavez/internal/tool"
 )
 
@@ -63,6 +64,10 @@ type deps struct {
 	// extraRoots are the directories outside the project root a path may
 	// resolve into, from what the project declared.
 	extraRoots []string
+	// loopbackPorts are the loopback ports a sandboxed command may reach,
+	// which are the ports the project's own models listen on. Empty leaves
+	// every local service reachable.
+	loopbackPorts []int
 }
 
 // Option configures a tool's optional dependencies.
@@ -140,6 +145,18 @@ func WithAllowedCommands(names []string) Option {
 // absolute path is accepted only when it sits inside one of these.
 func WithExtraRoots(dirs []string) Option {
 	return func(d *deps) { d.extraRoots = dirs }
+}
+
+// WithLoopbackPorts narrows a sandboxed command's loopback reach to the
+// ports given. Passing none leaves every local service reachable, which is
+// what a project serving no model on this laptop gets.
+func WithLoopbackPorts(ports []int) Option {
+	return func(d *deps) { d.loopbackPorts = ports }
+}
+
+// sandboxPolicy is what the deps a tool was built with mean to the sandbox.
+func (d deps) sandboxPolicy() sandbox.Policy {
+	return sandbox.Policy{ReadDirs: d.extraRoots, LoopbackPorts: d.loopbackPorts}
 }
 
 func newDeps(opts []Option) deps {

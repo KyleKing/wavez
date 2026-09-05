@@ -162,7 +162,8 @@ func (s *Shell) Run(ctx context.Context, input json.RawMessage) (tool.Result, er
 	// edits reached no change set, no gate, and no undo.
 	before := snapshot(ctx, s.deps.tree, s.root)
 
-	result, err := sandbox.Exec(ctx, s.root, s.sessionTmp, "sh", "-c", in.Command)
+	result, err := sandbox.Exec(ctx, s.root, s.sessionTmp, s.deps.sandboxPolicy(),
+		[]string{"sh", "-c", in.Command})
 	if err != nil {
 		return tool.Result{}, fmt.Errorf("shell: %w", err)
 	}

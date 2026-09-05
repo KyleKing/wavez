@@ -89,6 +89,11 @@ type Config struct {
 	// ShellAllow widens the guard's built-in list of shell commands that run
 	// without asking. A command off both lists needs one approval.
 	ShellAllow []string
+
+	// Ecosystems are the language toolchains whose programs run without
+	// asking, expanded into ShellAllow by the caller that knows the bundles.
+	// A name no bundle covers is an error rather than an empty bundle.
+	Ecosystems []string
 	// Cycles are the phased ways of working this project defines, beside the
 	// ones wavez ships. A definition here replaces a built-in of the same
 	// name outright.

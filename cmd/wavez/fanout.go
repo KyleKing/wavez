@@ -36,7 +36,7 @@ func fanoutPlan(ctx context.Context, root, command string, lanes int) error {
 // the findings are parsed out of. A non-zero exit is the normal case, since
 // a check with findings to split reports them by failing.
 func runCheck(ctx context.Context, root, command string) (string, error) {
-	result, err := sandbox.Exec(ctx, root, os.TempDir(), "sh", "-c", command)
+	result, err := sandbox.Exec(ctx, root, os.TempDir(), sandbox.Policy{}, []string{"sh", "-c", command})
 	if err != nil {
 		return "", fmt.Errorf("running %q: %w", command, err)
 	}

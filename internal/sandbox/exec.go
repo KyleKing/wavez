@@ -47,8 +47,8 @@ type Result struct {
 // there without a sandboxed command poisoning it for the rest of the
 // machine. GOPROXY=off makes a module that is genuinely missing say so
 // rather than reporting it as a network failure.
-func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (Result, error) {
-	cmd, done, err := Command(ctx, projectRoot, sessionTmp, args...)
+func Exec(ctx context.Context, projectRoot, sessionTmp string, policy Policy, args []string) (Result, error) {
+	cmd, done, err := Command(ctx, projectRoot, sessionTmp, policy, args)
 	if err != nil {
 		return Result{}, err
 	}
@@ -94,13 +94,13 @@ func Exec(ctx context.Context, projectRoot, sessionTmp string, args ...string) (
 // the Setsid that starting it on a pty already sets, or the cancel reaches
 // only whichever group the child inherited.
 func Command(
-	ctx context.Context, projectRoot, sessionTmp string, args ...string,
+	ctx context.Context, projectRoot, sessionTmp string, policy Policy, args []string,
 ) (*exec.Cmd, func(), error) {
 	if len(args) == 0 {
 		return nil, nil, ErrNoCommand
 	}
 
-	profile, err := NewProfile(projectRoot, sessionTmp)
+	profile, err := NewProfile(projectRoot, sessionTmp, policy)
 	if err != nil {
 		return nil, nil, fmt.Errorf("building sandbox profile: %w", err)
 	}

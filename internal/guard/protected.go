@@ -93,3 +93,16 @@ func protectedRel(rel string) string {
 
 	return ""
 }
+
+// RootProtected returns the project-root-relative paths a tool may not
+// write, for a caller that enforces the same set somewhere this package's
+// string classification cannot reach.
+func RootProtected() []string {
+	return append([]string(nil), rootProtected...)
+}
+
+// RepoInternals returns the directory names that hold version-control state
+// wherever they appear, on the same terms as RootProtected.
+func RepoInternals() []string {
+	return append([]string(nil), repoInternals...)
+}

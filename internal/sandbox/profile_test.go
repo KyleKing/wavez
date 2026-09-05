@@ -21,13 +21,22 @@ func TestRenderProfile_Golden(t *testing.T) {
 		sessionTmp  string
 		home        string
 		golden      string
+		policy      sandbox.Policy
 	}{
 		{
-			name:        "loopback network scope",
+			name:        "no policy",
 			projectRoot: "/PROJECT_ROOT",
 			sessionTmp:  "/SESSION_TMP",
 			home:        "/HOME",
 			golden:      "testdata/profile.golden",
+		},
+		{
+			name:        "extra read dirs and one model port",
+			projectRoot: "/HOME/work/proj",
+			sessionTmp:  "/SESSION_TMP",
+			home:        "/HOME",
+			policy:      sandbox.Policy{ReadDirs: []string{"/HOME/work/sibling"}, LoopbackPorts: []int{8080}},
+			golden:      "testdata/profile_policy.golden",
 		},
 	}
 
@@ -35,7 +44,7 @@ func TestRenderProfile_Golden(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sandbox.RenderProfile(tt.projectRoot, tt.sessionTmp, tt.home)
+			got := sandbox.RenderProfile(tt.projectRoot, tt.sessionTmp, tt.home, tt.policy)
 
 			if *update {
 				if err := os.WriteFile(tt.golden, []byte(got), 0o600); err != nil {
@@ -54,21 +63,30 @@ func TestRenderProfile_Golden(t *testing.T) {
 	}
 }
 
-func TestRenderProfile_QuotesSecretPaths(t *testing.T) {
+// The two guarantees the string-matching guard cannot make. A run reaches an
+// interpreter through a dozen spellings the guard never sees, and a leak
+// leaves through the transcript rather than through a socket, so both the
+// protected-path deny and the read inversion have to be rules the kernel
+// checks rather than command lines a regex reads.
+func TestRenderProfile_DeniesWhatTheGuardCannot(t *testing.T) {
 	t.Parallel()
 
-	got := sandbox.RenderProfile("/root", "/tmp/session", "/Users/kyle")
+	got := sandbox.RenderProfile("/Users/kyle/work/proj", "/tmp/session", "/Users/kyle", sandbox.Policy{})
 
 	for _, want := range []string{
-		`(subpath "/Users/kyle/.ssh")`,
-		`(subpath "/Users/kyle/.aws")`,
-		`(subpath "/Users/kyle/.config/gh")`,
-		`(subpath "/Users/kyle/Library/Keychains")`,
-		`(subpath "/Users/kyle/.claude")`,
+		`(deny file-read* (subpath "/Users/kyle"))`,
+		`(subpath "/Users/kyle/work/proj/.wavez.pkl")`,
+		`(subpath "/Users/kyle/work/proj/hk.pkl")`,
+		`(regex #"/\.git($|/)")`,
+		`(literal "/Users/kyle/work")`,
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("RenderProfile() missing deny fragment %q", want)
+			t.Errorf("RenderProfile() missing fragment %q", want)
 		}
+	}
+
+	if strings.Contains(got, `/Users/kyle/.ssh`) {
+		t.Error("RenderProfile() still names a credential path, so reads are back to a denylist")
 	}
 }
 
@@ -86,7 +104,7 @@ func TestNewProfile_ResolvesSymlinks(t *testing.T) {
 	}
 
 	sessionTmp := t.TempDir()
-	profile, err := sandbox.NewProfile(link, sessionTmp)
+	profile, err := sandbox.NewProfile(link, sessionTmp, sandbox.Policy{})
 	if err != nil {
 		t.Fatalf("NewProfile: %v", err)
 	}
@@ -106,7 +124,7 @@ func TestNewProfile_ResolvesSymlinks(t *testing.T) {
 func TestNewProfile_MissingDirFails(t *testing.T) {
 	t.Parallel()
 
-	_, err := sandbox.NewProfile(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir())
+	_, err := sandbox.NewProfile(filepath.Join(t.TempDir(), "does-not-exist"), t.TempDir(), sandbox.Policy{})
 	if err == nil {
 		t.Fatal("NewProfile() with a missing project root: want error, got nil")
 	}

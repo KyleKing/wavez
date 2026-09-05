@@ -50,6 +50,7 @@ type pklConfig struct {
 	Context          []string   `pkl:"context"`
 	ExtraDirs        []string   `pkl:"extraDirs"`
 	ShellAllow       []string   `pkl:"shellAllow"`
+	Ecosystems       []string   `pkl:"ecosystems"`
 	AstGrepRules     []string   `pkl:"astGrepRules"`
 	DeadcodeAllow    []string   `pkl:"deadcodeAllow"`
 	Fixtures         []string   `pkl:"fixtures"`
@@ -358,6 +359,7 @@ func fromPkl(root string, p pklConfig) Config {
 	cfg.Context = p.Context
 	cfg.ExtraDirs = p.ExtraDirs
 	cfg.ShellAllow = p.ShellAllow
+	cfg.Ecosystems = p.Ecosystems
 	cfg.AstGrepRules = p.AstGrepRules
 	cfg.Checks = projectChecks(p.Checks)
 	cfg.Vision = visionFromPkl(p.Vision)

@@ -110,6 +110,14 @@ extraDirs: Listing<String> = new Listing {}
 /// that refuses it.
 shellAllow: Listing<String> = new Listing {}
 
+/// Language toolchains whose programs run without asking, named instead of
+/// listed one by one: "go", "javascript", "python", "ruby", "rust", "zig".
+/// A bundle is an ergonomic control rather than a security one, since every
+/// interpreter in one reads a script the command classifier never sees; the
+/// sandbox is what denies the protected paths and everything outside the
+/// project, on the syscall and whatever program made it.
+ecosystems: Listing<"go"|"javascript"|"python"|"ruby"|"rust"|"zig"> = new Listing {}
+
 /// Gate debounce, in milliseconds, before a batch of changes runs.
 debounceMs: Int = 500
 

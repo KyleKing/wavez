@@ -81,6 +81,7 @@ var ptySchema = buildSchema(map[string]schemaProperty{
 type PTY struct {
 	gate       permission.Gate
 	spawns     Spawns
+	policy     sandbox.Policy
 	root       string
 	sessionTmp string
 	threadID   string
@@ -96,8 +97,8 @@ func NewPTY(root, sessionTmp, threadID string, gate permission.Gate, opts ...Opt
 
 	return &PTY{
 		root: root, sessionTmp: sessionTmp, threadID: threadID, gate: gate,
-		spawns: d.spawns,
-		env:    guard.Env{ProjectRoot: root, AllowedCommands: d.allowedCommands},
+		spawns: d.spawns, policy: d.sandboxPolicy(),
+		env: guard.Env{ProjectRoot: root, AllowedCommands: d.allowedCommands},
 	}
 }
 
@@ -240,7 +241,8 @@ func (p *PTY) drive(ctx context.Context, in ptyInput) (string, error) {
 	// Under the same profile the shell runs everything under: a program
 	// driven at a terminal writes wherever the process can, and there is
 	// nothing about having a terminal that should widen that.
-	cmd, removeProfile, err := sandbox.Command(ctx, p.root, p.sessionTmp, "sh", "-c", in.Command)
+	cmd, removeProfile, err := sandbox.Command(ctx, p.root, p.sessionTmp, p.policy,
+		[]string{"sh", "-c", in.Command})
 	if err != nil {
 		return "", fmt.Errorf("preparing a sandbox for %q: %w", in.Command, err)
 	}

@@ -80,7 +80,7 @@ func TestExec_Probes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			result, err := sandbox.Exec(context.Background(), projectRoot, sessionTmp, tt.args...)
+			result, err := sandbox.Exec(context.Background(), projectRoot, sessionTmp, sandbox.Policy{}, tt.args)
 			if err != nil {
 				t.Fatalf("Exec: %v", err)
 			}
@@ -96,7 +96,7 @@ func TestExec_Probes(t *testing.T) {
 func TestExec_NoCommand(t *testing.T) {
 	t.Parallel()
 
-	_, err := sandbox.Exec(context.Background(), t.TempDir(), t.TempDir())
+	_, err := sandbox.Exec(context.Background(), t.TempDir(), t.TempDir(), sandbox.Policy{}, nil)
 	if err == nil {
 		t.Fatal("Exec() with no args: want error, got nil")
 	}
@@ -121,8 +121,8 @@ func TestExec_GoBuildResolvesDependenciesWithoutNetwork(t *testing.T) {
 	}
 	root = filepath.Dir(filepath.Dir(root))
 
-	result, err := sandbox.Exec(context.Background(), root, t.TempDir(),
-		"go", "build", "-o", os.DevNull, "./internal/tui")
+	result, err := sandbox.Exec(context.Background(), root, t.TempDir(), sandbox.Policy{},
+		[]string{"go", "build", "-o", os.DevNull, "./internal/tui"})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
@@ -142,8 +142,8 @@ func TestExecDropsSecretNamedEnv(t *testing.T) {
 
 	dir := t.TempDir()
 
-	result, err := sandbox.Exec(context.Background(), dir, dir,
-		"sh", "-c", `echo "key=[$OPENROUTER_API_KEY] plain=[$WAVEZ_PROBE_PLAIN]"`)
+	result, err := sandbox.Exec(context.Background(), dir, dir, sandbox.Policy{},
+		[]string{"sh", "-c", `echo "key=[$OPENROUTER_API_KEY] plain=[$WAVEZ_PROBE_PLAIN]"`})
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
@@ -172,8 +172,9 @@ func TestExec_CancelKillsWhatTheCommandForked(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		_, _ = sandbox.Exec(ctx, root, t.TempDir(), //nolint:errcheck // the cancel is the point
-			"sh", "-c", "sleep 60 & echo $! > child.pid; wait")
+		//nolint:errcheck // the cancel is the point
+		_, _ = sandbox.Exec(ctx, root, t.TempDir(), sandbox.Policy{},
+			[]string{"sh", "-c", "sleep 60 & echo $! > child.pid; wait"})
 	}()
 
 	pid := waitForPID(t, pidFile)
