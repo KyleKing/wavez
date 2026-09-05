@@ -124,7 +124,9 @@ func writeSection(b *strings.Builder, projectRoot, sessionTmp string) {
 	b.WriteString("; --- writes: not the files that decide what may run next ---\n")
 	b.WriteString("(deny file-write*\n")
 	for _, name := range guard.RepoInternals() {
-		fmt.Fprintf(b, "  (regex #\"%s\")\n", underRootRegex(projectRoot, name))
+		for _, leaf := range guard.RepoExecPaths() {
+			fmt.Fprintf(b, "  (regex #\"%s\")\n", repoExecRegex(projectRoot, name, leaf))
+		}
 	}
 	for _, rel := range guard.RootProtected() {
 		fmt.Fprintf(b, "  (subpath %s)\n", sbLiteral(filepath.Join(projectRoot, rel)))
@@ -164,6 +166,10 @@ func readSection(b *strings.Builder, projectRoot, sessionTmp, home string, extra
 		fmt.Fprintf(b, "  (literal %s)\n", sbLiteral(dir))
 	}
 
+	for _, file := range toolchainFiles(home) {
+		fmt.Fprintf(b, "  (literal %s)\n", sbLiteral(file))
+	}
+
 	b.WriteString(")\n\n")
 }
 
@@ -195,9 +201,10 @@ func networkSection(b *strings.Builder, ports []int) {
 // its compiler.
 func toolchainSubpaths(home string) []string {
 	names := []string{
-		".bun", ".cache", ".cargo", ".config/mise", ".deno", ".dotnet", ".gradle",
-		".local", ".m2", ".npm", ".nvm", ".pyenv", ".rbenv", ".rustup", ".sdkman",
-		"Library/Caches", "Library/pnpm", "go",
+		".bun", ".cache", ".cargo", ".config/jj", ".config/mise", ".deno", ".dotnet",
+		".gradle", ".local", ".m2", ".npm", ".nvm", ".pyenv", ".rbenv", ".rustup",
+		".config/git", ".sdkman", "Library/Application Support/jj", "Library/Caches",
+		"Library/pnpm", "go",
 	}
 	out := make([]string, 0, len(names))
 
@@ -206,6 +213,20 @@ func toolchainSubpaths(home string) []string {
 	}
 
 	return out
+}
+
+// toolchainFiles are the individual files under home a toolchain reads:
+// git's global config, and the ignore file it conventionally points
+// `core.excludesFile` at. Without them a sandboxed `jj st` cannot see the
+// user's global ignore rules, and since jj snapshots on every command it
+// adds the files those rules excluded to the working copy. They are named as
+// literals rather than a subpath so `.gitconfig` does not also admit
+// whatever sits beside it.
+func toolchainFiles(home string) []string {
+	return []string{
+		filepath.Join(home, ".gitconfig"),
+		filepath.Join(home, ".gitignore_global"),
+	}
 }
 
 // ancestorsWithin lists every directory between home and each of dirs,
@@ -237,13 +258,17 @@ func ancestorsWithin(home string, dirs []string) []string {
 	return out
 }
 
-// underRootRegex matches a path component at any depth below root, which is
-// how a nested checkout's .git is covered the same as the project's own. It
-// stays anchored to the root because the name is not reserved outside one: uv
-// marks its sdist cache with a file literally named .git, and an unanchored
-// rule made every uv command in a sandboxed run fail to open its cache.
-func underRootRegex(root, name string) string {
-	return "^" + quoteRegex(root) + "(/.*)?/" + quoteRegex(name) + "($|/)"
+// repoExecRegex matches leaf at any depth inside a version-control directory
+// named dir, itself at any depth below root, which is how a nested checkout's
+// hooks are covered the same as the project's own. `config` also matches
+// git's `config.worktree`, which carries the same setting.
+//
+// It stays anchored to the root because the directory name is not reserved
+// outside one: uv marks its sdist cache with a file literally named .git, and
+// an unanchored rule made every uv command in a sandboxed run fail to open
+// its cache.
+func repoExecRegex(root, dir, leaf string) string {
+	return "^" + quoteRegex(root) + "(/.*)?/" + quoteRegex(dir) + "(/.*)?/" + quoteRegex(leaf) + "($|/|\\.)"
 }
 
 // quoteRegex escapes the characters Seatbelt's regex syntax reads specially,

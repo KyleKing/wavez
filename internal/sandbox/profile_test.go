@@ -77,8 +77,14 @@ func TestRenderProfile_DeniesWhatTheGuardCannot(t *testing.T) {
 		`(deny file-read* (subpath "/Users/kyle"))`,
 		`(subpath "/Users/kyle/work/proj/.wavez.pkl")`,
 		`(subpath "/Users/kyle/work/proj/hk.pkl")`,
-		`(regex #"^/Users/kyle/work/proj(/.*)?/\.git($|/)")`,
+		`(regex #"^/Users/kyle/work/proj(/.*)?/\.git(/.*)?/config($|/|\.)")`,
+		`(regex #"^/Users/kyle/work/proj(/.*)?/\.jj(/.*)?/hooks($|/|\.)")`,
 		`(literal "/Users/kyle/work")`,
+		// jj snapshots on every command, so a sandboxed `jj st` that cannot
+		// read the user's global ignore rules adds the files they excluded
+		// to the working copy.
+		`(literal "/Users/kyle/.gitconfig")`,
+		`(literal "/Users/kyle/.gitignore_global")`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("RenderProfile() missing fragment %q", want)

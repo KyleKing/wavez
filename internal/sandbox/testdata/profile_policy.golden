@@ -16,8 +16,10 @@
 
 ; --- writes: not the files that decide what may run next ---
 (deny file-write*
-  (regex #"^/HOME/work/proj(/.*)?/\.git($|/)")
-  (regex #"^/HOME/work/proj(/.*)?/\.jj($|/)")
+  (regex #"^/HOME/work/proj(/.*)?/\.git(/.*)?/config($|/|\.)")
+  (regex #"^/HOME/work/proj(/.*)?/\.git(/.*)?/hooks($|/|\.)")
+  (regex #"^/HOME/work/proj(/.*)?/\.jj(/.*)?/config($|/|\.)")
+  (regex #"^/HOME/work/proj(/.*)?/\.jj(/.*)?/hooks($|/|\.)")
   (subpath "/HOME/work/proj/.config/mise.toml")
   (subpath "/HOME/work/proj/.config/mise/conf.d")
   (subpath "/HOME/work/proj/.config/mise/config.toml")
@@ -45,6 +47,8 @@
   (subpath "/HOME/.bun")
   (subpath "/HOME/.cache")
   (subpath "/HOME/.cargo")
+  (subpath "/HOME/.config/git")
+  (subpath "/HOME/.config/jj")
   (subpath "/HOME/.config/mise")
   (subpath "/HOME/.deno")
   (subpath "/HOME/.dotnet")
@@ -57,6 +61,7 @@
   (subpath "/HOME/.rbenv")
   (subpath "/HOME/.rustup")
   (subpath "/HOME/.sdkman")
+  (subpath "/HOME/Library/Application Support/jj")
   (subpath "/HOME/Library/Caches")
   (subpath "/HOME/Library/pnpm")
   (subpath "/HOME/go")
@@ -66,7 +71,10 @@
   (literal "/HOME")
   (literal "/HOME/.config")
   (literal "/HOME/Library")
+  (literal "/HOME/Library/Application Support")
   (literal "/HOME/work")
+  (literal "/HOME/.gitconfig")
+  (literal "/HOME/.gitignore_global")
 )
 
 ; --- network: loopback only ---

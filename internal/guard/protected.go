@@ -106,3 +106,16 @@ func RootProtected() []string {
 func RepoInternals() []string {
 	return append([]string(nil), repoInternals...)
 }
+
+// RepoExecPaths names what inside a version-control directory decides that a
+// later command runs a body, as file-name patterns relative to that
+// directory: the config, because `core.hooksPath` in it points the hooks
+// somewhere else, and the hooks themselves.
+//
+// It is narrower than RepoInternals on purpose. A tool has no business
+// writing anything under `.git` or `.jj`, and a shell running `jj st` has to,
+// because a status snapshots the working copy. Denying the whole directory in
+// the sandbox made every jj command inside it fail to take its lock.
+func RepoExecPaths() []string {
+	return []string{"config", "hooks"}
+}
