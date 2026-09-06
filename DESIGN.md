@@ -1745,7 +1745,48 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
    `TestEveryScreen_FitsItsTerminal` holds the property for all eight
    screens, in height and in row width.
 
-**Also open**, and not competing with the four above:
+7. **Every task in the set names the file and often the symbol, so nothing
+   here has ever been asked to find a fault.** Over 122 replayed runs, 79
+   ended complete and 489 of 541 checks held, which reads as a harness that
+   works until the tasks are read side by side. All seventeen are one small
+   change in one Go repository, stated with the location: q1 and h1 and h8
+   and h9 ask a question about a named file, e1 through e3 and h2 through h7
+   and h12 and h13 name the function to change, and the two that come closest
+   to withholding it are the two the runs are worst at, h10 at 1 of 4 and h11
+   at 3 of 10 against a 65% mean.
+
+   So the claim the numbers support is narrow: this is a harness that lands a
+   located change. Six kinds of work carry no evidence at all.
+
+   - Localizing a fault from a symptom, which is most of what a person uses
+     one of these for. No task says a test fails or a user saw something
+     wrong and leaves the run to find where
+   - Choosing a shape. Nothing here has two right answers, so nothing
+     measures a run that has to pick one and live with it
+   - A change that spans more than two packages, or a migration across the
+     repository. h3 is the widest at one rename
+   - Reading a source outside the tree. `web_search` and `web_fetch` are 6
+     tool events across 461 thread logs, so the pair is shipped and unproven
+   - A second language inside the benchmark itself. Every Python finding in
+     item 2 came from a lane driven by hand on a sibling repository, which
+     is why each one is a defect rather than a rate
+   - Anything nondeterministic: a race, a flaky test, a performance
+     regression. `TestShutdown_LeavesAReplacementsSocketAlone` failing once
+     under a full parallel run and passing five times alone is the shape,
+     and nothing in the harness would have caught it
+
+   Three live rates sit under those gaps and are worth naming with them,
+   from `wavez -stats-corpus`. `rename` fails 8 of 22 calls and `delete` 7 of
+   22, the two highest of any tool and both on the path item 5 is about.
+   Every one of the 15 `question` calls failed, all but one upstream. And 20
+   of 179 gate rounds retracted a failure over an unchanged tree, so about
+   one delivery in nine told a run about something that was not there.
+
+   The lane that settles this is a task set that withholds the location, not
+   another pass over the tools. A fault-finding task states the symptom and
+   checks the fix, which is the same check shape the set already uses.
+
+**Also open**, and not competing with the numbered items above:
 
 - The Semgrep opt-in routine ships, off unless a project writes
   `semgrep { enabled = true }`, and a declaration overriding any built-in
