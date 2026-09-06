@@ -1056,7 +1056,10 @@ costs every turn forever and is measured before it ships. One running beside
 the model over changed files costs nothing the model sees and is measured for
 latency instead. Anything that cannot be stated in those terms goes to
 Considered and deferred however good it is, and a good idea that does not fit
-the constraint is the ordinary case rather than a near miss.
+the constraint is the ordinary case rather than a near miss. The same test
+governs configuration, in headlong's phrasing: an option is a decision nobody
+was sure enough to make, pushed onto the user. Ship the one or two that change
+the shape, derive the rest, and add a knob when something actually breaks.
 
 **Ask each tier only what it can do.** An 8B model holds one file well and
 follows a short instruction with the answer already in front of it. It plans
@@ -2184,6 +2187,118 @@ No:
 - A reflection gate in front of a refusal, from [jcode](https://github.com/1jehuang/jcode)'s `jcode-command-risk`: rather than prompting the user, the harness refuses once and hands back a structured demand that the model name which user request the command serves, so a blind retry of the identical call fails again. It is the answer to the resend failure the swarm-forge entry above describes, and it makes model output a policy input, which is the one line the Safety section holds. It is also solving a problem this project does not have, since a prompt costs one user on one laptop a keystroke where jcode is choosing between a model turn and interrupting somebody
 - Wish/SSH for remote access (2026 CVEs)
 - Plugins, MCP servers loaded up front, multi-agent hierarchies past one level of delegation
+
+## Surveyed harnesses
+
+Twenty-odd harnesses read between 2026-08-30 and 2026-09-06. What was taken is
+merged where it belongs: the risk-class and protected-path items in Next, the
+guard parser beside them, the dialect registry, the Considered-and-deferred
+entries, and the No list. This section holds only what those do not, which is
+the handful of findings with no home yet and the reasons for every rejection,
+so none of it is re-argued from the README.
+
+### Still to place
+
+- **A warm cache invalidates a cost measurement.**
+  [FrontierHarness](https://archive.codenewsletter.ai/2095179765355540575) ran 11
+  harnesses on one model and restored a fresh checkpoint for all 360 trials,
+  because "running a task once during debugging leaves it warm for hours". The
+  corpus here is measured in dollars and turns while the prefix cache serves 77%
+  of input tokens, so a replay task re-run during a lane is cheaper for a reason
+  that has nothing to do with the change. Nothing in `-stats` or `-stats-vs`
+  records whether a run met a warm cache
+- **The same model, harnessed differently, is a 26x cost spread.** That
+  evaluation put pass rates at 50-67% and cost per success at $1.05 to $18.34,
+  and one task took Pi 90 turns and $2.50 against Claude Code's 381 turns and
+  $64.36. Its reading is harness-model fit rather than harness quality, which is
+  the same finding as a schema being a grammar on the fast tier and
+  documentation everywhere else
+- **A check that could not run must say so rather than pass.**
+  [interlinked-cli](https://github.com/quentincody/interlinked-cli) is a
+  unix-socket guard daemon (121 rules, 1-5 ms) whose fail-closed path reports
+  `NOT CHECKED` instead of allowing, which is `StatusAbstained` one layer lower
+  than the gates have it. Its content gates also run against proposed bytes
+  before a write lands, which is where the edit tools reach no gate at all
+- **A missing capability declaration produces a bizarre workaround rather than
+  an error.** In [Pi's notes](https://archive.codenewsletter.ai/2094519020531994639),
+  failing to declare image modality made the agent shell out to `tesseract` for
+  OCR. That is the dialect problem in its other direction: a provider fact the
+  harness never declared costs tool calls nobody can trace to it
+
+### What not to adopt
+
+Each of these is a good idea somewhere and the wrong one here, and the reason is
+the same constraint every time: one user, one laptop, one checkout, a local tier
+with a 12k window, and an append-only prefix the cache serves most of.
+
+- **Multi-agent role packs and worktree fan-out.**
+  [swarm-forge](https://github.com/unclebob/swarm-forge)'s six-pack,
+  [Muse Code](https://musecodes.io/#features)'s background agents in isolated
+  worktrees, and [VVAH](https://github.com/visa/visa-vulnerability-agentic-harness)'s
+  11 security lenses all buy review, cleanup, architecture, and hardening with
+  models. The same four concerns are bought here with `lint`, `mutate`, the code
+  index, and the gates, which cost milliseconds per change rather than tokens
+  per turn
+- **A million-token window, 24-hour runs, and a model co-trained with its
+  harness** (Muse Code). The opposite bet from a small cache-stable context, and
+  a co-trained model makes every measurement non-portable besides
+- **Threshold-tuned compaction.** `jcode-compaction-core` is a wall of constants
+  (80% trigger, 95% critical, keep 10 turns) doing compaction by size;
+  `internal/reduce` dispatches by shape first and caps second, which is the
+  order that survives a new output format
+- **A model that clears approvals**, whether openworker's reviewer or jcode's
+  reflection gate. Both are careful and both make model output a policy input,
+  which is the one line the Safety section holds
+- **A plugin surface** (deepseek-harness, berd), **a connector fleet or personas**
+  (openworker), **a proxy that rewrites prompts in flight**
+  ([headroom](https://github.com/gglucass/headroom-desktop)), and **a shell as
+  the whole tool surface** ([headlong](https://github.com/laude-institute/headlong)).
+  Each widens the surface that is paid for on every turn
+- **A style ladder injected into the prompt.**
+  [ponytail](https://github.com/DietrichGebert/ponytail) reports ~54% fewer lines
+  from rules pushed in before each turn, and the `lint` gate exists because rules
+  a tool can check should not be paid for per turn
+- **A registry of AI-written code awaiting review**, from
+  [the slop-registry writeup](https://thenewstack.io/engineering-ai-slop-registry/).
+  The half worth having is the invariant registry, standards checked
+  automatically before a human opens the diff, which is what a gate is. The other
+  half accumulates a debt list instead of failing now
+- **A harness on top of a harness.** Pi's author names the trap directly, that
+  programming one agent with another builds a second harness layer over the
+  first. This project is the harness
+
+### Sources
+
+Read in full or in part, whether or not anything was taken:
+
+| Source | Taken |
+|---|---|
+| [openworker](https://github.com/andrewyng/openworker) | Risk classes, protected paths, unattended routing, ingestion facts, provenance, dead-letter, self-wake |
+| [jcode](https://github.com/1jehuang/jcode) | The schema dialect registry, and the rule that a catastrophic deny must not depend on the parse |
+| [safecmd](https://github.com/AnswerDotAI/safecmd) | Parse before classifying, via `mvdan.cc/sh/v3/syntax` |
+| [toolshrink](https://github.com/unclecode/toolshrink) | Trimming by output shape |
+| [fallow](https://github.com/fallow-rs/fallow) | A finding fingerprint plus a base reference |
+| [pr-af](https://github.com/Agent-Field/pr-af) | Refute a finding before reporting it |
+| [StyleProof](https://github.com/BenSheridanEdwards/StyleProof) | Run the check twice, report a mismatch as non-determinism |
+| [headlong](https://github.com/laude-institute/headlong) (`design/tiered_memory.md`) | Stamp a cached summary with its summarizer; a summary is an index and not testimony; ship two knobs and derive the rest |
+| [swarm-forge](https://github.com/unclebob/swarm-forge) | A wake-up is a nudge and the queue is the truth; the audit-token fingerprint |
+| [interlinked-cli](https://github.com/quentincody/interlinked-cli) | `NOT CHECKED` rather than a silent pass |
+| [FrontierHarness eval](https://archive.codenewsletter.ai/2095179765355540575) | Cache warmth invalidates a cost number |
+| [Pi usage notes](https://archive.codenewsletter.ai/2094519020531994639) | An undeclared capability produces a workaround, not an error |
+| [VVAH](https://github.com/visa/visa-vulnerability-agentic-harness) | Nothing; adversarial validation and reachability-first chunking are already the design |
+| [Muse Code](https://musecodes.io/#features) | Nothing |
+| [maka](https://github.com/apache/maka) | Nothing; the append-only log separate from the model's view already ships |
+| [dzhng/skills](https://github.com/dzhng/skills) | Nothing; auditing choices is the hypothesis ledger under another name |
+| [agenttrail](https://github.com/sodiumsun/agenttrail) | Declared against observed, narrowed to `attributed()` |
+| [GalaxyGraph](https://github.com/BenSheridanEdwards/GalaxyGraph) | Nothing; mutation confidence per symbol waits on the M3 store |
+| [NativeProof](https://github.com/BenSheridanEdwards/NativeProof) | Nothing; an Appium wrapper |
+| [berd](https://github.com/block/berd), [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | Nothing; plugin surfaces |
+| [headroom-desktop](https://github.com/gglucass/headroom-desktop) | Nothing; a proprietary backend in the request path |
+| [ponytail](https://github.com/DietrichGebert/ponytail) | Nothing; its ladder belongs in the linter |
+| [Anthropic-Cybersecurity-Skills](https://github.com/mukul975/Anthropic-Cybersecurity-Skills) | Nothing; 818 skills, no guardrails |
+| [browser-control](https://github.com/anomalyco/browser-control) | The opt-in backend behind `browser.Session` |
+| [selective AI code generation](https://archive.codenewsletter.ai/2092103965655867831) | Nothing; advice to a reviewer rather than to a harness |
+| [the slop registry](https://thenewstack.io/engineering-ai-slop-registry/) | Nothing beyond confirming that a gate is the invariant registry |
 
 ## Risks and unverified claims
 
