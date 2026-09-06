@@ -247,6 +247,78 @@ func TestTrimFailureCarriesAToolchainErrorNoFrameCanName(t *testing.T) {
 	}
 }
 
+// The fallback context is bounded, so a line spent on `go test`'s own
+// announcements or on a message already shown is a line the fault does not
+// get. Both shapes are taken from the gate deliveries recorded in this
+// project's thread logs, where scaffolding was 55.5% of the lines under a
+// verbose test failure and a repeated message 45.4% of the lines under a
+// build failure.
+func TestTrimFailure_ContextDropsScaffoldingAndCollapsesARepeatedMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		output []string
+		want   []string
+		absent []string
+	}{
+		{
+			name: "a verbose test run",
+			output: []string{
+				"=== RUN   TestManagerRestore\n",
+				"=== PAUSE TestManagerRestore\n",
+				"=== CONT  TestManagerRestore\n",
+				"    restore_test.go:222: restore error = no repository, want no such checkpoint\n",
+				"--- FAIL: TestManagerRestore (0.00s)\n",
+			},
+			want:   []string{"restore error =", "--- FAIL: TestManagerRestore"},
+			absent: []string{"=== RUN", "=== PAUSE", "=== CONT"},
+		},
+		{
+			name: "a build failure repeating one message",
+			output: []string{
+				"# github.com/kyleking/wavez/internal/bench_test\n",
+				"internal/bench/stats_test.go:42:23: undefined: bench.Read\n",
+				"internal/bench/stats_test.go:93:23: undefined: bench.Read\n",
+				"internal/bench/stats_test.go:264:23: undefined: bench.Read\n",
+				"internal/bench/stats_test.go:310:23: undefined: bench.Read\n",
+				"internal/bench/stats_test.go:portable:1: second distinct complaint\n",
+				"FAIL\tgithub.com/kyleking/wavez/internal/bench [build failed]\n",
+			},
+			want: []string{
+				"stats_test.go:42:23: undefined: bench.Read",
+				"also at internal/bench/stats_test.go:93:23",
+				"second distinct complaint",
+				"[build failed]",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := gate.TrimFailure(gate.FailedTest{Name: "x", Output: tt.output}, []string{"unrelated.go"})
+
+			if len(got.Frames) != 0 {
+				t.Fatalf("Frames = %v, want none: nothing here names a changed file", got.Frames)
+			}
+
+			for _, want := range tt.want {
+				if !containsSubstring(got.Context, want) {
+					t.Errorf("Context = %v, want a line carrying %q", got.Context, want)
+				}
+			}
+
+			for _, absent := range tt.absent {
+				if containsSubstring(got.Context, absent) {
+					t.Errorf("Context = %v, want %q dropped", got.Context, absent)
+				}
+			}
+		})
+	}
+}
+
 func containsSubstring(lines []string, substr string) bool {
 	for _, l := range lines {
 		if strings.Contains(l, substr) {

@@ -1931,16 +1931,24 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   inherited one without a count that moves when a file is renamed. The
   fingerprint is the half worth copying, because the count is the version of
   this that breaks
-- Trim gate output by what it is. Trimming keeps lines referencing a changed
-  file and falls back to the last 20, which is the right rule for a Go test
-  failure and for nothing else.
-  [toolshrink](https://github.com/unclecode/toolshrink) cuts by output shape (a
-  test run, a diff, a log, JSON) with a size-based fallback when no shape
-  matches, and reports 255 characters against head-and-tail's 1,904 on a
-  31,958-character vitest run. The recall handle it needs already ships here as
-  the spill file the omission line names, so what is missing is the shapes, and
-  the measurement is turns saved over the replay corpus rather than characters
-  saved
+- Trim gate output by what it is, after
+  [toolshrink](https://github.com/unclecode/toolshrink), which cuts by output
+  shape (a test run, a diff, a log, JSON) with a size-based fallback when no
+  shape matches. Trimming keeps lines referencing a changed file and fell back
+  to the head of the output, which is the one part of a verbose test run that
+  carries nothing: the run announces, parks, and resumes every test before it
+  says anything. Two rules ship instead of a taxonomy, because each has a
+  number behind it on this project's own deliveries rather than on somebody
+  else's vitest run. Of the 342 gate failures recorded in the thread logs, 133
+  reached the fallback, and inside them scaffolding was 55.5% of the lines
+  under a verbose test failure (48 deliveries) while a message already shown
+  at another location was 45.4% of the lines under a build failure (77
+  deliveries). `outputDigest` drops the scaffolding and collapses a repeated
+  message onto its first occurrence with the other locations appended, since a
+  fault at four call sites is one message and four places to look. What is
+  unmeasured is the half the item asked for: turns saved over the replay
+  corpus. The composition is what the logs can answer, because the untrimmed
+  output was never recorded
 - Try to refute a finding before reporting it.
   [pr-af](https://github.com/Agent-Field/pr-af) runs a falsifiability pass over
   each candidate (is this the intended design, is there a mitigation already,
