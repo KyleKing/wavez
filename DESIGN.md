@@ -1844,20 +1844,25 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   would prompt on `mise run ci`, which every run calls, to stop an escalation
   the protected list already stops
 - The search query is the outbound channel the Safety section says the
-  network rule does not cover. `web_fetch` prompts on a host no search in
-  the thread returned and `web_search` prompts never, so a model-chosen
+  network rule does not cover. `web_search` prompts never, so a model-chosen
   string reaches a third-party instance on every call. openworker classifies
   `web_search` as egress for that reason: the destination is fixed and the
-  query is free text the model wrote. The other half is that `WebSearch.Run`
-  adds every result URL to `seen`, so a poisoned result set pre-approves its
-  own hosts for the fetch that follows. Neither is worth fencing blind, and
-  what to measure is how many distinct hosts a real run fetches and how
-  often a search precedes a fetch, since a prompt per search would be the
-  whole tool. That cannot be measured here: the pair is behind a per-project
-  toggle that defaults off, and 870 thread logs hold no `web_search` or
-  `web_fetch` call at all. Narrowing `seen` from a host to the exact URL a
-  search returned is the change that fits, and its prompt cost has no
-  corpus to be read from
+  query is free text the model wrote. That half is not worth fencing blind,
+  and what to measure is how often a search precedes a fetch, since a prompt
+  per search would be the whole tool. It cannot be measured here: the pair
+  is behind a per-project toggle that defaults off, and 870 thread logs hold
+  no `web_search` or `web_fetch` call at all.
+
+  The other half is closed. `WebSearch.Run` recorded every result's host, so
+  a result set, which is text somebody else wrote, stood as provenance for
+  every other page on the hosts it named: one poisoned hit pre-approved the
+  page it wanted read. Provenance is the exact page now, matched on scheme,
+  host, path, and query with the fragment dropped because a server never
+  sees one. The approval key stays the host, since a person answering
+  "always" is deciding about a site they can name where the provenance rule
+  is deciding about text the model was handed. The cost is a prompt for a
+  page a search named the site of and not the page, which has no corpus to
+  be priced from either
 
 - One provider's schema quirks are a hand-coded special case, and there is a
   shape for the general problem.

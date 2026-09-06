@@ -37,54 +37,87 @@ var webFetchSchema = buildSchema(map[string]schemaProperty{
 	},
 }, "url")
 
-// seenHosts records the hosts this thread's own searches have surfaced.
+// seenURLs records the exact pages this thread's own searches surfaced.
 // Provenance is what separates a page the model found from a page a fetched
 // page told it to visit, and the second is the one an attacker controls.
-type seenHosts struct {
-	hosts map[string]bool
-	mu    sync.Mutex
+//
+// The unit is a URL rather than a host because a search result set is
+// attacker-reachable text: a single hit on a host is otherwise provenance
+// for every other path on it, so one poisoned result pre-approves the page
+// it wanted read all along.
+type seenURLs struct {
+	urls map[string]bool
+	mu   sync.Mutex
 }
 
-func newSeenHosts() *seenHosts { return &seenHosts{hosts: map[string]bool{}} }
+func newSeenURLs() *seenURLs { return &seenURLs{urls: map[string]bool{}} }
 
-func (s *seenHosts) add(raw string) {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
+func (s *seenURLs) add(raw string) {
+	key, ok := pageKey(raw)
+	if !ok {
 		return
 	}
 
 	s.mu.Lock()
-	s.hosts[strings.ToLower(u.Host)] = true
+	s.urls[key] = true
 	s.mu.Unlock()
 }
 
-func (s *seenHosts) has(host string) bool {
+func (s *seenURLs) has(raw string) bool {
+	key, ok := pageKey(raw)
+	if !ok {
+		return false
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.hosts[strings.ToLower(host)]
+	return s.urls[key]
+}
+
+// pageKey is the identity two URLs share when they are the same request.
+// The fragment is dropped because a server never sees it, and an empty path
+// is the root, so a result written without the trailing slash still matches
+// the page the fetch resolves to.
+func pageKey(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+
+	path := u.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+
+	key := strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + path
+	if u.RawQuery != "" {
+		key += "?" + u.RawQuery
+	}
+
+	return key, true
 }
 
 // WebSearch searches the public web.
 type WebSearch struct {
 	searcher web.Searcher
-	seen     *seenHosts
+	seen     *seenURLs
 }
 
 // WebFetch reads one page and hands it back as untrusted text.
 type WebFetch struct {
 	fetcher  *web.Fetcher
-	seen     *seenHosts
+	seen     *seenURLs
 	gate     permission.Gate
 	threadID string
 }
 
 // NewWeb builds the search and fetch pair. They share the record of which
-// hosts this thread's searches returned, which is what lets fetch tell a
+// pages this thread's searches returned, which is what lets fetch tell a
 // page the model found from one it was pointed at.
 func NewWeb(searchBaseURL, threadID string, gate permission.Gate) (*WebSearch, *WebFetch) {
 	fetcher := web.NewFetcher()
-	seen := newSeenHosts()
+	seen := newSeenURLs()
 
 	return &WebSearch{searcher: web.NewSearcher(searchBaseURL, fetcher), seen: seen},
 		&WebFetch{fetcher: fetcher, seen: seen, gate: gate, threadID: threadID}
@@ -175,7 +208,7 @@ func (w *WebFetch) Run(ctx context.Context, input json.RawMessage) (tool.Result,
 		return tool.Fail(tool.CauseRefused, "%v", err), nil
 	}
 
-	if !w.seen.has(u.Host) {
+	if !w.seen.has(u.String()) {
 		if err := w.approve(ctx, u.Host, u.String()); err != nil {
 			return tool.Fail(tool.CauseRefused, "%v", err), nil
 		}
@@ -201,9 +234,13 @@ func (w *WebFetch) Run(ctx context.Context, input json.RawMessage) (tool.Result,
 	return tool.Result{Content: web.Untrusted(source, body)}, nil
 }
 
-// approve asks about a host no search in this thread surfaced. It is the
+// approve asks about a page no search in this thread surfaced. It is the
 // one place a URL an attacker chose can enter, because a page that has
 // already been fetched is the thing that would name it.
+//
+// The approval key stays the host, since a person answering "always" is
+// deciding about a site they can name, where the provenance rule above is
+// deciding about text the model was handed.
 func (w *WebFetch) approve(ctx context.Context, host, full string) error {
 	decision, err := w.gate.Ask(ctx, permission.Request{
 		ThreadID: w.threadID,
@@ -211,7 +248,7 @@ func (w *WebFetch) approve(ctx context.Context, host, full string) error {
 		Action:   "fetch",
 		Detail:   full,
 		Key:      "web_fetch " + host,
-		Reason:   "no search in this thread returned " + host,
+		Reason:   "no search in this thread returned " + full,
 	})
 	if err != nil {
 		return fmt.Errorf("requesting approval: %w", err)
