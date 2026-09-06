@@ -43,10 +43,27 @@ func (d Dialect) readsChatTemplateKwargs() bool { return d == DialectLlamaCpp }
 // endpoint of the models this project serves lists as supported.
 func (d Dialect) readsRepeatPenalty() bool { return d == DialectLlamaCpp }
 
-// composesSchemas reports whether this dialect's served models honor a
-// top-level `oneOf` in a tool's parameter schema. GLM-5.3 does not: given
-// one it answers with `{}` in six completion tokens, and the same call with
-// the schema flattened to a single branch answers with every argument. Both
-// `oneOf` and `anyOf` fail that way, so there is no composed shape to fall
-// back to.
-func (d Dialect) composesSchemas() bool { return d != DialectZAI }
+// compositionKeywords are the JSON Schema keywords whose value is a list of
+// alternative subschemas. A dialect that rejects one of them has that
+// subschema collapsed to its first branch, which is the shape every schema
+// here states first and the one a caller can always satisfy.
+var compositionKeywords = []string{"oneOf", "anyOf"}
+
+// RejectedKeywords names the JSON Schema constructs this dialect's served
+// models do not honor, at any depth of a tool's parameter schema. GLM-5.3
+// honors neither composition keyword: given one it answers with `{}` in six
+// completion tokens, and the same call with the schema flattened to a single
+// branch answers with every argument.
+//
+// It is a declared set rather than a boolean because a deny list only holds
+// what has already broken for somebody, and a keyword nobody has sent yet
+// should be inert rather than fatal. `TestEveryToolSchemaSurvivesEveryDialect`
+// is what stops the set from silently emptying a schema, since over-stripping
+// is the failure this shape newly makes possible.
+func (d Dialect) RejectedKeywords() []string {
+	if d == DialectZAI {
+		return compositionKeywords
+	}
+
+	return nil
+}

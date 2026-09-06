@@ -1875,17 +1875,25 @@ audit (`_ai_/bench/audit-2026-08-18.md`), the frontier comparison
   keyword nobody has seen yet is inert instead of fatal. A rejection that
   happens anyway is parsed out of the provider's error text into the offending
   keyword and the turn is retried without it. The learned quirk is persisted,
-  so it costs one wasted round trip ever. `openaic.schemaFor` is the deny-list
-  stage of exactly this: `Dialect.composesSchemas()` is a single boolean, and a
-  dialect that answers false has every branch but the first silently dropped,
-  which is why no tool states branches any more: one that could be reached
-  only through a later branch was a tool the hosted tiers could not reach at
-  all, and the run answered that by building the shape itself out of `shell`. Generalizing the boolean to a
-  declared keyword set is small. The part worth copying whole is the
-  conformance check, which asserts over the real tool registry that a
-  normalized schema neither keeps a construct the dialect rejects nor drops one
-  that carried meaning, because over-stripping is the failure an allow-list
-  newly makes possible and nothing here would catch it
+  so it costs one wasted round trip ever. The first two layers ship as
+  `openaic.NormalizeSchema`. `Dialect.RejectedKeywords` is the declared set
+  that replaced a single boolean, so a keyword nobody has sent yet is inert
+  rather than fatal, and a rejected composition is now collapsed at any depth
+  rather than only at the top, since a provider reads a construct inside a
+  property exactly as it reads one above it. The branch is merged into the
+  node that carried it rather than replacing it, because a schema stating
+  `properties` beside an `anyOf` means both and collapsing to the branch alone
+  would send a tool with no arguments at all. `TestEveryToolSchemaSurvivesEveryDialect`
+  is the conformance check, over the registry a real project is given: for
+  every tool and every dialect the normalized schema must parse, must carry no
+  keyword that dialect rejects at any depth, must still declare a property, and
+  must not require one it does not declare. Over-stripping is the failure a
+  declared set newly makes possible and nothing else here would catch it, which
+  is why it is asserted rather than reasoned about: declaring `properties`
+  rejected fails the check on 18 tools, and the same run before this change
+  reported nothing. What is not built is the third layer, learning a quirk from
+  a provider's rejection text and persisting it, which is worth having only
+  once a second provider disagrees
 
 - The guard reads a command through a bash parser, after
   [safecmd](https://github.com/AnswerDotAI/safecmd), which parses into an AST

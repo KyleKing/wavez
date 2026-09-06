@@ -161,26 +161,72 @@ type wireToolFunction struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
-// schemaFor answers the parameter schema a dialect can actually decode. A
-// dialect that does not compose gets the first branch of a top-level
-// `oneOf`, which is the shape every such schema states first and the one a
-// caller can always satisfy; the alternatives it drops cost extra calls
-// rather than correctness. A schema that is not a composition is passed
-// through, as is one whose branches do not parse, since a schema this code
-// cannot read is one it must not rewrite.
-func schemaFor(schema json.RawMessage, d Dialect) json.RawMessage {
-	if d.composesSchemas() || len(schema) == 0 {
+// NormalizeSchema answers the parameter schema a dialect can actually
+// decode. A composition keyword the dialect rejects is collapsed to its
+// first branch, at any depth, since the alternatives it drops cost extra
+// calls rather than correctness. A schema this code cannot parse is passed
+// through untouched, because a schema it cannot read is one it must not
+// rewrite.
+func NormalizeSchema(schema json.RawMessage, d Dialect) json.RawMessage {
+	rejected := d.RejectedKeywords()
+	if len(rejected) == 0 || len(schema) == 0 {
 		return schema
 	}
 
-	var composed struct {
-		OneOf []json.RawMessage `json:"oneOf"` //nolint:tagliatelle // JSON Schema's own spelling
-	}
-	if err := json.Unmarshal(schema, &composed); err != nil || len(composed.OneOf) == 0 {
+	var node any
+	if err := json.Unmarshal(schema, &node); err != nil {
 		return schema
 	}
 
-	return composed.OneOf[0]
+	out, err := json.Marshal(normalizeNode(node, rejected))
+	if err != nil {
+		return schema
+	}
+
+	return out
+}
+
+// normalizeNode rewrites one schema node. A rejected composition is merged
+// into the node that carried it rather than replacing it, because a schema
+// stating `properties` beside an `anyOf` means both and collapsing to the
+// branch alone would drop every property. The branch wins on a key they
+// share, and a keyword whose value is not a non-empty list of subschemas is
+// dropped rather than guessed at.
+func normalizeNode(node any, rejected []string) any {
+	switch n := node.(type) {
+	case map[string]any:
+		for _, keyword := range rejected {
+			branches, ok := n[keyword].([]any)
+			delete(n, keyword)
+
+			if !ok || len(branches) == 0 {
+				continue
+			}
+
+			branch, ok := normalizeNode(branches[0], rejected).(map[string]any)
+			if !ok {
+				continue
+			}
+
+			for key, value := range branch {
+				n[key] = value
+			}
+		}
+
+		for key, child := range n {
+			n[key] = normalizeNode(child, rejected)
+		}
+
+		return n
+	case []any:
+		for i, child := range n {
+			n[i] = normalizeNode(child, rejected)
+		}
+
+		return n
+	default:
+		return node
+	}
 }
 
 func toWireRequest(model string, req llm.Request, d Dialect) wireRequest {
@@ -201,7 +247,7 @@ func toWireRequest(model string, req llm.Request, d Dialect) wireRequest {
 				Function: wireToolFunction{
 					Name:        t.Name,
 					Description: t.Description,
-					Parameters:  schemaFor(t.Schema, d),
+					Parameters:  NormalizeSchema(t.Schema, d),
 				},
 			}
 		}
