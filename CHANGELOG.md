@@ -1,3 +1,77 @@
+## v0.21.0 (2026-09-15)
+
+### Feat
+
+- **mise**: add a daemon:restart task that swaps the running daemon safely
+- **config**: let a project name the loopback ports its tests reach
+- **cli**: let a permission answer carry the reason for the decision
+- **cli**: show spend and context share in -threads
+- **cli**: add -threads to list what the daemon holds
+- **sandbox**: enforce protected paths and invert reads in the Seatbelt profile
+- **config**: let a project set the hosted spend ceiling a daemon thread runs under
+- **cli**: drive and answer a parked fleet without the TUI
+- **bench**: report the reasoning a thinking model billed for
+- **fanout**: run every lane concurrently and report what the check says after
+- **gate**: let a check apply its own mechanical fixes before it reports
+- **fanout**: split a check into lanes whose write sets provably do not overlap
+- **tools**: add demo, which asks the user to correct how a milestone will be used
+- **tools**: make edits the only str_replace shape so every tier can batch
+- **tools**: let document take every doc a run has in one call
+- **tools**: add replace_lines, an edit addressed by the numbers read printed
+- **tools**: add document, writing a declaration's doc by name in Go or Python
+- **reduce**: group diagnostics by kind so a whole check reaches one turn
+- **wavezd**: sweep the processes a dead daemon left running
+- **proc**: record and group-kill the processes wavez spawns
+- **finish**: fail a run that rewrites a golden fixture in silence
+
+### Fix
+
+- **daemon**: create the socket directory before binding
+- **web**: make a search result's own page the provenance, not its whole site
+- **sandbox**: match a read ancestor by path component, not string prefix
+- **review**: give the reviewer a budget a reasoning model can answer inside
+- **sandbox**: let the toolchain read git's global config and the vcs dirs it writes
+- **daemon**: leave a replacement's socket alone when shutting down
+- **shell**: run a project-relative program the project vouched for by name
+- **sandbox**: keep the protected-path deny out of the session dir
+- **lsp**: restart a language server when its dependency manifests change
+- **guard**: read a stage's redirect target as a redirect, not an argument
+- **cli**: make -detach honour -resume instead of starting a new thread
+- **tools**: let write rewrite a file the run has already read
+- **gate**: keep the diagnostic above a location-only frame
+- **app**: name the machine and the empty answer when a review is skipped
+- **agent**: stop a parked thread spending its deadline on the human wait
+- **tools**: read to the file edge when either end of the range is omitted
+- **app**: keep a neighbour lane's gate failure out of a run that cannot act on it
+- **fanout**: report the bound that ended a lane, not only an error
+- **tools**: answer a re-run of a project's own declared check from the gates
+- **tools**: record what a shell command wrote, so its edits reach the change set
+- **tools**: keep a demo critique a correction rather than a permission
+- **tools**: give the demo record the blank line its heading needs
+- **sandbox**: kill a canceled command's process group, not just its pid
+- **review**: print the objection a run completed with
+- **lsp**: resolve a server from the project's own tool directory first
+- **finish**: ground a named symbol in what the run saw, not the index alone
+- **sandbox**: let a sandboxed command allocate its own pty
+- **scope**: replay a resumed thread's history so its own reads count
+- **guard**: read write targets from the parse tree rather than regexps
+- **finish**: ground a named symbol in the run's own changes, not the stale index
+- **guard**: read a command through a bash parser rather than a scanner
+- **write**: create the new file's directory rather than failing on it
+
+### Refactor
+
+- **llm**: declare the schema keywords a dialect rejects and check the registry against them
+- **guard**: keep ecosystem names and program names apart
+
+### Perf
+
+- **gate**: spend the failure context on the fault rather than on scaffolding
+- size compaction retention against the served window
+- **agent**: compact before a request that lost the provider's prompt cache
+- **tools**: remove document, which no run has ever called
+- **app**: drop two uncalled tools from the fast tier prefix
+
 ## v0.20.1 (2026-09-02)
 
 ### Fix
