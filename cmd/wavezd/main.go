@@ -35,6 +35,10 @@ var (
 	date    = "unknown"
 )
 
+// sockDirPerm matches internal/config's directory permission for files
+// under the per-laptop user config dir.
+const sockDirPerm = 0o755
+
 func main() {
 	if err := run(os.Args[1:]); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "wavezd: %v\n", err)
@@ -50,10 +54,12 @@ func run(args []string) error {
 		dir         string
 		sock        string
 		showVersion bool
+		printSocket bool
 	)
 	fs.StringVar(&dir, "dir", "", "a project root to load at startup (none preloads nothing)")
 	fs.StringVar(&sock, "socket", "", "unix socket path (defaults to the per-laptop user config dir)")
 	fs.BoolVar(&showVersion, "v", false, "print version information")
+	fs.BoolVar(&printSocket, "print-socket", false, "print the resolved socket path and exit")
 
 	if err := fs.Parse(args); err != nil {
 		return err //nolint:wrapcheck // flag already prints the reason and usage
@@ -64,23 +70,46 @@ func run(args []string) error {
 		return nil
 	}
 
+	resolved, err := resolveSocket(sock)
+	if err != nil {
+		return err
+	}
+	if printSocket {
+		fmt.Println(resolved)
+
+		return nil
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return serve(ctx, dir, sock)
+	return serve(ctx, dir, resolved)
+}
+
+// resolveSocket applies the default per-laptop socket path when sock is
+// empty, so callers (serve and -print-socket) agree on the same address a
+// caller resolved no differently than the daemon does.
+func resolveSocket(sock string) (string, error) {
+	if sock != "" {
+		return sock, nil
+	}
+
+	resolved, err := config.UserSocketPath()
+	if err != nil {
+		return "", fmt.Errorf("resolving default socket path: %w", err)
+	}
+
+	return resolved, nil
 }
 
 // serve starts one daemon for the whole laptop. It loads no project at all
 // until a client names a root, except dir, which is preloaded so the first
 // thread in that project does not pay to load it.
 func serve(ctx context.Context, dir, sock string) error {
-	if sock == "" {
-		var err error
-
-		sock, err = config.UserSocketPath()
-		if err != nil {
-			return fmt.Errorf("resolving default socket path: %w", err)
-		}
+	// The user config dir does not exist on a machine that has never run
+	// wavez before, and net.Listen does not create it.
+	if err := os.MkdirAll(filepath.Dir(sock), sockDirPerm); err != nil {
+		return fmt.Errorf("creating socket directory: %w", err)
 	}
 
 	userDir, err := config.UserDir()
@@ -295,6 +324,7 @@ Usage:
 Flags:
   -dir <path>     a project root to load at startup (none preloads nothing)
   -socket <path>  unix socket path (defaults to the per-laptop user config dir)
+  -print-socket   print the resolved socket path and exit
   -v              print version information
 `)
 }
