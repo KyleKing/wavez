@@ -27,6 +27,7 @@ sorts after `template.toml` (`user.toml` works; `project.toml` does not, since
 | `mise run ci` | Full CI check (tests + build) |
 | `mise run clean` | Clean build artifacts |
 | `mise run daemon` | Run wavezd from source (owns the socket the TUI/CLI dial into) |
+| `mise run daemon:restart` | Stop the daemon holding the socket and start a fresh one from source |
 | `mise run deadcode` | Report functions no main reaches (`wavez -deadcode`) |
 | `mise run demo` | Generate VHS demo recordings (needs [vhs](https://github.com/charmbracelet/vhs) on `PATH`; it is not pinned in `[tools]`) |
 | `mise run dev` | Run from source (`go run`, always reflects current code) |

@@ -15,6 +15,35 @@ description = "Run wavezd from source (owns the socket the TUI/CLI dial into)"
 run = "go run ./cmd/wavezd"
 raw_args = true
 
+# lsof, not pkill -f wavezd: a name match would also catch a scratch daemon
+# a test started on a different socket, which is the one thing a per-laptop
+# daemon restart must never touch.
+[tasks."daemon:restart"]
+description = "Stop whatever owns the daemon's socket and start a fresh one from source"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+sock="$(go run ./cmd/wavezd -print-socket "$@")"
+pid="$(lsof -t "$sock" 2>/dev/null || true)"
+
+if [ -n "$pid" ]; then
+  echo "daemon:restart: stopping wavezd (pid $pid) on $sock"
+  kill -TERM "$pid"
+  for _ in $(seq 1 50); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "daemon:restart: wavezd (pid $pid) did not exit after SIGTERM" >&2
+    exit 1
+  fi
+fi
+
+exec go run ./cmd/wavezd "$@"
+'''
+raw_args = true
+
 [tasks."jj:pull"]
 description = "Fetch from GitHub (only fast-forwards main if there is no local work on it)"
 run = "jj git fetch"
