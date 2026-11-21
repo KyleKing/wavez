@@ -1,4 +1,0 @@
-data: {"choices":[{"finish_reason":null,"delta":{"content":"partial"}}]}
-
-data: {"error":{"message":"model overloaded","type":"server_error","code":"overloaded"}}
-
