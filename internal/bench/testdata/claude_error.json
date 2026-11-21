@@ -1,0 +1,1 @@
+{"type":"result","subtype":"error_max_turns","is_error":true,"duration_ms":900,"num_turns":40,"session_id":"s-err","total_cost_usd":0.4,"usage":{"input_tokens":1,"output_tokens":2},"modelUsage":{"claude-example-main":{"outputTokens":2,"costUSD":0.4}}}
