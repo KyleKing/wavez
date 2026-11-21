@@ -1,6 +1,0 @@
-data: {"choices":[{"finish_reason":null,"delta":{"content":"cut off"}}]}
-
-data: {"choices":[{"finish_reason":"length","delta":{}}]}
-
-data: [DONE]
-

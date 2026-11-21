@@ -1,5 +1,0 @@
-package strong
-
-func Passing(score int) bool {
-	return score >= 60
-}
