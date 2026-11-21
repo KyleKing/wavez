@@ -81,13 +81,22 @@ func (r *runner) fix(ctx context.Context, root string, c customCheck) []string {
 
 // command runs the check's command and reads its exit status: zero passes,
 // the shell's own "not found" and "not executable" statuses abstain, and
-// anything else is a failure carrying the reduced output.
+// anything else is a failure carrying the reduced output. A command that
+// names {files} and already passed on these exact bytes is not run again.
 func (r *runner) command(ctx context.Context, root string, c customCheck) Result {
 	res := Result{Check: c.check.Name, Blocking: c.check.Level != config.LevelAdvise, Fixed: c.fixed}
 
 	sh, err := r.lookPath("sh")
 	if err != nil {
 		return res.abstain("sh not on PATH")
+	}
+
+	// The fixer has already run, so the key is for the bytes the command
+	// would see. Only a pass is ever kept: a failure has to be shown again
+	// and an abstention says nothing about the files.
+	passes, key := r.cacheFor(root), passKey(root, c)
+	if key != "" && passes.has(passDir, key) {
+		return res.pass()
 	}
 
 	out := run(ctx, invocation{
@@ -99,10 +108,16 @@ func (r *runner) command(ctx context.Context, root string, c customCheck) Result
 	case out.reason != "":
 		return res.abstain(out.reason)
 	case out.exit == 0:
+		if key != "" {
+			passes.store(passDir, key, nil)
+		}
+
 		return res.pass()
 	case out.exit == exitNotFound, out.exit == exitNotExecutable:
 		return res.abstain(oneLine(out.output))
 	default:
+		res.evidence = &evidence{custom: &c, output: out.output}
+
 		return res.fail(out.output)
 	}
 }

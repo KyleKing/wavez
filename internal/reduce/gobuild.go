@@ -43,7 +43,7 @@ func keepDiagnostics(lines []string) []string {
 
 		switch {
 		case strings.HasPrefix(trimmed, "#"), trimmed == "":
-		case failed && (trimmed == "FAIL" || packageVerdict.MatchString(line)):
+		case failed && (trimmed == bareFail || packageVerdict.MatchString(line)):
 		case seen[trimmed]:
 		default:
 			seen[trimmed] = true
