@@ -29,6 +29,8 @@ const (
 )
 
 // Result is one check's outcome.
+//
+//nolint:govet // fieldalignment: the field order is the JSON key order of a frozen contract
 type Result struct {
 	Check string `json:"check"`
 	// Blocking is false for an advisory check, whose failure is reported
@@ -51,7 +53,7 @@ type Report struct {
 // Runner runs the checks for a root. It is the surface internal/hook and
 // cmd/wavez consume, and its signature is frozen.
 //
-// changed holds paths relative to root. An empty changed set is a run that
+// The changed paths are relative to root. An empty changed set is a run that
 // examined nothing and returns an empty Report.
 type Runner interface {
 	Run(ctx context.Context, root string, changed []string, stage Stage) (Report, error)

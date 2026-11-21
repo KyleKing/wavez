@@ -1,0 +1,159 @@
+// Package config loads a project's optional .wavez.toml: the checks its
+// changed files select, and which built-in checks it has turned off.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"time"
+
+	"github.com/BurntSushi/toml"
+)
+
+// FileName is the configuration file read from a project root.
+const FileName = ".wavez.toml"
+
+// Defaults a check or a project takes for a key it leaves out.
+const (
+	DefaultMaxRounds = 3
+	DefaultTimeout   = 2 * time.Minute
+)
+
+// Level says whether a failing check holds the agent.
+type Level string
+
+// The levels a check can declare. An advisory failure is reported and never
+// blocks.
+const (
+	LevelBlock  Level = "block"
+	LevelAdvise Level = "advise"
+)
+
+// Stage says when a check runs: after every write, or once before the agent
+// finishes its turn.
+type Stage string
+
+// The stages a check can declare.
+const (
+	StageEdit Stage = "edit"
+	StageStop Stage = "stop"
+)
+
+// The built-in checks a project with a go.mod gets without declaring them.
+// A project turns one off by naming it under disable.
+const (
+	BuiltinFormat = "format"
+	BuiltinBuild  = "build"
+	BuiltinTest   = "test"
+	BuiltinLint   = "lint"
+)
+
+// Builtins lists the built-in check names in the order they report.
+func Builtins() []string {
+	return []string{BuiltinFormat, BuiltinBuild, BuiltinTest, BuiltinLint}
+}
+
+// Check is one project-declared command and the changed files that select
+// it.
+type Check struct {
+	Name string
+	// Command runs through `sh -c` in the project root. Each `{files}` in
+	// it is replaced by the matched changed files, shell-quoted.
+	Command string
+	// Fix is optional and runs before Command with the same substitution,
+	// so a finding a tool can repair itself never reaches the agent.
+	Fix     string
+	Level   Level
+	Stage   Stage
+	Globs   []Glob
+	Timeout time.Duration
+}
+
+// Select returns the paths in changed that any of the check's globs match,
+// in the order given.
+func (c Check) Select(changed []string) []string {
+	var out []string
+
+	for _, path := range changed {
+		if slices.ContainsFunc(c.Globs, func(g Glob) bool { return g.Match(path) }) {
+			out = append(out, path)
+		}
+	}
+
+	return out
+}
+
+// Config is a project's parsed configuration. The zero value is what a
+// project with no file gets, apart from MaxRounds, which Load fills in.
+type Config struct {
+	// Checks holds the declared checks in file order.
+	Checks []Check
+	// Disabled names the built-in checks the project turned off.
+	Disabled []string
+	// MaxRounds is how many times a stop may be refused over the same
+	// failure before the agent is let go. This package only carries it.
+	MaxRounds int
+}
+
+// Enabled reports whether the built-in check name has not been disabled.
+func (c Config) Enabled(name string) bool {
+	return !slices.Contains(c.Disabled, name)
+}
+
+// Load reads root's .wavez.toml. A missing file is not an error and yields
+// the defaults; a file that is present and wrong fails with an *Error naming
+// the key, so a typo never silently turns a check off.
+func Load(root string) (Config, error) {
+	path := filepath.Join(root, FileName)
+
+	data, err := fs.ReadFile(os.DirFS(root), FileName)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Config{MaxRounds: DefaultMaxRounds}, nil
+	}
+
+	if err != nil {
+		return Config{}, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	var raw rawConfig
+
+	meta, err := toml.Decode(string(data), &raw)
+	if err != nil {
+		return Config{}, fmt.Errorf("parsing %s: %w", path, err)
+	}
+
+	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
+		return Config{}, &Error{Path: path, Key: undecoded[0].String(), Problem: "is not a known key"}
+	}
+
+	cfg, err := raw.parse()
+	if err != nil {
+		var invalid *Error
+		if errors.As(err, &invalid) {
+			invalid.Path = path
+		}
+
+		return Config{}, err
+	}
+
+	return cfg, nil
+}
+
+// Error is one invalid key in a configuration file.
+type Error struct {
+	// Path is the file the key was read from.
+	Path string
+	// Key is the dotted key, with a check named by its name when it has
+	// one and by its position when it does not.
+	Key string
+	// Problem says what is wrong with the key's value.
+	Problem string
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("%s: %s %s", e.Path, e.Key, e.Problem)
+}
