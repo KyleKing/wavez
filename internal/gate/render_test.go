@@ -20,6 +20,7 @@ func TestReport_Render(t *testing.T) {
 	tests := []struct {
 		name    string
 		want    string
+		notes   string
 		results []gate.Result
 		failed  bool
 	}{
@@ -34,20 +35,20 @@ func TestReport_Render(t *testing.T) {
 			want: "ADVISORY ruff (does not block)\na.py:1:1: E501 line too long\n",
 		},
 		{
-			name: "an abstention is one line", results: []gate.Result{abstained},
-			want: "NOT CHECKED lint: golangci-lint not on PATH\n",
+			name: "an abstention is a note for the person, not the agent", results: []gate.Result{abstained},
+			notes: "NOT CHECKED lint: golangci-lint not on PATH\n",
 		},
 		{
 			name: "rewritten files are named once, sorted", results: []gate.Result{formatted, formatted},
 			want: "REWRITTEN by a formatter, re-read before editing: a.go b.go\n",
 		},
 		{
-			name:    "blocking comes before advisory before abstained before rewritten",
+			name:    "blocking comes before advisory before rewritten",
 			results: []gate.Result{formatted, abstained, advisory, fail}, failed: true,
 			want: "FAIL build\na.go:3:1: undefined: x\n" +
 				"ADVISORY ruff (does not block)\na.py:1:1: E501 line too long\n" +
-				"NOT CHECKED lint: golangci-lint not on PATH\n" +
 				"REWRITTEN by a formatter, re-read before editing: a.go b.go\n",
+			notes: "NOT CHECKED lint: golangci-lint not on PATH\n",
 		},
 		{
 			name:    "a failure with no output is its header alone",
@@ -63,6 +64,10 @@ func TestReport_Render(t *testing.T) {
 			report := gate.Report{Results: tt.results}
 			if got := report.Render(); got != tt.want {
 				t.Errorf("Render() =\n%s\nwant\n%s", got, tt.want)
+			}
+
+			if got := report.Notes(); got != tt.notes {
+				t.Errorf("Notes() =\n%s\nwant\n%s", got, tt.notes)
 			}
 
 			if report.Failed() != tt.failed {

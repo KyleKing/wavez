@@ -29,6 +29,9 @@ type Verdict struct {
 	// Text is what the agent should read, and is empty when there is
 	// nothing to say.
 	Text string
+	// Notes is for the person and never reaches the agent: the checks
+	// that could not run.
+	Notes string
 	// Failed is true when a blocking check failed.
 	Failed bool
 }
@@ -50,7 +53,10 @@ func (g Gate) Run(ctx context.Context, root string, changed []string, stage gate
 		return Verdict{}, fmt.Errorf("running %s gates: %w", stage, err)
 	}
 
-	return Verdict{Failed: report.Failed(), Fingerprint: report.Fingerprint(), Text: report.Render()}, nil
+	return Verdict{
+		Failed: report.Failed(), Fingerprint: report.Fingerprint(),
+		Text: report.Render(), Notes: report.Notes(),
+	}, nil
 }
 
 // Handler turns one Claude Code hook event into a gate run and the output

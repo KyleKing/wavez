@@ -1,6 +1,6 @@
 # _ai_
 
-Research, notes, and demos behind [DESIGN.md](../DESIGN.md). Nothing here is source. Standalone projects that started here now live beside this repo, with a condensed note kept where the design still leans on them.
+Research, notes, and demos behind the first design, archived as [v1/DESIGN.md](v1/DESIGN.md). The current design is [DESIGN.md](../DESIGN.md), and `DESIGN.md` below means the archived one. Nothing here is source. Standalone projects that started here now live beside this repo, with a condensed note kept where the design still leans on them.
 
 ## Layout
 
