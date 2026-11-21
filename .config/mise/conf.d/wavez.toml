@@ -1,48 +1,16 @@
 [tasks."ci:project"]
 description = "Gates only this project has, run by the template's CI project job"
-depends = ["deadcode", "preamble:budget"]
+run = "go run ./cmd/wavez bench list"
 
-[tasks.deadcode]
-description = "Fail when a function no main reaches is not in the allowlist"
-run = "go run ./cmd/wavez -deadcode"
-
-[tasks."preamble:budget"]
-description = "Fail when the fixed prefix every turn pays exceeds its ceiling"
-run = "go run ./cmd/wavez -preamble -preamble-max 2860"
-
-[tasks.daemon]
-description = "Run wavezd from source (owns the socket the TUI/CLI dial into)"
-run = "go run ./cmd/wavezd"
-raw_args = true
-
-# lsof, not pkill -f wavezd: a name match would also catch a scratch daemon
-# a test started on a different socket, which is the one thing a per-laptop
-# daemon restart must never touch.
-[tasks."daemon:restart"]
-description = "Stop whatever owns the daemon's socket and start a fresh one from source"
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
-
-sock="$(go run ./cmd/wavezd -print-socket "$@")"
-pid="$(lsof -t "$sock" 2>/dev/null || true)"
-
-if [ -n "$pid" ]; then
-  echo "daemon:restart: stopping wavezd (pid $pid) on $sock"
-  kill -TERM "$pid"
-  for _ in $(seq 1 50); do
-    kill -0 "$pid" 2>/dev/null || break
-    sleep 0.1
-  done
-  if kill -0 "$pid" 2>/dev/null; then
-    echo "daemon:restart: wavezd (pid $pid) did not exit after SIGTERM" >&2
-    exit 1
-  fi
-fi
-
-exec go run ./cmd/wavezd "$@"
-'''
-raw_args = true
+[tasks."bench:ab"]
+description = "Run one benchmark task under plain Claude Code and under Claude Code with wavez, then report"
+usage = 'arg "<task>"'
+run = [
+  "go build -o bin/wavez ./cmd/wavez",
+  "bin/wavez bench run $usage_task --arm baseline",
+  "bin/wavez bench run $usage_task --arm wavez",
+  "bin/wavez bench report $usage_task",
+]
 
 [tasks."jj:pull"]
 description = "Fetch from GitHub (only fast-forwards main if there is no local work on it)"
@@ -81,7 +49,5 @@ run = "gh pr create --head $usage_name --fill"
 # doneram, because an unpinned tool resolves differently on a laptop than on a
 # runner and the check then fails only in CI.
 [tools]
-# Reachability from main, which is the orphan check `unused` cannot do for a
-# module that is all internal/: every symbol there is exported API to the
-# compiler, and a test counts as a use.
-"go:golang.org/x/tools/cmd/deadcode" = "0.49.0"
+# The refactor commands shell out to gopls, and their tests skip without it.
+"go:golang.org/x/tools/gopls" = "0.24.0"

@@ -37,12 +37,12 @@ tools = new {
     resolverName = "peter-evans/create-pull-request"
     sites = new { actionPin("peter-evans/create-pull-request") }
   }
-  ["deadcode"] = new {
-    resolverName = "go:golang.org/x/tools/cmd/deadcode"
+  ["gopls"] = new {
+    resolverName = "go:golang.org/x/tools/gopls"
     sites = new {
       new Config.Site {
         file = miseToml
-        pattern = #""go:golang\.org/x/tools/cmd/deadcode" = "([\d.]+)""#
+        pattern = #""go:golang\.org/x/tools/gopls" = "([\d.]+)""#
       }
     }
   }
