@@ -10,10 +10,8 @@ before:
 builds:
   - main: ./cmd/wavez
     id: wavez
-    # tree-sitter's Go bindings are cgo-only and cgo cannot cross-compile, so
-    # the matrix is darwin-native. The Seatbelt sandbox is macOS-only anyway.
     env:
-      - CGO_ENABLED=1
+      - CGO_ENABLED=0
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -26,30 +24,9 @@ builds:
       - arm64
     binary: wavez
 
-  # The TUI attaches to a running daemon, so a release without wavezd ships a
-  # client with nothing to connect to.
-  - main: ./cmd/wavezd
-    id: wavezd
-    env:
-      - CGO_ENABLED=1
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
-    goos:
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    binary: wavezd
-
 archives:
-  # One archive holding both binaries: the TUI attaches to the daemon, so a
-  # cask that installed only one would install something that cannot run. A
-  # cask also refuses more than one archive per OS/Arch.
   - id: wavez
-    ids: [wavez, wavezd]
+    ids: [wavez]
     formats: [tar.gz]
     name_template: "wavez-{{ .Os }}-{{ .Arch }}"
 
@@ -83,7 +60,7 @@ homebrew_casks:
         url: git@github.com:kyleking/homebrew-tap.git
         private_key: '{{ envOrDefault "TAP_DEPLOY_KEY" "" }}'
     homepage: https://github.com/kyleking/wavez
-    description: "A personal AI coding agent for one user, one laptop, and repeated narrow work"
+    description: "Gates, name-based refactors, and a benchmark that run under a coding agent"
     # Without the TAP_DEPLOY_KEY secret the tap push is skipped with a warning
     # and the rest of the release still publishes, so a project that has not
     # been provisioned yet needs no config change here.
