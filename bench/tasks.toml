@@ -20,184 +20,184 @@
 # of that tree.
 
 [[task]]
-id = 'q1'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'Which file defines the destructive-command guard rules, and what is the name of the exported function that classifies one command? Answer in two sentences.'
+id = "q1"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "Which file defines the destructive-command guard rules, and what is the name of the exported function that classifies one command? Answer in two sentences."
 checks = [
-  'answer:rules.go',
-  'answer:Classify',
+  "answer:rules.go",
+  "answer:Classify",
 ]
 
 [[task]]
-id = 'e1'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
+id = "e1"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
 prompt = "In README.md change the status line 'Status: M2 in progress.' to 'Status: M2 in progress, M3 next.' and nothing else."
 checks = [
-  'README.md:Status: M2 in progress, M3 next.',
+  "README.md:Status: M2 in progress, M3 next.",
 ]
 
 [[task]]
-id = 'e2'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'In internal/sysinfo/memory.go add a method UsedFraction on Memory that returns the used share of Total as a float64 between 0 and 1 (0 when Total is 0), and add a table-driven test for it in internal/sysinfo/memory_test.go.'
+id = "e2"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "In internal/sysinfo/memory.go add a method UsedFraction on Memory that returns the used share of Total as a float64 between 0 and 1 (0 when Total is 0), and add a table-driven test for it in internal/sysinfo/memory_test.go."
 checks = [
-  'internal/sysinfo/memory.go:func (m Memory) UsedFraction() float64',
-  'internal/sysinfo/memory_test.go:UsedFraction',
-  'test:./internal/sysinfo/...',
+  "internal/sysinfo/memory.go:func (m Memory) UsedFraction() float64",
+  "internal/sysinfo/memory_test.go:UsedFraction",
+  "test:./internal/sysinfo/...",
 ]
 
 [[task]]
-id = 'e3'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'Rename the unexported function firstDir in internal/daemon/thread.go to primaryDir and update every caller in the daemon package.'
+id = "e3"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "Rename the unexported function firstDir in internal/daemon/thread.go to primaryDir and update every caller in the daemon package."
 checks = [
-  'internal/daemon/thread.go:func primaryDir',
-  '!internal/daemon/thread.go:firstDir',
-  'build:./internal/daemon/...',
+  "internal/daemon/thread.go:func primaryDir",
+  "!internal/daemon/thread.go:firstDir",
+  "build:./internal/daemon/...",
 ]
 
 [[task]]
-id = 'h1'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'When the model sends a tool call whose arguments are not valid JSON, the thread does not end immediately. Name the Go file and the function that handles it, and say what the loop does the second time it happens. Answer in three sentences.'
+id = "h1"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "When the model sends a tool call whose arguments are not valid JSON, the thread does not end immediately. Name the Go file and the function that handles it, and say what the loop does the second time it happens. Answer in three sentences."
 checks = [
-  'answer:loop.go',
-  'answer:handleMalformedCall',
-  'answer:escalat',
+  "answer:loop.go",
+  "answer:handleMalformedCall",
+  "answer:escalat",
 ]
 
 [[task]]
-id = 'h2'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'internal/reduce collapses a run of identical adjacent lines into the line and a count. Make it also collapse identical lines separated only by blank lines, add a table case to internal/reduce/reduce_test.go proving it, and keep Output idempotent.'
+id = "h2"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "internal/reduce collapses a run of identical adjacent lines into the line and a count. Make it also collapse identical lines separated only by blank lines, add a table case to internal/reduce/reduce_test.go proving it, and keep Output idempotent."
 checks = [
-  'internal/reduce/reduce_test.go:blank',
-  'test:./internal/reduce/...',
+  "internal/reduce/reduce_test.go:blank",
+  "test:./internal/reduce/...",
 ]
 
 [[task]]
-id = 'h3'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'Rename the exported function Read in internal/bench to ReadLog and update every caller in the repository, tests and comments included.'
+id = "h3"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "Rename the exported function Read in internal/bench to ReadLog and update every caller in the repository, tests and comments included."
 checks = [
-  'internal/bench/stats.go:func ReadLog(',
-  '!internal/bench/stats.go:func Read(',
-  'cmd/wavez/stats.go:bench.ReadLog(',
-  'build:./...',
-  'test:./internal/bench/...',
-  'test:./cmd/wavez/...',
+  "internal/bench/stats.go:func ReadLog(",
+  "!internal/bench/stats.go:func Read(",
+  "cmd/wavez/stats.go:bench.ReadLog(",
+  "build:./...",
+  "test:./internal/bench/...",
+  "test:./cmd/wavez/...",
 ]
 
 [[task]]
-id = 'h4'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
+id = "h4"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
 prompt = "internal/edit's ApplyToFile is reachable from no main and is exercised only by its own tests. Delete the function and every test function that covers it, and leave writeAtomic and ApplyAllToFile alone."
 checks = [
-  '!internal/edit/apply.go:func ApplyToFile(',
-  'internal/edit/apply.go:func writeAtomic(',
-  'internal/edit/batch.go:func ApplyAllToFile(',
-  'build:./...',
-  'test:./internal/edit/...',
+  "!internal/edit/apply.go:func ApplyToFile(",
+  "internal/edit/apply.go:func writeAtomic(",
+  "internal/edit/batch.go:func ApplyAllToFile(",
+  "build:./...",
+  "test:./internal/edit/...",
 ]
 
 [[task]]
-id = 'h5'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'internal/guard/split.go holds both the substitution scanner and the sequence splitting. Move splitSequence and splitPipeline into a new file internal/guard/sequence.go in the same package, and leave everything else in split.go where it is.'
+id = "h5"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "internal/guard/split.go holds both the substitution scanner and the sequence splitting. Move splitSequence and splitPipeline into a new file internal/guard/sequence.go in the same package, and leave everything else in split.go where it is."
 checks = [
-  'internal/guard/sequence.go:func splitSequence',
-  'internal/guard/sequence.go:func splitPipeline',
-  '!internal/guard/split.go:func splitSequence',
-  'internal/guard/split.go:func extractSubstitutions',
-  'build:./...',
-  'test:./internal/guard/...',
+  "internal/guard/sequence.go:func splitSequence",
+  "internal/guard/sequence.go:func splitPipeline",
+  "!internal/guard/split.go:func splitSequence",
+  "internal/guard/split.go:func extractSubstitutions",
+  "build:./...",
+  "test:./internal/guard/...",
 ]
 
 [[task]]
-id = 'h6'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'In internal/thread/thread.go, rewrite the body of the truncate function so it never splits a multi-byte UTF-8 character: cut on a character boundary at or before limit bytes. Keep the signature unchanged and keep appending the … suffix.'
+id = "h6"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "In internal/thread/thread.go, rewrite the body of the truncate function so it never splits a multi-byte UTF-8 character: cut on a character boundary at or before limit bytes. Keep the signature unchanged and keep appending the … suffix."
 checks = [
   '!internal/thread/thread.go:return s[:limit] + "…"',
-  'internal/thread/thread.go:func truncate(s string, limit int) string',
-  'build:./internal/thread/...',
-  'test:./internal/thread/...',
+  "internal/thread/thread.go:func truncate(s string, limit int) string",
+  "build:./internal/thread/...",
+  "test:./internal/thread/...",
 ]
 
 [[task]]
-id = 'h7'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
+id = "h7"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
 prompt = "internal/tools/read.go bounds one call to maxReadFiles paths so a comma-separated list cannot pull the whole tree into the context window. internal/tools/list.go accepts several directories the same way and has no such bound. Add one to list named maxListedTargets, set to 10, refusing a call over it the way read does, and add a table case named 'too many directories' to internal/tools/list_test.go proving it."
 checks = [
-  'internal/tools/list.go:maxListedTargets',
-  'internal/tools/list.go:in one call, at most',
-  'internal/tools/list_test.go:too many directories',
-  'build:./...',
-  'test:./internal/tools/...',
+  "internal/tools/list.go:maxListedTargets",
+  "internal/tools/list.go:in one call, at most",
+  "internal/tools/list_test.go:too many directories",
+  "build:./...",
+  "test:./internal/tools/...",
 ]
 
 [[task]]
-id = 'h8'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'Two separate limits stop one read from filling the context window: one bounds how many lines a single read returns, the other how many files one call may name. Name both constants, name the file that defines them, and say what a read does with the lines past the first limit. Answer in three sentences.'
+id = "h8"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "Two separate limits stop one read from filling the context window: one bounds how many lines a single read returns, the other how many files one call may name. Name both constants, name the file that defines them, and say what a read does with the lines past the first limit. Answer in three sentences."
 checks = [
-  'answer:maxReadLines',
-  'answer:maxReadFiles',
-  'answer:read.go',
-  'answer:truncat',
+  "answer:maxReadLines",
+  "answer:maxReadFiles",
+  "answer:read.go",
+  "answer:truncat",
 ]
 
 [[task]]
-id = 'h9'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
+id = "h9"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
 prompt = "A shell command that is not on the guard's built-in allowlist needs approval before it runs. Name the pkl config key a project sets to widen that list, the Go field on config.Config it becomes, and the field on guard.Env the classifier reads it from. Answer in three sentences."
 checks = [
-  'answer:shellAllow',
-  'answer:ShellAllow',
-  'answer:AllowedCommands',
+  "answer:shellAllow",
+  "answer:ShellAllow",
+  "answer:AllowedCommands",
 ]
 
 [[task]]
-id = 'h10'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
+id = "h10"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
 prompt = "internal/edit/replace.go's clip cuts a long line at maxReportedLine bytes, so a cut landing inside a multi-byte character puts invalid UTF-8 into the near-match report a model reads to fix its anchor. Add a table case named 'multi-byte boundary' to internal/edit/replace_test.go that fails against clip as it stands, then change clip to cut on a character boundary at or before the limit. Keep the signature and the … suffix unchanged."
 checks = [
-  'internal/edit/replace_test.go:multi-byte boundary',
-  '!internal/edit/replace.go:line[:maxReportedLine]',
-  'build:./internal/edit/...',
-  'test:./internal/edit/...',
+  "internal/edit/replace_test.go:multi-byte boundary",
+  "!internal/edit/replace.go:line[:maxReportedLine]",
+  "build:./internal/edit/...",
+  "test:./internal/edit/...",
 ]
 
 [[task]]
-id = 'h11'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
+id = "h11"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
 prompt = "internal/edit/batch.go returns *OverlapError when two edits in one batch change overlapping text, and internal/tools/str_replace.go's failedEdit adds advice for every other failure it can name but not that one. Add a branch to failedEdit that reads the error with errors.As and tells the caller which two edits collided, naming the indices the error carries and that the fix is to send them as one edit or as separate calls. Add a case to internal/tools/str_replace_test.go that asserts the advice reaches the result."
 checks = [
-  'internal/tools/str_replace.go:OverlapError',
-  'internal/tools/str_replace_test.go:Overlap',
-  'build:./internal/tools/...',
-  'test:./internal/tools/...',
+  "internal/tools/str_replace.go:OverlapError",
+  "internal/tools/str_replace_test.go:Overlap",
+  "build:./internal/tools/...",
+  "test:./internal/tools/...",
 ]
 
 [[task]]
-id = 'h12'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
-prompt = 'internal/sysinfo/memory.go holds the Memory type and its Free method. Add a method UsedFraction on Memory returning the used share of TotalBytes as a float64 between 0 and 1, zero when TotalBytes is zero. It belongs beside the load reading rather than the memory reading, so once it works, put memory.go back to exactly the bytes it had before you touched it and leave UsedFraction in internal/sysinfo/load.go.'
+id = "h12"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
+prompt = "internal/sysinfo/memory.go holds the Memory type and its Free method. Add a method UsedFraction on Memory returning the used share of TotalBytes as a float64 between 0 and 1, zero when TotalBytes is zero. It belongs beside the load reading rather than the memory reading, so once it works, put memory.go back to exactly the bytes it had before you touched it and leave UsedFraction in internal/sysinfo/load.go."
 checks = [
-  'internal/sysinfo/load.go:func (m Memory) UsedFraction',
-  '!internal/sysinfo/memory.go:UsedFraction',
-  'build:./internal/sysinfo/...',
-  'test:./internal/sysinfo/...',
+  "internal/sysinfo/load.go:func (m Memory) UsedFraction",
+  "!internal/sysinfo/memory.go:UsedFraction",
+  "build:./internal/sysinfo/...",
+  "test:./internal/sysinfo/...",
 ]
 
 [[task]]
-id = 'h13'
-rev = '2a35893c95a388d8bf5f0946c6bfc2b0caed1d76'
+id = "h13"
+rev = "2a35893c95a388d8bf5f0946c6bfc2b0caed1d76"
 prompt = "A project's config is declared twice: internal/config/pkl/Wavez.pkl states the schema a .wavez.pkl amends, and internal/config/loader.go mirrors it in Go with pkl struct tags and overlays it onto the defaults in internal/config/config.go. Add a setting maxToolCallsPerTurn, an Int defaulting to 0 in the pkl schema, reaching config.Config as the field MaxToolCallsPerTurn, bounding how many tool calls one turn may make. Wire it through every layer the settings beside it already pass through."
 checks = [
-  'internal/config/pkl/Wavez.pkl:maxToolCallsPerTurn',
-  'internal/config/loader.go:maxToolCallsPerTurn',
-  'internal/config/config.go:MaxToolCallsPerTurn',
-  'build:./internal/config/...',
-  'test:./internal/config/...',
+  "internal/config/pkl/Wavez.pkl:maxToolCallsPerTurn",
+  "internal/config/loader.go:maxToolCallsPerTurn",
+  "internal/config/config.go:MaxToolCallsPerTurn",
+  "build:./internal/config/...",
+  "test:./internal/config/...",
 ]
