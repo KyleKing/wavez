@@ -47,6 +47,11 @@ type Record struct {
 	// HarnessMS is what the harness reported for itself.
 	WallMS    int64 `json:"wall_ms"`
 	HarnessMS int64 `json:"harness_ms"`
+	// RouteHints is how many prompts the route hook gave a hint, and
+	// RenameDenials how many shell commands the PreToolUse hook denied as a
+	// rename by text. Both come from the hook trace of a wired arm.
+	RouteHints    int `json:"route_hints,omitempty"`
+	RenameDenials int `json:"rename_denials,omitempty"`
 	// Pass is every check holding on a run the harness completed.
 	Pass bool `json:"pass"`
 }

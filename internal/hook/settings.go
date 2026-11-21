@@ -9,8 +9,12 @@ import (
 
 const newFileMode = 0o644
 
-// mergeSettings returns settings.json with wavez's three hook entries in
-// it. Every key and hook that is not wavez's own is kept as it was, in its
+// mergeSettings returns settings.json with wavez's five hook entries in
+// it: PostToolUse on the edit tools, Stop, SessionStart, UserPromptSubmit,
+// and PreToolUse on the shell tool. The UserPromptSubmit entry is installed
+// whether or not the project has the route hint on, and the handler does
+// nothing on that event until it is, so turning the hint on in .wavez.toml
+// needs no second init. Every key and hook that is not wavez's own is kept as it was, in its
 // place; an entry wavez installed earlier is updated where it stands, and
 // surplus copies of it are removed. A nil current means there is no file.
 // When the settings already say what init wants, current comes back
@@ -65,6 +69,8 @@ func mergeHooks(doc *object, command string) error {
 		{eventPostToolUse, EditTools},
 		{eventStop, ""},
 		{eventSessionStart, ""},
+		{eventUserPromptSubmit, ""},
+		{eventPreToolUse, ShellTool},
 	}
 
 	for _, entry := range entries {

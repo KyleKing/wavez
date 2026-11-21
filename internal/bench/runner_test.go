@@ -240,7 +240,139 @@ mkdir -p .claude && echo '{"hooks":"wavez hook"}' > .claude/settings.json
 
 	req := harness.reqs[0]
 	assert.Equal(t, "init --bin "+wavez+" --dir "+req.Dir+"\n", read(t, wavez+".args"))
-	assert.Equal(t, []string{"HOME=/nowhere", "PATH=" + filepath.Dir(wavez) + ":/usr/bin:/bin"}, req.Env)
+	assert.Equal(t, []string{
+		"HOME=/nowhere", "PATH=" + filepath.Dir(wavez) + ":/usr/bin:/bin",
+		"WAVEZ_HOOK_LOG=" + filepath.Join(filepath.Dir(req.Dir), "hook-trace.jsonl"),
+	}, req.Env, "the hooks trace beside the checkout, not inside it")
+	assert.NoFileExists(t, filepath.Join(req.Dir, ".wavez.toml"), "the wavez arm leaves the route hint off")
+	assert.Zero(t, rec.RouteHints+rec.RenameDenials, "hooks that never fired left no trace to count")
+}
+
+// traceOf returns the hook trace file a harness was told about.
+func traceOf(t *testing.T, env []string) string {
+	t.Helper()
+
+	for _, kv := range env {
+		if path, ok := strings.CutPrefix(kv, "WAVEZ_HOOK_LOG="); ok {
+			return path
+		}
+	}
+
+	require.Fail(t, "no hook trace in the environment")
+
+	return ""
+}
+
+func TestRunner_RouteArmTurnsTheHintOnAndCountsWhatTheHooksSaid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// config is the .wavez.toml the pinned tree already has.
+		config string
+		want   string
+	}{
+		{name: "no configuration", want: "route = true\n"},
+		{
+			name:   "a configuration with a table keeps it, and the key goes first",
+			config: "max_rounds = 2\n\n[decide]\nmodel = \"m\"\n",
+			want:   "route = true\nmax_rounds = 2\n\n[decide]\nmodel = \"m\"\n",
+		},
+		{
+			name:   "a hint turned off is turned on",
+			config: "route = false\nmax_rounds = 2\n",
+			want:   "route = true\nmax_rounds = 2\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			task := newTask(t)
+
+			if tt.config != "" {
+				write(t, filepath.Join(task.Repo, ".wavez.toml"), tt.config)
+				gitIn(t, task.Repo, "add", ".")
+				gitIn(t, task.Repo, "commit", "--quiet", "-m", "configure")
+				task.Rev = gitIn(t, task.Repo, "rev-parse", "HEAD")
+			}
+
+			var config string
+
+			harness := &fakeHarness{run: func(_ context.Context, req bench.Request) (bench.Outcome, error) {
+				config = read(t, filepath.Join(req.Dir, ".wavez.toml"))
+				trace := strings.Join([]string{
+					`{"event":"SessionStart","outcome":"silent"}`,
+					`{"event":"UserPromptSubmit","outcome":"context"}`,
+					`{"event":"UserPromptSubmit","outcome":"silent"}`,
+					`{"event":"PreToolUse","outcome":"deny"}`,
+					`{"event":"PreToolUse","outcome":"deny"}`,
+					`{"event":"PostToolUse","outcome":"context"}`,
+					`not a trace line`,
+				}, "\n")
+
+				return bench.Outcome{Answer: "Done"}, os.WriteFile(traceOf(t, req.Env), []byte(trace), 0o600)
+			}}
+			runner := &bench.Runner{
+				Harness: harness, WavezBin: script(t, "wavez", "exit 0\n"), TempDir: t.TempDir(),
+				Env: []string{"PATH=/usr/bin:/bin"},
+			}
+
+			rec, err := runner.Run(t.Context(), &task, bench.ArmWavezRoute, "")
+			require.NoError(t, err)
+			assert.Equal(t, bench.ArmWavezRoute, rec.Arm)
+			assert.Equal(t, tt.want, config)
+			assert.Equal(t, 1, rec.RouteHints)
+			assert.Equal(t, 2, rec.RenameDenials)
+		})
+	}
+}
+
+func TestRunner_RouteArmThatCannotBeConfiguredIsAnError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		plant func(t *testing.T, repo string)
+		want  string
+	}{
+		{
+			name: "the configuration cannot be read",
+			plant: func(t *testing.T, repo string) {
+				t.Helper()
+				write(t, filepath.Join(repo, ".wavez.toml", "inside"), "x\n")
+			},
+			want: "reading",
+		},
+		{
+			name: "the configuration cannot be written",
+			plant: func(t *testing.T, repo string) {
+				t.Helper()
+				require.NoError(t, os.Symlink(filepath.Join("missing", "x"), filepath.Join(repo, ".wavez.toml")))
+			},
+			want: "turning the route hint on",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			task := newTask(t)
+			tt.plant(t, task.Repo)
+			gitIn(t, task.Repo, "add", ".")
+			gitIn(t, task.Repo, "commit", "--quiet", "-m", "plant")
+			task.Rev = gitIn(t, task.Repo, "rev-parse", "HEAD")
+
+			runner := &bench.Runner{
+				Harness: editor(bench.Outcome{}), WavezBin: script(t, "wavez", "exit 0\n"), TempDir: t.TempDir(),
+			}
+
+			_, err := runner.Run(t.Context(), &task, bench.ArmWavezRoute, "")
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestRunner_WavezArmWithoutAPathStillGetsOne(t *testing.T) {
@@ -253,7 +385,7 @@ func TestRunner_WavezArmWithoutAPathStillGetsOne(t *testing.T) {
 
 	_, err := runner.Run(t.Context(), &task, bench.ArmWavez, "")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"PATH=" + filepath.Dir(wavez)}, harness.reqs[0].Env)
+	assert.Equal(t, "PATH="+filepath.Dir(wavez), harness.reqs[0].Env[0])
 }
 
 func TestRunner_SetupFailuresAreErrorsNotRecords(t *testing.T) {
@@ -369,7 +501,7 @@ func TestRunner_BaselineRefusesAWiredWorkspace(t *testing.T) {
 func TestParseArm(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"baseline", "wavez"} {
+	for _, name := range []string{"baseline", "wavez", "wavez-route"} {
 		arm, err := bench.ParseArm(name)
 		require.NoError(t, err)
 		assert.Equal(t, bench.Arm(name), arm)

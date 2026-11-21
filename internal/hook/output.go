@@ -24,13 +24,21 @@ type output struct {
 	SystemMessage string
 }
 
-// specific carries text for the model that is not an error: next to the
-// tool result on PostToolUse, and as feedback that continues the turn once
-// on Stop.
+// specific carries what one event defines for itself. AdditionalContext is
+// text for the model that is not an error: next to the tool result on
+// PostToolUse, beside the prompt on UserPromptSubmit, and as feedback that
+// continues the turn once on Stop. PermissionDecision "deny" on a
+// PreToolUse event stops the tool call and hands the model
+// PermissionReason in its place.
 type specific struct {
-	EventName         string
-	AdditionalContext string
+	EventName          string
+	AdditionalContext  string
+	PermissionDecision string
+	PermissionReason   string
 }
+
+// permissionDeny is the PreToolUse decision that stops a tool call.
+const permissionDeny = "deny"
 
 // wire lays the output out under the camelCase keys Claude Code defines.
 func (o output) wire() map[string]any {
@@ -46,10 +54,16 @@ func (o output) wire() map[string]any {
 	}
 
 	if o.Specific != nil {
-		fields["hookSpecificOutput"] = map[string]string{
-			"hookEventName":     o.Specific.EventName,
-			"additionalContext": o.Specific.AdditionalContext,
+		own := map[string]string{"hookEventName": o.Specific.EventName}
+
+		if o.Specific.PermissionDecision != "" {
+			own["permissionDecision"] = o.Specific.PermissionDecision
+			own["permissionDecisionReason"] = o.Specific.PermissionReason
+		} else {
+			own["additionalContext"] = o.Specific.AdditionalContext
 		}
+
+		fields["hookSpecificOutput"] = own
 	}
 
 	return fields
@@ -57,6 +71,13 @@ func (o output) wire() map[string]any {
 
 func contextFor(eventName, text string) output {
 	return output{Specific: &specific{EventName: eventName, AdditionalContext: clip(text)}}
+}
+
+// deny refuses a tool call and tells the model why.
+func deny(reason string) output {
+	return output{Specific: &specific{
+		EventName: eventPreToolUse, PermissionDecision: permissionDeny, PermissionReason: clip(reason),
+	}}
 }
 
 func (o output) write(w io.Writer) error {
@@ -90,8 +111,10 @@ func (o output) outcome() string {
 		return "block"
 	case o.SystemMessage != "":
 		return "released"
+	case o.Specific != nil && o.Specific.PermissionDecision != "":
+		return outcomeDeny
 	case o.Specific != nil:
-		return "context"
+		return outcomeContext
 	default:
 		return "silent"
 	}
