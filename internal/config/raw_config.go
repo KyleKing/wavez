@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -14,8 +15,16 @@ const problemEmpty = "is empty"
 // strings stand in for values whose absence means a default.
 type rawConfig struct {
 	MaxRounds *int       `toml:"max_rounds"`
+	Decide    rawDecide  `toml:"decide"`
 	Disable   []string   `toml:"disable"`
 	Checks    []rawCheck `toml:"check"`
+	Route     bool       `toml:"route"`
+}
+
+type rawDecide struct {
+	Endpoint string `toml:"endpoint"`
+	Model    string `toml:"model"`
+	Timeout  string `toml:"timeout"`
 }
 
 type rawCheck struct {
@@ -29,7 +38,14 @@ type rawCheck struct {
 }
 
 func (r rawConfig) parse() (Config, error) {
-	cfg := Config{MaxRounds: DefaultMaxRounds, Disabled: r.Disable}
+	cfg := Config{MaxRounds: DefaultMaxRounds, Disabled: r.Disable, Route: r.Route}
+
+	decide, err := r.Decide.parse()
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Decide = decide
 
 	if r.MaxRounds != nil {
 		if *r.MaxRounds < 1 {
@@ -72,6 +88,44 @@ func (r rawConfig) parse() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (r rawDecide) parse() (Decide, error) {
+	decide := Decide{
+		Endpoint: strings.TrimSpace(r.Endpoint),
+		Model:    strings.TrimSpace(r.Model),
+		Timeout:  DefaultDecideTimeout,
+	}
+
+	if decide.Endpoint != "" {
+		parsed, err := url.Parse(decide.Endpoint)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return Decide{}, &Error{
+				Key:     "decide.endpoint",
+				Problem: fmt.Sprintf("is %q, want an http or https URL such as http://localhost:11434/v1", r.Endpoint),
+			}
+		}
+
+		if decide.Model == "" {
+			return Decide{}, &Error{Key: "decide.model", Problem: "is empty, and an endpoint needs a model to ask"}
+		}
+	}
+
+	if r.Timeout == "" {
+		return decide, nil
+	}
+
+	timeout, err := time.ParseDuration(r.Timeout)
+	if err != nil || timeout <= 0 {
+		return Decide{}, &Error{
+			Key:     "decide.timeout",
+			Problem: fmt.Sprintf("is %q, want a positive duration such as 500ms or 3s", r.Timeout),
+		}
+	}
+
+	decide.Timeout = timeout
+
+	return decide, nil
 }
 
 func (r rawCheck) parse(index int) (Check, error) {
