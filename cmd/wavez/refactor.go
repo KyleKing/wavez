@@ -1,9 +1,157 @@
 package main
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
 
-func runRename(_ context.Context, _ []string, _ stdio) error { return errNotBuilt }
+	"github.com/kyleking/wavez/internal/refactor"
+)
 
-func runMove(_ context.Context, _ []string, _ stdio) error { return errNotBuilt }
+const (
+	renameUsage = "usage: wavez rename [--root DIR] <file.go|./pkg/dir>:<Name|Type.Member> <NewName>"
+	moveUsage   = "usage: wavez move [--root DIR] <file.go>:<Name>[,<Name>...] <dest.go>"
+	deleteUsage = "usage: wavez delete [--root DIR] <file.go>:<Name>[,<Name>...] [<file.go>:<Name>...]"
+)
 
-func runDelete(_ context.Context, _ []string, _ stdio) error { return errNotBuilt }
+// refactorUsageError is a command line that does not fit a command's form.
+type refactorUsageError struct {
+	usage  string
+	reason string
+}
+
+func (e *refactorUsageError) Error() string { return e.reason + "\n" + e.usage }
+
+// refactorArgs is a refactor command line with --root taken out of it.
+type refactorArgs struct {
+	root string
+	rest []string
+	help bool
+}
+
+// splitRefactorArgs separates --root from the positional arguments, wherever
+// on the line it was written.
+func splitRefactorArgs(args []string, usage string) (refactorArgs, error) {
+	var out refactorArgs
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		name := strings.TrimLeft(arg, "-")
+
+		switch {
+		case !strings.HasPrefix(arg, "-"):
+			out.rest = append(out.rest, arg)
+		case name == "h" || name == "help":
+			out.help = true
+		case name == "root" && i+1 < len(args):
+			i++
+			out.root = args[i]
+		case strings.HasPrefix(name, "root="):
+			out.root = strings.TrimPrefix(name, "root=")
+		default:
+			return out, &refactorUsageError{usage: usage, reason: "unknown or incomplete flag " + arg}
+		}
+	}
+
+	return out, nil
+}
+
+// newRefactorer builds the refactorer for the module holding the working
+// directory, or for --root when given. Target paths are read relative to the
+// working directory first, as a shell user expects.
+func newRefactorer(root string) (*refactor.Refactorer, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("finding the working directory: %w", err)
+	}
+
+	if root == "" {
+		if root, err = refactor.FindRoot(cwd); err != nil {
+			return nil, fmt.Errorf("finding the module root: %w", err)
+		}
+	}
+
+	r, err := refactor.New(root, refactor.WithWorkDir(cwd))
+	if err != nil {
+		return nil, fmt.Errorf("opening the module: %w", err)
+	}
+
+	return r, nil
+}
+
+// refactorCommand parses a refactor command line and hands its positional
+// arguments to run, which returns the report to print.
+func refactorCommand(
+	args []string, streams stdio, usage string, valid func(n int) bool,
+	run func(r *refactor.Refactorer, rest []string) (string, error),
+) error {
+	parsed, err := splitRefactorArgs(args, usage)
+	if err != nil {
+		return err
+	}
+
+	if parsed.help {
+		return report(streams, usage+"\n")
+	}
+
+	if !valid(len(parsed.rest)) {
+		return &refactorUsageError{usage: usage, reason: fmt.Sprintf("got %d arguments", len(parsed.rest))}
+	}
+
+	r, err := newRefactorer(parsed.root)
+	if err != nil {
+		return err
+	}
+
+	summary, err := run(r, parsed.rest)
+	if err != nil {
+		return err
+	}
+
+	return report(streams, summary)
+}
+
+func report(streams stdio, text string) error {
+	if _, err := fmt.Fprint(streams.out, text); err != nil {
+		return fmt.Errorf("writing the report: %w", err)
+	}
+
+	return nil
+}
+
+func runRename(ctx context.Context, args []string, streams stdio) error {
+	return refactorCommand(args, streams, renameUsage, func(n int) bool { return n == 2 }, //nolint:mnd // target, name
+		func(r *refactor.Refactorer, rest []string) (string, error) {
+			res, err := r.Rename(ctx, rest[0], rest[1])
+			if err != nil {
+				return "", fmt.Errorf("%w", err)
+			}
+
+			return res.Summary(), nil
+		})
+}
+
+func runMove(ctx context.Context, args []string, streams stdio) error {
+	return refactorCommand(args, streams, moveUsage, func(n int) bool { return n == 2 }, //nolint:mnd // target, dest
+		func(r *refactor.Refactorer, rest []string) (string, error) {
+			res, err := r.Move(ctx, rest[0], rest[1])
+			if err != nil {
+				return "", fmt.Errorf("%w", err)
+			}
+
+			return res.Summary(), nil
+		})
+}
+
+func runDelete(ctx context.Context, args []string, streams stdio) error {
+	return refactorCommand(args, streams, deleteUsage, func(n int) bool { return n >= 1 },
+		func(r *refactor.Refactorer, rest []string) (string, error) {
+			res, err := r.Delete(ctx, rest)
+			if err != nil {
+				return "", fmt.Errorf("%w", err)
+			}
+
+			return res.Summary(), nil
+		})
+}

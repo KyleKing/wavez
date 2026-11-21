@@ -27,7 +27,7 @@ func runGate(ctx context.Context, args []string, streams stdio) error {
 	root := flags.String("root", ".", "project root")
 
 	if err := flags.Parse(args); err != nil {
-		return exitCode(2) //nolint:mnd // the conventional status for a usage error, which flag already printed
+		return exitError(2) //nolint:mnd // the conventional status for a usage error, which flag already printed
 	}
 
 	if s := gate.Stage(*stage); s != gate.StageEdit && s != gate.StageStop {
@@ -53,7 +53,7 @@ func runGate(ctx context.Context, args []string, streams stdio) error {
 	}
 
 	if report.Failed() {
-		return exitCode(1)
+		return exitError(1)
 	}
 
 	return nil

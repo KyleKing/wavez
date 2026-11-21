@@ -20,10 +20,10 @@ import (
 const hookLogEnv = "WAVEZ_HOOK_LOG"
 
 const (
-	errInitUsage = exitCode(2)
+	errInitUsage = exitError(2)
 	// A failed hook exits 1 and never 2: Claude Code reads 2 from a hook as
 	// "block", and any other non-zero status as an error that holds nothing.
-	errHookFailed = exitCode(1)
+	errHookFailed = exitError(1)
 	logFileMode   = 0o600
 )
 
