@@ -50,7 +50,7 @@ func TestInit(t *testing.T) {
 
 	raw, err := os.ReadFile(settings) //nolint:gosec // a file this test wrote
 	require.NoError(t, err)
-	assert.Equal(t, 3, strings.Count(string(raw), `"/opt/wavez/wavez hook"`))
+	assert.Equal(t, 5, strings.Count(string(raw), `"/opt/wavez/wavez hook"`))
 	assert.NotContains(t, string(raw), `"wavez hook"`)
 }
 

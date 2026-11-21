@@ -1,45 +1,56 @@
 package bench
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/transcript"
 )
 
 // Arm is one side of the comparison.
 type Arm string
 
-// The arms: the harness alone, and the harness with wavez wired in.
+// The arms: the harness alone, the harness with wavez wired in, and the
+// same with the route hint turned on in the workspace's .wavez.toml.
 const (
-	ArmBaseline Arm = "baseline"
-	ArmWavez    Arm = "wavez"
+	ArmBaseline   Arm = "baseline"
+	ArmWavez      Arm = "wavez"
+	ArmWavezRoute Arm = "wavez-route"
 )
 
-// UnknownArmError says an arm name is neither of the two.
+// Arms lists the arms in the order a report shows them.
+func Arms() []Arm {
+	return []Arm{ArmBaseline, ArmWavez, ArmWavezRoute}
+}
+
+// UnknownArmError says an arm name is none of the arms.
 type UnknownArmError struct {
 	Name string
 }
 
 func (e *UnknownArmError) Error() string {
-	return fmt.Sprintf("unknown arm %q: want %s or %s", e.Name, ArmBaseline, ArmWavez)
+	return fmt.Sprintf("unknown arm %q: want %s, %s, or %s", e.Name, ArmBaseline, ArmWavez, ArmWavezRoute)
 }
 
 // ParseArm reads an arm name.
 func ParseArm(name string) (Arm, error) {
-	switch Arm(name) {
-	case ArmBaseline, ArmWavez:
+	if slices.Contains(Arms(), Arm(name)) {
 		return Arm(name), nil
-	default:
-		return "", &UnknownArmError{Name: name}
 	}
+
+	return "", &UnknownArmError{Name: name}
 }
 
 // ContaminatedError says a baseline workspace already carries wavez, so a
@@ -109,6 +120,13 @@ func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, 
 		return Record{}, err
 	}
 
+	// The hooks of a wired arm trace what they did into a file beside the
+	// checkout, where it is no part of the tree the agent works on.
+	trace := filepath.Join(filepath.Dir(ws.Dir), "hook-trace.jsonl")
+	if arm != ArmBaseline {
+		env = append(slices.Clone(env), hook.TraceEnv+"="+trace)
+	}
+
 	rec := Record{
 		TaskID: task.ID, TaskHash: task.Hash(), Arm: arm, Harness: r.HarnessName,
 		Model: model, Rev: task.Rev, WavezVersion: r.WavezVersion,
@@ -141,8 +159,27 @@ func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, 
 	rec.Checks = Verify(ctx, task.Checks, ws.Dir, outcome.Answer)
 	rec.Pass = rec.Stop == StopCompleted && Passed(rec.Checks)
 	r.attribute(&rec)
+	tally(&rec, trace)
 
 	return rec, nil
+}
+
+// tally reads the hook trace into the record. A run whose hooks never
+// fired, the baseline's included, has no trace and counts nothing.
+func tally(rec *Record, trace string) {
+	body, err := fs.ReadFile(os.DirFS(filepath.Dir(trace)), filepath.Base(trace))
+	if err != nil {
+		return
+	}
+
+	counts, err := hook.ReadTally(bytes.NewReader(body))
+	if err != nil && rec.Error == "" {
+		rec.Error = firstLine(err.Error())
+	}
+
+	// A trace that could not be read to its end still counts the lines
+	// before that point.
+	rec.RouteHints, rec.RenameDenials = counts.RouteHints, counts.RenameDenials
 }
 
 func (r *Runner) now() time.Time {
@@ -179,11 +216,18 @@ func (r *Runner) harness(ctx context.Context, req Request) (Outcome, string, err
 }
 
 // prepare wires the arm into the workspace and returns the harness's
-// environment. The wavez arm gets hooks and a skill from `wavez init`, and
-// the binary's directory first on PATH so the skill's commands resolve.
+// environment. A wavez arm gets hooks and a skill from `wavez init`, and
+// the binary's directory first on PATH so the skill's commands resolve. The
+// route arm also gets the route hint turned on.
 func (r *Runner) prepare(ctx context.Context, dir string, arm Arm) ([]string, error) {
-	if arm != ArmWavez {
+	if arm == ArmBaseline {
 		return r.Env, ensureBaseline(dir)
+	}
+
+	if arm == ArmWavezRoute {
+		if err := enableRoute(dir); err != nil {
+			return nil, err
+		}
 	}
 
 	out, err := run(ctx, invocation{
@@ -195,6 +239,35 @@ func (r *Runner) prepare(ctx context.Context, dir string, arm Arm) ([]string, er
 
 	return withPath(r.Env, filepath.Dir(r.WavezBin)), nil
 }
+
+// routeKey matches a top-level route setting in a .wavez.toml.
+var routeKey = regexp.MustCompile(`(?m)^route[ \t]*=.*\n?`)
+
+// enableRoute turns the route hint on in the workspace's .wavez.toml,
+// keeping whatever else a pinned tree configured. The key goes first,
+// because a TOML key written after a table would belong to the table.
+func enableRoute(dir string) error {
+	workspace, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("opening the workspace: %w", err)
+	}
+
+	body, err := workspace.ReadFile(config.FileName)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.Join(fmt.Errorf("reading %s: %w", config.FileName, err), workspace.Close())
+	}
+
+	body = append([]byte("route = true\n"), routeKey.ReplaceAll(body, nil)...)
+
+	err = workspace.WriteFile(config.FileName, body, routeFileMode)
+	if err = errors.Join(err, workspace.Close()); err != nil {
+		return fmt.Errorf("turning the route hint on: %w", err)
+	}
+
+	return nil
+}
+
+const routeFileMode = 0o644
 
 // The bits RFC 9562 fixes in a version 4 UUID.
 const (

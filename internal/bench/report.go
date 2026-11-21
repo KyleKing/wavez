@@ -45,9 +45,9 @@ func (k groupKey) setup() groupKey {
 }
 
 // Report writes, for each task (or the one named), a row per arm and setup
-// and then the wavez/baseline ratio of each metric, marked as noise unless
-// it clears the thresholds. Arms that were served different models are not
-// compared at all.
+// and then, for each arm that is not the baseline, its ratio to the baseline
+// on each metric, marked as noise unless it clears the thresholds. Arms that
+// were served different models are not compared at all.
 func Report(w io.Writer, recs []Record, taskID string) error {
 	var b strings.Builder
 
@@ -123,12 +123,12 @@ func groupsOf(recs []Record, task string) []group {
 	return groups
 }
 
-const rowFormat = "%-9s %-8s %-28s %-13s %4s %6s %6s %9s %8s %7s\n"
+const rowFormat = "%-12s %-8s %-28s %-13s %4s %6s %6s %9s %8s %7s %6s %7s\n"
 
 func reportTask(b *strings.Builder, task string, groups []group) {
 	fmt.Fprintf(b, "task %s\n", task)
 	fmt.Fprintf(b, rowFormat,
-		"arm", "harness", "served", "task hash", "runs", "pass", "turns", "cost", "wall", "sweeps")
+		"arm", "harness", "served", "task hash", "runs", "pass", "turns", "cost", "wall", "sweeps", "hints", "denials")
 
 	for i := range groups {
 		g := &groups[i]
@@ -142,7 +142,9 @@ func reportTask(b *strings.Builder, task string, groups []group) {
 
 		fmt.Fprintf(b, rowFormat, g.key.arm, g.key.harness, orDash(g.key.served), g.key.hash,
 			strconv.Itoa(len(g.recs)), fmt.Sprintf("%d/%d", passed, len(g.recs)),
-			metricTurns.cell(g), metricCost.cell(g), metricWall.cell(g), metricSweeps.cell(g))
+			metricTurns.cell(g), metricCost.cell(g), metricWall.cell(g), metricSweeps.cell(g),
+			strconv.Itoa(g.total(func(r *Record) int { return r.RouteHints })),
+			strconv.Itoa(g.total(func(r *Record) int { return r.RenameDenials })))
 	}
 
 	compareArms(b, groups)
@@ -156,65 +158,88 @@ func orDash(s string) string {
 	return s
 }
 
-// compareArms writes the ratio block for every setup both arms ran, and
-// says why there is none when the arms never shared a setup.
-func compareArms(b *strings.Builder, groups []group) {
-	var baseline, wavez []*group
-
-	for i := range groups {
-		switch groups[i].key.arm {
-		case ArmBaseline:
-			baseline = append(baseline, &groups[i])
-		case ArmWavez:
-			wavez = append(wavez, &groups[i])
-		}
+// total sums a count over the group's runs. Hints and denials are shown
+// as totals, because the question they answer is whether a hook fired at
+// all, and a median of mostly zeros would hide that.
+func (g *group) total(read func(r *Record) int) int {
+	sum := 0
+	for i := range g.recs {
+		sum += read(&g.recs[i])
 	}
 
-	if len(baseline) == 0 || len(wavez) == 0 {
+	return sum
+}
+
+// compareArms writes, for each arm other than the baseline, the ratio
+// block for every setup it shares with the baseline, and says why there is
+// none when the two never shared a setup.
+func compareArms(b *strings.Builder, groups []group) {
+	byArm := map[Arm][]*group{}
+	for i := range groups {
+		byArm[groups[i].key.arm] = append(byArm[groups[i].key.arm], &groups[i])
+	}
+
+	baseline := byArm[ArmBaseline]
+
+	switch {
+	case len(byArm) == 1:
 		b.WriteString("no comparison: only one arm has runs\n")
+
+		return
+	case len(baseline) == 0:
+		b.WriteString("no comparison: the baseline arm has no runs, and every ratio is against it\n")
 
 		return
 	}
 
-	compared := false
+	for _, arm := range Arms() {
+		others := byArm[arm]
+		if arm == ArmBaseline || len(others) == 0 {
+			continue
+		}
 
-	for _, base := range baseline {
-		for _, wz := range wavez {
-			if base.key.setup() == wz.key.setup() {
-				writeRatios(b, base, wz)
+		compared := false
 
-				compared = true
+		for _, base := range baseline {
+			for _, other := range others {
+				if base.key.setup() == other.key.setup() {
+					writeRatios(b, base, other)
+
+					compared = true
+				}
 			}
 		}
-	}
 
-	if !compared {
-		b.WriteString(refusal(baseline[0].key, wavez[0].key))
+		if !compared {
+			b.WriteString(refusal(baseline[0].key, others[0].key))
+		}
 	}
 }
 
-// refusal says which part of the setup kept two arms from being compared.
-func refusal(base, wz groupKey) string {
+// refusal says which part of the setup kept an arm from being compared
+// with the baseline.
+func refusal(base, other groupKey) string {
 	switch {
-	case base.harness != wz.harness:
-		return fmt.Sprintf("no comparison: baseline ran under %s and wavez under %s\n", base.harness, wz.harness)
-	case base.served != wz.served:
-		return fmt.Sprintf("no comparison: baseline was served %s and wavez was served %s, "+
-			"so a difference would measure the model\n", orDash(base.served), orDash(wz.served))
+	case base.harness != other.harness:
+		return fmt.Sprintf("no comparison: baseline ran under %s and %s under %s\n",
+			base.harness, other.arm, other.harness)
+	case base.served != other.served:
+		return fmt.Sprintf("no comparison: baseline was served %s and %s was served %s, "+
+			"so a difference would measure the model\n", orDash(base.served), other.arm, orDash(other.served))
 	default:
-		return fmt.Sprintf("no comparison: the task changed between the arms (%s then %s), "+
-			"so they answered different questions\n", base.hash, wz.hash)
+		return fmt.Sprintf("no comparison: the task changed between baseline and %s (%s then %s), "+
+			"so they answered different questions\n", other.arm, base.hash, other.hash)
 	}
 }
 
-func writeRatios(b *strings.Builder, base, wz *group) {
-	fmt.Fprintf(b, "wavez/baseline on %s %s, %d vs %d runs\n",
-		base.key.harness, orDash(base.key.served), len(wz.recs), len(base.recs))
+func writeRatios(b *strings.Builder, base, other *group) {
+	fmt.Fprintf(b, "%s/baseline on %s %s, %d vs %d runs\n",
+		other.key.arm, base.key.harness, orDash(base.key.served), len(other.recs), len(base.recs))
 
-	few := min(len(base.recs), len(wz.recs)) < MinRuns
+	few := min(len(base.recs), len(other.recs)) < MinRuns
 
 	for _, m := range []metric{metricTurns, metricCost, metricWall, metricSweeps} {
-		fmt.Fprintf(b, "  %-7s %s\n", m.name, verdict(m.median(base), m.median(wz), few))
+		fmt.Fprintf(b, "  %-7s %s\n", m.name, verdict(m.median(base), m.median(other), few))
 	}
 
 	if few {

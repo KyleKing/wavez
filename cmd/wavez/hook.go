@@ -11,13 +11,14 @@ import (
 	"strings"
 
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/decide"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/refactor"
 )
 
 // hookLogEnv names a file `wavez hook` appends one JSON line per event to.
-const hookLogEnv = "WAVEZ_HOOK_LOG"
+const hookLogEnv = hook.TraceEnv
 
 const (
 	errInitUsage = exitError(2)
@@ -86,11 +87,17 @@ func runHook(ctx context.Context, _ []string, streams stdio) error {
 	)
 
 	// The harness starts a hook in the project directory. A config that
-	// does not load keeps the default cap here and is reported by the gate
-	// run itself, which loads it again.
+	// does not load keeps the default cap and leaves the route hint off
+	// here, and is reported by the gate run itself, which loads it again.
 	if dir, err := os.Getwd(); err == nil {
-		if cfg, err := config.Load(hook.FindRoot(dir)); err == nil {
+		root := hook.FindRoot(dir)
+
+		if cfg, err := config.Load(root); err == nil {
 			opts = append(opts, hook.WithMaxRounds(cfg.MaxRounds))
+
+			if cfg.Route {
+				opts = append(opts, hook.WithRoute(decide.FromConfig(root, cfg.Decide)))
+			}
 		}
 	}
 

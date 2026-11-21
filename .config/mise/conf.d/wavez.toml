@@ -3,12 +3,13 @@ description = "Gates only this project has, run by the template's CI project job
 run = "go run ./cmd/wavez bench list"
 
 [tasks."bench:ab"]
-description = "Run one benchmark task under plain Claude Code and under Claude Code with wavez, then report"
+description = "Run one benchmark task under plain Claude Code, with wavez, and with wavez and the route hint, then report"
 usage = 'arg "<task>"'
 run = [
   "go build -o bin/wavez ./cmd/wavez",
   "bin/wavez bench run $usage_task --arm baseline",
   "bin/wavez bench run $usage_task --arm wavez",
+  "bin/wavez bench run $usage_task --arm wavez-route",
   "bin/wavez bench report $usage_task",
 ]
 

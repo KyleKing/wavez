@@ -33,7 +33,7 @@ func (e *usageError) Error() string { return e.msg }
 
 const benchUsage = `usage:
   wavez bench list   [--tasks PATH]
-  wavez bench run    <task-id> --arm baseline|wavez [--model M] [--n N] [--keep]
+  wavez bench run    <task-id> --arm baseline|wavez|wavez-route [--model M] [--n N] [--keep]
                      [--timeout D] [--tasks PATH] [--records PATH]
                      [--harness-cmd 'prog {prompt}'] [--wavez-bin PATH] [--user-settings]
   wavez bench report [task-id] [--records PATH]`
@@ -121,7 +121,7 @@ func parseRun(args []string, streams stdio) (runOptions, error) {
 	var o runOptions
 
 	fs := flag.NewFlagSet("bench run", flag.ContinueOnError)
-	fs.StringVar(&o.arm, "arm", "", "baseline or wavez (required)")
+	fs.StringVar(&o.arm, "arm", "", "baseline, wavez, or wavez-route (required)")
 	fs.StringVar(&o.model, "model", "", "model to ask the harness for")
 	fs.IntVar(&o.n, "n", 1, "how many times to run the task")
 	fs.BoolVar(&o.keep, "keep", false, "leave each workspace behind")
@@ -143,7 +143,7 @@ func parseRun(args []string, streams stdio) (runOptions, error) {
 	case o.task == "":
 		return o, &usageError{msg: "bench run needs a task id\n" + benchUsage}
 	case o.arm == "":
-		return o, &usageError{msg: "bench run needs --arm baseline or --arm wavez"}
+		return o, &usageError{msg: "bench run needs --arm baseline, wavez, or wavez-route"}
 	case o.n < 1:
 		return o, &usageError{msg: "--n must be at least 1"}
 	}

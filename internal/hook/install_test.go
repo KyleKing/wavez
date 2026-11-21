@@ -104,7 +104,9 @@ func TestInstall_FreshProject(t *testing.T) {
 			"hooks": [{"type": "command", "command": "wavez hook"}]
 		}],
 		"Stop": [{"hooks": [{"type": "command", "command": "wavez hook"}]}],
-		"SessionStart": [{"hooks": [{"type": "command", "command": "wavez hook"}]}]
+		"SessionStart": [{"hooks": [{"type": "command", "command": "wavez hook"}]}],
+		"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "wavez hook"}]}],
+		"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "wavez hook"}]}]
 	}}`, read(t, dir, hook.SettingsPath))
 	assert.Equal(t, skill, read(t, dir, hook.SkillPath))
 	assert.Equal(t, "*\n", read(t, dir, hook.GitignorePath))
@@ -155,7 +157,9 @@ func TestInstall_KeepsForeignSettings(t *testing.T) {
 	assert.Less(t, strings.Index(got, `"zeta"`), strings.Index(got, `"permissions"`), "key order is the author's")
 	assert.Less(t, strings.Index(got, `"hooks"`), strings.Index(got, `"alpha"`))
 
-	assert.Equal(t, []string{"Bash => guard.sh && echo <ok>"}, commands(t, dir, "PreToolUse"))
+	assert.Equal(t, []string{"Bash => guard.sh && echo <ok>", "Bash => wavez hook"}, commands(t, dir, "PreToolUse"),
+		"a foreign Bash guard keeps its group and wavez gets one of its own")
+	assert.Equal(t, []string{"=> wavez hook"}, commands(t, dir, "UserPromptSubmit"))
 	assert.Equal(t, []string{
 		"Edit|Write => prettier --write",
 		"Edit|Write|MultiEdit|NotebookEdit => wavez hook",
@@ -310,7 +314,7 @@ func TestInstall_RepairsItsOwnEntries(t *testing.T) {
 					assert.Contains(t, got, kept)
 				}
 
-				assert.Equal(t, 4, strings.Count(got, `"wavez hook"`), "the prompt hook's, plus one per event")
+				assert.Equal(t, 6, strings.Count(got, `"wavez hook"`), "the prompt hook's, plus one per event")
 			}
 
 			assert.Empty(t, install(t, in), "a second run has nothing to do")

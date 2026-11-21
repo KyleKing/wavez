@@ -110,11 +110,15 @@ type result struct {
 	Reason        string
 	SystemMessage string
 	Specific      struct {
-		EventName         string
-		AdditionalContext string
+		EventName          string
+		AdditionalContext  string
+		PermissionDecision string
+		PermissionReason   string
 	}
 	// raw is stdout exactly as written; empty means the hook was silent.
 	raw string
+	// specificKeys is every key the event-specific object carried.
+	specificKeys []string
 }
 
 // parse reads stdout the way Claude Code does: one JSON object, under the
@@ -138,6 +142,12 @@ func parse(t *testing.T, stdout string) result {
 
 	res.Specific.EventName = specific["hookEventName"]
 	res.Specific.AdditionalContext = specific["additionalContext"]
+	res.Specific.PermissionDecision = specific["permissionDecision"]
+	res.Specific.PermissionReason = specific["permissionDecisionReason"]
+
+	for key := range specific {
+		res.specificKeys = append(res.specificKeys, key)
+	}
 
 	for key, into := range map[string]*string{
 		"decision": &res.Decision, "reason": &res.Reason, "systemMessage": &res.SystemMessage,

@@ -144,7 +144,7 @@ func TestReport_RefusesUnlikeArms(t *testing.T) {
 		{
 			name: "the task changed",
 			recs: append(runs(5, bench.ArmBaseline, "m", 10, 4), otherTask...),
-			want: "no comparison: the task changed between the arms (hash1 then hash2)",
+			want: "no comparison: the task changed between baseline and wavez (hash1 then hash2)",
 		},
 		{
 			name: "only one arm",
@@ -177,6 +177,45 @@ func TestReport_ComparesOnlyTheSharedModel(t *testing.T) {
 	assert.Contains(t, got, "turns    0.40x  outside the noise")
 }
 
+func TestReport_ComparesEachWiredArmToTheBaseline(t *testing.T) {
+	t.Parallel()
+
+	recs := append(runs(5, bench.ArmWavezRoute, "m", 2, 0), runs(5, bench.ArmBaseline, "m", 10, 4)...)
+	recs = append(recs, runs(5, bench.ArmWavez, "m", 4, 0)...)
+
+	got := report(t, recs, "e1")
+
+	wavez := strings.Index(got, "wavez/baseline on claude m, 5 vs 5 runs")
+	routed := strings.Index(got, "wavez-route/baseline on claude m, 5 vs 5 runs")
+
+	require.Positive(t, wavez)
+	assert.Greater(t, routed, wavez, "the arms are compared in a fixed order")
+	assert.Contains(t, got[wavez:routed], "turns    0.40x  outside the noise")
+	assert.Contains(t, got[routed:], "turns    0.20x  outside the noise")
+	assert.NotContains(t, got, "wavez-route/wavez", "no arm is compared with anything but the baseline")
+
+	t.Run("one arm that cannot be compared does not silence the other", func(t *testing.T) {
+		t.Parallel()
+
+		mixed := append(runs(5, bench.ArmBaseline, "m", 10, 4), runs(5, bench.ArmWavez, "m", 4, 0)...)
+		mixed = append(mixed, runs(5, bench.ArmWavezRoute, "other", 2, 0)...)
+
+		got := report(t, mixed, "e1")
+		assert.Contains(t, got, "wavez/baseline on claude m, 5 vs 5 runs")
+		assert.Contains(t, got, "no comparison: baseline was served m and wavez-route was served other")
+	})
+
+	t.Run("two wired arms and no baseline", func(t *testing.T) {
+		t.Parallel()
+
+		wired := append(runs(5, bench.ArmWavez, "m", 4, 0), runs(5, bench.ArmWavezRoute, "m", 2, 0)...)
+
+		got := report(t, wired, "e1")
+		assert.Contains(t, got, "no comparison: the baseline arm has no runs")
+		assert.NotContains(t, got, "/baseline on")
+	})
+}
+
 func TestReport_Table(t *testing.T) {
 	t.Parallel()
 
@@ -185,18 +224,25 @@ func TestReport_Table(t *testing.T) {
 	recs[1].Pass = false
 	recs[2].Stop, recs[2].Turns, recs[2].Pass = bench.StopHarnessError, 900, false
 
-	bare := bench.Record{TaskID: "q1", TaskHash: "hash9", Arm: bench.ArmWavez, Harness: "pi", WallMS: 61000}
-	recs = append(recs, bare, bare)
+	bare := bench.Record{TaskID: "q1", TaskHash: "hash9", Arm: bench.ArmWavezRoute, Harness: "pi", WallMS: 61000}
+	hinted := bare
+	hinted.RouteHints, hinted.RenameDenials = 3, 1
+	recs = append(recs, bare, hinted)
+
+	header := "arm          harness  served                       task hash     runs   pass  turns      cost" +
+		"     wall  sweeps  hints denials"
 
 	want := strings.Join([]string{
 		"task e1",
-		"arm       harness  served                       task hash     runs   pass  turns      cost     wall  sweeps",
-		"baseline  claude   claude-example-main          hash1            3    1/3      3   $0.0300     3.3s       2",
+		header,
+		"baseline     claude   claude-example-main          hash1            3    1/3      3   $0.0300" +
+			"     3.3s       2      0       0",
 		"no comparison: only one arm has runs",
 		"",
 		"task q1",
-		"arm       harness  served                       task hash     runs   pass  turns      cost     wall  sweeps",
-		"wavez     pi       -                            hash9            2    0/2      -         -     1m1s       -",
+		header,
+		"wavez-route  pi       -                            hash9            2    0/2      -         -" +
+			"     1m1s       -      3       1",
 		"no comparison: only one arm has runs",
 		"",
 	}, "\n")

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os/exec"
 	"slices"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/decide"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/session"
 )
@@ -62,8 +64,13 @@ func (g Gate) Run(ctx context.Context, root string, changed []string, stage gate
 // Handler turns one Claude Code hook event into a gate run and the output
 // that tells the harness what to do with the result.
 type Handler struct {
-	runner    Runner
-	trace     io.Writer
+	runner Runner
+	trace  io.Writer
+	// router answers the route question, and is nil while the project has
+	// the hint turned off.
+	router decide.Decider
+	// lookPath finds a program the way the shell would.
+	lookPath  func(name string) (string, error)
 	maxRounds int
 }
 
@@ -86,9 +93,26 @@ func WithTrace(w io.Writer) Option {
 	return func(h *Handler) { h.trace = w }
 }
 
+// WithRoute turns the route hint on: a submitted prompt is put to d, and a
+// route other than the fallback reaches the agent as one fixed sentence.
+// Without this option a UserPromptSubmit event does nothing.
+func WithRoute(d decide.Decider) Option {
+	return func(h *Handler) { h.router = d }
+}
+
+// WithLookPath replaces how the handler finds gopls, which the command a
+// rename denial suggests cannot run without.
+func WithLookPath(find func(name string) (string, error)) Option {
+	return func(h *Handler) {
+		if find != nil {
+			h.lookPath = find
+		}
+	}
+}
+
 // New returns a Handler that runs gates through runner.
 func New(runner Runner, opts ...Option) *Handler {
-	h := &Handler{runner: runner, maxRounds: DefaultMaxRounds}
+	h := &Handler{runner: runner, maxRounds: DefaultMaxRounds, lookPath: exec.LookPath}
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -141,6 +165,10 @@ func (h *Handler) dispatch(ctx context.Context, ev event, rec *record) (output, 
 		_, err := store.Update(ctx, ev.SessionID, keep)
 
 		return output{}, wrap("starting session", err)
+	case eventUserPromptSubmit:
+		return h.prompted(ctx, ev, rec), nil
+	case eventPreToolUse:
+		return h.running(ctx, ev, rec), nil
 	default:
 		return output{}, nil
 	}
@@ -200,8 +228,8 @@ type record struct {
 	Session string `json:"session"`
 	Root    string `json:"root"`
 	Tool    string `json:"tool,omitempty"`
-	// Outcome is what the handler did: silent, context, block, released,
-	// or error.
+	// Outcome is what the handler did: silent, context, block, deny,
+	// released, or error.
 	Outcome        string   `json:"outcome"`
 	Note           string   `json:"note,omitempty"`
 	Error          string   `json:"error,omitempty"`
