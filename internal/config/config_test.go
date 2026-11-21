@@ -32,6 +32,10 @@ func TestLoad_MissingFileYieldsDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
+	if cfg.Decide != (config.Decide{Timeout: config.DefaultDecideTimeout}) || cfg.Route {
+		t.Errorf("got decide %+v route %v, want no model and no routing", cfg.Decide, cfg.Route)
+	}
+
 	if cfg.MaxRounds != config.DefaultMaxRounds || len(cfg.Checks) != 0 {
 		t.Errorf("got %+v, want only the default max rounds", cfg)
 	}
@@ -128,6 +132,14 @@ func TestLoad_RejectsWhatItCannotHonor(t *testing.T) {
 		{"built-in name still enabled", strings.ReplaceAll(check, `"x"`, `"lint"`), `check "lint" name`},
 		{"disabling something that is not a built-in", "disable = [\"ruff\"]\n", "disable"},
 		{"zero rounds", "max_rounds = 0\n", "max_rounds"},
+		{"unknown decide key", "[decide]\nurl = \"http://localhost\"\n", "decide.url"},
+		{"endpoint without a scheme", "[decide]\nendpoint = \"localhost:11434\"\nmodel = \"m\"\n", "decide.endpoint"},
+		{"endpoint on another scheme", "[decide]\nendpoint = \"ftp://host/v1\"\nmodel = \"m\"\n", "decide.endpoint"},
+		{"endpoint without a host", "[decide]\nendpoint = \"http://\"\nmodel = \"m\"\n", "decide.endpoint"},
+		{"endpoint that does not parse", "[decide]\nendpoint = \"http://[::1\"\nmodel = \"m\"\n", "decide.endpoint"},
+		{"endpoint without a model", "[decide]\nendpoint = \"http://localhost:11434/v1\"\n", "decide.model"},
+		{"unparsable decide timeout", "[decide]\ntimeout = \"soon\"\n", "decide.timeout"},
+		{"zero decide timeout", "[decide]\ntimeout = \"0s\"\n", "decide.timeout"},
 	}
 
 	for _, tt := range tests {
@@ -149,6 +161,56 @@ func TestLoad_RejectsWhatItCannotHonor(t *testing.T) {
 
 			if !strings.Contains(err.Error(), filepath.Join(root, config.FileName)) {
 				t.Errorf("error does not name the file: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_ReadsTheDecisionModel(t *testing.T) {
+	t.Parallel()
+
+	const endpoint = "http://localhost:11434/v1"
+
+	tests := []struct {
+		name  string
+		body  string
+		want  config.Decide
+		route bool
+	}{
+		{"an empty file leaves both off", "", config.Decide{Timeout: config.DefaultDecideTimeout}, false},
+		{"route alone", "route = true\n", config.Decide{Timeout: config.DefaultDecideTimeout}, true},
+		{
+			"an endpoint takes the default timeout",
+			"[decide]\nendpoint = \"" + endpoint + "\"\nmodel = \"qwen2.5:3b\"\n",
+			config.Decide{Endpoint: endpoint, Model: "qwen2.5:3b", Timeout: config.DefaultDecideTimeout},
+			false,
+		},
+		{
+			"every key",
+			"route = true\n[decide]\nendpoint = \"https://models.example/v1\"\n" +
+				"model = \"small\"\ntimeout = \"750ms\"\n",
+			config.Decide{Endpoint: "https://models.example/v1", Model: "small", Timeout: 750 * time.Millisecond},
+			true,
+		},
+		{
+			"a model with no endpoint is carried and asks nothing",
+			"[decide]\nmodel = \"small\"\n",
+			config.Decide{Model: "small", Timeout: config.DefaultDecideTimeout},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(write(t, tt.body))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			if cfg.Decide != tt.want || cfg.Route != tt.route {
+				t.Errorf("got decide %+v route %v, want %+v and %v", cfg.Decide, cfg.Route, tt.want, tt.route)
 			}
 		})
 	}

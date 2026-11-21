@@ -21,6 +21,9 @@ const FileName = ".wavez.toml"
 const (
 	DefaultMaxRounds = 3
 	DefaultTimeout   = 2 * time.Minute
+	// DefaultDecideTimeout bounds one call to the decision model. A hook
+	// waits on it, so it is short.
+	DefaultDecideTimeout = 3 * time.Second
 )
 
 // Level says whether a failing check holds the agent.
@@ -94,9 +97,29 @@ type Config struct {
 	Checks []Check
 	// Disabled names the built-in checks the project turned off.
 	Disabled []string
+	// Decide says where the decision model is. The zero value is no model,
+	// and every question then gets its rule or its fallback.
+	Decide Decide
 	// MaxRounds is how many times a stop may be refused over the same
 	// failure before the agent is let go. This package only carries it.
 	MaxRounds int
+	// Route turns on the hint that tells the agent whether a prompt is
+	// direct work, exploration, or work to split. It is off until a
+	// benchmark shows it pays.
+	Route bool
+}
+
+// Decide locates the decision model: an OpenAI-compatible chat completions
+// endpoint, which is what a local model server exposes.
+type Decide struct {
+	// Endpoint is the base URL, such as http://localhost:11434/v1. Empty
+	// means no model.
+	Endpoint string
+	// Model is the name the endpoint serves it under. Load requires it
+	// whenever Endpoint is set.
+	Model string
+	// Timeout bounds one call. Load fills in DefaultDecideTimeout.
+	Timeout time.Duration
 }
 
 // Enabled reports whether the built-in check name has not been disabled.
@@ -112,7 +135,7 @@ func Load(root string) (Config, error) {
 
 	data, err := fs.ReadFile(os.DirFS(root), FileName)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{MaxRounds: DefaultMaxRounds}, nil
+		return Config{MaxRounds: DefaultMaxRounds, Decide: Decide{Timeout: DefaultDecideTimeout}}, nil
 	}
 
 	if err != nil {
