@@ -1,0 +1,407 @@
+package bench_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kyleking/wavez/internal/bench"
+)
+
+const fixtureSession = "11111111-2222-3333-4444-555555555555"
+
+var errBroken = errors.New("harness would not start\nsecond line")
+
+// editor is a harness that makes the change the task asks for.
+func editor(outcome bench.Outcome) *fakeHarness {
+	return &fakeHarness{run: func(_ context.Context, req bench.Request) (bench.Outcome, error) {
+		if err := os.WriteFile(filepath.Join(req.Dir, "README.md"), []byte("Status: done.\n"), 0o600); err != nil {
+			return bench.Outcome{}, fmt.Errorf("editing the workspace: %w", err)
+		}
+
+		return outcome, nil
+	}}
+}
+
+func newTask(t *testing.T) bench.Task {
+	t.Helper()
+
+	repo, first := newRepo(t)
+
+	return bench.Task{
+		ID: "t1", Prompt: "Mark it done.", Repo: repo, Rev: first,
+		Checks: mustChecks(t, "README.md:Status: done.", "answer:Done"),
+	}
+}
+
+// transcripts lays the fixture transcript out the way the harness does:
+// one folder per project under the root.
+func transcripts(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	write(t, filepath.Join(root, "-work-project", fixtureSession+".jsonl"),
+		read(t, filepath.Join("..", "transcript", "testdata", "session.jsonl")))
+
+	return root
+}
+
+func TestRunner_RecordsACompletedRun(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	temp := t.TempDir()
+	harness := editor(bench.Outcome{
+		Answer: "Done.", SessionID: fixtureSession, Served: "claude-example-main", Stop: bench.StopCompleted,
+		Usage: bench.Usage{Input: 1, Output: 2, CacheRead: 3, CacheCreation: 4},
+		Turns: 3, CostUSD: 0.01, Duration: 2 * time.Second,
+	})
+	runner := &bench.Runner{
+		Harness: harness, HarnessName: "fake", WavezVersion: "v9", TranscriptRoot: transcripts(t),
+		TempDir: temp, Env: []string{"PATH=/usr/bin:/bin"}, Timeout: time.Minute,
+		Now: func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.FixedZone("x", 3600)) },
+	}
+
+	rec, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "haiku")
+	require.NoError(t, err)
+
+	require.NotNil(t, rec.Transcript)
+	assert.Equal(t, 1, rec.Transcript.Sweeps)
+	assert.GreaterOrEqual(t, rec.WallMS, int64(0))
+
+	rec.Transcript, rec.WallMS = nil, 0
+	assert.Equal(t, bench.Record{
+		TaskID: "t1", TaskHash: task.Hash(), Arm: bench.ArmBaseline, Harness: "fake", Model: "haiku",
+		Served: "claude-example-main", Rev: task.Rev, WavezVersion: "v9", Started: "2026-01-02T02:04:05Z",
+		Stop: bench.StopCompleted, SessionID: fixtureSession,
+		Checks: []bench.CheckResult{
+			{Check: "README.md:Status: done.", Pass: true}, {Check: "answer:Done", Pass: true},
+		},
+		Usage:   bench.Usage{Input: 1, Output: 2, CacheRead: 3, CacheCreation: 4},
+		Turns:   3,
+		CostUSD: 0.01, HarnessMS: 2000, Pass: true,
+	}, rec)
+
+	require.Len(t, harness.reqs, 1)
+
+	req := harness.reqs[0]
+	assert.Equal(t, "Mark it done.", req.Prompt)
+	assert.Equal(t, "haiku", req.Model)
+	assert.Equal(t, []string{"PATH=/usr/bin:/bin"}, req.Env)
+	assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, req.SessionID)
+	assert.NoDirExists(t, req.Dir, "the workspace is removed after the run")
+
+	left, err := os.ReadDir(temp)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+	assert.NotContains(t, gitIn(t, task.Repo, "worktree", "list"), "wavez-bench-")
+}
+
+func TestRunner_StopReasons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run       func(ctx context.Context, req bench.Request) (bench.Outcome, error)
+		name      string
+		wantStop  string
+		wantError string
+		timeout   time.Duration
+	}{
+		{
+			name: "a harness that says nothing about stopping completed",
+			run: func(context.Context, bench.Request) (bench.Outcome, error) {
+				return bench.Outcome{Answer: "Done"}, nil
+			},
+			wantStop: bench.StopCompleted,
+		},
+		{
+			name: "the harness's own word for a failure is kept",
+			run: func(context.Context, bench.Request) (bench.Outcome, error) {
+				return bench.Outcome{Answer: "Done", Stop: "error_max_turns"}, nil
+			},
+			wantStop: "error_max_turns",
+		},
+		{
+			name: "a run past the deadline is a timeout whatever the harness says",
+			run: func(ctx context.Context, _ bench.Request) (bench.Outcome, error) {
+				<-ctx.Done()
+
+				return bench.Outcome{}, ctx.Err()
+			},
+			timeout: 20 * time.Millisecond, wantStop: bench.StopTimeout,
+		},
+		{
+			name:     "a harness that cannot run",
+			run:      func(context.Context, bench.Request) (bench.Outcome, error) { return bench.Outcome{}, errBroken },
+			wantStop: bench.StopHarnessError, wantError: "running the harness: harness would not start",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			task := newTask(t)
+			runner := &bench.Runner{Harness: &fakeHarness{run: tt.run}, TempDir: t.TempDir(), Timeout: tt.timeout}
+
+			rec, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "")
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantStop, rec.Stop)
+			assert.Equal(t, tt.wantError, rec.Error)
+			assert.False(t, rec.Pass, "the file check fails, and a run that did not complete never passes")
+			assert.Len(t, rec.Checks, 2)
+			assert.NotEmpty(t, rec.Started)
+		})
+	}
+}
+
+func TestRunner_ChecksHoldingOnAFailedRunIsNotAPass(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	runner := &bench.Runner{
+		Harness: editor(bench.Outcome{Answer: "Done", Stop: "error_max_turns"}), TempDir: t.TempDir(),
+	}
+
+	rec, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "")
+	require.NoError(t, err)
+	assert.True(t, bench.Passed(rec.Checks))
+	assert.False(t, rec.Pass)
+}
+
+func TestRunner_KeepLeavesTheWorkspace(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	runner := &bench.Runner{Harness: editor(bench.Outcome{Answer: "Done"}), TempDir: t.TempDir(), Keep: true}
+
+	rec, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "")
+	require.NoError(t, err)
+	assert.True(t, rec.Pass)
+	assert.Equal(t, "Status: done.\n", read(t, filepath.Join(rec.Workspace, "README.md")))
+
+	gitIn(t, task.Repo, "worktree", "remove", "--force", rec.Workspace)
+}
+
+func TestRunner_MissingTranscriptIsNotedNotFatal(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	runner := &bench.Runner{
+		Harness: editor(bench.Outcome{Answer: "Done", SessionID: "no-such-session"}),
+		TempDir: t.TempDir(), TranscriptRoot: t.TempDir(),
+	}
+
+	rec, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "")
+	require.NoError(t, err)
+	assert.True(t, rec.Pass)
+	assert.Nil(t, rec.Transcript)
+	assert.Contains(t, rec.Error, "no transcript for session no-such-session")
+}
+
+func TestRunner_WavezArmWiresTheWorkspace(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	wavez := script(t, "wavez", `echo "$@" > "$0.args"
+mkdir -p .claude && echo '{"hooks":"wavez hook"}' > .claude/settings.json
+`)
+
+	var wired string
+
+	harness := &fakeHarness{run: func(_ context.Context, req bench.Request) (bench.Outcome, error) {
+		body, err := os.ReadFile(filepath.Join(req.Dir, ".claude", "settings.json"))
+		if err != nil {
+			return bench.Outcome{}, fmt.Errorf("reading the wiring: %w", err)
+		}
+
+		wired = string(body)
+
+		return bench.Outcome{Answer: "Done"}, nil
+	}}
+	runner := &bench.Runner{
+		Harness: harness, WavezBin: wavez, TempDir: t.TempDir(),
+		Env: []string{"HOME=/nowhere", "PATH=/usr/bin:/bin"},
+	}
+
+	rec, err := runner.Run(t.Context(), &task, bench.ArmWavez, "")
+	require.NoError(t, err)
+	assert.Equal(t, bench.ArmWavez, rec.Arm)
+	assert.Contains(t, wired, "wavez hook")
+
+	req := harness.reqs[0]
+	assert.Equal(t, "init --bin "+wavez+" --dir "+req.Dir+"\n", read(t, wavez+".args"))
+	assert.Equal(t, []string{"HOME=/nowhere", "PATH=" + filepath.Dir(wavez) + ":/usr/bin:/bin"}, req.Env)
+}
+
+func TestRunner_WavezArmWithoutAPathStillGetsOne(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	wavez := script(t, "wavez", "exit 0\n")
+	harness := editor(bench.Outcome{Answer: "Done"})
+	runner := &bench.Runner{Harness: harness, WavezBin: wavez, TempDir: t.TempDir(), Env: []string{"PATH="}}
+
+	_, err := runner.Run(t.Context(), &task, bench.ArmWavez, "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"PATH=" + filepath.Dir(wavez)}, harness.reqs[0].Env)
+}
+
+func TestRunner_SetupFailuresAreErrorsNotRecords(t *testing.T) {
+	t.Parallel()
+
+	never := &fakeHarness{run: func(context.Context, bench.Request) (bench.Outcome, error) {
+		return bench.Outcome{}, errBroken
+	}}
+
+	t.Run("init fails", func(t *testing.T) {
+		t.Parallel()
+
+		task := newTask(t)
+		temp := t.TempDir()
+		runner := &bench.Runner{
+			Harness: never, TempDir: temp, WavezBin: script(t, "wavez", "echo no such command: init >&2\nexit 1\n"),
+		}
+
+		_, err := runner.Run(t.Context(), &task, bench.ArmWavez, "")
+		require.ErrorContains(t, err, "no such command: init")
+
+		left, readErr := os.ReadDir(temp)
+		require.NoError(t, readErr)
+		assert.Empty(t, left, "a failed setup still removes its workspace")
+	})
+
+	t.Run("unknown rev", func(t *testing.T) {
+		t.Parallel()
+
+		task := newTask(t)
+		task.Rev = "0000000000000000000000000000000000000000"
+		runner := &bench.Runner{Harness: never, TempDir: t.TempDir()}
+
+		_, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "")
+		require.Error(t, err)
+	})
+
+	t.Run("canceled while the harness runs", func(t *testing.T) {
+		t.Parallel()
+
+		task := newTask(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		runner := &bench.Runner{TempDir: t.TempDir(), Harness: &fakeHarness{
+			run: func(context.Context, bench.Request) (bench.Outcome, error) {
+				cancel()
+
+				return bench.Outcome{}, nil
+			},
+		}}
+
+		_, err := runner.Run(ctx, &task, bench.ArmBaseline, "")
+		require.ErrorIs(t, err, context.Canceled)
+		assert.Empty(t, never.reqs)
+	})
+}
+
+func TestRunner_BaselineRefusesAWiredWorkspace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		body string
+		want bool
+	}{
+		{
+			name: "hooks in project settings", path: ".claude/settings.json",
+			body: `{"command":"/x/wavez hook stop"}`, want: true,
+		},
+		{
+			name: "hooks in local settings", path: ".claude/settings.local.json",
+			body: `{"command":"wavez gate"}`, want: true,
+		},
+		{
+			name: "a quoted binary", path: ".claude/settings.json",
+			body: `{"command":"\"/opt/my tools/wavez\" hook"}`, want: true,
+		},
+		{name: "a mention that is not a hook", path: ".claude/settings.json", body: `{"note":"wavez hooks later"}`},
+		{name: "a wavez skill", path: ".claude/skills/wavez-refactor/SKILL.md", body: "skill", want: true},
+		{name: "unrelated settings", path: ".claude/settings.json", body: `{"model":"sonnet"}`},
+		{name: "an unrelated skill", path: ".claude/skills/review/SKILL.md", body: "skill"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, _ := newRepo(t)
+			write(t, filepath.Join(repo, tt.path), tt.body)
+			gitIn(t, repo, "add", "-A")
+			gitIn(t, repo, "commit", "--quiet", "-m", "settings")
+
+			task := bench.Task{ID: "t", Prompt: "p", Repo: repo, Rev: gitIn(t, repo, "rev-parse", "HEAD")}
+			runner := &bench.Runner{Harness: editor(bench.Outcome{}), TempDir: t.TempDir()}
+
+			_, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "")
+			if !tt.want {
+				require.NoError(t, err)
+
+				return
+			}
+
+			var dirty *bench.ContaminatedError
+
+			require.ErrorAs(t, err, &dirty)
+			assert.True(t, strings.HasSuffix(filepath.Dir(dirty.Path), filepath.Dir(tt.path)) ||
+				strings.Contains(dirty.Path, ".claude"), dirty.Path)
+			assert.Contains(t, err.Error(), "baseline")
+		})
+	}
+}
+
+func TestParseArm(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"baseline", "wavez"} {
+		arm, err := bench.ParseArm(name)
+		require.NoError(t, err)
+		assert.Equal(t, bench.Arm(name), arm)
+	}
+
+	_, err := bench.ParseArm("control")
+
+	var unknown *bench.UnknownArmError
+
+	require.ErrorAs(t, err, &unknown)
+	assert.Contains(t, err.Error(), "control")
+}
+
+func TestBinaryVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"prefixed", "echo 'wavez 1.2.3 (abc, today)'\n", "1.2.3 (abc, today)"},
+		{"bare", "echo v2\n", "v2"},
+		{"silent", "exit 0\n", "unknown"},
+		{"failing", "exit 1\n", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, bench.BinaryVersion(t.Context(), script(t, "wavez", tt.body)))
+		})
+	}
+}
