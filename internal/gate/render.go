@@ -56,7 +56,7 @@ func (r Report) Fingerprint() string {
 // failures come first, then advisory ones, then one line per check that could
 // not run, then one line naming the files a fixer rewrote.
 func (r Report) Render() string {
-	var blocking, advisory, abstained []string
+	var blocking, advisory []string
 
 	for _, res := range r.Results {
 		switch {
@@ -64,15 +64,33 @@ func (r Report) Render() string {
 			blocking = append(blocking, section("FAIL "+res.Check, res.Summary))
 		case res.Status == StatusFail:
 			advisory = append(advisory, section("ADVISORY "+res.Check+" (does not block)", res.Summary))
-		case res.Status == StatusAbstained:
-			abstained = append(abstained, "NOT CHECKED "+res.Check+": "+res.Summary)
 		}
 	}
 
-	lines := slices.Concat(blocking, advisory, abstained)
+	lines := slices.Concat(blocking, advisory)
 
 	if fixed := r.fixed(); len(fixed) > 0 {
 		lines = append(lines, "REWRITTEN by a formatter, re-read before editing: "+strings.Join(fixed, " "))
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// Notes is the text for the person rather than the agent: one line per
+// check that could not run. It is empty when every check ran. An agent
+// handed these lines goes looking for the missing tool, which is work the
+// change never asked for.
+func (r Report) Notes() string {
+	var lines []string
+
+	for _, res := range r.Results {
+		if res.Status == StatusAbstained {
+			lines = append(lines, "NOT CHECKED "+res.Check+": "+res.Summary)
+		}
 	}
 
 	if len(lines) == 0 {

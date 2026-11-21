@@ -105,7 +105,7 @@ func (h *Handler) decide(state *session.State, verdict Verdict, changeSet string
 	if !verdict.Failed {
 		state.Pass(changeSet)
 
-		return advise(state, verdict.Text)
+		return advise(state, verdict.Text, verdict.Notes)
 	}
 
 	text := verdict.Text
@@ -144,21 +144,30 @@ func released(how, text string) output {
 	))}
 }
 
-// advise hands non-blocking text to the agent the first time it appears and
-// stays silent when the same text comes round again.
-func advise(state *session.State, text string) output {
-	if text == "" {
+// advise hands non-blocking text to the agent and notes to the person the
+// first time the pair appears, and stays silent when it comes round again.
+func advise(state *session.State, text, notes string) output {
+	if text == "" && notes == "" {
 		return output{}
 	}
 
-	id := digest(text)
+	id := digest(text + "\x00" + notes)
 	if id == state.Advised {
 		return output{}
 	}
 
 	state.Advised = id
 
-	return contextFor(eventStop, text)
+	out := output{}
+	if text != "" {
+		out = contextFor(eventStop, text)
+	}
+
+	if notes != "" {
+		out.SystemMessage = clip("wavez: " + notes)
+	}
+
+	return out
 }
 
 func digest(text string) string {

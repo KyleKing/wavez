@@ -102,7 +102,7 @@ func outcome(res result) string {
 func TestHandle_Stop_Passing(t *testing.T) {
 	t.Parallel()
 
-	advisory := hook.Verdict{Text: "NOT CHECKED lint: golangci-lint not found"}
+	advisory := hook.Verdict{Text: "ADVISORY todo (does not block)\na.go:5: TODO"}
 
 	runTurns(t, []turns{
 		{
@@ -211,6 +211,29 @@ func TestHandle_Stop_Failing(t *testing.T) {
 			},
 		},
 	})
+}
+
+func TestHandle_Stop_ACheckThatCouldNotRunIsToldToThePersonOnly(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+	unchecked := hook.Verdict{Notes: "NOT CHECKED lint: golangci-lint not on PATH\n"}
+	h := hook.New(&fakeRunner{verdicts: []hook.Verdict{unchecked, unchecked}})
+
+	start(t, h, root)
+	write(t, root, "a.go", "package a // changed\n")
+
+	first, err := fire(t, h, stop(root, false))
+	require.NoError(t, err)
+	assert.Empty(t, first.Decision)
+	assert.Empty(t, first.Specific.AdditionalContext, "an agent told a tool is missing goes looking for it")
+	assert.Contains(t, first.SystemMessage, "NOT CHECKED lint")
+
+	write(t, root, "a.go", "package a // changed again\n")
+
+	second, err := fire(t, h, stop(root, false))
+	require.NoError(t, err)
+	assert.Empty(t, second.SystemMessage, "the same note is not repeated")
 }
 
 func TestHandle_Stop_Output(t *testing.T) {

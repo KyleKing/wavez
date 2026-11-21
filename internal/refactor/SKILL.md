@@ -1,6 +1,6 @@
 ---
 name: wavez-refactor
-description: Use `wavez rename|move|delete` instead of hand-editing when renaming a Go symbol used in more than one place, moving declarations between files of one package, or deleting declarations together with their tests.
+description: Renaming a Go function, method, or type, moving declarations to another file of the package, or deleting declarations with their tests. Run `wavez rename|move|delete` (one call that updates every reference and compiles the result) before reaching for Edit or sed.
 ---
 
 # wavez refactor

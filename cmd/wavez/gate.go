@@ -106,7 +106,7 @@ func say(streams stdio, text string) error {
 
 func printReport(streams stdio, report gate.Report, asJSON bool) error {
 	if !asJSON {
-		return say(streams, report.Render())
+		return say(streams, report.Render()+report.Notes())
 	}
 
 	if report.Results == nil {

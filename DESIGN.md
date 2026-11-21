@@ -88,8 +88,10 @@ A gate is a check the agent never asks for. Two stages:
 Rules the first design paid to learn:
 
 - **Silence on a pass.** A passing gate costs the agent zero tokens
-- **A check that could not run abstains.** A missing binary, a timeout, or a
-  toolchain error is reported as `NOT CHECKED`, never as a failure. The old
+- **A check that could not run abstains, and only the person hears it.** A
+  missing binary, a timeout, or a toolchain error is `NOT CHECKED`, never a
+  failure, and it goes to the person as a system message. The first live run
+  handed that line to the agent, which spent two turns looking for a linter. The old
   loop handed a gate's own broken command to the model as work, and a run
   spent fourteen of fifteen turns on a defect that did not exist
 - **A finding with a mechanical fix never reaches a turn.** A check's `fix`
@@ -150,11 +152,48 @@ session, so daily work is measurable without a benchmark run.
 - In the context of the sandbox, permissions, threads, scheduling, and the
   TUI, wavez has none, because the harness has its own
 
+## First live runs
+
+One run per arm on `claude-sonnet-5-5`, 2026-11-21, recorded in
+`bench/records.jsonl`. Produced by `wavez bench run <task> --arm <arm>
+--model sonnet` and read with `wavez bench report`. One run per arm settles
+nothing about cost, and the report says so.
+
+| Task | Arm | Checks | Turns | Cost | Wall |
+|---|---|---|---|---|---|
+| h3 rename | baseline | 6/6 | 4 | $0.119 | 17s |
+| h3 rename | wavez, first run | 6/6 | 6 | $0.143 | 34s |
+| h3 rename | wavez, after the fix below | 6/6 | 4 | $0.108 | 25s |
+| e2 add a method and test | baseline | 2/3 | 7 | $0.115 | 14s |
+| e2 add a method and test | wavez | 3/3 | 13 | $0.167 | 65s |
+
+What the transcripts showed:
+
+- **The hooks work end to end.** PostToolUse, Stop, a block, and a release
+  all fired in real sessions
+- **An abstention sent to the agent is work.** The first h3 run told the
+  agent the linter could not load, and it spent two turns on that. Notes now
+  go to the person. This is the fix in the table
+- **The refactor skill was not used.** Both wavez runs of h3 renamed with
+  `sed` and never called `wavez rename`, before and after the description
+  was sharpened. The commands pass the same task when called directly, so
+  the open problem is getting an agent to reach for them
+- **The e2 difference is a pre-existing failure, not a win.** A macOS-only
+  test fails on the Linux machine these ran on. The baseline left it failing
+  and the gate blocked until the agent skipped it on Linux. That is the gate
+  doing its job on a failure the session did not cause, which cost six turns
+  and is the first item below
+
 ## What is not here yet
 
+- **Pre-existing failures block.** A failing test is not compared against the
+  tree the session started from, so a test that was already red holds the
+  agent until the round cap. Re-running only the failing tests at the
+  baseline, on the failure path, would tell the two apart
+- **Nothing makes an agent use the refactor commands.** A skill description
+  was not enough in two runs
+
 - Checks for languages other than Go ship as configuration, not as built-ins
-- The gates do not know which failures predate the session, so the round cap
-  is what stops a pre-existing failure from holding an agent
 - Only Claude Code has a hook adapter. `wavez gate` is harness-neutral, so a
   Pi extension is a small wrapper that has not been written
 - The task set is the first design's thirteen tasks, all on this repository
