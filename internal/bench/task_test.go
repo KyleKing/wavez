@@ -94,8 +94,8 @@ func TestLoadTasks_Validation(t *testing.T) {
 		},
 		{
 			"unknown key",
-			`[[task]]` + "\n" + `id = "a"` + "\n" + `prompt = "p"` + "\n" + `rev = "abc1234"` + "\n" + `chekcs = []`,
-			"", "task.chekcs",
+			`[[task]]` + "\n" + `id = "a"` + "\n" + `prompt = "p"` + "\n" + `rev = "abc1234"` + "\n" + `extra = []`,
+			"", "task.extra",
 		},
 	}
 

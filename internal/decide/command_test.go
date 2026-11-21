@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kyleking/wavez/internal/decide"
+	"github.com/kyleking/wavez/internal/scripttest"
 )
 
 // script writes an executable shell script and returns its path.
@@ -17,7 +18,7 @@ func script(t *testing.T, dir, name, body string) string {
 	t.Helper()
 
 	path := filepath.Join(dir, name)
-	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700)) //nolint:gosec // it has to run
+	scripttest.Write(t, path, "#!/bin/sh\n"+body+"\n")
 
 	return path
 }

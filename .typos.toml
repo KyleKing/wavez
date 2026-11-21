@@ -1,14 +1,13 @@
 [files]
 # Generated from commit subjects by commitizen, so a typo here can only be fixed
 # by rewriting history. Catch it in the commit message instead.
-# The vim tests describe keystroke sequences ("ab<esc>IZ"), where a run of
-# letters is input and not a word.
-extend-exclude = ["CHANGELOG.md", "internal/tui/vim_test.go"]
+extend-exclude = ["CHANGELOG.md"]
 
 # Identifiers and prefixes typos reads as misspellings: golangci-lint linter
 # names, a TUI framework, an English prefix, an Apache project surveyed in
-# DESIGN.md, and an HTML character reference name (`&curren` is the currency
-# sign, and is why `&current` collapses).
+# the first design, an HTML character reference name (`&curren` is the
+# currency sign, and is why `&current` collapses), and the stem a benchmark
+# check greps for so it matches both truncate and truncation.
 [default.extend-words]
 Ratatui = "Ratatui"
 curren = "curren"
@@ -16,3 +15,4 @@ decorder = "decorder"
 importas = "importas"
 maka = "maka"
 mis = "mis"
+truncat = "truncat"

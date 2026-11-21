@@ -27,23 +27,26 @@ func routeProject(t *testing.T, config string) string {
 }
 
 func TestRoute_OnePrompt(t *testing.T) {
-	t.Chdir(routeProject(t, ""))
+	t.Parallel()
 
-	code, out, errOut := invoke(t, "", "route", "In", "a.go", "return early when n is 0.")
+	root := routeProject(t, "")
+
+	code, out, errOut := invoke(t, "", "route", "--dir", root, "In", "a.go", "return early when n is 0.")
 	require.Equal(t, 0, code, errOut)
 	assert.Equal(t, "choice   direct\nbackend  rule\n"+
 		"hint     wavez: this prompt names what to change and where, "+
 		"so make the change without surveying the repository first.\n", out)
 
-	code, out, errOut = invoke(t, "", "route", "Make startup faster.")
+	code, out, errOut = invoke(t, "", "route", "--dir", root, "Make startup faster.")
 	require.Equal(t, 0, code, errOut)
 	assert.Contains(t, out, "choice   silent\nbackend  fallback\n")
 	assert.Contains(t, out, "hint     (none: the agent is told nothing)\n")
 }
 
 func TestRoute_Eval(t *testing.T) {
+	t.Parallel()
+
 	root := routeProject(t, "")
-	t.Chdir(root)
 
 	corpus := filepath.Join(root, "corpus.jsonl")
 
@@ -53,7 +56,7 @@ func TestRoute_Eval(t *testing.T) {
 			`{"state": "Make startup faster.", "want": "explore"}`+"\n",
 	), 0o600))
 
-	code, out, errOut := invoke(t, "", "route", "eval", corpus)
+	code, out, errOut := invoke(t, "", "route", "--dir", root, "eval", corpus)
 	require.Equal(t, 0, code, errOut)
 	assert.Contains(t, out, "question: route\ncases: 3  correct: 2")
 	assert.Regexp(t, `rule +2 +2 +100\.0%`, out)
@@ -61,28 +64,42 @@ func TestRoute_Eval(t *testing.T) {
 }
 
 func TestRoute_Failures(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		config string
 		want   string
 		args   []string
 	}{
-		{name: "no prompt", args: []string{"route"}, want: "usage:"},
-		{name: "help", args: []string{"route", "--help"}, want: "wavez route eval <corpus.jsonl>"},
-		{name: "eval without a corpus", args: []string{"route", "eval"}, want: "usage:"},
-		{name: "eval of a missing corpus", args: []string{"route", "eval", "none.jsonl"}, want: "opening the corpus"},
-		{name: "eval of a corpus that is not one", args: []string{"route", "eval", "go.mod"}, want: "reading go.mod"},
+		{name: "no prompt", args: []string{}, want: "usage:"},
+		{name: "help", args: []string{"--help"}, want: "eval <corpus.jsonl>"},
+		{name: "eval without a corpus", args: []string{"eval"}, want: "usage:"},
+		{name: "eval of a missing corpus", args: []string{"eval", "none.jsonl"}, want: "opening the corpus"},
+		{name: "eval of a corpus that is not one", args: []string{"eval", "go.mod"}, want: "go.mod: "},
 		{
-			name: "a configuration that does not load", args: []string{"route", "x"}, config: "nope = 1\n",
+			name: "a configuration that does not load", args: []string{"x"}, config: "nope = 1\n",
 			want: "loading configuration",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Chdir(routeProject(t, tt.config))
+			t.Parallel()
 
-			code, out, errOut := invoke(t, "", tt.args...)
+			root := routeProject(t, tt.config)
+			args := []string{"route", "--dir", root}
+
+			// A corpus is named relative to the project, wherever the test runs.
+			for i, arg := range tt.args {
+				if i > 0 && tt.args[0] == "eval" {
+					arg = filepath.Join(root, arg)
+				}
+
+				args = append(args, arg)
+			}
+
+			code, out, errOut := invoke(t, "", args...)
 			assert.Equal(t, 1, code)
 			assert.Empty(t, out)
 			assert.Contains(t, errOut, tt.want)
@@ -91,14 +108,17 @@ func TestRoute_Failures(t *testing.T) {
 }
 
 func TestHook_RouteHintFollowsTheConfiguration(t *testing.T) {
+	t.Parallel()
+
 	event := func(root string) string {
 		return `{"session_id": "s1", "cwd": "` + root + `", "hook_event_name": "UserPromptSubmit", ` +
 			`"prompt": "In a.go return early when n is 0."}`
 	}
 
 	t.Run("off by default", func(t *testing.T) {
+		t.Parallel()
+
 		root := routeProject(t, "")
-		t.Chdir(root)
 
 		code, out, errOut := invoke(t, event(root), "hook")
 		assert.Equal(t, 0, code, errOut)
@@ -106,8 +126,9 @@ func TestHook_RouteHintFollowsTheConfiguration(t *testing.T) {
 	})
 
 	t.Run("on", func(t *testing.T) {
+		t.Parallel()
+
 		root := routeProject(t, "route = true\n")
-		t.Chdir(root)
 
 		code, out, errOut := invoke(t, event(root), "hook")
 		assert.Equal(t, 0, code, errOut)
@@ -117,8 +138,9 @@ func TestHook_RouteHintFollowsTheConfiguration(t *testing.T) {
 	})
 
 	t.Run("a configuration that does not load leaves it off", func(t *testing.T) {
+		t.Parallel()
+
 		root := routeProject(t, "route = true\nnope = 1\n")
-		t.Chdir(root)
 
 		code, out, _ := invoke(t, event(root), "hook")
 		assert.Equal(t, 0, code)
@@ -128,7 +150,6 @@ func TestHook_RouteHintFollowsTheConfiguration(t *testing.T) {
 
 func TestHook_DeniesARenameByText(t *testing.T) {
 	root := routeProject(t, "")
-	t.Chdir(root)
 
 	// The denial needs a gopls on PATH, and any program under that name
 	// will do, because the hook only looks for it.

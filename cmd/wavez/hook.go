@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -86,10 +87,14 @@ func runHook(ctx context.Context, _ []string, streams stdio) error {
 		trace bytes.Buffer
 	)
 
-	// The harness starts a hook in the project directory. A config that
-	// does not load keeps the default cap and leaves the route hint off
-	// here, and is reported by the gate run itself, which loads it again.
-	if dir, err := os.Getwd(); err == nil {
+	// The event is read here so the configuration comes from the project
+	// the event names, and from the working directory only when it names
+	// none. A config that does not load keeps the default cap and leaves
+	// the route hint off here, and is reported by the gate run itself,
+	// which loads it again.
+	event, readErr := io.ReadAll(streams.in)
+
+	if dir := eventDir(event); readErr == nil && dir != "" {
 		root := hook.FindRoot(dir)
 
 		if cfg, err := config.Load(root); err == nil {
@@ -106,7 +111,11 @@ func runHook(ctx context.Context, _ []string, streams stdio) error {
 		opts = append(opts, hook.WithTrace(&trace))
 	}
 
-	err := hook.New(hook.Gate{Runner: gate.New()}, opts...).Handle(ctx, streams.in, streams.out)
+	err := readErr
+	if err == nil {
+		err = hook.New(hook.Gate{Runner: gate.New()}, opts...).Handle(ctx, bytes.NewReader(event), streams.out)
+	}
+
 	if logPath != "" {
 		err = errors.Join(err, appendTo(logPath, trace.Bytes()))
 	}
@@ -121,6 +130,25 @@ func runHook(ctx context.Context, _ []string, streams stdio) error {
 	}
 
 	return errHookFailed
+}
+
+// eventDir is the directory a hook event says it came from, or the working
+// directory when the event does not say.
+func eventDir(event []byte) string {
+	var named struct {
+		Cwd string `json:"cwd"`
+	}
+
+	if err := json.Unmarshal(event, &named); err == nil && named.Cwd != "" {
+		return named.Cwd
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	return dir
 }
 
 func appendTo(path string, content []byte) error {

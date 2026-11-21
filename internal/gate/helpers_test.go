@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/kyleking/wavez/internal/gate"
+	"github.com/kyleking/wavez/internal/scripttest"
 )
 
 // goMod declares a toolchain old enough for whatever golangci-lint the
@@ -39,10 +40,8 @@ func writeFile(t *testing.T, root, name, body string) {
 		t.Fatalf("creating %s: %v", filepath.Dir(path), err)
 	}
 
-	//nolint:gosec // fixtures include scripts, which must be executable
-	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
-		t.Fatalf("writing %s: %v", name, err)
-	}
+	// Fixtures include scripts, which must be executable.
+	scripttest.Write(t, path, body)
 }
 
 func readFile(t *testing.T, root, name string) string {
