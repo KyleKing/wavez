@@ -1,3 +1,25 @@
+## v1.0.0 (2026-11-21)
+
+### Feat
+
+- **route**: route prompts and refuse a text rename once
+- **gate**: a failure that predates the session does not block
+- **decide**: closed-set decisions with rules first and a model second
+- **refactor**: rename, move, and delete Go declarations by name
+- **bench**: compare Claude Code alone against Claude Code with wavez
+- **hook**: run the gates from Claude Code hooks and add wavez init
+- **gate**: run the checks a change selects and report them tersely
+
+### Fix
+
+- **ci**: read the project from the hook event and stop a test race
+- **ci**: pin gopls at 0.23.0, the last release that builds with Go 1.26
+- **hook**: tell the person, not the agent, when a check could not run
+
+### Refactor
+
+- clear the agent loop and lay down the layer skeleton
+
 ## v0.21.0 (2026-09-15)
 
 ### Feat
