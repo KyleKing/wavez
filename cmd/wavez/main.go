@@ -27,29 +27,29 @@ type stdio struct {
 	err io.Writer
 }
 
-// exitCode is an error that carries the status the process must exit with
+// exitError is an error that carries the status the process must exit with
 // and has already printed whatever it had to say. A hook uses it, because
 // the harness reads meaning from the status itself.
-type exitCode int
+type exitError int
 
-func (e exitCode) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+func (e exitError) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
 
 type command struct {
+	run     func(ctx context.Context, args []string, streams stdio) error
 	name    string
 	summary string
-	run     func(ctx context.Context, args []string, streams stdio) error
 }
 
 func commands() []command {
 	return []command{
-		{"init", "wire wavez into this project's Claude Code settings", runInit},
-		{"hook", "handle one Claude Code hook event read from stdin", runHook},
-		{"gate", "run the checks selected by the changed files", runGate},
-		{"rename", "rename a Go symbol and every reference to it", runRename},
-		{"move", "move Go declarations to another file in the package", runMove},
-		{"delete", "delete Go declarations nothing else uses", runDelete},
-		{"bench", "run a pinned task under a harness and record what it cost", runBench},
-		{"stats", "attribute the turns of a recorded Claude Code session", runStats},
+		{name: "init", summary: "wire wavez into this project's Claude Code settings", run: runInit},
+		{name: "hook", summary: "handle one Claude Code hook event read from stdin", run: runHook},
+		{name: "gate", summary: "run the checks selected by the changed files", run: runGate},
+		{name: "rename", summary: "rename a Go symbol and every reference to it", run: runRename},
+		{name: "move", summary: "move Go declarations to another file in the package", run: runMove},
+		{name: "delete", summary: "delete Go declarations nothing else uses", run: runDelete},
+		{name: "bench", summary: "run a pinned task under a harness and record what it cost", run: runBench},
+		{name: "stats", summary: "attribute the turns of a recorded Claude Code session", run: runStats},
 	}
 }
 
@@ -69,7 +69,7 @@ func run(ctx context.Context, args []string, streams stdio) int {
 	}
 
 	if args[0] == "version" || args[0] == "--version" {
-		_, _ = fmt.Fprintf(streams.out, "wavez %s (%s, %s)\n", version, commit, date)
+		sayf(streams.out, "wavez %s (%s, %s)\n", version, commit, date)
 
 		return 0
 	}
@@ -82,10 +82,10 @@ func run(ctx context.Context, args []string, streams stdio) int {
 		return status(c.run(ctx, args[1:], streams), c.name, streams.err)
 	}
 
-	_, _ = fmt.Fprintf(streams.err, "wavez: unknown command %q\n", args[0])
+	sayf(streams.err, "wavez: unknown command %q\n", args[0])
 	usage(streams.err)
 
-	return 2
+	return usageStatus
 }
 
 func status(err error, name string, stderr io.Writer) int {
@@ -93,21 +93,30 @@ func status(err error, name string, stderr io.Writer) int {
 		return 0
 	}
 
-	var code exitCode
+	var code exitError
 	if errors.As(err, &code) {
 		return int(code)
 	}
 
-	_, _ = fmt.Fprintf(stderr, "wavez %s: %v\n", name, err)
+	sayf(stderr, "wavez %s: %v\n", name, err)
 
 	return 1
 }
 
+// usageStatus is the exit status for a command line wavez could not read.
+const usageStatus = 2
+
+// sayf writes to a stream whose failure there is nobody left to tell.
+func sayf(w io.Writer, format string, args ...any) {
+	if _, err := fmt.Fprintf(w, format, args...); err != nil {
+		return
+	}
+}
+
 func usage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "usage: wavez <command> [arguments]")
-	_, _ = fmt.Fprintln(w)
+	sayf(w, "usage: wavez <command> [arguments]\n\n")
 
 	for _, c := range commands() {
-		_, _ = fmt.Fprintf(w, "  %-8s %s\n", c.name, c.summary)
+		sayf(w, "  %-8s %s\n", c.name, c.summary)
 	}
 }
