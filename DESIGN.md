@@ -67,6 +67,8 @@ flowchart LR
 | `internal/config` | Loads the optional `.wavez.toml`. A Go module gets the built-in checks with no file at all |
 | `internal/gate` | Selects checks from the changed files, runs fixers first, runs the checks, and reports pass, fail, or abstained |
 | `internal/reduce` | Cuts tool output down to the lines that carry a diagnostic |
+| `internal/decide` | Asks a closed-set question: the caller's rules first, a small model second, the fallback when anything goes wrong |
+| `internal/route` | The one question so far: is this prompt direct work, exploration, or work to split |
 | `internal/session` | What one agent session changed, including through the shell, and what the gates last said about it |
 | `internal/hook` | Translates Claude Code hook events into gate runs and gate reports into hook responses. `wavez init` writes the settings |
 | `internal/refactor` | `rename`, `move`, and `delete` for Go declarations, located with `go/ast` and applied with `gopls` |
@@ -96,9 +98,15 @@ Rules the first design paid to learn:
   spent fourteen of fifteen turns on a defect that did not exist
 - **A finding with a mechanical fix never reaches a turn.** A check's `fix`
   command runs first
+- **A failure that predates the session does not block.** On a failing stop
+  the gate re-runs only the failing tests against the tree the session
+  started from, in a throwaway worktree. A test that also fails there goes to
+  the person as `ALREADY FAILING` and the agent hears nothing. Build and
+  custom checks are demoted only when every reduced line was already printed
+  at the baseline. Lint is not compared. A passing stop pays nothing, and the
+  baseline's verdicts are cached by tree
 - **A repeated failure stops blocking.** The same failure three rounds in a
-  row releases the agent and tells the person, because a failure that
-  predates the session is not the session's to fix
+  row releases the agent and tells the person
 - **Unchanged work is not rechecked.** A stop over the change set the gates
   already passed runs nothing
 
@@ -115,9 +123,40 @@ the affected packages no longer build, and each refusal says what to do next:
 an ambiguous name lists the candidates, and a delete that would orphan a
 caller names the caller.
 
+A skill description did not make an agent use them, so a rule does. A
+PreToolUse hook reads each shell command, and a `sed -i`, `perl -pi`, or
+`gofmt -r` that swaps one Go identifier for another across Go files is denied
+once per session, with the `wavez rename` command for the declaration the
+hook found. A second attempt is allowed, because the agent may have a reason.
+
+## Decisions by a model
+
+The first design asked a full model every question and hard-coded the rest.
+`internal/decide` is the piece it lacked, taken from how HQ does it:
+
+- The set of answers is declared in code, so a model can only pick among
+  what code already permits, and a model-written string never reaches the
+  agent
+- The caller's rules answer first. A rule fires only where a labeled corpus
+  shows it is never wrong
+- A small local model, behind any OpenAI-compatible endpoint, answers what
+  no rule could. Its answers are cached on disk by question and state
+- Anything that goes wrong returns the fallback, which is the behavior
+  before the question existed
+- Every decision is logged with an excerpt of its state, so the log becomes
+  the next corpus, and `wavez route eval` says whether a rule, a model, or
+  neither should hold a question
+
+The one question so far is the route. With `route = true`, a
+UserPromptSubmit hook picks `direct`, `explore`, or `coordinate` and hands
+the agent one fixed sentence, or says nothing. On the 55-line corpus in
+`bench/route_corpus.jsonl` the rules answer 28 lines, all correctly, and
+leave 27 to a model or to silence. It is off by default: a mechanism ships
+off until `wavez bench` shows it pays.
+
 ## Benchmark
 
-`wavez bench run <task> --arm baseline|wavez` checks out the task's pinned
+`wavez bench run <task> --arm baseline|wavez|wavez-route` checks out the task's pinned
 commit into a throwaway worktree, runs the harness headless, evaluates the
 task's checks, and appends a record with turns, cost, tokens, wall clock, and
 the transcript attribution. `wavez bench report` puts the arms side by side.
@@ -184,14 +223,39 @@ What the transcripts showed:
   doing its job on a failure the session did not cause, which cost six turns
   and is the first item below
 
+## Second live runs
+
+One more run per arm on `claude-sonnet-5-5`, 2026-11-21, after the baseline
+comparison, the rename rule, and the route hint. The baseline rows are the
+ones above. Still one run per arm, so the turn counts settle nothing.
+
+| Task | Arm | Checks | Turns | Cost | Wall |
+|---|---|---|---|---|---|
+| h3 rename | wavez | 6/6 | 7 | $0.158 | 47s |
+| h3 rename | wavez-route | 6/6 | 5 | $0.127 | 28s |
+| e2 add a method and test | wavez | 2/3 | 7 | $0.117 | 26s |
+| e2 add a method and test | wavez-route | 2/3 | 6 | $0.109 | 25s |
+
+- **The pre-existing failure no longer blocks.** Both e2 runs ended with no
+  stop block and the same 2/3 as the baseline, at 7 and 6 turns against 13
+  before. The agent did not touch the macOS-only test
+- **`wavez rename` was used in both h3 runs.** The wavez run loaded the skill
+  and called it unprompted. The wavez-route run tried `sed`, was denied
+  once, and ran the suggested command. Neither was cheaper than the baseline's
+  four turns
+- **The route hint fired once in each wavez-route run**, by rule. One run
+  cannot say whether it helped
+
 ## What is not here yet
 
-- **Pre-existing failures block.** A failing test is not compared against the
-  tree the session started from, so a test that was already red holds the
-  agent until the round cap. Re-running only the failing tests at the
-  baseline, on the failure path, would tell the two apart
-- **Nothing makes an agent use the refactor commands.** A skill description
-  was not enough in two runs
+- **No decision model has answered a live question.** The machine these ran
+  on has no local model, so the route ran on rules alone. The 27 corpus lines
+  the rules leave are the first thing to try one on
+- **Nothing shows wavez is cheaper than Claude Code alone.** Every ratio so
+  far is inside the noise, and the rename task costs more turns with wavez
+  than without
+- Lint failures and failures that name no test are not compared against the
+  baseline, and files git ignores are missing from the baseline tree
 
 - Checks for languages other than Go ship as configuration, not as built-ins
 - Only Claude Code has a hook adapter. `wavez gate` is harness-neutral, so a
