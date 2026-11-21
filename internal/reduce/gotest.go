@@ -63,7 +63,7 @@ func keepGoTest(lines []string) []string {
 			}
 		case collapse && packageVerdict.MatchString(line):
 			quiet++
-		case trimmed == "", collapse && line == "FAIL":
+		case trimmed == "", collapse && line == bareFail:
 		default:
 			out = append(out, line)
 		}

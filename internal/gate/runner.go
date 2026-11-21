@@ -24,12 +24,18 @@ func WithLookPath(lookPath func(name string) (string, error)) Option {
 	return func(r *runner) { r.lookPath = lookPath }
 }
 
+// WithoutCache makes the runner neither read nor write .wavez/cache, as
+// setting WAVEZ_NO_CACHE does.
+func WithoutCache() Option {
+	return func(r *runner) { r.noCache = true }
+}
+
 // New returns the Runner that loads the project's configuration from root on
 // each run.
 //
 //nolint:ireturn // Runner is the frozen surface internal/hook and cmd/wavez consume
 func New(opts ...Option) Runner {
-	r := &runner{lookPath: exec.LookPath}
+	r := &runner{lookPath: exec.LookPath, noCache: cacheDisabled()}
 	for _, opt := range opts {
 		opt(r)
 	}
@@ -39,6 +45,11 @@ func New(opts ...Option) Runner {
 
 type runner struct {
 	lookPath func(name string) (string, error)
+	noCache  bool
+}
+
+func (r *runner) cacheFor(root string) cache {
+	return cache{root: root, off: r.noCache}
 }
 
 // project is one run's fixed inputs: where it runs, what the project
@@ -52,8 +63,10 @@ type project struct {
 // Run loads root's configuration and runs the checks changed selects for
 // stage. Fixers run first and one at a time, since two of them may rewrite
 // the same file; the checks then run side by side and report in a fixed
-// order: the built-ins, then the project's own in file order. The error is
-// for a configuration or root that cannot be read, never for a check.
+// order: the built-ins, then the project's own in file order. A blocking
+// failure at the stop stage is then compared with the baseline the context
+// carries, if it carries one. The error is for a configuration or root that
+// cannot be read, never for a check.
 func (r *runner) Run(ctx context.Context, root string, changed []string, stage Stage) (Report, error) {
 	changed = normalize(changed)
 	if len(changed) == 0 {
@@ -99,7 +112,14 @@ func (r *runner) Run(ctx context.Context, root string, changed []string, stage S
 
 	wg.Wait()
 
-	return Report{Results: append(results, slices.Concat(slots...)...)}, nil
+	results = append(results, slices.Concat(slots...)...)
+
+	// Only a stop can block, and only a session has a tree it started from.
+	if base, ok := baselineFrom(ctx); ok && stage == StageStop {
+		results = r.compare(ctx, proj, base, results)
+	}
+
+	return Report{Results: results}, nil
 }
 
 // resolveRoot returns root absolute with symlinks followed, which is the

@@ -34,7 +34,9 @@ func (r Result) blocks() bool {
 func (r Report) Fingerprint() string {
 	var parts []string
 
-	for _, res := range r.Results {
+	for i := range r.Results {
+		res := &r.Results[i]
+
 		if res.blocks() {
 			parts = append(parts, res.Check+"\x00"+elapsed.ReplaceAllString(res.Summary, ""))
 		}
@@ -58,7 +60,9 @@ func (r Report) Fingerprint() string {
 func (r Report) Render() string {
 	var blocking, advisory []string
 
-	for _, res := range r.Results {
+	for i := range r.Results {
+		res := &r.Results[i]
+
 		switch {
 		case res.blocks():
 			blocking = append(blocking, section("FAIL "+res.Check, res.Summary))
@@ -81,15 +85,28 @@ func (r Report) Render() string {
 }
 
 // Notes is the text for the person rather than the agent: one line per
-// check that could not run. It is empty when every check ran. An agent
-// handed these lines goes looking for the missing tool, which is work the
-// change never asked for.
+// check that could not run, per check with failures the session did not
+// cause, and per failure that could not be compared with the tree the
+// session started from. It is empty when there is none of those. An agent
+// handed these lines goes looking for the missing tool or repairs a test it
+// never broke, which is work the change never asked for.
 func (r Report) Notes() string {
 	var lines []string
 
-	for _, res := range r.Results {
+	for i := range r.Results {
+		res := &r.Results[i]
+
 		if res.Status == StatusAbstained {
 			lines = append(lines, "NOT CHECKED "+res.Check+": "+res.Summary)
+		}
+
+		if len(res.Preexisting) > 0 {
+			lines = append(lines, "ALREADY FAILING before this session, so it does not block: "+
+				res.Check+": "+strings.Join(res.Preexisting, ", "))
+		}
+
+		if res.Note != "" {
+			lines = append(lines, "NOT COMPARED "+res.Check+": "+res.Note)
 		}
 	}
 
@@ -104,7 +121,9 @@ func (r Report) Notes() string {
 func (r Report) fixed() []string {
 	var out []string
 
-	for _, res := range r.Results {
+	for i := range r.Results {
+		res := &r.Results[i]
+
 		out = append(out, res.Fixed...)
 	}
 

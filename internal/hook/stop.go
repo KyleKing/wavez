@@ -34,7 +34,7 @@ func (h *Handler) stopping(ctx context.Context, store *session.Store, ev event, 
 		return output{}, nil
 	}
 
-	verdict, err := h.runner.Run(ctx, rec.Root, changed, gate.StageStop)
+	verdict, err := h.runner.Run(withBaseline(ctx, state.Baseline), rec.Root, changed, gate.StageStop)
 	if err != nil {
 		return output{}, wrap("stop gates", err)
 	}
@@ -60,6 +60,19 @@ func (h *Handler) stopping(ctx context.Context, store *session.Store, ev event, 
 	}
 
 	return res, nil
+}
+
+// withBaseline tells the gates which tree the session started from, so that
+// a failure that tree already had is the person's to hear about and not the
+// agent's to fix. A baseline that cannot be rebuilt (outside git, before the
+// first commit, or uncommitted changes too large to have been kept) is left
+// out, and every failure then blocks as it always did.
+func withBaseline(ctx context.Context, base session.Baseline) context.Context {
+	if !base.Restorable() {
+		return ctx
+	}
+
+	return gate.WithBaseline(ctx, gate.Baseline{Commit: base.Head, Tree: base.Tree})
 }
 
 func changeSet(ctx context.Context, store *session.Store, root string, state session.State) ([]string, string, error) {
@@ -133,7 +146,20 @@ func (h *Handler) decide(state *session.State, verdict Verdict, changeSet string
 		return released(fmt.Sprintf("%d times in one turn", state.Chain), text)
 	}
 
-	return output{Decision: "block", Reason: text}
+	return blocked(state, text, verdict.Notes)
+}
+
+// blocked holds the agent with text. Notes go to the person beside it, once:
+// a block repeats every round and what the person was told has not changed.
+func blocked(state *session.State, text, notes string) output {
+	out := output{Decision: "block", Reason: text}
+
+	if id := digest("block\x00" + notes); notes != "" && id != state.Advised {
+		state.Advised = id
+		out.SystemMessage = clip("wavez: " + notes)
+	}
+
+	return out
 }
 
 // released lets the agent stop and tells the user, not the model, why the

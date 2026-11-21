@@ -11,6 +11,12 @@ import (
 
 // Version is the schema of the state file. A file written under any other
 // version is discarded and the session starts over with a fresh baseline.
+//
+// Baseline.Tree was added without a new version, on purpose: a new version
+// would throw away every live session's baseline, and with it what that
+// session changed. A file written before the field existed reads as a
+// baseline with no tree, which is exactly what it is, and an older binary
+// reading a newer file ignores the key.
 const Version = 1
 
 // State is everything remembered about one session.
@@ -40,7 +46,20 @@ type State struct {
 type Baseline struct {
 	Dirty map[string]string `json:"dirty,omitempty"`
 	Head  string            `json:"head,omitempty"`
-	Git   bool              `json:"git"`
+	// Tree names a git tree object holding the whole working tree as the
+	// session found it, uncommitted files included. It is set only when
+	// Dirty is not empty, since Head is that tree otherwise, and is left
+	// empty when the dirt was too large to keep or could not be stored.
+	Tree string `json:"tree,omitempty"`
+	Git  bool   `json:"git"`
+}
+
+// Restorable reports whether the tree the session started from can be
+// rebuilt: it is a commit, alone or with the Tree kept for what was
+// uncommitted. A session that started outside git, before the first commit,
+// or on dirt that was not kept has hashes of its baseline and no content.
+func (b Baseline) Restorable() bool {
+	return b.Git && b.Head != "" && (len(b.Dirty) == 0 || b.Tree != "")
 }
 
 // Failure counts consecutive stops that failed the gates the same way.

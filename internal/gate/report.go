@@ -26,6 +26,10 @@ const (
 	StatusPass      Status = "pass"
 	StatusFail      Status = "fail"
 	StatusAbstained Status = "abstained"
+	// StatusPreexisting is a failure the tree the session started from
+	// already had. It does not block and the agent never hears of it: the
+	// session did not cause it, so it is not the session's to fix.
+	StatusPreexisting Status = "preexisting"
 )
 
 // Result is one check's outcome.
@@ -43,6 +47,15 @@ type Result struct {
 	// Fixed lists the files the check's own fixer rewrote, relative to the
 	// root. The agent's view of those files is stale.
 	Fixed []string `json:"fixed,omitempty"`
+	// Preexisting names the failures the tree the session started from
+	// already had. They are for the person. A result that is still a
+	// failure carries the rest in Summary.
+	Preexisting []string `json:"preexisting,omitempty"`
+	// Note is for the person: why a failure could not be compared with the
+	// tree the session started from, and so still blocks.
+	Note string `json:"note,omitempty"`
+	// evidence is what a failure keeps for that comparison.
+	evidence *evidence
 }
 
 // Report is every result of one run.
@@ -54,7 +67,8 @@ type Report struct {
 // cmd/wavez consume, and its signature is frozen.
 //
 // The changed paths are relative to root. An empty changed set is a run that
-// examined nothing and returns an empty Report.
+// examined nothing and returns an empty Report. A context from WithBaseline
+// makes a stop-stage run set aside the failures that baseline already had.
 type Runner interface {
 	Run(ctx context.Context, root string, changed []string, stage Stage) (Report, error)
 }

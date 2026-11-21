@@ -12,6 +12,9 @@ import (
 )
 
 const (
+	// The goTest subcommand compiles a package's tests and runs them.
+	goTest = "test"
+
 	buildTimeout = 3 * time.Minute
 	testTimeout  = 5 * time.Minute
 )
@@ -78,26 +81,35 @@ func (r *runner) goCompile(ctx context.Context, proj project, files []string, wh
 	}
 
 	if wantBuild && len(pkgs.buildable) > 0 {
-		out := run(ctx, invocation{
+		inv := invocation{
 			dir: proj.root, name: goBin, timeout: buildTimeout, args: append([]string{"build"}, pkgs.buildable...),
-		})
-		if build = classifyGo(build, out); build.Status != StatusPass {
+		}
+		if build = classifyGo(build, run(ctx, inv), evidence{again: inv}); build.Status != StatusPass {
 			return []Result{build}
 		}
 	}
 
-	args := []string{"test"}
+	// The compileOnly arguments build the test binaries and run nothing,
+	// which is also how a build failure found by the test run is put to
+	// the baseline tree.
+	compileOnly := []string{goTest, "-run", "^$"}
+
+	args := []string{goTest}
 	if !wantTest {
-		args = append(args, "-run", "^$", "-vet=off")
+		compileOnly = append(compileOnly, "-vet=off")
+		args = compileOnly
 	}
 
-	out := run(ctx, invocation{dir: proj.root, name: goBin, timeout: testTimeout, args: append(args, pkgs.all...)})
+	inv := invocation{dir: proj.root, name: goBin, timeout: testTimeout, args: slices.Concat(args, pkgs.all)}
+	out := run(ctx, inv)
 
 	if wantBuild && (!wantTest || hasLine(out.output, buildVerdict.MatchString)) {
-		return []Result{classifyGo(build, out)}
+		inv.args = slices.Concat(compileOnly, pkgs.all)
+
+		return []Result{classifyGo(build, out, evidence{again: inv})}
 	}
 
-	test = classifyGo(test, out)
+	test = classifyGo(test, out, evidence{again: inv, tests: true})
 
 	switch {
 	case build.Status != "":
@@ -149,14 +161,18 @@ func enabled(wantBuild bool, build Result, wantTest bool, test Result) []Result 
 // change's failure only when the output points at source or reports a test
 // that ran; anything else is the toolchain declining to run (a module that
 // does not resolve, a pattern that matches nothing), which abstains with
-// go's own first line as the reason.
-func classifyGo(res Result, out outcome) Result {
+// go's own first line as the reason. A failure keeps ev, so that it can be
+// compared with the baseline.
+func classifyGo(res Result, out outcome, ev evidence) Result {
 	switch {
 	case out.reason != "":
 		return res.abstain(out.reason)
 	case out.exit == 0:
 		return res.pass()
 	case hasLine(out.output, sourceFailure):
+		ev.output = out.output
+		res.evidence = &ev
+
 		return res.fail(out.output)
 	default:
 		return res.abstain(oneLine(out.output))

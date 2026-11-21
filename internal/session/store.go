@@ -156,7 +156,12 @@ func (s *Store) baseline(ctx context.Context) (Baseline, error) {
 		}
 	}
 
-	return Baseline{Git: true, Head: tree.head(ctx), Dirty: dirty}, nil
+	base := Baseline{Git: true, Head: tree.head(ctx), Dirty: dirty}
+	if base.Head != "" {
+		base.Tree = tree.snapshot(ctx, slices.Sorted(maps.Keys(dirty)))
+	}
+
+	return base, nil
 }
 
 // save writes the state through a temporary file, so a reader never sees
