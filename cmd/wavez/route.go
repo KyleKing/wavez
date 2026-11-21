@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -16,8 +18,8 @@ import (
 )
 
 const routeUsage = `usage:
-  wavez route <prompt text...>      print the route a prompt gets, and the hint the agent would see
-  wavez route eval <corpus.jsonl>   run a labeled corpus through the rules and the configured model`
+  wavez route [--dir DIR] <prompt text...>      print the route a prompt gets, and the hint the agent would see
+  wavez route [--dir DIR] eval <corpus.jsonl>   run a labeled corpus through the rules and the configured model`
 
 const routeEval = "eval"
 
@@ -25,16 +27,18 @@ const routeEval = "eval"
 // labeled corpus. It reads the project's configuration but not its route
 // switch, so a project can look at the answers before turning the hint on.
 func runRoute(ctx context.Context, args []string, streams stdio) error {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+	flags := flag.NewFlagSet("wavez route", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+
+	dir := flags.String("dir", ".", "project directory whose configuration and paths are read")
+
+	if err := flags.Parse(args); err != nil || flags.NArg() == 0 {
 		return &usageError{msg: routeUsage}
 	}
 
-	dir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("finding the working directory: %w", err)
-	}
+	args = flags.Args()
 
-	root := hook.FindRoot(dir)
+	root := hook.FindRoot(*dir)
 
 	cfg, err := config.Load(root)
 	if err != nil {

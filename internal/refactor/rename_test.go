@@ -128,7 +128,7 @@ func TestRename_Refuses(t *testing.T) {
 			wantMsg: `"Run" names 2 declarations; use one of these targets instead:`,
 		},
 		{
-			name: "not found offers near names", target: "lib/lib.go:Gret", to: "Welcome",
+			name: "not found offers near names", target: "lib/lib.go:Greeet", to: "Welcome",
 			check: func(t *testing.T, err error) {
 				t.Helper()
 
@@ -137,7 +137,7 @@ func TestRename_Refuses(t *testing.T) {
 				require.ErrorAs(t, err, &missing)
 				assert.Contains(t, missing.Near, "Greet")
 			},
-			wantMsg: `no declaration named "Gret" in lib/lib.go; closest names there: Greet`,
+			wantMsg: `no declaration named "Greeet" in lib/lib.go; closest names there: Greet`,
 		},
 		{
 			name: "not found points at the sibling file", target: "lib/lib.go:Extra", to: "More",

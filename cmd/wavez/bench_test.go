@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kyleking/wavez/internal/bench"
+	"github.com/kyleking/wavez/internal/scripttest"
 )
 
 // benchFixture is a repository with a tasks file beside it, the way the
@@ -127,7 +128,7 @@ func TestBench_WavezArmUsesTheNamedBinary(t *testing.T) {
 	body := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 'wavez 9.9.9 (abc, today)'; exit 0; fi\n" +
 		"mkdir -p .claude && echo \"$@\" > .claude/wired\n"
 
-	require.NoError(t, os.WriteFile(wavez, []byte(body), 0o700)) //nolint:gosec // a test's fake binary
+	scripttest.Write(t, wavez, body)
 
 	// The harness reports whether init ran and whether wavez resolves on PATH.
 	line, err := runCommand(t, runBench, "run", "ok", "--arm", "wavez", "--tasks", fx.tasks, "--records", fx.records,

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kyleking/wavez/internal/bench"
+	"github.com/kyleking/wavez/internal/scripttest"
 )
 
 // gitIn runs git in dir with an identity, so a commit works on a machine
@@ -59,7 +60,7 @@ func script(t *testing.T, name, body string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), name)
-	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o700)) //nolint:gosec // a test's fake binary
+	scripttest.Write(t, path, "#!/bin/sh\n"+body)
 
 	return path
 }

@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	gateGoMod      = "module example.com/scratch\n\ngo 1.24\n"
-	gateClean      = "package scratch\n\n// One returns one.\nfunc One() int { return 1 }\n"
-	gateBroken     = "package scratch\n\nfunc One() int { return missing }\n"
-	gateUnformated = "package scratch\n\nfunc  One( ) int {return 1}\n"
+	gateGoMod       = "module example.com/scratch\n\ngo 1.24\n"
+	gateClean       = "package scratch\n\n// One returns one.\nfunc One() int { return 1 }\n"
+	gateBroken      = "package scratch\n\nfunc One() int { return missing }\n"
+	gateUnformatted = "package scratch\n\nfunc  One( ) int {return 1}\n"
 )
 
 // gateProject writes a one-package module holding source and returns its
@@ -64,7 +64,7 @@ func TestRunGate(t *testing.T) {
 			out: "FAIL build\n./one.go:3:25: undefined: missing\n",
 		},
 		{
-			name: "the edit stage formats and says so", source: gateUnformated, args: []string{"--stage", "edit"},
+			name: "the edit stage formats and says so", source: gateUnformatted, args: []string{"--stage", "edit"},
 			out: "REWRITTEN by a formatter, re-read before editing: one.go\n",
 		},
 		{
