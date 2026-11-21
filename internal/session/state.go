@@ -1,0 +1,84 @@
+// Package session keeps what one agent session changed in a project: the
+// files its edit tools wrote, a baseline of the working tree taken at the
+// session's first event, and how the gates last answered. The state lives in
+// <root>/.wavez/sessions/<session_id>.json so that each hook invocation, a
+// separate process, picks up where the previous one stopped.
+package session
+
+import (
+	"slices"
+)
+
+// Version is the schema of the state file. A file written under any other
+// version is discarded and the session starts over with a fresh baseline.
+const Version = 1
+
+// State is everything remembered about one session.
+type State struct {
+	SessionID string `json:"session_id"`
+	// Passed is the Fingerprint of the change set the gates last passed
+	// on. A stop that finds the same fingerprint has nothing to check.
+	Passed string `json:"passed,omitempty"`
+	// Advised identifies the non-blocking text last handed to the agent,
+	// so the same advisory is surfaced once.
+	Advised  string   `json:"advised,omitempty"`
+	Baseline Baseline `json:"baseline"`
+	Failure  Failure  `json:"failure"`
+	// Recorded holds the root-relative paths the session's edit tools
+	// wrote, sorted and without duplicates.
+	Recorded []string `json:"recorded"`
+	Version  int      `json:"version"`
+	// Chain counts the stops blocked since the agent last stopped of its
+	// own accord, whatever they failed on.
+	Chain int `json:"chain"`
+}
+
+// Baseline is the working tree as the session found it. Dirty maps every
+// file that differed from Head at that moment to a hash of its content, and
+// to "" when the file was deleted. Outside a git repository Git is false and
+// nothing but Recorded can say what changed.
+type Baseline struct {
+	Dirty map[string]string `json:"dirty,omitempty"`
+	Head  string            `json:"head,omitempty"`
+	Git   bool              `json:"git"`
+}
+
+// Failure counts consecutive stops that failed the gates the same way.
+type Failure struct {
+	// Fingerprint identifies the blocking failures of the last failed run.
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// ChangeSet is the Fingerprint of the files that last failed run saw.
+	ChangeSet string `json:"change_set,omitempty"`
+	// Rounds is how many runs in a row produced Fingerprint.
+	Rounds int `json:"rounds"`
+}
+
+// Record notes that an edit tool wrote the root-relative path.
+func (s *State) Record(path string) {
+	if path == "" || slices.Contains(s.Recorded, path) {
+		return
+	}
+
+	s.Recorded = append(s.Recorded, path)
+	slices.Sort(s.Recorded)
+}
+
+// Fail counts one failed run and returns how many runs in a row have now
+// failed with the same fingerprint.
+func (s *State) Fail(fingerprint, changeSet string) int {
+	if s.Failure.Fingerprint != fingerprint {
+		s.Failure = Failure{Fingerprint: fingerprint}
+	}
+
+	s.Failure.Rounds++
+	s.Failure.ChangeSet = changeSet
+
+	return s.Failure.Rounds
+}
+
+// Pass records that the gates passed on the change set and clears the
+// failure count.
+func (s *State) Pass(changeSet string) {
+	s.Passed = changeSet
+	s.Failure = Failure{}
+}
