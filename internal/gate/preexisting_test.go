@@ -548,7 +548,7 @@ func TestRun_ACustomCheckThatPassedOnTheseBytesIsNotRunAgain(t *testing.T) {
 		},
 		{name: "a failure is never kept", config: perFile, first: "bad\n", want: 2, status: gate.StatusFail},
 		{
-			name: "an abstention is never kept", config: counted("exit 127 {files}"), first: "good\n",
+			name: "an abstention is never kept", config: counted(": {files}; exit 127"), first: "good\n",
 			want: 2, status: gate.StatusAbstained,
 		},
 		{
