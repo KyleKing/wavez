@@ -133,3 +133,68 @@ func (s *snapshot) original(rel string) ([]byte, bool) {
 
 	return saved.data, ok && saved.existed
 }
+
+// before is original for a caller that reads through an error.
+func (s *snapshot) before(rel string) ([]byte, error) {
+	data, ok := s.original(rel)
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+
+	return data, nil
+}
+
+// capture reads the present state of every kept file the operation
+// changed, so the operation can be put back after a restore.
+func (s *snapshot) capture() (map[string]savedFile, error) {
+	out := map[string]savedFile{}
+
+	for rel, saved := range s.kept {
+		data, err := s.fsys.ReadFile(filepath.FromSlash(rel))
+		if errors.Is(err, fs.ErrNotExist) {
+			if saved.existed {
+				out[rel] = savedFile{}
+			}
+
+			continue
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", rel, err)
+		}
+
+		if saved.existed && bytes.Equal(data, saved.data) {
+			continue
+		}
+
+		mode := newFileMode
+		if saved.existed {
+			mode = saved.mode
+		}
+
+		out[rel] = savedFile{data: data, mode: mode, existed: true}
+	}
+
+	return out, nil
+}
+
+// apply writes a captured state back over the tree.
+func (s *snapshot) apply(state map[string]savedFile) error {
+	for rel, file := range state {
+		name := filepath.FromSlash(rel)
+
+		if !file.existed {
+			if err := s.fsys.Remove(name); err != nil {
+				return fmt.Errorf("removing %s: %w", rel, err)
+			}
+
+			continue
+		}
+
+		if err := s.fsys.WriteFile(name, file.data, file.mode); err != nil {
+			return fmt.Errorf("writing %s: %w", rel, err)
+		}
+	}
+
+	return nil
+}

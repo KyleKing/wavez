@@ -123,20 +123,14 @@ func (e *GoplsError) Error() string {
 	return fmt.Sprintf("gopls refused the %s, nothing was changed: %s", e.Op, e.Reason)
 }
 
-// BuildError reports that the packages an operation touched do not compile.
-// Preexisting separates a tree that was already broken from one the
-// operation broke; either way the files are back as they were.
+// BuildError reports that an operation broke the build of the packages it
+// touched, with the compile errors it added. The files are back as they
+// were.
 type BuildError struct {
-	Output      string
-	Preexisting bool
+	Output string
 }
 
 func (e *BuildError) Error() string {
-	if e.Preexisting {
-		return "the package does not typecheck even without this change, so nothing was changed; " +
-			"fix these first:\n" + e.Output
-	}
-
 	return "the result does not build, so every file was restored (line numbers are the attempted result's):\n" +
 		e.Output
 }

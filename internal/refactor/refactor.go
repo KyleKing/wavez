@@ -20,6 +20,27 @@ type Refactorer struct {
 	workDir string
 	gopls   string
 	goTool  string
+	dryRun  bool
+}
+
+// WithDryRun makes every operation put the tree back once it has run, so
+// its report says what a real run would do, refusals and the build check
+// included. The files are written and restored in between.
+func WithDryRun(on bool) Option {
+	return func(r *Refactorer) { r.dryRun = on }
+}
+
+const dryRunHeader = "dry run, nothing was changed; a real run prints:\n"
+
+// alreadyBroken is the line a report carries when the touched packages did
+// not build before the operation and it added no error of its own.
+func alreadyBroken(n int) string {
+	if n == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("the touched packages already failed to build: %s before and after, none from this change\n",
+		count(n, "compile error"))
 }
 
 // Option adjusts a Refactorer.
@@ -103,6 +124,20 @@ func (r *Refactorer) open() (*session, error) {
 		tools: toolchain{dir: r.root, gopls: r.gopls, goTool: r.goTool},
 		work:  r.workDir,
 	}, nil
+}
+
+// finish ends an operation that succeeded. A dry run restores the tree and
+// reports true.
+func (r *Refactorer) finish(s *session) (bool, error) {
+	if !r.dryRun {
+		return false, nil
+	}
+
+	if err := s.snap.restore(); err != nil {
+		return true, fmt.Errorf("restoring the files after a dry run: %w", err)
+	}
+
+	return true, nil
 }
 
 // close releases the root handle. Its error is dropped because every write

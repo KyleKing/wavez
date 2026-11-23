@@ -13,14 +13,19 @@ type MoveResult struct {
 	To   string
 	// Names lists what moved, in source order.
 	Names string
+	// StillBroken counts the compile errors the package had before the
+	// move and still has.
+	StillBroken int
 	// Created is set when the destination file did not exist.
 	Created bool
 	// SourceRemoved is set when the move left the source with no
 	// declarations, so the file was removed.
 	SourceRemoved bool
+	// DryRun is set when the tree was put back after the move ran.
+	DryRun bool
 }
 
-// Summary is the one-line report of a move.
+// Summary is the short report of a move.
 func (r MoveResult) Summary() string {
 	to := r.To
 	if r.Created {
@@ -30,6 +35,11 @@ func (r MoveResult) Summary() string {
 	out := fmt.Sprintf("moved %s from %s to %s\n", r.Names, r.From, to)
 	if r.SourceRemoved {
 		out += "removed " + r.From + ", which had nothing left in it\n"
+	}
+
+	out += alreadyBroken(r.StillBroken)
+	if r.DryRun {
+		return dryRunHeader + out
 	}
 
 	return out
@@ -76,11 +86,13 @@ func (r *Refactorer) Move(ctx context.Context, spec, dest string) (MoveResult, e
 		return MoveResult{}, s.fail(err)
 	}
 
-	if err := s.verify(ctx, touched); err != nil {
+	if res.StillBroken, err = s.verify(ctx, touched); err != nil {
 		return MoveResult{}, err
 	}
 
-	return res, nil
+	res.DryRun, err = r.finish(s)
+
+	return res, err
 }
 
 // moveDest validates the destination of a move and returns it relative to

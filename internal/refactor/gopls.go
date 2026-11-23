@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -83,10 +84,11 @@ func position(rel string, offset int) string {
 	return filepath.FromSlash(rel) + ":#" + strconv.Itoa(offset)
 }
 
-// rename asks gopls to rename the identifier at an offset everywhere it is
-// used, writing the files, and returns the files it changed.
-func (t toolchain) rename(ctx context.Context, rel string, offset int, to string) ([]string, error) {
-	out, err := t.runGopls(ctx, "rename", "rename", "-l", "-w", position(rel, offset), to)
+// rename asks gopls to rename the identifier at a position everywhere it is
+// used, writing the files, and returns the files it changed. That reaches
+// what gopls loaded, which is the default build: see session.excluded.
+func (t toolchain) rename(ctx context.Context, at, to string) ([]string, error) {
+	out, err := t.runGopls(ctx, "rename", "rename", "-l", "-w", at, to)
 	if err != nil {
 		return nil, err
 	}
@@ -102,39 +104,124 @@ func (t toolchain) rename(ctx context.Context, rel string, offset int, to string
 	return files, nil
 }
 
-// location is one place gopls reported.
-type location struct {
-	file string
-	line int
-}
-
-var locationPattern = regexp.MustCompile(`^(.+\.go):(\d+):`)
-
-// references lists every use of the identifier at an offset, without the
-// declaration itself.
-func (t toolchain) references(ctx context.Context, rel string, offset int) ([]location, error) {
-	out, err := t.runGopls(ctx, "reference search", "references", position(rel, offset))
+// implementations lists the methods inside the module that implement the
+// interface method at an offset, each at its name.
+func (t toolchain) implementations(ctx context.Context, rel string, offset int) ([]location, error) {
+	out, err := t.runGopls(ctx, "implementation search", "implementation", position(rel, offset))
 	if err != nil {
 		return nil, err
 	}
 
+	return t.locations(out), nil
+}
+
+// builtFilesFormat prints one line per Go file of a package the build
+// holds: its directory, a tab, and its name.
+const builtFilesFormat = `{{$dir := .Dir}}{{range .GoFiles}}{{$dir}}{{"\t"}}{{.}}{{"\n"}}{{end}}` +
+	`{{range .CgoFiles}}{{$dir}}{{"\t"}}{{.}}{{"\n"}}{{end}}` +
+	`{{range .TestGoFiles}}{{$dir}}{{"\t"}}{{.}}{{"\n"}}{{end}}` +
+	`{{range .XTestGoFiles}}{{$dir}}{{"\t"}}{{.}}{{"\n"}}{{end}}`
+
+// builtFiles is the Go files of the module that the default build holds,
+// tests included. The rest are left out by a file name suffix, a build
+// constraint, or cgo being off.
+func (t toolchain) builtFiles(ctx context.Context) (map[string]bool, error) {
+	out, err := t.run(ctx, t.goTool, "list", "-e", "-f", builtFilesFormat, "./...")
+	if err != nil {
+		return nil, err
+	}
+
+	built := map[string]bool{}
+
+	for line := range strings.SplitSeq(out, "\n") {
+		dir, name, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+
+		if rel, relErr := filepath.Rel(t.dir, dir); relErr == nil {
+			built[path.Join(filepath.ToSlash(rel), name)] = true
+		}
+	}
+
+	return built, nil
+}
+
+// location is one place gopls reported: a file of the module, a line, and
+// a byte column, the last two counted from one.
+type location struct {
+	file      string
+	line, col int
+}
+
+func (l location) String() string {
+	return fmt.Sprintf("%s:%d:%d", filepath.FromSlash(l.file), l.line, l.col)
+}
+
+// offset is where the location sits in src when word is there, and false
+// when something else is.
+func (l location) offset(src []byte, word string) (int, bool) {
+	at := 0
+
+	for range l.line - 1 {
+		i := bytes.IndexByte(src[at:], '\n')
+		if i < 0 {
+			return 0, false
+		}
+
+		at += i + 1
+	}
+
+	at += l.col - 1
+	if l.line < 1 || l.col < 1 || at > len(src) || !bytes.HasPrefix(src[at:], []byte(word)) {
+		return 0, false
+	}
+
+	return at, true
+}
+
+// locationFields is what locationPattern yields: the match, then the file,
+// line, and column.
+const locationFields = 4
+
+var locationPattern = regexp.MustCompile(`^(.+\.go):(\d+):(\d+)`)
+
+// locations reads the file:line:col lines of gopls output, leaving out
+// places outside the module.
+func (t toolchain) locations(out string) []location {
 	var locs []location
 
 	for line := range strings.SplitSeq(t.relativize(out), "\n") {
 		m := locationPattern.FindStringSubmatch(strings.TrimSpace(line))
-		if m == nil {
+		if len(m) != locationFields || filepath.IsAbs(m[1]) {
 			continue
 		}
 
-		n, convErr := strconv.Atoi(m[2])
-		if convErr != nil {
-			continue
-		}
+		row, rowErr := strconv.Atoi(m[2])
+		col, colErr := strconv.Atoi(m[3])
 
-		locs = append(locs, location{file: filepath.ToSlash(m[1]), line: n})
+		if rowErr == nil && colErr == nil {
+			locs = append(locs, location{file: filepath.ToSlash(m[1]), line: row, col: col})
+		}
 	}
 
-	return locs, nil
+	return locs
+}
+
+// references lists every use of the identifier at a position, and with
+// declared set its declaration too.
+func (t toolchain) references(ctx context.Context, at string, declared bool) ([]location, error) {
+	args := []string{"references"}
+	if declared {
+		args = append(args, "-d")
+	}
+
+	out, err := t.runGopls(ctx, "reference search", append(args, at)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return t.locations(out), nil
 }
 
 // fixImports has gopls drop the imports each file no longer uses and add

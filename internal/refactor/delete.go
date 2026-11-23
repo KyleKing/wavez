@@ -17,6 +17,11 @@ type DeleteResult struct {
 	// were removed.
 	Removed []string
 	Count   int
+	// StillBroken counts the compile errors the packages had before the
+	// delete and still have.
+	StillBroken int
+	// DryRun is set when the tree was put back after the delete ran.
+	DryRun bool
 }
 
 // Summary is the short report of a delete.
@@ -24,6 +29,11 @@ func (r DeleteResult) Summary() string {
 	out := fmt.Sprintf("deleted %s: %s\n", count(r.Count, "declaration"), strings.Join(r.Deleted, "; "))
 	if len(r.Removed) > 0 {
 		out += "removed " + strings.Join(r.Removed, " ") + ", left with nothing in it\n"
+	}
+
+	out += alreadyBroken(r.StillBroken)
+	if r.DryRun {
+		return dryRunHeader + out
 	}
 
 	return out
@@ -67,11 +77,13 @@ func (r *Refactorer) Delete(ctx context.Context, specs []string) (DeleteResult, 
 		return DeleteResult{}, s.fail(err)
 	}
 
-	if err := s.verify(ctx, sel.files()); err != nil {
+	if res.StillBroken, err = s.verify(ctx, sel.files()); err != nil {
 		return DeleteResult{}, err
 	}
 
-	return res, nil
+	res.DryRun, err = r.finish(s)
+
+	return res, err
 }
 
 // addMethods widens the selection with the methods of every selected type,
@@ -116,7 +128,7 @@ func (s *session) holders(ctx context.Context, sel *selection) ([]Holder, error)
 	found := make([][]location, len(asked))
 
 	err := inParallel(len(asked), func(i int) error {
-		locs, refErr := s.tools.references(ctx, asked[i].file.rel, asked[i].ident)
+		locs, refErr := s.tools.references(ctx, position(asked[i].file.rel, asked[i].ident), false)
 		found[i] = locs
 
 		return refErr
@@ -156,17 +168,7 @@ func (s *session) holders(ctx context.Context, sel *selection) ([]Holder, error)
 }
 
 func isTestEntry(d *declaration) bool {
-	if d.kind != kindFunc || !strings.HasSuffix(d.file.rel, "_test.go") {
-		return false
-	}
-
-	for _, prefix := range []string{"Test", "Benchmark", "Fuzz", "Example"} {
-		if strings.HasPrefix(d.name, prefix) {
-			return true
-		}
-	}
-
-	return false
+	return d.kind == kindFunc && strings.HasSuffix(d.file.rel, testSuffix) && entryPrefix(d.name) != ""
 }
 
 // enclosing names the top-level declaration a location sits in, or nothing

@@ -149,14 +149,7 @@ func TestDelete_Refuses(t *testing.T) {
 		{
 			name:    "a method an interface assertion needs, caught by the build",
 			targets: []string{"lib/lib.go:Box.String"},
-			check: func(t *testing.T, err error) {
-				t.Helper()
-
-				var build *refactor.BuildError
-
-				require.ErrorAs(t, err, &build)
-				assert.False(t, build.Preexisting)
-			},
+			check:   isType[*refactor.BuildError],
 			wantMsg: "missing method String",
 		},
 		{

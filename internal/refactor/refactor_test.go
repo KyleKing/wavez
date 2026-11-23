@@ -97,6 +97,16 @@ func TestSummaries(t *testing.T) {
 			want: []string{"renamed A to B in 1 file: a.go\n"},
 		},
 		{
+			name: "a rename caps the uses the build excludes",
+			got:  refactor.RenameResult{Old: "A", New: "B", Files: files, Excluded: mentions}.Summary(),
+			want: []string{"these still use A:\n  a.go:1\n", "  a.go:12\n  (+2 more)\n"},
+		},
+		{
+			name: "a rename says when it could not look for excluded uses",
+			got:  refactor.RenameResult{Old: "T.A", New: "B", Files: files, ExcludedUnchecked: true}.Summary(),
+			want: []string{"go list failed, so files excluded from this build were not checked for A\n"},
+		},
+		{
 			name: "a refused delete caps its holders and omits a missing enclosing name",
 			got:  (&refactor.StillUsedError{Holders: holders}).Error(),
 			want: []string{"  X used at a.go:15\n  (+2 more)"},

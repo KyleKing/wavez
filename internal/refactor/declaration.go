@@ -69,6 +69,19 @@ func (d *declaration) base() string {
 	return d.name
 }
 
+// isInterfaceMethod reports whether the declaration is a method an
+// interface type lists.
+func (d *declaration) isInterfaceMethod() bool {
+	spec, ok := d.node.(*ast.TypeSpec)
+	if !ok || d.kind != kindField {
+		return false
+	}
+
+	_, ok = spec.Type.(*ast.InterfaceType)
+
+	return ok
+}
+
 func (d *declaration) at() string { return d.file.rel + ":" + strconv.Itoa(d.line()) }
 
 func (d *declaration) target() string { return d.file.rel + ":" + d.name }
