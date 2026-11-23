@@ -36,6 +36,12 @@ type State struct {
 	Advised  string   `json:"advised,omitempty"`
 	Baseline Baseline `json:"baseline"`
 	Failure  Failure  `json:"failure"`
+	// Goal counts consecutive stops the project's goal held the same way.
+	// Its ChangeSet is not used.
+	Goal Failure `json:"goal"`
+	// Summary identifies the end-of-turn line the person last saw, so the
+	// same line is shown once.
+	Summary string `json:"summary,omitempty"`
 	// Recorded holds the root-relative paths the session's edit tools
 	// wrote, sorted and without duplicates.
 	Recorded []string `json:"recorded"`

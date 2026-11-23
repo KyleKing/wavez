@@ -12,6 +12,7 @@ import (
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/decide"
 	"github.com/kyleking/wavez/internal/gate"
+	"github.com/kyleking/wavez/internal/goal"
 	"github.com/kyleking/wavez/internal/session"
 )
 
@@ -68,6 +69,9 @@ type Handler struct {
 	lookPath func(name string) (string, error)
 	// checks names what a stop in a project would run.
 	checks func(root string) (builtins, custom []string, err error)
+	// goals checks the project's goal at the end of a turn: a line for the
+	// person, text for the agent, and whether the turn should be held.
+	goals func(ctx context.Context, root string) (person, agent string, hold bool, err error)
 	// projectDir is where the harness says the session started.
 	projectDir string
 	maxRounds  int
@@ -116,7 +120,10 @@ func WithoutAnnouncement() Option {
 
 // New returns a Handler that runs gates through runner.
 func New(runner Runner, opts ...Option) *Handler {
-	h := &Handler{runner: runner, maxRounds: config.DefaultMaxRounds, lookPath: exec.LookPath, checks: gate.Checks}
+	h := &Handler{
+		runner: runner, maxRounds: config.DefaultMaxRounds, lookPath: exec.LookPath, checks: gate.Checks,
+		goals: goal.StopReport,
+	}
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -244,19 +251,18 @@ func wrap(doing string, err error) error {
 
 // record is one line of the trace.
 type record struct {
-	Event   string `json:"event"`
-	Session string `json:"session"`
-	Root    string `json:"root,omitempty"`
-	Tool    string `json:"tool,omitempty"`
-	// Outcome is what the handler did: silent, context, block, deny,
-	// released, notice, or error.
-	Outcome string   `json:"outcome"`
-	Note    string   `json:"note,omitempty"`
-	Error   string   `json:"error,omitempty"`
-	Changed []string `json:"changed,omitempty"`
-	// AgentBytes is the length of the text this event handed the agent.
-	AgentBytes     int  `json:"agent_bytes,omitempty"`
-	StopHookActive bool `json:"stop_hook_active,omitempty"`
+	Event          string   `json:"event"`
+	Session        string   `json:"session"`
+	Root           string   `json:"root,omitempty"`
+	Tool           string   `json:"tool,omitempty"`
+	Outcome        string   `json:"outcome"`
+	Note           string   `json:"note,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	Goal           string   `json:"goal,omitempty"`
+	Review         string   `json:"review,omitempty"`
+	Changed        []string `json:"changed,omitempty"`
+	AgentBytes     int      `json:"agent_bytes,omitempty"`
+	StopHookActive bool     `json:"stop_hook_active,omitempty"`
 }
 
 func (h *Handler) log(rec record, res output, err error) {

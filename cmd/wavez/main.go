@@ -87,6 +87,7 @@ func commands() []command {
 		{name: "route", summary: "say whether a prompt is direct work, exploration, or work to split", run: runRoute},
 		{name: "bench", summary: "run a pinned task under a harness and record what it cost", run: runBench},
 		{name: "stats", summary: "attribute the turns of a recorded Claude Code session", run: runStats},
+		{name: "statusline", summary: "print the Claude Code status line: what needs you first", run: runStatusline},
 		{name: "report", summary: "write a page saying how a session went and what to say next time", run: runReport},
 	}
 }
