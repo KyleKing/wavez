@@ -2,12 +2,17 @@ package gate
 
 import (
 	"context"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/kyleking/wavez/internal/reduce"
 )
+
+// notCompared opens the note on a failure the baseline could not be asked
+// about.
+const notCompared = "could not ask the tree the session started from: "
 
 // evidence is what a failed check keeps so that the same question can be
 // put to the baseline tree.
@@ -29,8 +34,8 @@ type baselineTests struct {
 	// failed under it, itself included. A test that passed, or that the
 	// baseline does not have, maps to an empty list.
 	Tests map[string][]string `json:"tests"`
-	// NotBuilt is true when the package did not compile there, which no
-	// test in it could have survived.
+	// NotBuilt is true when the package did not compile there, so nothing
+	// is known about any test in it.
 	NotBuilt bool `json:"not_built"`
 }
 
@@ -40,7 +45,7 @@ type baselineLines struct {
 	Lines []string `json:"lines"`
 }
 
-// compare demotes the blocking failures the baseline tree already had. It
+// compare sets aside the blocking failures the session did not cause. It
 // costs nothing unless a blocking check failed, and a comparison that could
 // not be made leaves the failure blocking with a note for the person.
 //
@@ -70,13 +75,97 @@ func (r *runner) compare(ctx context.Context, proj project, base Baseline, resul
 	return results
 }
 
-// tests re-runs the failing tests, and only those, in the baseline tree. A
-// name that fails there too predates the session. A test the baseline does
-// not have passes there by not running, so it is new and stays blocking.
-// When the baseline's package does not compile, every failure in that
-// package predates the session and no other package's does.
+// tests sorts the failing tests into the ones that block and the ones that
+// do not. A test stops blocking for one of two reasons:
+//
+//   - It fails in the baseline tree too, where only the failing tests are
+//     re-run. A test the baseline does not have passes there by not
+//     running, so it is new and stays blocking.
+//   - It passes when it is run once more in the session's own tree. A test
+//     that fails and then passes on the same bytes is flaky, whoever wrote
+//     it, and holding the agent on it teaches the agent nothing.
+//
+// A baseline package that does not compile says nothing about its tests:
+// they stay blocking and the person is told the comparison was not made. A
+// test that ran out its timeout is not run a second time.
 func (c *comparison) tests(ctx context.Context, res Result) Result {
 	failures := reduce.GoTestFailures(res.evidence.output)
+
+	before, reason := c.baselineOf(ctx, res.evidence.again, failures)
+	if reason != "" {
+		res.Note = notCompared + reason
+
+		return res
+	}
+
+	settled := map[string]bool{}
+	blocking := false
+
+	for _, failure := range failures {
+		known := before[failure.Package]
+		if known.NotBuilt {
+			res.Note = notCompared + failure.Package + " does not compile there"
+		}
+
+		var fresh []string
+
+		for _, name := range topLevel(failure.Tests) {
+			switch {
+			case known.NotBuilt:
+				blocking = true
+			case known.failed(failure.Tests, name):
+				res.Preexisting = append(res.Preexisting, failure.Package+" "+name)
+				settled[failure.Package+" "+name] = true
+			case slices.Contains(topLevel(failure.TimedOut), name):
+				blocking = true
+			default:
+				fresh = append(fresh, name)
+			}
+		}
+
+		flaky := c.flaky(ctx, res.evidence.again, failure.Package, fresh)
+		for _, name := range flaky {
+			res.Flaky = append(res.Flaky, failure.Package+" "+name)
+			settled[failure.Package+" "+name] = true
+		}
+
+		blocking = blocking || len(flaky) < len(fresh) || failure.NotBuilt || len(failure.Tests) == 0
+	}
+
+	return c.without(res, settled, blocking)
+}
+
+// without takes the settled tests out of a failure, and the failure out of
+// the way when none is left.
+func (c *comparison) without(res Result, settled map[string]bool, blocking bool) Result {
+	switch {
+	case len(settled) == 0:
+	case blocking:
+		res = res.fail(c.root, reduce.WithoutGoTests(res.evidence.output, func(pkg, test string) bool {
+			return settled[pkg+" "+top(test)]
+		}))
+	case len(res.Preexisting) > 0:
+		res.Status, res.Summary = StatusPreexisting, ""
+	default:
+		res.Status, res.Summary = StatusPass, ""
+	}
+
+	return res
+}
+
+// failed reports whether the top-level test and every name that failed
+// under it now also failed in the baseline.
+func (b baselineTests) failed(names []string, topName string) bool {
+	return !slices.ContainsFunc(belowTop(names, topName), func(name string) bool {
+		return !slices.Contains(b.Tests[topName], name)
+	})
+}
+
+// baselineOf asks the baseline about every package that named a failing
+// test. A non-empty reason means it could not be asked.
+func (c *comparison) baselineOf(
+	ctx context.Context, goCmd invocation, failures []reduce.PackageFailure,
+) (map[string]baselineTests, string) {
 	before := make(map[string]baselineTests, len(failures))
 
 	for _, failure := range failures {
@@ -84,52 +173,25 @@ func (c *comparison) tests(ctx context.Context, res Result) Result {
 			continue
 		}
 
-		known, reason := c.packageTests(ctx, res.evidence.again, failure.Package, topLevel(failure.Tests))
+		known, reason := c.packageTests(ctx, goCmd, failure.Package, topLevel(failure.Tests))
 		if reason != "" {
-			res.Note = "could not ask the tree the session started from: " + reason
-
-			return res
+			return nil, reason
 		}
 
 		before[failure.Package] = known
 	}
 
-	existed := func(pkg, test string) bool {
-		known := before[pkg]
-
-		return known.NotBuilt || slices.Contains(known.Tests[top(test)], test)
-	}
-
-	blocking := false
-
-	for _, failure := range failures {
-		kept := false
-
-		for _, name := range topLevel(failure.Tests) {
-			if under(failure.Tests, name, func(test string) bool { return existed(failure.Package, test) }) {
-				res.Preexisting = append(res.Preexisting, failure.Package+" "+name)
-			} else {
-				kept = true
-			}
-		}
-
-		blocking = blocking || kept || failure.NotBuilt || len(failure.Tests) == 0
-	}
-
-	switch {
-	case len(res.Preexisting) == 0:
-	case blocking:
-		res = res.fail(reduce.WithoutGoTests(res.evidence.output, existed))
-	default:
-		res.Status, res.Summary = StatusPreexisting, ""
-	}
-
-	return res
+	return before, ""
 }
 
 // packageTests returns what the named top-level tests of pkg did in the
 // baseline tree, from the cache where it has them and from a run where it
 // does not. A non-empty reason means the baseline could not be asked.
+//
+// A test counts as failing there only when it failed twice. One failure
+// could be a flaky test's bad run, and kept in the cache it would excuse
+// that test for as long as the tree is the baseline. A test that failed
+// once and then passed is treated as passing and is not kept either way.
 func (c *comparison) packageTests(
 	ctx context.Context, goCmd invocation, pkg string, tests []string,
 ) (baselineTests, string) {
@@ -155,44 +217,134 @@ func (c *comparison) packageTests(
 		return known, reason
 	}
 
-	quoted := make([]string, len(missing))
-	for i, name := range missing {
-		quoted[i] = regexp.QuoteMeta(name)
-	}
-
 	goCmd.dir = dir
-	goCmd.args = []string{goTest, "-run", "^(" + strings.Join(quoted, "|") + ")$", pkg}
 
-	out := run(ctx, goCmd)
-	if out.reason != "" {
-		return known, out.reason
+	first, reason := c.testsAt(ctx, goCmd, pkg, missing)
+	if reason != "" || first.declined {
+		// Go declined without a verdict on the package: it is not in the
+		// baseline, or its module does not resolve there. Nothing was
+		// learned that is worth keeping, and the tests count as new.
+		return known, reason
 	}
 
-	ran := reduce.GoTestFailures(out.output)
-	at := slices.IndexFunc(ran, func(f reduce.PackageFailure) bool { return f.Package == pkg })
-
-	switch {
-	case at >= 0 && ran[at].NotBuilt:
+	if first.notBuilt {
 		known.NotBuilt = true
-	case at >= 0:
-		for _, name := range missing {
-			known.Tests[name] = belowTop(ran[at].Tests, name)
-		}
-	case out.exit == 0:
-		for _, name := range missing {
-			known.Tests[name] = []string{}
-		}
-	default:
-		// Go declined without a verdict on the package: it is not in the
-		// baseline, or its module does not resolve there. Either way
-		// nothing was learned that is worth keeping, and the tests count
-		// as new.
+		c.cache.store(baselineDir, key, known)
+
 		return known, ""
 	}
 
-	c.cache.store(baselineDir, key, known)
+	// A test that ran out its timeout is not asked twice: the second
+	// answer would cost the whole timeout again, and the run has a budget.
+	second := first
+	if failing := first.finishedFailing(); len(failing) > 0 {
+		if second, reason = c.testsAt(ctx, goCmd, pkg, failing); reason != "" {
+			return known, reason
+		}
+
+		second.failed = append(second.failed, first.timedOut...)
+	}
+
+	kept := baselineTests{Tests: maps.Clone(known.Tests)}
+
+	for _, name := range missing {
+		twice := belowTop(second.failed, name)
+		known.Tests[name] = twice
+
+		// A pass is kept, and so is a failure seen twice.
+		if len(twice) > 0 || len(belowTop(first.failed, name)) == 0 {
+			kept.Tests[name] = twice
+		}
+	}
+
+	c.cache.store(baselineDir, key, kept)
 
 	return known, ""
+}
+
+// ranTests is what one `go test -run` over named tests said.
+type ranTests struct {
+	// failed holds every name that failed, subtests included.
+	failed []string
+	// passed holds the top-level tests go reported as passing.
+	passed []string
+	// timedOut holds the names in failed that never finished.
+	timedOut []string
+	// notBuilt is true when the package did not compile.
+	notBuilt bool
+	// declined is true when go exited non-zero with no verdict on the
+	// package.
+	declined bool
+}
+
+// testsAt runs the named top-level tests of pkg where goCmd points, with
+// the same -timeout the session's own run had. A non-empty reason means the
+// command gave no answer.
+func (c *comparison) testsAt(ctx context.Context, goCmd invocation, pkg string, tests []string) (ranTests, string) {
+	quoted := make([]string, len(tests))
+	for i, name := range tests {
+		quoted[i] = regexp.QuoteMeta(name)
+	}
+
+	// -v makes go name the tests that passed: `go test -run` exits zero
+	// when the pattern matches nothing, and a test that never ran must not
+	// read as one that passed.
+	goCmd.args = []string{
+		goTest, c.r.testTimeout(), "-count=1", "-v", "-run", "^(" + strings.Join(quoted, "|") + ")$", pkg,
+	}
+
+	out := run(ctx, goCmd)
+	if out.reason != "" {
+		return ranTests{}, out.reason
+	}
+
+	var ran ranTests
+
+	for _, name := range tests {
+		if hasLine(out.output, func(line string) bool { return strings.HasPrefix(line, "--- PASS: "+name+" ") }) {
+			ran.passed = append(ran.passed, name)
+		}
+	}
+
+	failures := reduce.GoTestFailures(out.output)
+	at := slices.IndexFunc(failures, func(f reduce.PackageFailure) bool { return f.Package == pkg })
+
+	switch {
+	case at >= 0:
+		ran.failed, ran.timedOut, ran.notBuilt = failures[at].Tests, failures[at].TimedOut, failures[at].NotBuilt
+	case out.exit != 0:
+		ran.declined = true
+	}
+
+	return ran, ""
+}
+
+// finishedFailing is the top-level tests that failed by finishing, not by
+// running out the clock.
+func (r ranTests) finishedFailing() []string {
+	return slices.DeleteFunc(topLevel(r.failed), func(name string) bool {
+		return slices.Contains(topLevel(r.timedOut), name)
+	})
+}
+
+// flaky runs the named tests of pkg once more in the session's tree and
+// returns the ones that passed this time. A run that gave no answer, or
+// that go answered without naming the test as passed, clears nothing.
+func (c *comparison) flaky(ctx context.Context, goCmd invocation, pkg string, tests []string) []string {
+	if len(tests) == 0 {
+		return nil
+	}
+
+	goCmd.dir = c.root
+
+	ran, reason := c.testsAt(ctx, goCmd, pkg, tests)
+	if reason != "" || ran.notBuilt || ran.declined {
+		return nil
+	}
+
+	return slices.DeleteFunc(ran.passed, func(name string) bool {
+		return slices.Contains(topLevel(ran.failed), name)
+	})
 }
 
 // same runs the failed check again in the baseline tree and demotes the
@@ -201,7 +353,7 @@ func (c *comparison) packageTests(
 // lines of a build or a linter are not always separable.
 func (c *comparison) same(ctx context.Context, res Result) Result {
 	ev := res.evidence
-	key := cacheKey(append([]string{"lines", c.base.ref(), res.Check}, ev.identity()...)...)
+	key := cacheKey(append([]string{"lines", c.base.ref(), res.Check}, ev.identity(ctx, c)...)...)
 
 	var before baselineLines
 
@@ -212,7 +364,7 @@ func (c *comparison) same(ctx context.Context, res Result) Result {
 		}
 
 		if reason != "" {
-			res.Note = "could not ask the tree the session started from: " + reason
+			res.Note = notCompared + reason
 
 			return res
 		}
@@ -254,7 +406,7 @@ func (c *comparison) linesAt(ctx context.Context, ev *evidence, dir, key string)
 
 	if out.exit != 0 {
 		// A path under the baseline tree is the same file under the root.
-		lines.Lines = comparableLines(Result{}.fail(strings.ReplaceAll(out.output, dir, c.root)).Summary)
+		lines.Lines = comparableLines(Result{}.fail(c.root, strings.ReplaceAll(out.output, dir, c.root)).Summary)
 	}
 
 	c.cache.store(baselineDir, key, lines)
@@ -263,13 +415,14 @@ func (c *comparison) linesAt(ctx context.Context, ev *evidence, dir, key string)
 }
 
 // identity is what, besides the baseline and the check's name, the
-// baseline's answer depends on.
-func (e *evidence) identity() []string {
+// baseline's answer depends on. A built-in's answer depends on the go that
+// gave it, as a test's does.
+func (e *evidence) identity(ctx context.Context, c *comparison) []string {
 	if e.custom != nil {
 		return append([]string{e.custom.check.Command}, e.custom.files...)
 	}
 
-	return append([]string{e.again.name}, e.again.args...)
+	return append([]string{c.toolchain(ctx, e.again.name), e.again.name}, e.again.args...)
 }
 
 // at returns the command to run in the baseline tree at dir, and false when
@@ -345,10 +498,4 @@ func belowTop(names []string, topName string) []string {
 	}
 
 	return out
-}
-
-// under reports whether is holds of every name at or below the top-level
-// test.
-func under(names []string, topName string, is func(test string) bool) bool {
-	return !slices.ContainsFunc(belowTop(names, topName), func(name string) bool { return !is(name) })
 }

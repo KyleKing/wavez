@@ -25,21 +25,21 @@ func TestOutputKeepsWhatNamesTheFailure(t *testing.T) {
 		"FAIL\ttrimdemo",
 		"(59 subtests passed)",
 	} {
-		if !strings.Contains(got.Text, want) {
-			t.Errorf("reduced output dropped %q:\n%s", want, got.Text)
+		if !strings.Contains(got, want) {
+			t.Errorf("reduced output dropped %q:\n%s", want, got)
 		}
 	}
 
-	if strings.Contains(got.Text, "=== RUN") || strings.Contains(got.Text, "--- PASS") {
-		t.Errorf("reduced output kept per-test noise:\n%s", got.Text)
+	if strings.Contains(got, "=== RUN") || strings.Contains(got, "--- PASS") {
+		t.Errorf("reduced output kept per-test noise:\n%s", got)
 	}
 
-	if len(got.Text) > len(raw)/10 {
-		t.Errorf("reduced %d bytes to %d, want under a tenth", len(raw), len(got.Text))
+	if len(got) > len(raw)/10 {
+		t.Errorf("reduced %d bytes to %d, want under a tenth", len(raw), len(got))
 	}
 
-	if again := reduce.Output(got.Text); again.Text != got.Text {
-		t.Errorf("reducing twice changed the text:\n%s\n\n%s", got.Text, again.Text)
+	if again := reduce.Output(got); again != got {
+		t.Errorf("reducing twice changed the text:\n%s\n\n%s", got, again)
 	}
 }
 
@@ -123,7 +123,7 @@ func TestOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := reduce.Output(tt.in).Text
+			got := reduce.Output(tt.in)
 
 			for _, want := range tt.holds {
 				if !strings.Contains(got, want) {
@@ -137,7 +137,7 @@ func TestOutput(t *testing.T) {
 				}
 			}
 
-			if again := reduce.Output(got).Text; again != got {
+			if again := reduce.Output(got); again != got {
 				t.Errorf("reducing twice changed the text:\n%s\n\n%s", got, again)
 			}
 		})
@@ -167,7 +167,7 @@ func ruffFindings() string {
 func TestOutputGroupsManyFindingsByKind(t *testing.T) {
 	t.Parallel()
 
-	got := reduce.Output(ruffFindings()).Text
+	got := reduce.Output(ruffFindings())
 
 	for _, want := range []string{
 		"14 findings across 4 files in 3 kinds",
@@ -182,7 +182,7 @@ func TestOutputGroupsManyFindingsByKind(t *testing.T) {
 		}
 	}
 
-	if second := reduce.Output(got).Text; second != got {
+	if second := reduce.Output(got); second != got {
 		t.Errorf("second pass changed the text:\n%s", second)
 	}
 }
@@ -196,7 +196,7 @@ func TestOutputLeavesDistinctDiagnosticsAlone(t *testing.T) {
 		"internal/tool/a.go:12:2: declared and not used: name\n" +
 		"internal/tool/b.go:44:9: undefined: Helper\n"
 
-	got := reduce.Output(raw).Text
+	got := reduce.Output(raw)
 	if strings.Contains(got, "kinds") {
 		t.Errorf("grouped output it should have left alone:\n%s", got)
 	}

@@ -31,6 +31,10 @@ type PackageFailure struct {
 	// the order they were reported. It is empty for a package that failed
 	// without naming a test, such as one whose TestMain exited.
 	Tests []string
+	// TimedOut holds the tests that were still running when the run's
+	// -timeout expired. They are in Tests too: a test that hangs has
+	// failed, and go names it in the panic instead of on a marker.
+	TimedOut []string
 	// NotBuilt is true when the package's tests never ran because it did
 	// not compile.
 	NotBuilt bool
@@ -53,6 +57,10 @@ func GoTestFailures(output string) []PackageFailure {
 		failure := PackageFailure{Package: sec.pkg, NotBuilt: sec.notBuilt}
 		for _, block := range sec.blocks {
 			failure.Tests = append(failure.Tests, block.names...)
+
+			if block.timedOut {
+				failure.TimedOut = append(failure.TimedOut, block.names...)
+			}
 		}
 
 		out = append(out, failure)
@@ -132,6 +140,9 @@ type testBlock struct {
 	names []string
 	start int
 	end   int
+	// timedOut marks the block a timeout panic makes, which names the
+	// tests still running instead of carrying a marker for each.
+	timedOut bool
 }
 
 // testSections splits a run at its per-package verdicts. Lines after the
@@ -168,6 +179,16 @@ func testBlocks(lines []string, start, end int) []testBlock {
 	var out []testBlock
 
 	for i := start; i < end; i++ {
+		// A timeout ends the run: the panic and its dump reach the verdict,
+		// and the tests it names are the ones that never finished.
+		if strings.HasPrefix(lines[i], timeoutPanic) {
+			if names := timedOut(lines[i:end]); len(names) > 0 {
+				out = append(out, testBlock{start: i, end: end, names: names, timedOut: true})
+			}
+
+			break
+		}
+
 		m := failedTest.FindStringSubmatch(lines[i])
 		if m == nil {
 			continue
