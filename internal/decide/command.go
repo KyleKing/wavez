@@ -1,127 +1,112 @@
 package decide
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
-	"slices"
 	"strings"
 	"time"
 )
 
-// PromptPlaceholder is the argument NewCommand replaces with the prompt.
-const PromptPlaceholder = "{prompt}"
+const (
+	// How long one headless run may take.
+	claudeTimeout = 2 * time.Minute
+	// How long a killed run's pipes are waited on.
+	claudeWaitDelay = time.Second
+)
 
-// DefaultCommandTimeout bounds one run of a Command.
-const DefaultCommandTimeout = 2 * time.Minute
+// ErrClaude is returned when a headless run reports an error of its own.
+var ErrClaude = errors.New("claude reported an error")
 
-// commandWaitDelay is how long a killed command's pipes are waited on.
-const commandWaitDelay = time.Second
-
-// ErrNoCommand is returned by a Command built with no argv.
-var ErrNoCommand = errors.New("no command")
-
-// Command is a Backend that runs a program once per question and reads the
-// option from its standard output. It exists to evaluate a corpus against a
-// hosted model. A process per answer is too slow for a hook.
-type Command struct {
-	name    string
-	model   string
-	argv    []string
-	timeout time.Duration
+// Claude is a Backend that asks Claude Code headless, one process per
+// question. It exists for one use: `wavez route eval --claude <model>`,
+// which measures a hosted model against a corpus. Every answer is a billed
+// request, so nothing starts it but a person.
+type Claude struct {
+	model string
 }
 
-// CommandOption configures a Command.
-type CommandOption func(*Command)
-
-// WithCommandTimeout replaces DefaultCommandTimeout. Zero or less leaves
-// only the caller's context to stop the program.
-func WithCommandTimeout(d time.Duration) CommandOption {
-	return func(c *Command) { c.timeout = d }
-}
-
-// NewCommand returns a backend that runs argv. Every argument equal to
-// PromptPlaceholder is replaced by the prompt, and an argv without one is
-// given the prompt on standard input. The name is what Decision.Backend
-// reports and model is what Decision.Model reports; neither is passed to
-// the program unless argv says so.
-func NewCommand(name, model string, argv []string, opts ...CommandOption) *Command {
-	c := &Command{name: name, model: model, argv: slices.Clone(argv), timeout: DefaultCommandTimeout}
-	for _, opt := range opts {
-		opt(c)
-	}
-
-	return c
-}
-
-// NewClaudeCommand returns the Command that asks Claude Code headless:
-// claude -p <prompt> --model <model> --output-format text. Each answer is a
-// billed request, so it is for a corpus run a person starts.
-func NewClaudeCommand(model string, opts ...CommandOption) *Command {
-	argv := []string{"claude", "-p", PromptPlaceholder, "--model", model, "--output-format", "text"}
-
-	return NewCommand("claude", model, argv, opts...)
+// NewClaude returns the backend that runs `claude -p --model <model>`.
+func NewClaude(model string) *Claude {
+	return &Claude{model: model}
 }
 
 // Name is the value Decision.Backend takes for an answer from this backend.
-func (c *Command) Name() string { return c.name }
+func (*Claude) Name() string { return "claude" }
 
-// Model is the model the command is said to ask.
-func (c *Command) Model() string { return c.model }
-
-// Answer runs the command and maps the first token it prints to one of q's
-// keys. A command that cannot start, exits non-zero, or prints no option is
-// an error.
-func (c *Command) Answer(ctx context.Context, q Question, state string) (Answer, error) {
-	if len(c.argv) == 0 {
-		return Answer{}, ErrNoCommand
+// claudeArgs is the headless invocation. The classifier's instructions
+// replace the default system prompt, and the run loads nothing of the
+// user's or the project's: no settings, hooks, CLAUDE.md, skills, plugins,
+// MCP servers, or tools, and it leaves no session behind.
+func claudeArgs(model string) []string {
+	return []string{
+		"-p",
+		"--model", model,
+		"--output-format", "json",
+		"--system-prompt", systemPrompt,
+		"--tools", "",
+		"--setting-sources", "",
+		"--strict-mcp-config",
+		"--safe-mode",
+		"--disable-slash-commands",
+		"--no-session-persistence",
 	}
+}
 
-	user, err := userPrompt(q, state)
+type claudeResult struct {
+	Result string `json:"result"`
+	Usage  struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	IsError bool `json:"is_error"`
+}
+
+// Answer runs claude with the question on standard input, from the
+// temporary directory so no project is in reach, and maps its result to
+// one of q's keys. A run that cannot start, exits non-zero, reports an
+// error, or answers with anything but one option is an error.
+func (c *Claude) Answer(ctx context.Context, q Question, state string) (Answer, error) {
+	prompt, err := userPrompt(q, state)
 	if err != nil {
 		return Answer{}, err
 	}
 
-	prompt := systemPrompt + "\n\n" + user
+	ctx, cancel := context.WithTimeout(ctx, claudeTimeout)
+	defer cancel()
 
-	if c.timeout > 0 {
-		var cancel context.CancelFunc
+	//nolint:gosec // the one variable argument is the model name the person running the evaluation gave
+	cmd := exec.CommandContext(ctx, "claude", claudeArgs(c.model)...)
+	cmd.WaitDelay = claudeWaitDelay
+	cmd.Dir = os.TempDir()
+	cmd.Stdin = strings.NewReader(prompt)
 
-		ctx, cancel = context.WithTimeout(ctx, c.timeout)
-		defer cancel()
+	stdout, err := cmd.Output()
+	if err != nil {
+		return Answer{}, fmt.Errorf("running claude: %w", err)
 	}
 
-	args := slices.Clone(c.argv[1:])
-	onStdin := true
-
-	for i, arg := range args {
-		if arg == PromptPlaceholder {
-			args[i], onStdin = prompt, false
-		}
+	var result claudeResult
+	if err := json.Unmarshal(stdout, &result); err != nil {
+		return Answer{}, fmt.Errorf("reading claude's output: %w", err)
 	}
 
-	//nolint:gosec // running the argv the caller configured is this backend's purpose
-	cmd := exec.CommandContext(ctx, c.argv[0], args...)
-	cmd.WaitDelay = commandWaitDelay
-
-	if onStdin {
-		cmd.Stdin = strings.NewReader(prompt)
+	if result.IsError {
+		return Answer{}, fmt.Errorf("%w: %s", ErrClaude, truncate(result.Result, replyExcerpt))
 	}
 
-	var stdout bytes.Buffer
-
-	cmd.Stdout = &stdout
-
-	if err := cmd.Run(); err != nil {
-		return Answer{}, fmt.Errorf("running %s: %w", c.argv[0], err)
-	}
-
-	key, err := parseReply(q, stdout.String())
+	key, err := parseReply(q, result.Result)
 	if err != nil {
 		return Answer{}, err
 	}
 
-	return Answer{Key: key, Model: c.model}, nil
+	return Answer{
+		Key:          key,
+		Model:        c.model,
+		InputTokens:  result.Usage.InputTokens,
+		OutputTokens: result.Usage.OutputTokens,
+	}, nil
 }

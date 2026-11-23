@@ -11,48 +11,37 @@ import (
 // errPanic is what a rule or a backend that panicked is reported as.
 var errPanic = errors.New("panic")
 
-type decider struct {
+// Engine answers questions: rules, then the backend, then the fallback.
+// It is safe for concurrent use when its backend is.
+type Engine struct {
 	backend Backend
-	now     func() time.Time
-	cache   string
 	log     string
 }
 
-// Option configures a Decider.
-type Option func(*decider)
+// Decider is the name internal/hook holds an Engine under.
+// Retires when internal/hook's Handler.router and WithRoute say *decide.Engine.
+type Decider = *Engine
+
+// Option configures an Engine.
+type Option func(*Engine)
 
 // WithBackend sets the model asked when no rule fires. Without one, a
 // question no rule answers returns its fallback.
 func WithBackend(b Backend) Option {
-	return func(d *decider) { d.backend = b }
-}
-
-// WithCache keeps each model answer as a file under dir, so the same
-// question over the same state is asked once. A hit comes back with
-// Decision.Backend set to BackendCache. Rule answers and fallbacks are never
-// stored, and an entry that cannot be read is a miss.
-func WithCache(dir string) Option {
-	return func(d *decider) { d.cache = dir }
+	return func(d *Engine) { d.backend = b }
 }
 
 // WithLog appends every Decision to the file at path as one JSON line,
-// with a hash and an excerpt of the state it was made from. A write that
-// fails is dropped and the decision stands.
+// with a hash and an excerpt of the state it was made from. The file is
+// rotated once it passes a megabyte. A write that fails is dropped and the
+// decision stands.
 func WithLog(path string) Option {
-	return func(d *decider) { d.log = path }
+	return func(d *Engine) { d.log = path }
 }
 
-// WithClock replaces time.Now for the log's timestamp and the measured
-// latency, so a test gets the same line twice.
-func WithClock(now func() time.Time) Option {
-	return func(d *decider) { d.now = now }
-}
-
-// New returns a Decider.
-//
-//nolint:ireturn // Decider is the frozen surface internal/route and internal/hook consume
-func New(opts ...Option) Decider {
-	d := &decider{now: time.Now}
+// New returns an Engine.
+func New(opts ...Option) *Engine {
+	d := &Engine{}
 	for _, opt := range opts {
 		opt(d)
 	}
@@ -60,8 +49,10 @@ func New(opts ...Option) Decider {
 	return d
 }
 
-func (d *decider) Decide(ctx context.Context, q Question, state string, rules ...Rule) Decision {
-	start := d.now()
+// Decide never fails. A question that cannot be answered returns its
+// fallback with the reason recorded.
+func (d *Engine) Decide(ctx context.Context, q Question, state string, rules ...Rule) Decision {
+	start := time.Now()
 	out := Decision{Question: q.Name, Choice: q.Fallback, Backend: BackendFallback}
 
 	if key, ok := applyRules(q, state, rules); ok {
@@ -70,8 +61,11 @@ func (d *decider) Decide(ctx context.Context, q Question, state string, rules ..
 		d.ask(ctx, q, state, &out)
 	}
 
-	out.Latency = d.now().Sub(start)
-	d.record(out, state)
+	out.Latency = time.Since(start)
+
+	if d.log != "" {
+		appendLog(d.log, out, state)
+	}
 
 	return out
 }
@@ -94,9 +88,9 @@ func applyRules(q Question, state string, rules []Rule) (string, bool) {
 	return "", false
 }
 
-// ask fills out from the cache or the backend, and leaves it as the
-// fallback with a reason when neither gives a member of the set.
-func (d *decider) ask(ctx context.Context, q Question, state string, out *Decision) {
+// ask fills out from the backend, and leaves it as the fallback with a
+// reason when the backend does not give a member of the set.
+func (d *Engine) ask(ctx context.Context, q Question, state string, out *Decision) {
 	if d.backend == nil {
 		out.Reason = "no backend"
 
@@ -104,26 +98,16 @@ func (d *decider) ask(ctx context.Context, q Question, state string, out *Decisi
 	}
 
 	var (
-		name, model string
-		answer      Answer
-		err         error
+		name   string
+		answer Answer
+		err    error
 	)
 
-	if panicked := safely(func() { name, model = d.backend.Name(), backendModel(d.backend) }); panicked != nil {
-		out.Reason = panicked.Error()
-
-		return
-	}
-
-	key := cacheKey(q, name, model, state)
-
-	if hit, ok := d.cached(q, key); ok {
-		out.Choice, out.Backend, out.Model = hit.Choice, BackendCache, hit.Model
-
-		return
-	}
-
-	if panicked := safely(func() { answer, err = d.backend.Answer(ctx, q, state) }); panicked != nil {
+	panicked := safely(func() {
+		name = d.backend.Name()
+		answer, err = d.backend.Answer(ctx, q, state)
+	})
+	if panicked != nil {
 		err = panicked
 	}
 
@@ -135,7 +119,6 @@ func (d *decider) ask(ctx context.Context, q Question, state string, out *Decisi
 	default:
 		out.Choice, out.Backend, out.Model = answer.Key, name, answer.Model
 		out.InputTokens, out.OutputTokens = answer.InputTokens, answer.OutputTokens
-		d.store(key, cacheEntry{Question: q.Name, Choice: answer.Key, Backend: name, Model: answer.Model})
 	}
 }
 
@@ -155,16 +138,6 @@ func safely(fn func()) error {
 	}()
 
 	return err
-}
-
-// backendModel is the model a backend will ask, when it says. It is part
-// of the cache key, so changing the model asks again.
-func backendModel(b Backend) string {
-	if m, ok := b.(interface{ Model() string }); ok {
-		return m.Model()
-	}
-
-	return ""
 }
 
 func (q Question) has(key string) bool {

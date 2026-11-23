@@ -12,15 +12,16 @@ import (
 	"time"
 )
 
-// APIKeyEnv names the environment variable FromConfig reads the endpoint's
-// optional API key from. A local model server needs none.
-const APIKeyEnv = "WAVEZ_DECIDE_API_KEY" //nolint:gosec // the name of a variable, not a credential
-
 const (
-	// All a one-letter reply needs, with room for a key written out.
+	// All a one-letter reply needs, with room for a key written out. It
+	// leaves no room to think, which is why thinking is switched off.
 	maxReplyTokens = 16
-	// The most of a response body that is read.
-	maxResponseBytes = 1 << 20
+	// The most of a response body that is read. A one-letter completion
+	// with its usage block is a few hundred bytes.
+	maxResponseBytes = 64 << 10
+	// The reasoning_effort value that llama-server and Ollama both read
+	// as thinking off.
+	effortNone = "none"
 )
 
 // Errors the OpenAI backend returns.
@@ -34,6 +35,13 @@ var (
 
 // OpenAI is a Backend over an OpenAI-compatible chat completions endpoint,
 // which is what ollama, llama.cpp, and LM Studio serve.
+//
+// The model has to answer in a handful of tokens, so it should be a
+// non-thinking model or have thinking off. Every request asks for that in
+// the two ways local servers read: reasoning_effort "none" (llama-server,
+// Ollama) and chat_template_kwargs {"enable_thinking": false} (llama-server,
+// vLLM). A server that refuses the request over those fields with a 400 or
+// a 422 is asked once more without them.
 type OpenAI struct {
 	client   *http.Client
 	endpoint string
@@ -50,17 +58,16 @@ func WithAPIKey(key string) OpenAIOption {
 	return func(o *OpenAI) { o.apiKey = key }
 }
 
-// WithHTTPClient replaces http.DefaultClient.
-func WithHTTPClient(c *http.Client) OpenAIOption {
-	return func(o *OpenAI) { o.client = c }
-}
-
 // NewOpenAI returns a backend that posts to endpoint's /chat/completions.
 // The endpoint is the base URL, such as http://localhost:11434/v1. A
 // timeout above zero bounds each call in addition to the caller's context.
+// A redirect is not followed, so the prompt and the key go only to the host
+// the endpoint names.
 func NewOpenAI(endpoint, model string, timeout time.Duration, opts ...OpenAIOption) *OpenAI {
 	o := &OpenAI{
-		client:   http.DefaultClient,
+		client: &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 		endpoint: strings.TrimRight(endpoint, "/"),
 		model:    model,
 		timeout:  timeout,
@@ -75,20 +82,19 @@ func NewOpenAI(endpoint, model string, timeout time.Duration, opts ...OpenAIOpti
 // Name is the value Decision.Backend takes for an answer from this backend.
 func (*OpenAI) Name() string { return "openai" }
 
-// Model is the model the endpoint is asked for.
-func (o *OpenAI) Model() string { return o.model }
-
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-	MaxTokens   int           `json:"max_tokens"`
-	Stream      bool          `json:"stream"`
+	ChatTemplateKwargs map[string]bool `json:"chat_template_kwargs,omitempty"`
+	Model              string          `json:"model"`
+	ReasoningEffort    string          `json:"reasoning_effort,omitempty"`
+	Messages           []chatMessage   `json:"messages"`
+	Temperature        float64         `json:"temperature"`
+	MaxTokens          int             `json:"max_tokens"`
+	Stream             bool            `json:"stream"`
 }
 
 type chatResponse struct {
@@ -101,25 +107,13 @@ type chatResponse struct {
 	} `json:"usage"`
 }
 
-// Answer asks the endpoint once, at temperature zero, and maps the reply
-// to one of q's keys. Any transport failure, status other than 200, or
-// reply that names no option is an error.
+// Answer asks the endpoint at temperature zero and maps the reply to one
+// of q's keys. Any transport failure, status other than 200, or reply that
+// is not one option is an error.
 func (o *OpenAI) Answer(ctx context.Context, q Question, state string) (Answer, error) {
 	prompt, err := userPrompt(q, state)
 	if err != nil {
 		return Answer{}, err
-	}
-
-	body, err := json.Marshal(chatRequest{
-		Model: o.model,
-		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: prompt},
-		},
-		MaxTokens: maxReplyTokens,
-	})
-	if err != nil {
-		return Answer{}, fmt.Errorf("encoding request: %w", err)
 	}
 
 	if o.timeout > 0 {
@@ -129,12 +123,29 @@ func (o *OpenAI) Answer(ctx context.Context, q Question, state string) (Answer, 
 		defer cancel()
 	}
 
-	parsed, err := o.post(ctx, body)
-	if err != nil {
-		return Answer{}, err
+	request := chatRequest{
+		Model: o.model,
+		Messages: []chatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: prompt},
+		},
+		MaxTokens:          maxReplyTokens,
+		ReasoningEffort:    effortNone,
+		ChatTemplateKwargs: map[string]bool{"enable_thinking": false},
 	}
 
-	if len(parsed.Choices) == 0 {
+	parsed, status, err := o.post(ctx, request)
+	if err == nil && (status == http.StatusBadRequest || status == http.StatusUnprocessableEntity) {
+		request.ReasoningEffort, request.ChatTemplateKwargs = "", nil
+		parsed, status, err = o.post(ctx, request)
+	}
+
+	switch {
+	case err != nil:
+		return Answer{}, err
+	case status != http.StatusOK:
+		return Answer{}, fmt.Errorf("%w: %d %s", ErrStatus, status, http.StatusText(status))
+	case len(parsed.Choices) == 0:
 		return Answer{}, ErrNoChoices
 	}
 
@@ -151,10 +162,17 @@ func (o *OpenAI) Answer(ctx context.Context, q Question, state string) (Answer, 
 	}, nil
 }
 
-func (o *OpenAI) post(ctx context.Context, body []byte) (chatResponse, error) {
+// post sends one request and returns the status with the body decoded
+// when it is 200. A body longer than maxResponseBytes fails to decode.
+func (o *OpenAI) post(ctx context.Context, request chatRequest) (chatResponse, int, error) {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return chatResponse{}, 0, fmt.Errorf("encoding request: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.endpoint+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return chatResponse{}, fmt.Errorf("building request: %w", err)
+		return chatResponse{}, 0, fmt.Errorf("building request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -165,19 +183,19 @@ func (o *OpenAI) post(ctx context.Context, body []byte) (chatResponse, error) {
 
 	resp, err := o.client.Do(req)
 	if err != nil {
-		return chatResponse{}, fmt.Errorf("asking %s: %w", o.model, err)
+		return chatResponse{}, 0, fmt.Errorf("asking %s: %w", o.model, err)
 	}
 
 	defer resp.Body.Close() //nolint:errcheck // the body has been read or abandoned by then
 
 	if resp.StatusCode != http.StatusOK {
-		return chatResponse{}, fmt.Errorf("%w: %s", ErrStatus, resp.Status)
+		return chatResponse{}, resp.StatusCode, nil
 	}
 
 	var parsed chatResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&parsed); err != nil {
-		return chatResponse{}, fmt.Errorf("decoding response: %w", err)
+		return chatResponse{}, resp.StatusCode, fmt.Errorf("decoding response: %w", err)
 	}
 
-	return parsed, nil
+	return parsed, resp.StatusCode, nil
 }

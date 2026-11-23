@@ -13,6 +13,11 @@
 // A directory in that list ends with a slash. Whether a path exists is
 // something code can check, so State checks it and neither a rule nor a
 // model has to guess. A line of a labeled corpus is one such state.
+//
+// The rules answer only the few prompts whose whole shape and whose paths
+// code can check, and pass on the rest. bench/route_corpus.jsonl is the set
+// they were written against; bench/route_holdout.jsonl was labeled by
+// someone who had not seen them and is the one that measures them.
 package route
 
 import (
@@ -30,8 +35,8 @@ const (
 	Silent     = "silent"
 )
 
-// QuestionName identifies the route question in the decision log, the
-// cache, and the corpus.
+// QuestionName identifies the route question in the decision log and the
+// corpus.
 const QuestionName = "route"
 
 // The sentences an agent may be handed. They are constants, so nothing a
@@ -83,6 +88,6 @@ func Hint(key string) string {
 
 // Decide routes one prompt submitted in the project at root: the rules
 // first, then d, then Silent.
-func Decide(ctx context.Context, d decide.Decider, root, prompt string) decide.Decision {
+func Decide(ctx context.Context, d *decide.Engine, root, prompt string) decide.Decision {
 	return d.Decide(ctx, Question(), State(root, prompt), Rules()...)
 }

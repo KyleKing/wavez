@@ -111,6 +111,19 @@ type Config struct {
 
 // Decide locates the decision model: an OpenAI-compatible chat completions
 // endpoint, which is what a local model server exposes.
+//
+// The model answers with one letter inside a few tokens and a few seconds,
+// so it should be a non-thinking model, or a hybrid one served with thinking
+// off. Every request asks the server to turn thinking off, and a model that
+// thinks anyway spends its tokens before it answers and falls back.
+//
+// This file is checked in, so it is the repository speaking and not the
+// person running wavez. An endpoint set here is asked only when its host is
+// loopback, and is never sent an API key. Any other host, and any key, has
+// to be named by the user's own environment, where WAVEZ_DECIDE_ENDPOINT
+// replaces Endpoint and WAVEZ_DECIDE_API_KEY is sent only to it. The rule
+// is enforced where the model is asked, and this package only carries the
+// values.
 type Decide struct {
 	// Endpoint is the base URL, such as http://localhost:11434/v1. Empty
 	// means no model.
