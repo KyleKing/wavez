@@ -10,20 +10,30 @@ import (
 	"time"
 )
 
-// The thresholds below which a difference between arms is not a result.
+// What a difference between two arms has to clear before it is a result.
 // One task measured 40-70% run-to-run variance in turns on an unchanged
-// tree, so a ratio has to clear a factor of two, on enough runs, before it
-// says anything.
+// tree, so a ratio alone says nothing: the question is whether the two
+// arms' runs could have been drawn from the same pile.
 const (
-	// MinRuns is how many runs each arm needs.
+	// MinRuns is how many measured runs each arm needs. Fewer cannot reach
+	// Alpha however far apart the arms are.
 	MinRuns = 5
-	// NoiseLow and NoiseHigh bound the ratios that are inside the noise.
-	NoiseLow  = 0.5
-	NoiseHigh = 2.0
+	// Alpha is the largest p-value of the rank-sum test that counts as
+	// outside the noise.
+	Alpha = 0.05
 )
 
-// group is the runs of one task that may be summarized together: same arm,
-// same harness, same served model, same task definition.
+// ReportOptions narrows and aims a report.
+type ReportOptions struct {
+	// Task is the one task to report, every task when empty.
+	Task string
+	// Against is the arm every other arm is divided by, the baseline when
+	// empty.
+	Against Arm
+}
+
+// group is the runs of one task that may be summarized together: same arm
+// and same setup.
 type group struct {
 	key  groupKey
 	recs []Record
@@ -35,39 +45,57 @@ type groupKey struct {
 	harness string
 	served  string
 	hash    string
+	build   string
+	flags   string
 }
 
-// setup is everything two groups must share to be compared.
+// setup is everything two groups must share to be compared: the harness,
+// the model that answered, the task's definition, the wavez build, and the
+// flags of the invocation.
 func (k groupKey) setup() groupKey {
 	k.arm = ""
 
 	return k
 }
 
-// Report writes, for each task (or the one named), a row per arm and setup
-// and then, for each arm that is not the baseline, its ratio to the baseline
-// on each metric, marked as noise unless it clears the thresholds. Arms that
-// were served different models are not compared at all.
-func Report(w io.Writer, recs []Record, taskID string) error {
+// Report writes, for each task (or the one named), a table per setup with a
+// row per arm and then, for each arm other than the one compared against,
+// its ratio to that arm on each metric with the rank-sum test's verdict on
+// whether the difference is outside the noise. Arms that never shared a
+// setup are not compared at all A report of every task ends with the
+// summary across tasks, which is where a small effect can show: one task's
+// handful of runs cannot separate arms a fifth apart.
+func Report(w io.Writer, recs []Record, opts ReportOptions) error {
 	var b strings.Builder
 
-	tasks := taskIDs(recs, taskID)
+	against := cmp.Or(opts.Against, ArmBaseline)
+
+	tasks := taskIDs(recs, opts.Task)
 	if len(tasks) == 0 {
 		b.WriteString("no runs recorded")
 
-		if taskID != "" {
-			b.WriteString(" for task " + taskID)
+		if opts.Task != "" {
+			b.WriteString(" for task " + opts.Task)
 		}
 
 		b.WriteString("\n")
 	}
+
+	var all []group
 
 	for i, id := range tasks {
 		if i > 0 {
 			b.WriteString("\n")
 		}
 
-		reportTask(&b, id, groupsOf(recs, id))
+		groups := groupsOf(recs, id)
+		all = append(all, groups...)
+
+		reportTask(&b, id, groups, against)
+	}
+
+	if opts.Task == "" {
+		reportAcross(&b, all, against)
 	}
 
 	if _, err := io.WriteString(w, b.String()); err != nil {
@@ -100,7 +128,10 @@ func groupsOf(recs []Record, task string) []group {
 			continue
 		}
 
-		key := groupKey{task: task, arm: r.Arm, harness: r.Harness, served: r.Served, hash: r.TaskHash}
+		key := groupKey{
+			task: task, arm: r.Arm, harness: r.Harness, served: r.Served, hash: r.TaskHash,
+			build: r.Build, flags: r.Flags,
+		}
 
 		at := slices.IndexFunc(groups, func(g group) bool { return g.key == key })
 		if at < 0 {
@@ -111,11 +142,16 @@ func groupsOf(recs []Record, task string) []group {
 		groups[at].recs = append(groups[at].recs, *r)
 	}
 
+	groups = foldUnserved(groups)
+
 	slices.SortStableFunc(groups, func(a, b group) int {
 		return cmp.Or(
 			cmp.Compare(a.key.hash, b.key.hash),
 			cmp.Compare(a.key.harness, b.key.harness),
 			cmp.Compare(a.key.served, b.key.served),
+			cmp.Compare(a.key.build, b.key.build),
+			cmp.Compare(a.key.flags, b.key.flags),
+			cmp.Compare(armRank(a.key.arm), armRank(b.key.arm)),
 			cmp.Compare(a.key.arm, b.key.arm),
 		)
 	})
@@ -123,39 +159,150 @@ func groupsOf(recs []Record, task string) []group {
 	return groups
 }
 
-const rowFormat = "%-12s %-8s %-28s %-13s %4s %6s %6s %9s %8s %7s %6s %7s\n"
+// foldUnserved moves runs that died before any model answered into the
+// group they would have joined. A timeout or a harness that never started
+// names no served model, and left as a group of its own it would vanish
+// from the row whose failures it is. It is folded only when exactly one
+// group differs from it in the served model alone, since with two there is
+// no telling which it belongs to.
+func foldUnserved(groups []group) []group {
+	out := make([]group, 0, len(groups))
 
-func reportTask(b *strings.Builder, task string, groups []group) {
-	fmt.Fprintf(b, "task %s\n", task)
-	fmt.Fprintf(b, rowFormat,
-		"arm", "harness", "served", "task hash", "runs", "pass", "turns", "cost", "wall", "sweeps", "hints", "denials")
+	var unserved []group
 
 	for i := range groups {
-		g := &groups[i]
-		passed := 0
+		if groups[i].key.served == "" && groups[i].measured() == 0 {
+			unserved = append(unserved, groups[i])
 
-		for j := range g.recs {
-			if g.recs[j].Pass {
-				passed++
+			continue
+		}
+
+		out = append(out, groups[i])
+	}
+
+	for i := range unserved {
+		var homes []int
+
+		for j := range out {
+			key := out[j].key
+			key.served = ""
+
+			if key == unserved[i].key {
+				homes = append(homes, j)
 			}
 		}
 
-		fmt.Fprintf(b, rowFormat, g.key.arm, g.key.harness, orDash(g.key.served), g.key.hash,
-			strconv.Itoa(len(g.recs)), fmt.Sprintf("%d/%d", passed, len(g.recs)),
+		if len(homes) != 1 {
+			out = append(out, unserved[i])
+
+			continue
+		}
+
+		out[homes[0]].recs = append(out[homes[0]].recs, unserved[i].recs...)
+	}
+
+	return out
+}
+
+// armRank orders arms the way Arms lists them, with an arm this build does
+// not know after them.
+func armRank(arm Arm) int {
+	if at := slices.Index(Arms(), arm); at >= 0 {
+		return at
+	}
+
+	return len(armSpecs)
+}
+
+const rowFormat = "%-12s %4s %6s %6s %7s %6s %9s %8s %7s %6s %7s\n"
+
+func reportTask(b *strings.Builder, task string, groups []group, against Arm) {
+	fmt.Fprintf(b, "task %s\n", task)
+
+	compared := map[Arm]bool{}
+
+	for start := 0; start < len(groups); {
+		end := start
+		for end < len(groups) && groups[end].key.setup() == groups[start].key.setup() {
+			end++
+		}
+
+		reportSetup(b, groups[start:end], against, compared)
+		start = end
+	}
+
+	explainUncompared(b, groups, against, compared)
+}
+
+// reportSetup writes one setup's rows and, when the arm compared against
+// ran under it, every other arm's ratios to that arm.
+func reportSetup(b *strings.Builder, groups []group, against Arm, compared map[Arm]bool) {
+	key := groups[0].key
+	fmt.Fprintf(b, "setup: %s, served %s, task %s, build %s, flags %s\n",
+		key.harness, orDash(key.served), key.hash, orUnknown(key.build), orUnknown(key.flags))
+	fmt.Fprintf(b, rowFormat,
+		"arm", "runs", "pass", "failed", "timeout", "turns", "cost", "wall", "sweeps", "hints", "denials")
+
+	var base *group
+
+	for i := range groups {
+		g := &groups[i]
+		if g.key.arm == against {
+			base = g
+		}
+
+		fmt.Fprintf(b, rowFormat, g.key.arm, strconv.Itoa(len(g.recs)),
+			fmt.Sprintf("%d/%d", g.count(func(r *Record) bool { return r.Pass }), len(g.recs)),
+			strconv.Itoa(len(g.recs)-g.measured()-g.count(timedOut)), strconv.Itoa(g.count(timedOut)),
 			metricTurns.cell(g), metricCost.cell(g), metricWall.cell(g), metricSweeps.cell(g),
 			strconv.Itoa(g.total(func(r *Record) int { return r.RouteHints })),
 			strconv.Itoa(g.total(func(r *Record) int { return r.RenameDenials })))
 	}
 
-	compareArms(b, groups)
-}
-
-func orDash(s string) string {
-	if s == "" {
-		return "-"
+	if base == nil {
+		return
 	}
 
-	return s
+	for i := range groups {
+		if other := &groups[i]; other != base {
+			writeRatios(b, base, other)
+
+			compared[other.key.arm] = true
+		}
+	}
+}
+
+func timedOut(r *Record) bool { return r.Stop == StopTimeout }
+
+func orDash(s string) string {
+	return cmp.Or(s, "-")
+}
+
+// orUnknown labels a build or flags that a record from before either was
+// kept does not have.
+func orUnknown(s string) string {
+	return cmp.Or(s, "unknown")
+}
+
+// count is how many of the group's runs satisfy a test.
+func (g *group) count(test func(r *Record) bool) int {
+	n := 0
+
+	for i := range g.recs {
+		if test(&g.recs[i]) {
+			n++
+		}
+	}
+
+	return n
+}
+
+// measured is how many of the group's runs the harness completed. Only
+// those say what the task costs: a run that timed out or failed stopped
+// wherever it happened to be, and what it spent by then, often recorded as
+// nothing at all, is not the price of the work.
+func (g *group) measured() int {
+	return g.count(func(r *Record) bool { return r.Stop == StopCompleted })
 }
 
 // total sums a count over the group's runs. Hints and denials are shown
@@ -170,111 +317,108 @@ func (g *group) total(read func(r *Record) int) int {
 	return sum
 }
 
-// compareArms writes, for each arm other than the baseline, the ratio
-// block for every setup it shares with the baseline, and says why there is
-// none when the two never shared a setup.
-func compareArms(b *strings.Builder, groups []group) {
-	byArm := map[Arm][]*group{}
+// explainUncompared says, for every arm that was never put beside the arm
+// compared against, what kept them apart.
+func explainUncompared(b *strings.Builder, groups []group, against Arm, compared map[Arm]bool) {
+	var (
+		arms []Arm
+		base *group
+	)
+
 	for i := range groups {
-		byArm[groups[i].key.arm] = append(byArm[groups[i].key.arm], &groups[i])
+		arm := groups[i].key.arm
+		if arm == against && base == nil {
+			base = &groups[i]
+		}
+
+		if !slices.Contains(arms, arm) {
+			arms = append(arms, arm)
+		}
 	}
 
-	baseline := byArm[ArmBaseline]
-
 	switch {
-	case len(byArm) == 1:
+	case len(arms) == 1:
 		b.WriteString("no comparison: only one arm has runs\n")
 
 		return
-	case len(baseline) == 0:
-		b.WriteString("no comparison: the baseline arm has no runs, and every ratio is against it\n")
+	case base == nil:
+		fmt.Fprintf(b, "no comparison: the %s arm has no runs, and every ratio is against it\n", against)
 
 		return
 	}
 
-	for _, arm := range Arms() {
-		others := byArm[arm]
-		if arm == ArmBaseline || len(others) == 0 {
+	for i := range groups {
+		arm := groups[i].key.arm
+		if arm == against || compared[arm] {
 			continue
 		}
 
-		compared := false
+		b.WriteString(refusal(base.key, groups[i].key))
 
-		for _, base := range baseline {
-			for _, other := range others {
-				if base.key.setup() == other.key.setup() {
-					writeRatios(b, base, other)
-
-					compared = true
-				}
-			}
-		}
-
-		if !compared {
-			b.WriteString(refusal(baseline[0].key, others[0].key))
-		}
+		compared[arm] = true
 	}
 }
 
-// refusal says which part of the setup kept an arm from being compared
-// with the baseline.
+// refusal says which part of the setup kept an arm from being compared.
 func refusal(base, other groupKey) string {
 	switch {
 	case base.harness != other.harness:
-		return fmt.Sprintf("no comparison: baseline ran under %s and %s under %s\n",
-			base.harness, other.arm, other.harness)
+		return fmt.Sprintf("no comparison: %s ran under %s and %s under %s\n",
+			base.arm, base.harness, other.arm, other.harness)
 	case base.served != other.served:
-		return fmt.Sprintf("no comparison: baseline was served %s and %s was served %s, "+
-			"so a difference would measure the model\n", orDash(base.served), other.arm, orDash(other.served))
+		return fmt.Sprintf("no comparison: %s was served %s and %s was served %s, "+
+			"so a difference would measure the model\n",
+			base.arm, orDash(base.served), other.arm, orDash(other.served))
+	case base.hash != other.hash:
+		return fmt.Sprintf("no comparison: the task changed between %s and %s (%s then %s), "+
+			"so they answered different questions\n", base.arm, other.arm, base.hash, other.hash)
+	case base.build != other.build:
+		return fmt.Sprintf("no comparison: %s ran with wavez build %s and %s with build %s, "+
+			"so a difference could be the build's\n",
+			base.arm, orUnknown(base.build), other.arm, orUnknown(other.build))
 	default:
-		return fmt.Sprintf("no comparison: the task changed between baseline and %s (%s then %s), "+
-			"so they answered different questions\n", other.arm, base.hash, other.hash)
+		return fmt.Sprintf("no comparison: %s ran with flags %s and %s with flags %s\n",
+			base.arm, orUnknown(base.flags), other.arm, orUnknown(other.flags))
 	}
 }
 
 func writeRatios(b *strings.Builder, base, other *group) {
-	fmt.Fprintf(b, "%s/baseline on %s %s, %d vs %d runs\n",
-		other.key.arm, base.key.harness, orDash(base.key.served), len(other.recs), len(base.recs))
-
-	few := min(len(base.recs), len(other.recs)) < MinRuns
+	fmt.Fprintf(b, "%s/%s, %d vs %d runs\n", other.key.arm, base.key.arm, len(other.recs), len(base.recs))
 
 	for _, m := range []metric{metricTurns, metricCost, metricWall, metricSweeps} {
-		fmt.Fprintf(b, "  %-7s %s\n", m.name, verdict(m.median(base), m.median(other), few))
-	}
-
-	if few {
-		fmt.Fprintf(b, "  fewer than %d runs per arm: nothing above is a result yet\n", MinRuns)
+		fmt.Fprintf(b, "  %-7s %s\n", m.name, verdict(m.values(base), m.values(other)))
 	}
 }
 
-// verdict renders one ratio and says whether it means anything.
-func verdict(base, wz sample, few bool) string {
-	switch {
-	case !base.ok || !wz.ok:
-		return "    -   not measured in both arms"
-	case base.value == 0 && wz.value == 0:
-		return "    -   zero in both arms"
-	case base.value == 0:
-		return "    -   baseline is zero, so there is no ratio"
-	}
-
-	ratio := wz.value / base.value
-	text := fmt.Sprintf("%5.2fx  ", ratio)
+// verdict renders one metric's comparison: the ratio of the medians, how
+// many runs of each arm measured it, and whether the rank-sum test puts
+// the difference outside the noise. It gives no verdict when an arm has
+// too few measured runs for any difference to count.
+func verdict(base, other []float64) string {
+	ratio, why := "    -  ", ""
 
 	switch {
-	case few:
-		return text + "inside the noise (too few runs)"
-	case ratio > NoiseLow && ratio < NoiseHigh:
-		return text + fmt.Sprintf("inside the noise (between %gx and %gx)", NoiseLow, NoiseHigh)
+	case len(base) == 0 || len(other) == 0:
+	case median(base) == 0:
+		why = " (the median it is divided by is zero, so there is no ratio)"
 	default:
-		return text + "outside the noise"
+		ratio = fmt.Sprintf("%5.2fx ", median(other)/median(base))
 	}
-}
 
-// sample is a median that may not exist.
-type sample struct {
-	value float64
-	ok    bool
+	text := fmt.Sprintf("%s  n %d vs %d  ", ratio, len(other), len(base))
+
+	if min(len(base), len(other)) < MinRuns {
+		return text + fmt.Sprintf("no verdict: fewer than %d measured runs in an arm", MinRuns)
+	}
+
+	p := rankSumP(other, base)
+	text += fmt.Sprintf("p %.3f  ", p)
+
+	if p <= Alpha {
+		return text + "outside the noise" + why
+	}
+
+	return text + "inside the noise" + why
 }
 
 // metric is one column: how to read it off a record and how to print it.
@@ -308,14 +452,15 @@ var (
 	}, format: func(v float64) string { return fmt.Sprintf("%g", v) }}
 )
 
-// median is the metric's median over the runs that measured it. A run whose
-// harness never started measured nothing and is left out.
-func (m *metric) median(g *group) sample {
+// values is the metric over the runs that completed and measured it. A
+// harness that reports no turns or cost measured neither, and a run that
+// did not complete measured nothing.
+func (m *metric) values(g *group) []float64 {
 	var values []float64
 
 	for i := range g.recs {
 		r := &g.recs[i]
-		if r.Stop == StopHarnessError {
+		if r.Stop != StopCompleted {
 			continue
 		}
 
@@ -324,25 +469,26 @@ func (m *metric) median(g *group) sample {
 		}
 	}
 
-	if len(values) == 0 {
-		return sample{}
+	return values
+}
+
+// median is the middle of values, which must not be empty.
+func median(values []float64) float64 {
+	sorted := slices.Sorted(slices.Values(values))
+
+	mid := len(sorted) / 2 //nolint:mnd // the middle
+	if len(sorted)%2 == 1 {
+		return sorted[mid]
 	}
 
-	slices.Sort(values)
-
-	mid := len(values) / 2 //nolint:mnd // the middle
-	if len(values)%2 == 1 {
-		return sample{value: values[mid], ok: true}
-	}
-
-	return sample{value: (values[mid-1] + values[mid]) / 2, ok: true} //nolint:mnd // mean of the middle two
+	return (sorted[mid-1] + sorted[mid]) / 2 //nolint:mnd // mean of the middle two
 }
 
 func (m *metric) cell(g *group) string {
-	s := m.median(g)
-	if !s.ok {
+	values := m.values(g)
+	if len(values) == 0 {
 		return "-"
 	}
 
-	return m.format(s.value)
+	return m.format(median(values))
 }

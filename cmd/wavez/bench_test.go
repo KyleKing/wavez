@@ -6,8 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,6 +109,9 @@ func TestBench_ListRunReport(t *testing.T) {
 	assert.Equal(t, "echo", recs[0].Harness)
 	assert.Equal(t, "m1", recs[0].Model)
 	assert.Equal(t, version, recs[0].WavezVersion)
+	assert.Regexp(t, `^[0-9a-f]{12}$`, recs[0].Build)
+	assert.Equal(t, `timeout=15m0s check-timeout=10m0s harness-cmd="echo all done with {model}"`, recs[0].Flags)
+	assert.Zero(t, recs[0].Seed, "one arm alone has no order to seed")
 	assert.True(t, recs[0].Pass)
 	assert.False(t, recs[2].Pass)
 
@@ -118,6 +124,214 @@ func TestBench_ListRunReport(t *testing.T) {
 	one, err := runCommand(t, runBench, "report", "never", "--records", fx.records)
 	require.NoError(t, err)
 	assert.NotContains(t, one, "task ok\n")
+}
+
+// inertWavez is a wavez that wires nothing, for runs whose harness is not
+// Claude Code and would not read the wiring.
+func inertWavez(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "wavez")
+	scripttest.Write(t, path, "#!/bin/sh\nexit 0\n")
+
+	return path
+}
+
+func TestBench_SeveralArmsAreInterleaved(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		args      []string
+		wantArms  []string
+		wantTasks []string
+	}{
+		{
+			name: "arms separated by commas", args: []string{"ok", "--arm", "baseline,wavez,wavez-quiet,wavez-route"},
+			wantArms: []string{"baseline", "wavez", "wavez-quiet", "wavez-route"}, wantTasks: []string{"ok"},
+		},
+		{
+			name: "the flag given twice", args: []string{"ok", "--arm", "wavez", "--arm", "baseline"},
+			wantArms: []string{"baseline", "wavez"}, wantTasks: []string{"ok"},
+		},
+		{
+			name: "several tasks", args: []string{"never,ok", "--arm", "baseline,wavez"},
+			wantArms: []string{"baseline", "wavez"}, wantTasks: []string{"never", "ok"},
+		},
+		{
+			name: "every task", args: []string{"--all", "--arm", "baseline,wavez-quiet"},
+			wantArms: []string{"baseline", "wavez-quiet"}, wantTasks: []string{"ok", "never"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			const reps = 6
+
+			fx := newBenchFixture(t)
+			wavez := inertWavez(t)
+
+			args := append([]string{"run"}, tt.args...)
+			args = append(args, "--n", "6", "--seed", "42", "--tasks", fx.tasks, "--records", fx.records,
+				"--wavez-bin", wavez, "--harness-cmd", "echo done")
+
+			out, err := runCommand(t, runBench, args...)
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(out, "seed 42: each repetition runs "), out)
+			assert.Contains(t, out, " in a freshly shuffled order\n")
+
+			recs, err := bench.LoadRecords(fx.records)
+			require.NoError(t, err)
+			require.Len(t, recs, reps*len(tt.wantArms)*len(tt.wantTasks))
+
+			var orders []string
+
+			for block := 0; block < len(recs); block += len(tt.wantArms) {
+				var arms []string
+
+				for slot, rec := range recs[block : block+len(tt.wantArms)] {
+					each := block / len(tt.wantArms)
+
+					assert.Equal(t, tt.wantTasks[each%len(tt.wantTasks)], rec.TaskID, "a block is one task")
+					assert.Equal(t, each/len(tt.wantTasks)+1, rec.Rep, "every task runs before the next repetition")
+					assert.Equal(t, slot+1, rec.Slot)
+					assert.Equal(t, uint64(42), rec.Seed)
+
+					arms = append(arms, string(rec.Arm))
+				}
+
+				assert.ElementsMatch(t, tt.wantArms, arms, "a block runs every arm once")
+
+				orders = append(orders, strings.Join(arms, ","))
+			}
+
+			slices.Sort(orders)
+			assert.Greater(t, len(slices.Compact(orders)), 1, "the arms do not always run in the same order")
+
+			again := filepath.Join(t.TempDir(), "again.jsonl")
+			args[slices.Index(args, "--records")+1] = again
+
+			_, err = runCommand(t, runBench, args...)
+			require.NoError(t, err)
+
+			repeat, err := bench.LoadRecords(again)
+			require.NoError(t, err)
+			require.Len(t, repeat, len(recs))
+
+			for i := range recs {
+				assert.Equal(t, recs[i].Arm, repeat[i].Arm, "the seed gives the same order again")
+			}
+		})
+	}
+}
+
+func TestBench_PicksASeedWhenNoneIsGiven(t *testing.T) {
+	t.Parallel()
+
+	fx := newBenchFixture(t)
+
+	out, err := runCommand(t, runBench, "run", "ok", "--arm", "baseline,wavez", "--tasks", fx.tasks,
+		"--records", fx.records, "--wavez-bin", inertWavez(t), "--harness-cmd", "echo done")
+	require.NoError(t, err)
+	require.Regexp(t, `^seed [1-9][0-9]*: `, out)
+
+	recs, err := bench.LoadRecords(fx.records)
+	require.NoError(t, err)
+	require.Len(t, recs, 2)
+	assert.Equal(t, "seed "+strconv.FormatUint(recs[0].Seed, 10)+":", strings.Fields(out)[0]+" "+strings.Fields(out)[1])
+	assert.Equal(t, recs[0].Seed, recs[1].Seed)
+}
+
+func TestBench_FlagsThatChangeARunAreRecorded(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+		args []string
+	}{
+		{name: "the defaults", want: `timeout=15m0s check-timeout=10m0s harness-cmd="echo done"`},
+		{
+			name: "other bounds", args: []string{"--timeout", "2m", "--check-timeout", "30s"},
+			want: `timeout=2m0s check-timeout=30s harness-cmd="echo done"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fx := newBenchFixture(t)
+			args := append([]string{
+				"run", "ok", "--arm", "baseline", "--tasks", fx.tasks, "--records", fx.records,
+				"--harness-cmd", "echo done",
+			}, tt.args...)
+
+			_, err := runCommand(t, runBench, args...)
+			require.NoError(t, err)
+
+			recs, err := bench.LoadRecords(fx.records)
+			require.NoError(t, err)
+			require.Len(t, recs, 1)
+			assert.Equal(t, tt.want, recs[0].Flags)
+		})
+	}
+
+	t.Run("user settings under Claude Code", func(t *testing.T) {
+		t.Parallel()
+
+		plain := runOptions{timeout: time.Minute, checkTimeout: time.Second}
+		loaded := plain
+		loaded.userSettings = true
+
+		assert.Equal(t, "timeout=1m0s check-timeout=1s", plain.flags())
+		assert.Equal(t, "timeout=1m0s check-timeout=1s user-settings", loaded.flags())
+	})
+}
+
+func TestBench_ReportAgainstAnotherArm(t *testing.T) {
+	t.Parallel()
+
+	fx := newBenchFixture(t)
+
+	_, err := runCommand(t, runBench, "run", "ok", "--arm", "baseline,wavez,wavez-quiet", "--tasks", fx.tasks,
+		"--records", fx.records, "--wavez-bin", inertWavez(t), "--harness-cmd", "echo done")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		wantNot string
+		args    []string
+		want    []string
+	}{
+		{
+			name: "the baseline by default", wantNot: "/wavez,",
+			want: []string{"wavez/baseline,", "wavez-quiet/baseline,"},
+		},
+		{
+			name: "a wired arm", args: []string{"--against", "wavez"},
+			want: []string{"baseline/wavez,", "wavez-quiet/wavez,"}, wantNot: "/baseline,",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			args := append([]string{"report", "ok", "--records", fx.records}, tt.args...)
+
+			out, err := runCommand(t, runBench, args...)
+			require.NoError(t, err)
+
+			for _, want := range tt.want {
+				assert.Contains(t, out, want)
+			}
+
+			assert.NotContains(t, out, tt.wantNot)
+		})
+	}
 }
 
 func TestBench_WavezArmUsesTheNamedBinary(t *testing.T) {
@@ -158,6 +372,18 @@ func TestBench_UsageErrors(t *testing.T) {
 		{name: "run without a task", args: []string{"run", "--arm", "baseline"}, want: "needs a task id"},
 		{name: "run without an arm", args: []string{"run", "ok"}, want: "needs --arm"},
 		{name: "run with an unknown arm", args: []string{"run", "ok", "--arm", "control"}, want: `unknown arm`},
+		{name: "run with an unknown arm listed", args: []string{"run", "ok", "--arm=wavez,x"}, want: `unknown arm "x"`},
+		{name: "run with an arm named twice", args: []string{"run", "ok", "--arm", "wavez,wavez"}, want: "named twice"},
+		{name: "run with a task and every task", args: []string{"run", "ok", "--all", "--arm=wavez"}, want: "both"},
+		{
+			name: "run with a task named twice", want: "task ok is named twice",
+			args: []string{"run", "ok,ok", "--arm", "baseline", "--tasks", fx.tasks},
+		},
+		{
+			name: "run with a wavez binary that is not there", want: "identifying the build",
+			args: []string{"run", "ok", "--arm", "wavez", "--tasks", fx.tasks, "--wavez-bin", "/absent/wavez"},
+		},
+		{name: "report against an unknown arm", args: []string{"report", "--against", "control"}, want: "unknown arm"},
 		{name: "run with n below one", args: []string{"run", "ok", "--arm=baseline", "--n=0"}, want: "--n must be"},
 		{name: "run with two tasks", args: []string{"run", "ok", "--arm=baseline", "never"}, want: "unexpected"},
 		{name: "run with an unknown flag", args: []string{"run", "ok", "--fast"}, want: "parsing flags"},

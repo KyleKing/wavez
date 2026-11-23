@@ -14,44 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/transcript"
 )
-
-// Arm is one side of the comparison.
-type Arm string
-
-// The arms: the harness alone, the harness with wavez wired in, and the
-// same with the route hint turned on in the workspace's .wavez.toml.
-const (
-	ArmBaseline   Arm = "baseline"
-	ArmWavez      Arm = "wavez"
-	ArmWavezRoute Arm = "wavez-route"
-)
-
-// Arms lists the arms in the order a report shows them.
-func Arms() []Arm {
-	return []Arm{ArmBaseline, ArmWavez, ArmWavezRoute}
-}
-
-// UnknownArmError says an arm name is none of the arms.
-type UnknownArmError struct {
-	Name string
-}
-
-func (e *UnknownArmError) Error() string {
-	return fmt.Sprintf("unknown arm %q: want %s, %s, or %s", e.Name, ArmBaseline, ArmWavez, ArmWavezRoute)
-}
-
-// ParseArm reads an arm name.
-func ParseArm(name string) (Arm, error) {
-	if slices.Contains(Arms(), Arm(name)) {
-		return Arm(name), nil
-	}
-
-	return "", &UnknownArmError{Name: name}
-}
 
 // ContaminatedError says a baseline workspace already carries wavez, so a
 // run in it would not be a baseline.
@@ -79,10 +44,17 @@ type Runner struct {
 	TranscriptRoot string
 	// TempDir is where workspaces are made, the system default when empty.
 	TempDir string
+	// Build identifies the wavez binary the run used and Flags the settings
+	// of the invocation that change what a run does. Both go into every
+	// record, and a report never pools runs that differ in either.
+	Build string
+	Flags string
 	// Env is the environment the harness inherits.
 	Env []string
-	// Timeout bounds one harness run; zero is no bound.
-	Timeout time.Duration
+	// Timeout bounds one harness run and CheckTimeout each check that runs
+	// a program; zero is no bound.
+	Timeout      time.Duration
+	CheckTimeout time.Duration
 	// Keep leaves the workspace behind for inspection.
 	Keep bool
 }
@@ -115,7 +87,12 @@ func (r *Runner) Run(ctx context.Context, task *Task, arm Arm, model string) (Re
 }
 
 func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, model string) (Record, error) {
-	env, err := r.prepare(ctx, ws.Dir, arm)
+	spec, err := specOf(arm)
+	if err != nil {
+		return Record{}, err
+	}
+
+	env, err := r.prepare(ctx, ws.Dir, spec)
 	if err != nil {
 		return Record{}, err
 	}
@@ -123,13 +100,16 @@ func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, 
 	// The hooks of a wired arm trace what they did into a file beside the
 	// checkout, where it is no part of the tree the agent works on.
 	trace := filepath.Join(filepath.Dir(ws.Dir), "hook-trace.jsonl")
-	if arm != ArmBaseline {
+	if spec.wired {
 		env = append(slices.Clone(env), hook.TraceEnv+"="+trace)
 	}
 
+	env = append(slices.Clone(env), spec.env...)
+
 	rec := Record{
 		TaskID: task.ID, TaskHash: task.Hash(), Arm: arm, Harness: r.HarnessName,
-		Model: model, Rev: task.Rev, WavezVersion: r.WavezVersion,
+		Model: model, Rev: task.Rev, WavezVersion: r.WavezVersion, Build: r.Build, Flags: r.Flags,
+		ArmEnv: spec.env, ArmConfig: spec.configLines(),
 		Started: r.now().UTC().Format(time.RFC3339),
 	}
 
@@ -156,7 +136,14 @@ func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, 
 		rec.Error = firstLine(runErr.Error())
 	}
 
-	rec.Checks = Verify(ctx, task.Checks, ws.Dir, outcome.Answer)
+	rec.Checks = Verify(ctx, task.Checks, ws.Dir, outcome.Answer, r.CheckTimeout)
+
+	// A check cut short by the caller says nothing about the tree, so the
+	// run is dropped the same way one cut short in the harness is.
+	if err := ctx.Err(); err != nil {
+		return Record{}, fmt.Errorf("run interrupted: %w", err)
+	}
+
 	rec.Pass = rec.Stop == StopCompleted && Passed(rec.Checks)
 	r.attribute(&rec)
 	tally(&rec, trace)
@@ -216,18 +203,16 @@ func (r *Runner) harness(ctx context.Context, req Request) (Outcome, string, err
 }
 
 // prepare wires the arm into the workspace and returns the harness's
-// environment. A wavez arm gets hooks and a skill from `wavez init`, and
-// the binary's directory first on PATH so the skill's commands resolve. The
-// route arm also gets the route hint turned on.
-func (r *Runner) prepare(ctx context.Context, dir string, arm Arm) ([]string, error) {
-	if arm == ArmBaseline {
+// environment. A wired arm gets hooks and a skill from `wavez init`, and
+// the binary's directory first on PATH so the skill's commands resolve. An
+// arm's settings are written into the workspace's .wavez.toml first.
+func (r *Runner) prepare(ctx context.Context, dir string, spec *armSpec) ([]string, error) {
+	if !spec.wired {
 		return r.Env, ensureBaseline(dir)
 	}
 
-	if arm == ArmWavezRoute {
-		if err := enableRoute(dir); err != nil {
-			return nil, err
-		}
+	if err := applySettings(dir, spec.settings); err != nil {
+		return nil, err
 	}
 
 	out, err := run(ctx, invocation{
@@ -239,35 +224,6 @@ func (r *Runner) prepare(ctx context.Context, dir string, arm Arm) ([]string, er
 
 	return withPath(r.Env, filepath.Dir(r.WavezBin)), nil
 }
-
-// routeKey matches a top-level route setting in a .wavez.toml.
-var routeKey = regexp.MustCompile(`(?m)^route[ \t]*=.*\n?`)
-
-// enableRoute turns the route hint on in the workspace's .wavez.toml,
-// keeping whatever else a pinned tree configured. The key goes first,
-// because a TOML key written after a table would belong to the table.
-func enableRoute(dir string) error {
-	workspace, err := os.OpenRoot(dir)
-	if err != nil {
-		return fmt.Errorf("opening the workspace: %w", err)
-	}
-
-	body, err := workspace.ReadFile(config.FileName)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return errors.Join(fmt.Errorf("reading %s: %w", config.FileName, err), workspace.Close())
-	}
-
-	body = append([]byte("route = true\n"), routeKey.ReplaceAll(body, nil)...)
-
-	err = workspace.WriteFile(config.FileName, body, routeFileMode)
-	if err = errors.Join(err, workspace.Close()); err != nil {
-		return fmt.Errorf("turning the route hint on: %w", err)
-	}
-
-	return nil
-}
-
-const routeFileMode = 0o644
 
 // The bits RFC 9562 fixes in a version 4 UUID.
 const (

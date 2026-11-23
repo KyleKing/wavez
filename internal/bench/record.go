@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/kyleking/wavez/internal/transcript"
 )
@@ -27,6 +29,12 @@ type Record struct {
 	Served       string `json:"served"`
 	Rev          string `json:"rev"`
 	WavezVersion string `json:"wavez_version"`
+	// Build is a short hash of the wavez binary the run used, which tells
+	// two builds apart where the version string cannot: every local build
+	// calls itself dev. Flags is the settings of the invocation that change
+	// what a run does. Records from before either was kept have neither.
+	Build string `json:"build,omitempty"`
+	Flags string `json:"flags,omitempty"`
 	// Started is when the harness was launched, RFC 3339 in UTC.
 	Started string `json:"started"`
 	Stop    string `json:"stop"`
@@ -40,9 +48,13 @@ type Record struct {
 	// when the harness keeps no transcript or it could not be found.
 	Transcript *transcript.Stats `json:"transcript,omitempty"`
 	Checks     []CheckResult     `json:"checks"`
-	Usage      Usage             `json:"usage"`
-	Turns      int               `json:"turns"`
-	CostUSD    float64           `json:"cost_usd"`
+	// ArmEnv is what the arm added to the harness's environment and
+	// ArmConfig the lines it wrote into the workspace's .wavez.toml.
+	ArmEnv    []string `json:"arm_env,omitempty"`
+	ArmConfig []string `json:"arm_config,omitempty"`
+	Usage     Usage    `json:"usage"`
+	Turns     int      `json:"turns"`
+	CostUSD   float64  `json:"cost_usd"`
 	// WallMS is the wall clock this package measured around the harness;
 	// HarnessMS is what the harness reported for itself.
 	WallMS    int64 `json:"wall_ms"`
@@ -52,8 +64,50 @@ type Record struct {
 	// rename by text. Both come from the hook trace of a wired arm.
 	RouteHints    int `json:"route_hints,omitempty"`
 	RenameDenials int `json:"rename_denials,omitempty"`
+	// Seed, Rep, and Slot place a run in an interleaved invocation: the seed
+	// its arm orders were shuffled with, the repetition, and the run's
+	// position within it, both counted from one. A run of one arm alone
+	// has none.
+	Seed uint64 `json:"seed,omitempty"`
+	Rep  int    `json:"rep,omitempty"`
+	Slot int    `json:"slot,omitempty"`
 	// Pass is every check holding on a run the harness completed.
 	Pass bool `json:"pass"`
+}
+
+// Summary is the one line printed as a run finishes: repetition i of n.
+func (r *Record) Summary(i, n int) string {
+	held := 0
+
+	for _, c := range r.Checks {
+		if c.Pass {
+			held++
+		}
+	}
+
+	verdict := "FAIL"
+	if r.Pass {
+		verdict = "pass"
+	}
+
+	sweeps := "-"
+	if r.Transcript != nil {
+		sweeps = strconv.Itoa(r.Transcript.Sweeps)
+	}
+
+	line := fmt.Sprintf("%s %s %d/%d %s stop=%s checks=%d/%d turns=%d cost=$%.4f wall=%s sweeps=%s served=%s",
+		r.TaskID, r.Arm, i, n, verdict, r.Stop, held, len(r.Checks), r.Turns, r.CostUSD,
+		(time.Duration(r.WallMS) * time.Millisecond).Round(time.Second), sweeps, orDash(r.Served))
+
+	if r.Workspace != "" {
+		line += " workspace=" + r.Workspace
+	}
+
+	if r.Error != "" {
+		line += " error=" + r.Error
+	}
+
+	return line
 }
 
 // Permissions for the records file and the directory made to hold it.

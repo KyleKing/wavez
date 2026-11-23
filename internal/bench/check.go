@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // CheckKind is what a check looks at.
@@ -114,21 +115,27 @@ type CheckResult struct {
 // it finished with. A file check naming a file that does not exist fails
 // rather than erroring, since a run that never created the file is exactly
 // what the check is there to catch.
-func Verify(ctx context.Context, checks []Check, dir, answer string) []CheckResult {
+//
+// Each check that runs a program gets timeout to finish (zero is no bound).
+// One that does not is a failed check whose detail says so, inverted or
+// not: a command that hung showed nothing about the tree either way.
+func Verify(ctx context.Context, checks []Check, dir, answer string, timeout time.Duration) []CheckResult {
 	out := make([]CheckResult, 0, len(checks))
 
 	for _, c := range checks {
-		held, detail := c.evaluate(ctx, dir, answer)
-		res := CheckResult{Check: c.String(), Pass: held != c.Negate}
+		got := c.evaluate(ctx, dir, answer, timeout)
+		res := CheckResult{Check: c.String(), Pass: !got.timedOut && got.held != c.Negate}
 
 		switch {
 		case res.Pass:
+		case got.timedOut:
+			res.Detail = "timed out after " + timeout.String()
 		case c.Negate:
 			res.Detail = "holds, and the check says it must not"
-		case detail == "":
+		case got.detail == "":
 			res.Detail = "not satisfied"
 		default:
-			res.Detail = detail
+			res.Detail = got.detail
 		}
 
 		out = append(out, res)
@@ -149,42 +156,62 @@ func Passed(results []CheckResult) bool {
 	return len(results) > 0
 }
 
-func (c Check) evaluate(ctx context.Context, dir, answer string) (bool, string) {
+// evaluation is what one check found before any inversion.
+type evaluation struct {
+	// detail is one line on why the check did not hold.
+	detail string
+	held   bool
+	// timedOut is a check whose program was cut off, so held says nothing.
+	timedOut bool
+}
+
+func (c Check) evaluate(ctx context.Context, dir, answer string, timeout time.Duration) evaluation {
 	switch c.Kind {
 	case CheckAnswer:
-		return strings.Contains(answer, c.Want), ""
+		return evaluation{held: strings.Contains(answer, c.Want)}
 	case CheckBuild, CheckTest:
-		return command(ctx, dir, "go", string(c.Kind), c.Want)
+		return command(ctx, timeout, dir, "go", string(c.Kind), c.Want)
 	case CheckCmd:
-		return command(ctx, dir, "sh", "-c", c.Want)
+		return command(ctx, timeout, dir, "sh", "-c", c.Want)
 	case CheckFile:
 		return fileContains(filepath.Join(dir, c.Path), c.Want)
 	default:
-		return false, "unknown check kind " + string(c.Kind)
+		return evaluation{detail: "unknown check kind " + string(c.Kind)}
 	}
 }
 
-func fileContains(path, want string) (bool, string) {
+func fileContains(path, want string) evaluation {
 	body, err := os.ReadFile(path) //nolint:gosec // the path comes from the tasks file
 	if err != nil {
-		return false, firstLine(err.Error())
+		return evaluation{detail: firstLine(err.Error())}
 	}
 
-	return strings.Contains(string(body), want), ""
+	return evaluation{held: strings.Contains(string(body), want)}
 }
 
 // command runs a check's program in the workspace and passes on exit 0.
-func command(ctx context.Context, dir, name string, args ...string) (bool, string) {
+func command(ctx context.Context, timeout time.Duration, dir, name string, args ...string) evaluation {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	out, err := run(ctx, invocation{Dir: dir, Name: name, Args: args})
-	if err == nil {
-		return true, ""
+
+	switch {
+	case err == nil:
+		return evaluation{held: true}
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return evaluation{timedOut: true}
 	}
 
 	if line := firstLine(string(out)); line != "" {
-		return false, line
+		return evaluation{detail: line}
 	}
 
-	return false, firstLine(err.Error())
+	return evaluation{detail: firstLine(err.Error())}
 }
 
 // maxDetail bounds one check's detail, so a compiler line cannot swamp a
