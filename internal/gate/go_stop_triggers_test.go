@@ -2,6 +2,7 @@ package gate_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -28,9 +29,23 @@ const (
 		"\t\tt.Fatalf(\"tmpl holds %q\", tmpl)\n\t}\n}\n"
 )
 
-// hangBudget makes `go test -timeout` four seconds, which a hanging test
-// runs out while everything else in the fixture finishes well inside it.
-const hangBudget = 10 * time.Second
+// hangBudget makes `go test -timeout` six seconds, which a hanging test
+// runs out. The `go test` process gets three seconds more than that, and
+// they have to cover compiling and linking the fixture, which is why warm
+// compiles it first: on a cold cache a slow machine spends the whole gap in
+// the compiler, and the hang is then cut off before it can be named.
+const hangBudget = 15 * time.Second
+
+// warm compiles the fixture's tests without running any.
+func warm(t *testing.T, root string) {
+	t.Helper()
+
+	cmd := exec.CommandContext(t.Context(), "go", "test", "-run", "^$", "./...")
+	cmd.Dir = root
+
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "%s", out)
+}
 
 func TestRun_HangingTestFailsWithItsName(t *testing.T) {
 	t.Parallel()
@@ -39,13 +54,15 @@ func TestRun_HangingTestFailsWithItsName(t *testing.T) {
 		t.Parallel()
 
 		root := project(t, module(map[string]string{"a/hang_test.go": srcHangTest}))
+		warm(t, root)
+
 		started := time.Now()
 		report := runGate(t.Context(), t, root, gate.StageStop, []string{"a/hang_test.go"}, gate.WithBudget(hangBudget))
 
 		got := result(t, report, "test")
 		assert.Equal(t, gate.StatusFail, got.Status, "%+v", got)
-		assert.Contains(t, got.Summary, "panic: test timed out after 4s")
-		assert.Contains(t, got.Summary, "TestHang (4s)")
+		assert.Contains(t, got.Summary, "panic: test timed out after 6s")
+		assert.Contains(t, got.Summary, "TestHang (6s)")
 		assert.Contains(t, got.Summary, "(a/hang_test.go:5)", "the frame is relative to the project")
 		assert.NotContains(t, got.Summary, root)
 		assert.NotContains(t, got.Summary, "goroutine")
@@ -58,8 +75,10 @@ func TestRun_HangingTestFailsWithItsName(t *testing.T) {
 		root := committed(t, module(map[string]string{"a/hang_test.go": srcHangTest}))
 		ctx := began(t, root)
 		writeFile(t, root, "a/extra.go", srcExtra)
+		warm(t, root)
 
-		// The baseline hangs for its own four seconds after the session's.
+		// The baseline hangs for its own twelve seconds after the session's,
+		// which leaves six of the thirty for everything else.
 		report := runGate(ctx, t, root, gate.StageStop, []string{"a/extra.go"}, gate.WithBudget(2*hangBudget))
 
 		got := result(t, report, "test")
