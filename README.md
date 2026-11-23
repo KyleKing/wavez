@@ -17,9 +17,8 @@ beside Claude Code and does the parts of the work that never needed one:
 - **A benchmark** runs the same pinned task under Claude Code alone and under
   Claude Code with wavez, and reports turns, cost, and wall clock side by side
 
-[DESIGN.md](DESIGN.md) has the reasoning and what is not built. The first
-design, a full agent loop with its own daemon and TUI, is archived in
-[`_ai_/v1/`](_ai_/v1/DESIGN.md) with the measurements that ended it.
+[DESIGN.md](DESIGN.md) has the reasoning, what the first design measured, and
+what is not built.
 
 ## Use
 

@@ -13,4 +13,3 @@ ls:
 ignore:
   - .git
   - .jj
-  - _ai_

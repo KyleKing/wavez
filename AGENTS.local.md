@@ -30,5 +30,3 @@ the traps that are not visible from the code.
 - `jj git push` fires no git hook, so `mise run jj:push` is what runs the
   pre-push checks. A checkout without jj uses git and runs
   `mise exec -- hk check --all` by hand
-- `_ai_/v1/` is the first design, kept for its measurements. Nothing there is
-  current

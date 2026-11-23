@@ -1,7 +1,0 @@
-[run]
-source = calcipy
-dynamic_context = test_function
-relative_files = True
-
-[html]
-show_contexts = True

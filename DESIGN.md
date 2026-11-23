@@ -5,14 +5,15 @@ It runs beside one, on the parts of the work that never needed a model: which
 checks to run after a change, how to rename a symbol, and whether any of this
 made the agent cheaper.
 
-The first design is archived in [`_ai_/v1/`](_ai_/v1/DESIGN.md), along with
-the measurements that ended it.
+The first design, its research, and its benchmark records were last in the
+tree at commit `12b4f17` under `_ai_/`. What it measured that still decides
+something here is quoted below.
 
 ## Why the first design was replaced
 
 The first wavez owned the whole loop: daemon, TUI, model router, scheduler,
 sandbox, 122,000 lines of Go. Its own replay records (360 runs, 2026-08-21 to
-09-03, `_ai_/bench/replay/`) said what that bought:
+09-03) said what that bought:
 
 | Measure | Value |
 |---|---|
