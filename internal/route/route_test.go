@@ -418,3 +418,31 @@ func TestRules_AreNeverWrongOnTheSeedCorpus(t *testing.T) {
 
 	assert.Positive(t, report.Rules.Answered)
 }
+
+// TestRules_OnTheHeldOutCorpus runs the rules over prompts labeled by
+// someone who had not seen them. It holds two things: the file stays a
+// corpus the route question can be scored on, and no rule answers a line of
+// it wrongly. A failure of the second is a finding about the rule to
+// report, and never a reason to fit the rule to the line, which would make
+// this corpus one more the rules were tuned on.
+func TestRules_OnTheHeldOutCorpus(t *testing.T) {
+	t.Parallel()
+
+	cases := corpus(t, "route_holdout.jsonl")
+	require.GreaterOrEqual(t, len(cases), 80)
+
+	q := route.Question()
+
+	for _, c := range cases {
+		assert.True(t, c.Want == q.Fallback || route.Hint(c.Want) != "", "%q is not a route: %s", c.Want, c.State)
+	}
+
+	report := decide.Evaluate(t.Context(), decide.New(), q, route.Rules(), cases, 1)
+
+	t.Logf("rules answered %d of %d, %d right", report.Rules.Answered, report.Total, report.Rules.Correct)
+
+	for _, miss := range report.Wrong {
+		assert.NotEqual(t, decide.BackendRule, miss.Backend, "a rule answered %s for %q, labeled %s",
+			miss.Got, miss.State, miss.Want)
+	}
+}

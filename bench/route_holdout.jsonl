@@ -1,0 +1,80 @@
+{"state":"In internal/config/glob.go, make ParseGlob return an error when the pattern is empty instead of returning a zero Glob.\n\nexisting-paths: internal/config/glob.go","want":"direct","why":"names the function, the file and the change"}
+{"state":"add a doc comment to FindRoot in internal/hook/root.go saying the upward walk stops when the parent equals the child\n\nexisting-paths: internal/hook/root.go","want":"direct","why":"one symbol, one file, exact text of the change"}
+{"state":"rename the receiver on the Baseline methods in internal/gate/baseline.go from b to base\n\nexisting-paths: internal/gate/baseline.go","want":"direct","why":"single-file mechanical rename with file named"}
+{"state":"fix typo in README.md: 'benchamrk' -> 'benchmark'\n\nexisting-paths: README.md","want":"direct","why":"exact edit in a named file"}
+{"state":"cmd/wavez/main.go: print the version to stdout not stderr\n\nexisting-paths: cmd/wavez/main.go","want":"direct","why":"terse but names file and change"}
+{"state":"Add a `--json` flag to the gate subcommand in cmd/wavez/gate.go that prints the Report as JSON. Reuse what's in internal/gate/render.go, don't touch anything else.\n\nexisting-paths: cmd/wavez/gate.go internal/gate/render.go","want":"direct","why":"what and where are both given; the negation narrows scope further"}
+{"state":"In internal/reduce/bound.go change the default max lines from 40 to 60\n\nexisting-paths: internal/reduce/bound.go","want":"direct","why":"constant change in a named file"}
+{"state":"add t.Parallel() to every subtest in internal/config/glob_test.go\n\nexisting-paths: internal/config/glob_test.go","want":"direct","why":"mechanical edit confined to one named file"}
+{"state":"wrap the error returned from LoadRecords in internal/bench/record.go with fmt.Errorf(\"loading records: %w\", err)\n\nexisting-paths: internal/bench/record.go","want":"direct","why":"exact code given, file named"}
+{"state":"Use `wavez refactor rename` to rename the exported func GoTestFailures to ParseGoTestFailures.","want":"direct","why":"single-symbol rename where the tool finds the references; no survey needed"}
+{"state":"create internal/gate/go_vet.go with a check that runs `go vet` on the changed packages, modelled on internal/gate/go_lint.go. abstain if go is missing.\n\nexisting-paths: internal/gate/go_lint.go","want":"direct","why":"new file path given (does not exist yet) plus a named model to copy"}
+{"state":"in internal/hook/output.go, dont emit anyting on a pass. right now it prints a line. just return empty\n\nexisting-paths: internal/hook/output.go","want":"direct","why":"typos aside, file and behavior change are explicit"}
+{"state":"Add a case to TestParseCheck for a check with an empty command; it should be rejected.","want":"direct","why":"names the test function and the case to add; a symbol lookup, not a survey"}
+{"state":"replace the hand-rolled min() in internal/reduce/bound.go with the builtin\n\nexisting-paths: internal/reduce/bound.go","want":"direct","why":"named file, named change"}
+{"state":"create docs/routing.md with one paragraph describing the four labels: direct, explore, coordinate, silent","want":"direct","why":"new file at a stated path with stated content"}
+{"state":"func (e *StatusError) Error in internal/decide/openai.go should include the first 200 bytes of the response body. Don't change the StatusError struct fields.\n\nexisting-paths: internal/decide/openai.go","want":"direct","why":"method and file named; negation is a constraint, not ambiguity"}
+{"state":"Make cache.prepare in internal/gate/cache.go create the directory with 0o700 instead of 0o755.\n\nexisting-paths: internal/gate/cache.go","want":"direct","why":"one-line change at a named location"}
+{"state":"go build is failing:\n\n# github.com/kyleking/wavez/internal/session\ninternal/session/snapshot.go:88:14: undefined: filepath\n\nadd the missing import\n\nexisting-paths: internal/session/snapshot.go","want":"direct","why":"compiler output pins file and line and the user states the fix"}
+{"state":"Can you change the timeout constant in internal/bench/exec.go to 10 minutes?\n\nexisting-paths: internal/bench/exec.go","want":"direct","why":"phrased as a question but it is an imperative with file and change named"}
+{"state":"rename (s *Store) lock to acquire in internal/gate, it's unexported so only that package\n\nexisting-paths: internal/gate/","want":"direct","why":"single unexported symbol, package named, scope stated"}
+{"state":"where does the stop hook decide a failure is preexisting?","want":"explore","why":"where-question about code"}
+{"state":"why does wavez gate abstain when golangci-lint is missing instead of failing?","want":"explore","why":"why-question that needs reading the gate"}
+{"state":"the stop hook is printing the same lint finding twice on some sessions, not sure where that's coming from. fix it","want":"explore","why":"bug with unknown location; ends in an imperative but must be found first"}
+{"state":"Getting this running `wavez refactor move`:\n\npanic: runtime error: invalid memory address or nil pointer dereference\n[signal SIGSEGV: segmentation violation code=0x1 addr=0x18 pc=0x7a3c21]\n\ngoroutine 1 [running]:\ngithub.com/kyleking/wavez/internal/refactor.(*session).applyMove(0xc0001a2000, {0xc00011e0c0, 0x2, 0x2})\n\tinternal/refactor/move.go:212 +0x1c1\ngithub.com/kyleking/wavez/internal/refactor.(*Refactorer).Move(0xc000118000, {0x8f1e40, 0xc000022090}, {0x7ffd0a1b2c3d, 0x19}, {0x7ffd0a1b2c57, 0x12})\n\tinternal/refactor/move.go:97 +0x3a5\nmain.runRefactor(...)\n\tcmd/wavez/refactor.go:64\n\nOnly happens when the destination package doesn't exist yet. what's going on?\n\nexisting-paths: internal/refactor/move.go cmd/wavez/refactor.go","want":"explore","why":"trace names a line but the cause is unknown and the user asks for a diagnosis"}
+{"state":"What calls ReadSession?","want":"explore","why":"find-references question"}
+{"state":"is there anything that still reads HOME directly without going through internal/transcript?\n\nexisting-paths: internal/transcript/","want":"explore","why":"needs a repo-wide search to answer"}
+{"state":"make the gate faster","want":"explore","why":"vague goal; nothing can be changed before finding where the time goes"}
+{"state":"explain internal/decide to me, I've never looked at it\n\nexisting-paths: internal/decide/","want":"explore","why":"asks for understanding of a package"}
+{"state":"Does `wavez refactor rename` update mentions in comments and strings, or only identifiers?","want":"explore","why":"behavior question answered by reading code"}
+{"state":"TestRename_ReportsLeftoverMentions is flaky on CI, passes locally. figure out why","want":"explore","why":"names a test but the cause is unknown"}
+{"state":"find every place we shell out to git and tell me whether each one passes a context","want":"explore","why":"imperative verbs but the deliverable is an answer from a search"}
+{"state":"Review internal/gate/preexisting.go for correctness, especially what happens when the baseline ref is gone.\n\nexisting-paths: internal/gate/preexisting.go","want":"explore","why":"review request on one file: read and understand, no change named"}
+{"state":"how should I add a new builtin check? what do I need to touch","want":"explore","why":"question containing imperative words; the answer is a survey of the extension points"}
+{"state":"something is writing to ~/.claude during tests, track it down","want":"explore","why":"unknown location"}
+{"state":"where is the 70% coverage floor enforced","want":"explore","why":"where-question"}
+{"state":"I want hook output to cost fewer tokens on a failure. what are the options?","want":"explore","why":"open design question that depends on the current output path"}
+{"state":"why is internal/hook/textrename.go a thing when internal/refactor/rename.go exists? are they redundant\n\nexisting-paths: internal/hook/textrename.go internal/refactor/rename.go","want":"explore","why":"two real files named, but only as subjects of a why-question"}
+{"state":"Fix the bug where a glob like `**/*.golden` doesn't match files at the repo root.","want":"explore","why":"imperative, but no location and the cause is not stated"}
+{"state":"`wavez bench report` says 'noise' for every single metric even with 10 runs per arm, that can't be right","want":"explore","why":"symptom report with no location"}
+{"state":"check whether internal/transcript/classifer.go handles sidechain messages","want":"explore","why":"path is misspelled and does not exist, and the ask is a question anyway"}
+{"state":"Tell me which tests get skipped when gopls isnt on PATH","want":"explore","why":"imperative mood, but it is a question needing a search"}
+{"state":"rename everything called 'arm' to 'variant' across the whole repo, docs and flags included","want":"explore","why":"project-wide concept rename across code, docs and CLI; every occurrence has to be found first"}
+{"state":"Three unrelated things: (1) add a --quiet flag to wavez bench, (2) fix the doc comment typos in internal/reduce, (3) add a test for Glob.String with a negated pattern.\n\nexisting-paths: internal/reduce/","want":"coordinate","why":"user says unrelated and enumerates three separate edits"}
+{"state":"Add doc comments to every exported symbol in internal/bench, internal/gate, internal/decide and internal/refactor. each package can be done on its own\n\nexisting-paths: internal/bench/ internal/gate/ internal/decide/ internal/refactor/","want":"coordinate","why":"same chore over four packages, stated as independent"}
+{"state":"audit each internal/ package for ignored errors (`_ = ...`) and fix them, package by package","want":"coordinate","why":"per-package sweep that splits cleanly"}
+{"state":"Write the missing table-driven tests for internal/session/snapshot.go, internal/config/glob.go and internal/reduce/bound.go\n\nexisting-paths: internal/session/snapshot.go internal/config/glob.go internal/reduce/bound.go","want":"coordinate","why":"three test-writing jobs in three unrelated packages"}
+{"state":"investigate in parallel: why bench runs are slow to start, why the gate cache misses so often, and whether the transcript classifier double counts shell commands","want":"coordinate","why":"three independent investigations; user asks for parallel"}
+{"state":"migrate all the test files under internal/ from `if err != nil { t.Fatalf }` to require.NoError. there are a lot, split it up","want":"coordinate","why":"large mechanical migration the user asks to split"}
+{"state":"review internal/hook and internal/gate separately and give me a findings list for each\n\nexisting-paths: internal/hook/ internal/gate/","want":"coordinate","why":"two reviews explicitly separate, one output each"}
+{"state":"update docs/troubleshooting.local.md with a gopls section, and separately make the keys in internal/decide/log.go sorted, and also add a --timeout flag in cmd/wavez/bench.go\n\nexisting-paths: docs/troubleshooting.local.md internal/decide/log.go cmd/wavez/bench.go","want":"coordinate","why":"three named, unrelated edits joined by 'separately' and 'also'"}
+{"state":"I need a go_vet check, a staticcheck check and a govulncheck check in internal/gate. They're independent of one another, same shape as go_lint.go.\n\nexisting-paths: internal/gate/","want":"coordinate","why":"three new files of the same shape, stated independent"}
+{"state":"fan out: one agent per package under internal/, each reports functions over 50 lines","want":"coordinate","why":"explicit fan-out request"}
+{"state":"Fix these, they're in different packages and don't interact:\n- internal/bench/report.go:141 errcheck: return value of w.Flush is not checked\n- internal/hook/install.go:77 gosec G306: WriteFile perms 0644\n- internal/reduce/gotest.go:52 ineffassign: ineffectual assignment to err\n- internal/config/raw_config.go:30 revive: exported type should have comment\n\nexisting-paths: internal/bench/report.go internal/hook/install.go internal/reduce/gotest.go internal/config/raw_config.go","want":"coordinate","why":"four located fixes declared non-interacting"}
+{"state":"For each subcommand in cmd/wavez (bench, gate, hook, refactor, route) add an integration test that runs it with --help and checks the exit code. one test file each.\n\nexisting-paths: cmd/wavez/","want":"coordinate","why":"five parallel same-shaped tasks, one file each"}
+{"state":"yes","want":"silent","why":"follow-up"}
+{"state":"continue","want":"silent","why":"follow-up"}
+{"state":"try again","want":"silent","why":"follow-up"}
+{"state":"thanks, that worked!","want":"silent","why":"chit-chat"}
+{"state":"no, the other one","want":"silent","why":"follow-up that only makes sense in context"}
+{"state":"ok do it","want":"silent","why":"approval of an earlier plan"}
+{"state":"lgtm, commit","want":"silent","why":"approval plus a git action; no routing hint helps"}
+{"state":"what do you think?","want":"silent","why":"question about the conversation, not the code"}
+{"state":"wait stop","want":"silent","why":"interrupt"}
+{"state":"why did you do that","want":"silent","why":"why-question about the agent's last action, not about code"}
+{"state":"Rename Store to Cache","want":"silent","why":"scope unclear: which Store, exported or not, one package or everywhere; a wrong hint would hurt"}
+{"state":"run the tests, then if they pass bump the version in .cz.toml and update CHANGELOG.md, then tag v0.4.0\n\nexisting-paths: .cz.toml CHANGELOG.md","want":"silent","why":"sequential chore with a conditional; not parallel, not a survey, and not one located edit"}
+{"state":"First regenerate the golden fixtures with -update, then look at the diff, then commit only if nothing but whitespace changed","want":"silent","why":"ordered steps, each depending on the last"}
+{"state":"same thing for the other test file","want":"silent","why":"refers to earlier turns"}
+{"state":"do the same as you did in internal/gate/render.go but for the bench report\n\nexisting-paths: internal/gate/render.go","want":"silent","why":"file is mentioned only as context for a prior action; the target is not named"}
+{"state":"git status","want":"silent","why":"a command to run"}
+{"state":"what's the capital of Australia lol","want":"silent","why":"off-topic"}
+{"state":"undo that","want":"silent","why":"follow-up"}
+{"state":"mise run ci","want":"silent","why":"a command to run"}
+{"state":"actually nevermind, leave internal/gate/cache.go alone\n\nexisting-paths: internal/gate/cache.go","want":"silent","why":"names a real file only to say not to touch it"}
+{"state":"is this good?","want":"silent","why":"no referent without context"}
+{"state":"option 2","want":"silent","why":"answer to a question the agent asked"}
+{"state":"the test still fails","want":"silent","why":"follow-up status report; which test and what was tried are in context"}
+{"state":"fix it","want":"silent","why":"no object"}
+{"state":"How do Go build tags work?","want":"silent","why":"general Go question, nothing to find in this repo"}
+{"state":"Open a PR for this","want":"silent","why":"git/hosting action on existing work"}
