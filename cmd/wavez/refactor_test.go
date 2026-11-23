@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,16 +39,19 @@ func refactorModule(t *testing.T) string {
 	return root
 }
 
-func TestRefactorCommands(t *testing.T) {
-	t.Parallel()
+// refactorCase is one command line and what it must print.
+type refactorCase struct {
+	name     string
+	wantOut  string
+	wantErr  string
+	args     []string
+	wantCode int
+	// unchanged is set when the command must leave a.go as it was.
+	unchanged bool
+}
 
-	cases := []struct {
-		name     string
-		wantOut  string
-		wantErr  string
-		args     []string
-		wantCode int
-	}{
+func refactorCases() []refactorCase {
+	return []refactorCase{
 		{
 			name:    "rename with --root first",
 			args:    []string{"rename", "--root", "ROOT", "a.go:Old", "New"},
@@ -57,6 +61,26 @@ func TestRefactorCommands(t *testing.T) {
 			name:    "rename with --root=DIR last",
 			args:    []string{"rename", "a.go:Old", "New", "--root=ROOT"},
 			wantOut: "renamed Old to New in 2 files: a.go a_test.go\n",
+		},
+		{
+			name: "rename as a dry run",
+			args: []string{"rename", "--dry-run", "--root", "ROOT", "a.go:Old", "New"},
+			wantOut: "dry run, nothing was changed; a real run prints:\n" +
+				"renamed Old to New in 2 files: a.go (2 lines) a_test.go (1 line)\n",
+			unchanged: true,
+		},
+		{
+			name:      "delete as a dry run that is refused, with -n last",
+			args:      []string{"delete", "--root", "ROOT", "a.go:helper", "-n"},
+			wantErr:   "wavez delete: still used outside the declarations being deleted",
+			wantCode:  1,
+			unchanged: true,
+		},
+		{
+			name:     "a refusal is printed as the refactor worded it",
+			args:     []string{"rename", "--root", "ROOT", "a.go:Old", "func"},
+			wantErr:  "wavez rename: cannot rename to \"func\": it is a keyword or not a Go identifier\n",
+			wantCode: 1,
 		},
 		{
 			name:    "move",
@@ -103,8 +127,12 @@ func TestRefactorCommands(t *testing.T) {
 		{name: "move help", args: []string{"move", "-h"}, wantOut: moveUsage + "\n"},
 		{name: "delete help", args: []string{"delete", "--help"}, wantOut: deleteUsage + "\n"},
 	}
+}
 
-	for _, tc := range cases {
+func TestRefactorCommands(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range refactorCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -121,6 +149,12 @@ func TestRefactorCommands(t *testing.T) {
 
 			assert.Equal(t, tc.wantCode, code, errOut.String())
 			assert.Equal(t, tc.wantOut, out.String())
+
+			if tc.unchanged {
+				data, err := fs.ReadFile(os.DirFS(root), "a.go")
+				require.NoError(t, err)
+				assert.Contains(t, string(data), "func Old() int { return helper() }")
+			}
 
 			if tc.wantErr == "" {
 				assert.Empty(t, errOut.String())

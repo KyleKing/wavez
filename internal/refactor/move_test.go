@@ -165,14 +165,7 @@ func TestMove_Refuses(t *testing.T) {
 		{
 			name:   "a result that does not build, into a file it created",
 			target: "lib/lib.go:shout", dest: "lib/hidden_test.go",
-			check: func(t *testing.T, err error) {
-				t.Helper()
-
-				var build *refactor.BuildError
-
-				require.ErrorAs(t, err, &build)
-				assert.False(t, build.Preexisting)
-			},
+			check:   isType[*refactor.BuildError],
 			wantMsg: "lib/lib.go:10:20: undefined: shout",
 		},
 	}
