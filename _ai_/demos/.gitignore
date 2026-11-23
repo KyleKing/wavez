@@ -1,5 +1,0 @@
-*.sqlite
-.coverage
-scratch/
-wavez-bench
-intentgo

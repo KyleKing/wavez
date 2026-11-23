@@ -60,9 +60,7 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# wavez runtime state. Wavez.pkl is deliberately tracked: `.wavez.pkl` amends
-# it, so anything that evaluates the config (pkl eval, hk, an editor) needs it
-# on disk. Wavez rewrites it from the binary on every load, so it self-heals.
+# wavez runtime state: session records, caches, the decision log
 /.wavez/
 
 
@@ -71,4 +69,6 @@ Desktop.ini
 
 # jj working state
 /.jj/
-.codegraph/
+
+# agent worktrees
+/.claude/worktrees/
