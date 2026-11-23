@@ -1,8 +1,9 @@
 # Project guidance for wavez
 
-[DESIGN.md](DESIGN.md) says what wavez is: gates, name-based refactors, and a
-benchmark that run under a coding agent. It runs no model. This file holds
-the traps that are not visible from the code.
+[DESIGN.md](DESIGN.md) says what wavez is: gates, a checkable goal, name-based
+refactors, and a benchmark that run under a coding agent. The one place it
+calls a model is the route question, which is off by default. This file
+holds the traps that are not visible from the code.
 
 - Every claim about wavez making an agent better is settled by
   `wavez bench`, with the baseline arm beside it. A change to a gate, the
@@ -30,3 +31,15 @@ the traps that are not visible from the code.
 - `jj git push` fires no git hook, so `mise run jj:push` is what runs the
   pre-push checks. A checkout without jj uses git and runs
   `mise exec -- hk check --all` by hand
+- Text for the person goes through `systemMessage`, the status line, or the
+  report page. `additionalContext` on a Stop event continues the turn, so it
+  is only for something the agent has to act on
+- `wavez statusline` runs after every message. It reads files and starts no
+  process
+- The system's `golangci-lint` may be older than CI's and refuse this
+  module's Go version. Match the version in `.config/mise/conf.d/` before
+  trusting a local lint run
+- `go build` without `-o` in a `main` package writes a binary into the tree.
+  The gates build with `go list -export`
+- The golden pages under `internal/report/testdata` regenerate with
+  `go test ./internal/report -update`. No other package defines the flag

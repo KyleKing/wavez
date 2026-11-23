@@ -161,5 +161,9 @@ repository.
 
 ## Your own sessions
 
+`wavez report --bench` writes the records as a page, one bar per arm and
+task. `wavez report` does the same for one session: a timeline, where the
+turns and tokens went, and a waste list.
+
 `wavez stats <session-id | transcript.jsonl>` attributes any Claude Code session
 the same way. The rules are one table in `internal/transcript/classifier.go`.

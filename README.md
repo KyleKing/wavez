@@ -1,24 +1,28 @@
 # Wavez
 
-The deterministic layer under a coding agent. Wavez runs no model. It runs
-beside Claude Code and does the parts of the work that never needed one:
+The deterministic layer under a coding agent. Wavez runs beside Claude Code
+and does the parts of the work that never needed a model:
 
 - **Gates** run the checks a change selects, without the agent asking. A pass
   is silent, a failure blocks the end of the turn with the lines that carry a
   diagnostic, and a check that could not run, or a test that was already
   failing when the session started, is reported to you and not to the agent
+- **A goal** you write once in `.wavez/goal.toml` is checked by code at the
+  end of every turn: a test passes, a pattern is present or absent, a file
+  exists, a command exits 0
+- **What needs you** comes first, at no token cost: one line at the end of a
+  turn, a status line, and a page per session with a timeline, a waste list,
+  and sentences to copy into the next prompt
 - **Refactors** take a name instead of text: `wavez rename`, `move`, and
-  `delete` for Go declarations, applied through `gopls` and rolled back if the
-  result does not build. A `sed` rename across Go files is refused once and
-  pointed at `wavez rename`
-- **Decisions** pick one of a set that code declared: a rule first, a small
-  local model second, and the old behavior when neither answers. The first
-  one routes a prompt as direct, explore, or coordinate, and is off by default
-- **A benchmark** runs the same pinned task under Claude Code alone and under
-  Claude Code with wavez, and reports turns, cost, and wall clock side by side
+  `delete` for Go declarations, applied through `gopls` and undone if they
+  add a build error. A `sed` rename of a declared Go symbol is refused once
+  and pointed at `wavez rename`
+- **A benchmark** runs the same pinned tasks under Claude Code alone and
+  under Claude Code with wavez, interleaved, and says whether the difference
+  is outside the noise
 
-[DESIGN.md](DESIGN.md) has the reasoning, what the first design measured, and
-what is not built.
+[DESIGN.md](DESIGN.md) has the reasoning, what has been measured, and what is
+not built. Linux and macOS only.
 
 ## Use
 
@@ -30,11 +34,28 @@ cd your-project
 wavez init
 ```
 
-`wavez init` merges five hooks into `.claude/settings.json`, installs a skill
-that tells the agent when to use the refactor commands, and keeps its session
-state under `.wavez/`, which ignores itself. Run it again after an upgrade.
-Nothing else is needed for a Go module. The built-in checks are format, build,
-test, and lint (lint only when the project has a `.golangci.*` file).
+`wavez init` merges five hooks into the repository's `.claude/settings.json`
+and keeps its session state under `.wavez/`, which ignores itself. In a Go
+module it also installs a skill that tells the agent when to use the refactor
+commands. Run it again after an upgrade, and `wavez init --remove` takes the
+hooks and the skill back out. Nothing else is needed for a Go module. The
+built-in checks are format, build, test, and lint (lint only when the project
+has a `.golangci.*` file).
+
+The status line is your own choice, so init leaves it alone. `wavez
+statusline --config` prints what to add to `~/.claude/settings.json`.
+
+A goal for the task at hand:
+
+```bash
+wavez goal init "ParseGlob rejects an empty pattern"
+wavez goal add test "./internal/config -run TestParseGlob_Empty" --name "error returned"
+wavez goal add grep README.md "empty pattern" --name documented
+wavez goal            # [x] / [ ] per condition, and n of m done
+```
+
+Set `block = true` in `.wavez/goal.toml` and the agent cannot end its turn
+while a condition is unmet.
 
 For anything else, declare checks in `.wavez.toml`:
 
@@ -43,9 +64,9 @@ max_rounds = 3          # the same failure this many times releases the agent
 route = false           # hint each prompt as direct, explore, or coordinate
 disable = ["lint"]      # built-ins: format, build, test, lint
 
-[decide]                # optional: any OpenAI-compatible endpoint
-endpoint = "http://localhost:11434/v1"
-model = "qwen2.5-coder:7b"
+[decide]                # optional, used only with route = true
+endpoint = "http://localhost:11434/v1"   # asked only when it is on this machine
+model = "qwen2.5-coder:7b"               # a non-thinking model
 timeout = "3s"
 
 [[check]]
@@ -58,30 +79,42 @@ stage = "stop"          # or "edit", which runs after every write
 timeout = "2m"
 ```
 
+A remote endpoint goes in your own environment as `WAVEZ_DECIDE_ENDPOINT`,
+with `WAVEZ_DECIDE_API_KEY` beside it. A project file cannot name one, since
+a cloned repository would then choose where your key is sent.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `wavez init [--dir DIR] [--bin PATH] [--print]` | Wire the hooks and the skill into a project |
+| `wavez init [--dir DIR] [--bin PATH] [--print] [--remove]` | Wire the hooks and the skill into a project, or take them out |
 | `wavez gate [--stage edit\|stop] [--json] [files...]` | Run the checks by hand. With no files it uses git's changed files |
-| `wavez rename <file.go\|./pkg>:<Name\|Type.Method> <NewName>` | Rename a symbol and every reference, then list leftover mentions in comments |
+| `wavez goal [status\|init\|add\|clear]` | Write a goal code can check, and say how much of it is done |
+| `wavez statusline [--config]` | The Claude Code status line: what needs you first, then progress |
+| `wavez report [session] [--text] [--bench]` | Write a page on how a session went, or on the benchmark records |
+| `wavez stats <session-id\|transcript.jsonl>` | Attribute the turns of any Claude Code session: retrieval, edits, shell, sweeps |
+| `wavez rename [--dry-run] <file.go\|./pkg>:<Name\|Type.Method> <NewName>` | Rename a symbol and every reference, then list leftover mentions |
 | `wavez move <file.go>:<Name>[,<Name>...] <dest.go>` | Move declarations to another file of the same package |
 | `wavez delete <file.go>:<Name>[,...] [more...]` | Delete declarations, refusing while anything outside the set still uses them |
 | `wavez bench list\|run\|report` | The A/B benchmark. [bench/README.md](bench/README.md) explains how to read it |
-| `wavez route <prompt>` \| `route eval <corpus.jsonl>` | Print the route decision for a prompt, or score the rules and the model on a labeled corpus |
-| `wavez stats <session-id\|transcript.jsonl>` | Attribute the turns of any Claude Code session: retrieval, edits, shell, sweeps |
+| `wavez route <prompt>` \| `route eval [--claude MODEL] <corpus.jsonl>` | Print the route decision for a prompt, or score the rules and a model on a labeled corpus |
 | `wavez hook` | What the hooks call. It reads one Claude Code hook event on stdin |
 
 ## Does it help
 
-Not shown yet. The live runs, one per arm on Sonnet, are in
+Not shown yet. The live runs so far are in
 [bench/records.jsonl](bench/records.jsonl) and prove the plumbing, not a
-benefit. [DESIGN.md](DESIGN.md#first-live-runs) says what they found. Run
-`mise run bench:ab <task>` with more repetitions before believing either
-direction.
+benefit. [DESIGN.md](DESIGN.md#what-has-been-measured) says what they found.
+The comparison that would settle it bills a Claude account:
+
+```bash
+go build -o bin/wavez ./cmd/wavez
+bin/wavez bench run --all --arm baseline,wavez,wavez-quiet --model sonnet
+bin/wavez bench report
+```
 
 ## Non-goals
 
-- Running a model, a chat loop, a daemon, or a TUI
+- A chat loop, a daemon, or a TUI
 - A sandbox or a permission layer. The harness has its own
 - Plugins. The checks are a config file and the refactors are three commands
