@@ -3,152 +3,144 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/decide"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/hook"
-	"github.com/kyleking/wavez/internal/refactor"
 )
 
-// hookLogEnv names a file `wavez hook` appends one JSON line per event to.
-const hookLogEnv = hook.TraceEnv
+// stopBudgetEnv names the environment variable that sets how long one stop
+// gate may run in all, as a Go duration such as "90s". It stands in until
+// .wavez.toml has a key for it.
+const stopBudgetEnv = "WAVEZ_STOP_BUDGET"
 
 const (
-	errInitUsage = exitError(2)
 	// A failed hook exits 1 and never 2: Claude Code reads 2 from a hook as
 	// "block", and any other non-zero status as an error that holds nothing.
 	errHookFailed = exitError(1)
 	logFileMode   = 0o600
 )
 
-// runInit wires the hooks, the refactor skill, and the state directory's
-// ignore file into a project.
-func runInit(_ context.Context, args []string, streams stdio) error {
-	flags := flag.NewFlagSet("wavez init", flag.ContinueOnError)
-	flags.SetOutput(streams.err)
+// errHookArgument is a hook command line holding anything but a request for
+// help.
+var errHookArgument = errors.New("the event is read from stdin and this argument is not understood")
 
-	dir := flags.String("dir", ".", "project directory to set up")
-	bin := flags.String("bin", "", "wavez binary the hooks call (default: wavez on PATH)")
-	show := flags.Bool("print", false, "show what would be written and write nothing")
+// errHookPanic is a bug in wavez that surfaced while handling an event.
+var errHookPanic = errors.New("internal error")
 
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
+const hookUsage = `usage: wavez hook < event.json
+
+Handles one Claude Code hook event read from stdin and prints the hook's
+JSON answer, if it has one. ` + "`wavez init`" + ` wires it into a project's settings;
+it is not run by hand except to try an event out.
+
+Environment:
+  WAVEZ_HOOK_LOG      file to append one JSON line per event to
+  WAVEZ_STOP_BUDGET   how long a stop gate may run in all (default 2m30s)
+  WAVEZ_ANNOUNCE=0    do not tell the agent at session start that the gates run
+`
+
+// runHook handles the hook event on stdin. A failure of wavez itself is one
+// line on stderr and a non-blocking status, so it never holds the session.
+// That includes a panic: Go exits 2 on one, which the harness reads as a
+// hook asking to block.
+func runHook(ctx context.Context, args []string, streams stdio) (err error) {
+	if len(args) > 0 {
+		// Nothing is read from stdin: a person asking for help has not
+		// piped an event in, and would wait on the read forever.
+		if asksForHelp(args[0]) {
+			sayf(streams.out, "%s", hookUsage)
+
 			return nil
 		}
 
-		return errInitUsage
+		return hookFailure(streams.err, fmt.Errorf("%w: %q", errHookArgument, args[0]))
 	}
 
-	install := hook.Install{Dir: *dir, Bin: *bin, Skill: refactor.Skill}
-
-	changes, err := install.Plan()
-	if err != nil {
-		return fmt.Errorf("planning: %w", err)
-	}
-
-	var report strings.Builder
-
-	for _, change := range changes {
-		if *show {
-			fmt.Fprintf(&report, "# %s (%s)\n%s\n", change.Path, change.Action(), change.Content)
-
-			continue
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = hookFailure(streams.err, fmt.Errorf("%w: %v", errHookPanic, recovered))
 		}
+	}()
 
-		fmt.Fprintf(&report, "%s %s\n", change.Action(), change.Path)
-	}
-
-	if !*show {
-		if err := install.Apply(changes); err != nil {
-			return fmt.Errorf("installing: %w", err)
-		}
-	}
-
-	if _, err := io.WriteString(streams.out, report.String()); err != nil {
-		return fmt.Errorf("reporting: %w", err)
+	if err := handleHook(ctx, streams); err != nil {
+		return hookFailure(streams.err, err)
 	}
 
 	return nil
 }
 
-// runHook handles the hook event on stdin. A failure of wavez itself is one
-// line on stderr and a non-blocking status, so it never holds the session.
-func runHook(ctx context.Context, _ []string, streams stdio) error {
+// handleHook reads the event once, finds its project once, and loads that
+// project's configuration once for the handler's own settings. A config
+// that does not load keeps the defaults here and is reported by the gate
+// run, which reads it for the checks.
+func handleHook(ctx context.Context, streams stdio) error {
+	ev, err := hook.ReadEvent(streams.in)
+	if err != nil {
+		return err //nolint:wrapcheck // the hook package's error is the message
+	}
+
 	var (
 		opts  []hook.Option
 		trace bytes.Buffer
 	)
 
-	// The event is read here so the configuration comes from the project
-	// the event names, and from the working directory only when it names
-	// none. A config that does not load keeps the default cap and leaves
-	// the route hint off here, and is reported by the gate run itself,
-	// which loads it again.
-	event, readErr := io.ReadAll(streams.in)
+	root, _ := hook.ResolveRoot(os.Getenv(hook.ProjectDirEnv), ev.Cwd)
 
-	if dir := eventDir(event); readErr == nil && dir != "" {
-		root := hook.FindRoot(dir)
+	if cfg, err := config.Load(root); root != "" && err == nil {
+		opts = append(opts, hook.WithMaxRounds(cfg.MaxRounds))
 
-		if cfg, err := config.Load(root); err == nil {
-			opts = append(opts, hook.WithMaxRounds(cfg.MaxRounds))
-
-			if cfg.Route {
-				opts = append(opts, hook.WithRoute(decide.FromConfig(root, cfg.Decide)))
-			}
+		if cfg.Route {
+			opts = append(opts, hook.WithRoute(decide.FromConfig(root, cfg.Decide)))
 		}
 	}
 
-	logPath := os.Getenv(hookLogEnv)
+	if os.Getenv(hook.AnnounceEnv) == "0" {
+		opts = append(opts, hook.WithoutAnnouncement())
+	}
+
+	logPath := os.Getenv(hook.TraceEnv)
 	if logPath != "" {
 		opts = append(opts, hook.WithTrace(&trace))
 	}
 
-	err := readErr
-	if err == nil {
-		err = hook.New(hook.Gate{Runner: gate.New()}, opts...).Handle(ctx, bytes.NewReader(event), streams.out)
-	}
+	handler := hook.New(hook.Gate{Runner: gate.New(gateOptions()...)}, opts...)
 
+	err = handler.HandleEvent(ctx, ev, root, streams.out)
 	if logPath != "" {
 		err = errors.Join(err, appendTo(logPath, trace.Bytes()))
 	}
 
-	if err == nil {
+	return err
+}
+
+// gateOptions reads the stop budget from the environment. A value that is
+// not a positive duration is ignored, since a hook has nobody to tell.
+func gateOptions() []gate.Option {
+	budget, err := time.ParseDuration(os.Getenv(stopBudgetEnv))
+	if err != nil || budget <= 0 {
 		return nil
 	}
 
+	return []gate.Option{gate.WithBudget(budget)}
+}
+
+// hookFailure prints the one line a failed hook says and returns the status
+// that holds nothing.
+func hookFailure(stderr io.Writer, err error) error {
 	line := "wavez hook: " + strings.Join(strings.Fields(err.Error()), " ") + "\n"
-	if _, writeErr := io.WriteString(streams.err, line); writeErr != nil {
+	if _, writeErr := io.WriteString(stderr, line); writeErr != nil {
 		return errors.Join(errHookFailed, writeErr)
 	}
 
 	return errHookFailed
-}
-
-// eventDir is the directory a hook event says it came from, or the working
-// directory when the event does not say.
-func eventDir(event []byte) string {
-	var named struct {
-		Cwd string `json:"cwd"`
-	}
-
-	if err := json.Unmarshal(event, &named); err == nil && named.Cwd != "" {
-		return named.Cwd
-	}
-
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-
-	return dir
 }
 
 func appendTo(path string, content []byte) error {
@@ -156,12 +148,12 @@ func appendTo(path string, content []byte) error {
 
 	file, err := os.OpenFile(path, flags, logFileMode) //nolint:gosec // the path is the user's own choice
 	if err != nil {
-		return fmt.Errorf("opening %s: %w", hookLogEnv, err)
+		return fmt.Errorf("opening %s: %w", hook.TraceEnv, err)
 	}
 
 	_, err = file.Write(content)
 	if err = errors.Join(err, file.Close()); err != nil {
-		return fmt.Errorf("writing %s: %w", hookLogEnv, err)
+		return fmt.Errorf("writing %s: %w", hook.TraceEnv, err)
 	}
 
 	return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/kyleking/wavez/internal/gate"
@@ -12,10 +13,22 @@ import (
 
 const digestLen = 8
 
+// chainCap is how many stops in a row the handler will refuse in one turn,
+// whatever they fail on.
+//
+// The harness has a bound of its own: after eight consecutive continuations
+// caused by stop hooks it overrides the next block and ends the turn. It
+// does that silently, and its count starts over whenever the agent calls a
+// tool, so an agent that edits between blocks is never stopped by it. This
+// cap is below the harness's so that wavez is the one that lets go, and can
+// tell the person what was still failing when it did.
+const chainCap = 6
+
 // stopping decides whether the agent may stop. It runs the stop-stage
 // checks on what the session changed, unless that exact change set already
-// passed or was already given up on, and blocks the stop while they fail.
-func (h *Handler) stopping(ctx context.Context, store *session.Store, ev event, rec *record) (output, error) {
+// passed, could not be checked, or was already given up on, and blocks the
+// stop while they fail.
+func (h *Handler) stopping(ctx context.Context, store *session.Store, ev Event, rec *record) (output, error) {
 	state, err := store.Update(ctx, ev.SessionID, keep)
 	if err != nil {
 		return output{}, wrap("loading session", err)
@@ -37,6 +50,15 @@ func (h *Handler) stopping(ctx context.Context, store *session.Store, ev event, 
 	verdict, err := h.runner.Run(withBaseline(ctx, state.Baseline), rec.Root, changed, gate.StageStop)
 	if err != nil {
 		return output{}, wrap("stop gates", err)
+	}
+
+	// A run the harness interrupted settled nothing. Recording it, as a
+	// pass or as anything else, would keep the next stop from running the
+	// checks this one never finished.
+	if errors.Is(ctx.Err(), context.Canceled) {
+		rec.Note = "interrupted, nothing recorded"
+
+		return output{}, nil
 	}
 
 	// A check's own fixer may have rewritten files, so the change set the
@@ -96,6 +118,8 @@ func (h *Handler) settled(state session.State, changed []string, changeSet strin
 		return "nothing changed"
 	case changeSet == state.Passed:
 		return "already passed on this change set"
+	case changeSet == state.Abstained:
+		return "already could not be checked on this change set"
 	case state.Failure.Rounds >= h.maxRounds && changeSet == state.Failure.ChangeSet:
 		return "already released on this change set"
 	default:
@@ -105,18 +129,30 @@ func (h *Handler) settled(state session.State, changed []string, changeSet strin
 
 // decide updates the session with a verdict and picks the hook's answer.
 //
-// The event's stop_hook_active is true when the harness is already continuing because a
-// stop hook said so. It is not a reason to let a failing stop through, or
-// the gates would hold for exactly one round; the round count is the guard
-// against a failure that never resolves. What the flag does mark is the
-// start of a turn, which bounds how long one turn can be held in total.
+// The event's stop_hook_active is true when this stop is itself a
+// continuation that a stop hook caused, and false when the agent stopped of
+// its own accord. It is not a reason to let a failing stop through, or the
+// gates would hold for exactly one round; the round count is the guard
+// against a failure that never resolves. A false value is what resets the
+// chain: it means the previous turn ended, so the blocks counted so far
+// belong to a turn that is over.
+//
+// Only a run in which every check answered and none failed is a pass. A run
+// in which a check could not run or ran out of time is recorded as that, so
+// the same bytes are not put through the same timeout at every later stop,
+// and is never recorded as passed: the next change to the tree runs the
+// checks again, and the person has been told what was not checked.
 func (h *Handler) decide(state *session.State, verdict Verdict, changeSet string, continuing bool) output {
 	if !continuing {
 		state.Chain = 0
 	}
 
 	if !verdict.Failed {
-		state.Pass(changeSet)
+		if verdict.Abstained {
+			state.Abstain(changeSet)
+		} else {
+			state.Pass(changeSet)
+		}
 
 		return advise(state, verdict.Text, verdict.Notes)
 	}
@@ -138,7 +174,7 @@ func (h *Handler) decide(state *session.State, verdict Verdict, changeSet string
 		return released(fmt.Sprintf("the same way %d times in a row", rounds), text)
 	}
 
-	if state.Chain >= h.maxRounds*chainFactor {
+	if state.Chain >= chainCap {
 		// Mark the change set as given up on, so the next stop on the
 		// same tree does not start another chain.
 		state.Failure.Rounds = h.maxRounds
@@ -152,7 +188,7 @@ func (h *Handler) decide(state *session.State, verdict Verdict, changeSet string
 // blocked holds the agent with text. Notes go to the person beside it, once:
 // a block repeats every round and what the person was told has not changed.
 func blocked(state *session.State, text, notes string) output {
-	out := output{Decision: "block", Reason: text}
+	out := output{Decision: "block", Reason: clip(text)}
 
 	if id := digest("block\x00" + notes); notes != "" && id != state.Advised {
 		state.Advised = id
@@ -165,13 +201,16 @@ func blocked(state *session.State, text, notes string) output {
 // released lets the agent stop and tells the user, not the model, why the
 // gates are still red.
 func released(how, text string) output {
-	return output{SystemMessage: clip(fmt.Sprintf(
+	return output{released: true, SystemMessage: clip(fmt.Sprintf(
 		"wavez: the gates failed %s, so the agent was allowed to stop. Still failing:\n%s", how, text,
 	))}
 }
 
 // advise hands non-blocking text to the agent and notes to the person the
 // first time the pair appears, and stays silent when it comes round again.
+// On a Stop event additionalContext is the documented way to give the agent
+// feedback that is not an error; the harness continues the turn once for
+// it, which is why a pass with nothing to say sends nothing.
 func advise(state *session.State, text, notes string) output {
 	if text == "" && notes == "" {
 		return output{}

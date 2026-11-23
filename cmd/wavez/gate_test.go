@@ -108,7 +108,7 @@ func TestRunGate_JSON(t *testing.T) {
 	}{
 		{"a failure is reported and exits 1", gateBroken, "one.go", []gate.Status{gate.StatusFail}, 1},
 		{"a pass lists every check", gateClean, "one.go", []gate.Status{gate.StatusPass, gate.StatusPass}, 0},
-		{"a change that selects nothing is an empty list", gateClean, "notes.md", []gate.Status{}, 0},
+		{"a change that selects nothing is an empty list", gateClean, ".github/notes.md", []gate.Status{}, 0},
 	}
 
 	for _, tt := range tests {

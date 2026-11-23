@@ -11,26 +11,29 @@ import (
 // appends one JSON line per event to.
 const TraceEnv = "WAVEZ_HOOK_LOG"
 
-// The outcomes a trace line can carry that Tally counts.
-const (
-	outcomeContext = "context"
-	outcomeDeny    = "deny"
-)
-
 // maxTraceLine is the longest trace line read.
 const maxTraceLine = 1 << 20
 
-// Tally counts what the hooks of one session said beyond the gates.
+// Tally counts what the hooks of one session said.
 type Tally struct {
 	// RouteHints is how many prompts were given a route hint.
 	RouteHints int
 	// RenameDenials is how many shell commands were denied as a rename by
 	// text.
 	RenameDenials int
+	// Announcements is how many times the session was told that the gates
+	// run by themselves.
+	Announcements int
+	// StopBlocks is how many stops the gates refused.
+	StopBlocks int
+	// HookTextBytes is the bytes of every text the hooks handed the agent,
+	// of any kind: announcements, hints, denials, stale-file notices, and
+	// gate failures. Text for the person is not in it.
+	HookTextBytes int
 }
 
-// ReadTally counts the route hints and rename denials in a hook trace, as
-// WithTrace writes it. A line that is not a trace line is skipped.
+// ReadTally sums a hook trace, as WithTrace writes it. A line that is not
+// a trace line is skipped.
 func ReadTally(trace io.Reader) (Tally, error) {
 	var tally Tally
 
@@ -43,11 +46,17 @@ func ReadTally(trace io.Reader) (Tally, error) {
 			continue
 		}
 
+		tally.HookTextBytes += rec.AgentBytes
+
 		switch {
 		case rec.Event == eventUserPromptSubmit && rec.Outcome == outcomeContext:
 			tally.RouteHints++
 		case rec.Event == eventPreToolUse && rec.Outcome == outcomeDeny:
 			tally.RenameDenials++
+		case rec.Event == eventSessionStart && rec.Outcome == outcomeContext:
+			tally.Announcements++
+		case rec.Event == eventStop && rec.Outcome == outcomeBlock:
+			tally.StopBlocks++
 		}
 	}
 

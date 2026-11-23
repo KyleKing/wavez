@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/kyleking/wavez/internal/gate"
@@ -43,13 +44,29 @@ func runGate(ctx context.Context, args []string, streams stdio) error {
 		return err
 	}
 
-	report, err := gate.New().Run(ctx, *root, changed, gate.Stage(*stage))
+	for _, name := range flags.Args() {
+		if _, statErr := os.Lstat(name); statErr != nil {
+			sayf(streams.err, "wavez gate: %s does not exist; it is checked as a file that was deleted\n", name)
+		}
+	}
+
+	report, err := gate.New(gateOptions()...).Run(ctx, *root, changed, gate.Stage(*stage))
 	if err != nil {
 		return fmt.Errorf("running checks: %w", err)
 	}
 
 	if err := printReport(streams, report, *asJSON); err != nil {
 		return err
+	}
+
+	// A person who ran this by hand and saw nothing cannot tell a pass
+	// from a run that examined nothing. The hook never comes this way.
+	switch {
+	case len(changed) == 0:
+		sayf(streams.err, "wavez gate: nothing to check: git reports no changed file\n")
+	case len(report.Results) == 0:
+		sayf(streams.err, "wavez gate: nothing to check: no %s-stage check is selected by the %d changed file(s)\n",
+			*stage, len(changed))
 	}
 
 	if report.Failed() {

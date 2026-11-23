@@ -2,6 +2,8 @@ package hook_test
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,12 +103,14 @@ func TestInstall_FreshProject(t *testing.T) {
 	assert.JSONEq(t, `{"hooks": {
 		"PostToolUse": [{
 			"matcher": "Edit|Write|MultiEdit|NotebookEdit",
-			"hooks": [{"type": "command", "command": "wavez hook"}]
+			"hooks": [{"type": "command", "command": "wavez hook", "timeout": 40}]
 		}],
-		"Stop": [{"hooks": [{"type": "command", "command": "wavez hook"}]}],
-		"SessionStart": [{"hooks": [{"type": "command", "command": "wavez hook"}]}],
-		"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "wavez hook"}]}],
-		"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "wavez hook"}]}]
+		"Stop": [{"hooks": [{
+			"type": "command", "command": "wavez hook", "timeout": 180, "statusMessage": "wavez: running checks"
+		}]}],
+		"SessionStart": [{"hooks": [{"type": "command", "command": "wavez hook", "timeout": 30}]}],
+		"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "wavez hook", "timeout": 10}]}],
+		"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "wavez hook", "timeout": 10}]}]
 	}}`, read(t, dir, hook.SettingsPath))
 	assert.Equal(t, skill, read(t, dir, hook.SkillPath))
 	assert.Equal(t, "*\n", read(t, dir, hook.GitignorePath))
@@ -409,4 +413,210 @@ func TestInstall_UnwritableProject(t *testing.T) {
 
 	err = in.Apply([]hook.Change{{Path: hook.SettingsPath, Content: []byte("{}")}})
 	require.Error(t, err)
+}
+
+// timeouts maps each event to the timeout of its wavez handler.
+func timeouts(t *testing.T, dir string) map[string]any {
+	t.Helper()
+
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(read(t, dir, hook.SettingsPath)), &settings))
+
+	out := map[string]any{}
+
+	for event, groups := range settings.Hooks {
+		for _, group := range groups {
+			for _, handler := range group.Hooks {
+				if command, ok := handler["command"].(string); ok && strings.HasSuffix(command, " hook") {
+					out[event] = handler["timeout"]
+					out[event+" status"] = handler["statusMessage"]
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+func TestInstall_EveryHookGetsATimeout_AndAPersonsOwnIsKept(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		want   map[string]any
+		name   string
+		before string
+	}{
+		{
+			name: "a fresh install: no hook is left on the harness's ten minutes",
+			want: map[string]any{
+				"PreToolUse": 10.0, "UserPromptSubmit": 10.0, "PostToolUse": 40.0, "SessionStart": 30.0,
+				"Stop": 180.0, "Stop status": "wavez: running checks",
+			},
+		},
+		{
+			name:   "an install from before timeouts were written gets them",
+			before: `{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "wavez hook"}]}]}}`,
+			want: map[string]any{
+				"PreToolUse": 10.0, "UserPromptSubmit": 10.0, "PostToolUse": 40.0, "SessionStart": 30.0,
+				"Stop": 180.0, "Stop status": "wavez: running checks",
+			},
+		},
+		{
+			name: "a timeout and a status message a person set are theirs",
+			before: `{"hooks": {
+				"Stop": [{"hooks": [{
+					"type": "command", "command": "wavez hook", "timeout": 900, "statusMessage": "checking"
+				}]}],
+				"PreToolUse": [{
+					"matcher": "Bash", "hooks": [{"type": "command", "command": "wavez hook", "timeout": 3}]
+				}]
+			}}`,
+			want: map[string]any{
+				"PreToolUse": 3.0, "UserPromptSubmit": 10.0, "PostToolUse": 40.0, "SessionStart": 30.0,
+				"Stop": 900.0, "Stop status": "checking",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			if tt.before != "" {
+				write(t, dir, hook.SettingsPath, tt.before)
+			}
+
+			in := hook.Install{Dir: dir, Skill: skill}
+			install(t, in)
+
+			got := timeouts(t, dir)
+			for key, want := range tt.want {
+				assert.Equal(t, want, got[key], key)
+			}
+
+			assert.Empty(t, install(t, in), "a second run has nothing to do")
+		})
+	}
+}
+
+func TestInstall_RewritingSettingsKeepsTheFilesOwnLayout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		before string
+		// lead is the indentation the new hooks must use.
+		lead string
+		// kept are lines of the file that must come back byte for byte.
+		kept []string
+	}{
+		{
+			name: "four spaces and one-line arrays, with no hooks yet",
+			before: "{\n    \"permissions\": {\"allow\": [\"Bash(go test:*)\", \"Read(~/.zshrc)\"], \"deny\": []},\n" +
+				"    \"model\": \"sonnet\"\n}\n",
+			kept: []string{
+				`    "permissions": {"allow": ["Bash(go test:*)", "Read(~/.zshrc)"], "deny": []},`,
+				`    "model": "sonnet",`,
+			},
+			lead: "\n    \"hooks\": {\n        \"PostToolUse\": [",
+		},
+		{
+			name: "tabs, with hooks of its own in the middle of the file",
+			before: "{\n\t\"zeta\": {\"b\": 1, \"a\": [1.50, null]},\n" +
+				"\t\"hooks\": {\"Stop\": [{\"hooks\": [" +
+				"{\"type\": \"command\", \"command\": \"notify-send done\"}]}]},\n" +
+				"\t\"alpha\": \"last\"\n}\n",
+			kept: []string{"\t\"zeta\": {\"b\": 1, \"a\": [1.50, null]},", "\t\"alpha\": \"last\""},
+			lead: "\n\t\"hooks\": {\n\t\t\"Stop\": [",
+		},
+		{
+			name:   "an empty object",
+			before: "{}\n",
+			lead:   "{\n  \"hooks\": {\n    \"PostToolUse\": [",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			write(t, dir, hook.SettingsPath, tt.before)
+
+			in := hook.Install{Dir: dir, Skill: skill}
+			install(t, in)
+
+			after := read(t, dir, hook.SettingsPath)
+
+			for _, line := range tt.kept {
+				assert.Contains(t, after, line+"\n", "a line outside hooks was laid out again")
+			}
+
+			assert.Contains(t, after, tt.lead)
+			assert.True(t, json.Valid([]byte(after)), after)
+			assert.Equal(t, 5, strings.Count(after, `"command": "wavez hook"`))
+			assert.True(t, strings.HasSuffix(after, "}\n"))
+
+			assert.Empty(t, install(t, in), "a second run has nothing to do")
+
+			// Taking wavez back out leaves what the file said before.
+			changes, err := in.PlanRemoval()
+			require.NoError(t, err)
+			require.NoError(t, in.Apply(changes))
+
+			// A file left holding nothing is removed, which says the same
+			// as the empty object it started as.
+			//nolint:gosec // a file the test wrote
+			left, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(hook.SettingsPath)))
+			if errors.Is(err, fs.ErrNotExist) {
+				left = []byte("{}")
+			}
+
+			var want, got any
+
+			require.NoError(t, json.Unmarshal([]byte(tt.before), &want))
+			require.NoError(t, json.Unmarshal(left, &got))
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+func TestInstall_RemovalLeavesWhatInitDidNotWrite(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	write(t, dir, hook.SettingsPath, foreign)
+
+	in := hook.Install{Dir: dir, Skill: skill}
+	install(t, in)
+
+	// A person edits the skill after init wrote it: it is theirs now.
+	write(t, dir, hook.SkillPath, skill+"\nMy own note.\n")
+
+	changes, err := in.PlanRemoval()
+	require.NoError(t, err)
+	require.Len(t, changes, 1, "only the settings change; an edited skill is not init's to delete")
+	require.NoError(t, in.Apply(changes))
+
+	assert.FileExists(t, filepath.Join(dir, filepath.FromSlash(hook.SkillPath)))
+	assert.Equal(t, []string{"Bash => guard.sh && echo <ok>"}, commands(t, dir, "PreToolUse"))
+	assert.Equal(t, []string{"Edit|Write => prettier --write"}, commands(t, dir, "PostToolUse"))
+	assert.Equal(t, []string{"=> notify-send done"}, commands(t, dir, "Stop"))
+	assert.Empty(t, commands(t, dir, "SessionStart"))
+
+	var want, got any
+
+	require.NoError(t, json.Unmarshal([]byte(foreign), &want))
+	require.NoError(t, json.Unmarshal([]byte(read(t, dir, hook.SettingsPath)), &got))
+	assert.Equal(t, want, got)
+
+	again, err := in.PlanRemoval()
+	require.NoError(t, err)
+	assert.Empty(t, again)
 }

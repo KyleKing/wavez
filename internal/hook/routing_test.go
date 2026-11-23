@@ -141,7 +141,7 @@ func TestHandle_UserPromptSubmit_ASlowModelCostsABoundedWait(t *testing.T) {
 
 	var out bytes.Buffer
 
-	in := bytes.NewBufferString(`{"session_id":"s","cwd":"` + t.TempDir() +
+	in := bytes.NewBufferString(`{"session_id":"s","cwd":"` + module(t) +
 		`","hook_event_name":"UserPromptSubmit","prompt":"Make startup faster."}`)
 
 	require.NoError(t, handler.Handle(ctx, in, &out))
@@ -157,6 +157,7 @@ func TestReadTally(t *testing.T) {
 	var trace bytes.Buffer
 
 	handler := hook.New(&fakeRunner{}, hook.WithTrace(&trace), hook.WithRoute(decide.New()), hook.WithLookPath(found))
+	handed := 0
 
 	for _, ev := range []map[string]any{
 		prompt(root, "Rename Read in internal/bench/stats.go to ReadLog."),
@@ -166,15 +167,19 @@ func TestReadTally(t *testing.T) {
 		shell(root, "tally", `ls`),
 		stop(root, false),
 	} {
-		_, err := fire(t, handler, ev)
+		res, err := fire(t, handler, ev)
 		require.NoError(t, err)
+
+		handed += len(res.Reason) + len(res.Specific.AdditionalContext) + len(res.Specific.PermissionReason)
 	}
 
 	trace.WriteString("not json\n")
 
 	tally, err := hook.ReadTally(&trace)
 	require.NoError(t, err)
-	assert.Equal(t, hook.Tally{RouteHints: 1, RenameDenials: 1}, tally)
+	require.Positive(t, handed)
+	assert.Equal(t, hook.Tally{RouteHints: 1, RenameDenials: 1, HookTextBytes: handed}, tally,
+		"the bytes are every text an event handed the agent, summed")
 
 	_, err = hook.ReadTally(failingReader{})
 	require.ErrorIs(t, err, errRead)

@@ -359,11 +359,12 @@ func TestHandle_Stop_OneTurnIsBoundedHoweverTheFailureVaries(t *testing.T) {
 		outcomes = append(outcomes, outcome(res))
 	}
 
-	assert.Equal(t, append(slices.Repeat([]string{"block"}, 7), "released", "silent"), outcomes)
-	assert.Equal(t, []gate.Stage{
-		gate.StageStop, gate.StageStop, gate.StageStop, gate.StageStop,
-		gate.StageStop, gate.StageStop, gate.StageStop, gate.StageStop,
-	}, runner.stages())
+	// Five blocks and then a release on the sixth stop: under the eight
+	// consecutive continuations after which the harness would end the turn
+	// itself, without a word to the person.
+	want := slices.Concat(slices.Repeat([]string{"block"}, 5), []string{"released", "silent", "silent", "silent"})
+	assert.Equal(t, want, outcomes)
+	assert.Len(t, runner.stages(), 6, "a change set that was given up on is not run again")
 }
 
 func TestHandle_Stop_LongTextIsClipped(t *testing.T) {

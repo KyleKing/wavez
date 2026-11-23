@@ -2,13 +2,18 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kyleking/wavez/internal/hook"
 )
 
 // invoke runs one command the way main does and returns its exit status.
@@ -22,74 +27,25 @@ func invoke(t *testing.T, stdin string, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
-func TestInit(t *testing.T) {
-	t.Parallel()
+// event is a hook event's stdin.
+func event(t *testing.T, fields map[string]any) string {
+	t.Helper()
 
-	dir := t.TempDir()
-	settings := filepath.Join(dir, ".claude", "settings.json")
-
-	code, out, _ := invoke(t, "", "init", "--dir", dir, "--print")
-	require.Equal(t, 0, code)
-	assert.Contains(t, out, "# .claude/settings.json (created)")
-	assert.Contains(t, out, `"command": "wavez hook"`)
-	assert.Contains(t, out, "# .claude/skills/wavez-refactor/SKILL.md (created)")
-	assert.NoFileExists(t, settings, "--print writes nothing")
-
-	code, out, _ = invoke(t, "", "init", "--dir", dir)
-	require.Equal(t, 0, code)
-	assert.Equal(t, "created .claude/settings.json\ncreated .claude/skills/wavez-refactor/SKILL.md\n"+
-		"created .wavez/.gitignore\n", out)
-
-	code, out, _ = invoke(t, "", "init", "--dir", dir)
-	require.Equal(t, 0, code)
-	assert.Empty(t, out, "a second run changes nothing and says nothing")
-
-	code, out, _ = invoke(t, "", "init", "--dir", dir, "--bin", "/opt/wavez/wavez")
-	require.Equal(t, 0, code)
-	assert.Equal(t, "updated .claude/settings.json\n", out)
-
-	raw, err := os.ReadFile(settings) //nolint:gosec // a file this test wrote
+	raw, err := json.Marshal(fields)
 	require.NoError(t, err)
-	assert.Equal(t, 5, strings.Count(string(raw), `"/opt/wavez/wavez hook"`))
-	assert.NotContains(t, string(raw), `"wavez hook"`)
+
+	return string(raw)
 }
 
-func TestInit_Failures(t *testing.T) {
-	t.Parallel()
+// goProject is a directory holding a go.mod, which is a project with checks
+// to run.
+func goProject(t *testing.T) string {
+	t.Helper()
 
-	t.Run("an unknown flag is a usage error", func(t *testing.T) {
-		t.Parallel()
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module m\n"), 0o600))
 
-		code, _, errOut := invoke(t, "", "init", "--nope")
-		assert.Equal(t, 2, code)
-		assert.Contains(t, errOut, "-nope")
-	})
-
-	t.Run("--help is not an error", func(t *testing.T) {
-		t.Parallel()
-
-		code, _, errOut := invoke(t, "", "init", "--help")
-		assert.Equal(t, 0, code)
-		assert.Contains(t, errOut, "-bin")
-	})
-
-	t.Run("settings that cannot be parsed are left alone", func(t *testing.T) {
-		t.Parallel()
-
-		dir := t.TempDir()
-		settings := filepath.Join(dir, ".claude", "settings.json")
-		require.NoError(t, os.MkdirAll(filepath.Dir(settings), 0o750))
-		require.NoError(t, os.WriteFile(settings, []byte("{oops"), 0o600))
-
-		code, out, errOut := invoke(t, "", "init", "--dir", dir)
-		assert.Equal(t, 1, code)
-		assert.Empty(t, out)
-		assert.Contains(t, errOut, "settings.json")
-
-		raw, err := os.ReadFile(settings) //nolint:gosec // a file this test wrote
-		require.NoError(t, err)
-		assert.Equal(t, "{oops", string(raw))
-	})
+	return root
 }
 
 func TestHook_FailureIsOneLineAndNeverStatusTwo(t *testing.T) {
@@ -98,17 +54,20 @@ func TestHook_FailureIsOneLineAndNeverStatusTwo(t *testing.T) {
 	tests := []struct {
 		name  string
 		stdin string
+		args  []string
 	}{
 		{name: "empty stdin", stdin: ""},
 		{name: "not JSON", stdin: "hello\nworld"},
 		{name: "no event name", stdin: `{"cwd": "/tmp"}`},
+		{name: "no cwd", stdin: `{"hook_event_name": "Stop"}`},
+		{name: "an argument it does not take", stdin: `{}`, args: []string{"--verbose"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			code, out, errOut := invoke(t, tt.stdin, "hook")
+			code, out, errOut := invoke(t, tt.stdin, append([]string{"hook"}, tt.args...)...)
 			assert.Equal(t, 1, code, "status 2 would block the agent; any other failure status does not")
 			assert.Empty(t, out)
 			assert.True(t, strings.HasPrefix(errOut, "wavez hook: "), errOut)
@@ -117,15 +76,49 @@ func TestHook_FailureIsOneLineAndNeverStatusTwo(t *testing.T) {
 	}
 }
 
+// panicking is a stdin whose read panics, standing in for any bug in the
+// code that handles an event.
+type panicking struct{}
+
+func (panicking) Read([]byte) (int, error) { panic("index out of range [0] with length 0") }
+
+func TestHook_PanicIsOneLineAndStatusOne(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+
+	code := run(t.Context(), []string{"hook"}, stdio{in: panicking{}, out: &out, err: &errOut})
+
+	assert.Equal(t, 1, code, "a Go panic exits 2, which the harness reads as a hook asking to block")
+	assert.Empty(t, out.String())
+	assert.Equal(t, "wavez hook: internal error: index out of range [0] with length 0\n", errOut.String())
+}
+
+func TestHook_HelpDoesNotReadStdin(t *testing.T) {
+	t.Parallel()
+
+	for _, flag := range []string{"--help", "-h", "help"} {
+		var out, errOut bytes.Buffer
+
+		// A read here would panic: asking for help must not wait on, or
+		// misread, a stdin nobody piped an event into.
+		code := run(t.Context(), []string{"hook", flag}, stdio{in: panicking{}, out: &out, err: &errOut})
+
+		assert.Equal(t, 0, code, flag)
+		assert.Contains(t, out.String(), "usage: wavez hook < event.json", flag)
+		assert.Empty(t, errOut.String(), flag)
+	}
+}
+
 func TestHook_EventsThatNeedNoGate(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "hook.log")
-	t.Setenv(hookLogEnv, logPath)
+	t.Setenv(hook.TraceEnv, logPath)
+	t.Setenv(hook.AnnounceEnv, "0")
 
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module m\n"), 0o600))
+	root := goProject(t)
 
-	for _, event := range []string{"SessionStart", "Stop", "Notification"} {
-		stdin := `{"session_id": "s1", "cwd": "` + root + `", "hook_event_name": "` + event + `"}`
+	for _, name := range []string{"SessionStart", "Stop", "Notification"} {
+		stdin := event(t, map[string]any{"session_id": "s1", "cwd": root, "hook_event_name": name})
 
 		code, out, errOut := invoke(t, stdin, "hook")
 		assert.Equal(t, 0, code, errOut)
@@ -140,4 +133,142 @@ func TestHook_EventsThatNeedNoGate(t *testing.T) {
 	assert.Equal(t, 3, strings.Count(string(trace), "\n"))
 	assert.Contains(t, string(trace), `"event":"Stop"`)
 	assert.Contains(t, string(trace), `"note":"nothing changed"`)
+}
+
+func TestHook_SessionStartAnnouncesTheGates(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "hook.log")
+	t.Setenv(hook.TraceEnv, logPath)
+
+	root := goProject(t)
+	stdin := event(t, map[string]any{
+		"session_id": "s1", "cwd": root, "hook_event_name": "SessionStart", "source": "startup",
+	})
+
+	code, out, errOut := invoke(t, stdin, "hook")
+	require.Equal(t, 0, code, errOut)
+
+	var answer map[string]map[string]string
+
+	require.NoError(t, json.Unmarshal([]byte(out), &answer), out)
+	assert.Equal(t, map[string]map[string]string{"hookSpecificOutput": {
+		"hookEventName": "SessionStart",
+		"additionalContext": "Format, build and tests for the packages you change run automatically when you finish; " +
+			"do not run whole-project build or test commands yourself.",
+	}}, answer)
+
+	trace, err := os.ReadFile(logPath) //nolint:gosec // a file this test wrote
+	require.NoError(t, err)
+	assert.Contains(t, string(trace), `"note":"announced the gates"`)
+	assert.Contains(t, string(trace), `"agent_bytes":144`, "the trace carries what the sentence cost")
+
+	t.Setenv(hook.AnnounceEnv, "0")
+
+	code, out, errOut = invoke(t, stdin, "hook")
+	assert.Equal(t, 0, code, errOut)
+	assert.Empty(t, out, "WAVEZ_ANNOUNCE=0 is the arm of a benchmark that goes without the sentence")
+}
+
+func TestHook_EventFromNowhereWritesNothing(t *testing.T) {
+	t.Setenv(hook.ProjectDirEnv, "")
+
+	bare := t.TempDir()
+	gone := filepath.Join(bare, "nonexistent", "zzz")
+
+	tests := []struct {
+		name string
+		cwd  string
+	}{
+		{name: "a cwd that does not exist", cwd: gone},
+		{name: "a directory that is no project: no .wavez.toml, no .git, no go.mod", cwd: bare},
+	}
+
+	for _, tt := range tests {
+		for _, name := range []string{"SessionStart", "PostToolUse", "PreToolUse", "UserPromptSubmit", "Stop"} {
+			stdin := event(t, map[string]any{
+				"session_id": "x", "cwd": tt.cwd, "hook_event_name": name, "tool_name": "Edit",
+				"tool_input": map[string]any{"file_path": "a.go"},
+			})
+
+			code, out, errOut := invoke(t, stdin, "hook")
+			assert.Equal(t, 0, code, "%s %s: %s", tt.name, name, errOut)
+			assert.Empty(t, out)
+			assert.Empty(t, errOut)
+		}
+	}
+
+	entries, err := os.ReadDir(bare)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "nothing was created: no nonexistent/zzz/.wavez, no .wavez beside it")
+}
+
+func TestHook_ProjectIsWhereTheSessionStarted(t *testing.T) {
+	root := goProject(t)
+	nested := filepath.Join(root, "tools")
+	require.NoError(t, os.MkdirAll(nested, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(nested, "go.mod"), []byte("module tools\n"), 0o600))
+
+	t.Setenv(hook.ProjectDirEnv, root)
+	t.Setenv(hook.AnnounceEnv, "0")
+
+	// The agent has run `cd tools`: the event's cwd is now a nested module.
+	stdin := event(t, map[string]any{"session_id": "s1", "cwd": nested, "hook_event_name": "SessionStart"})
+
+	code, _, errOut := invoke(t, stdin, "hook")
+	require.Equal(t, 0, code, errOut)
+
+	assert.FileExists(t, filepath.Join(root, ".wavez", "sessions", "s1.json"))
+	assert.NoDirExists(t, filepath.Join(nested, ".wavez"), "a cd does not start a second project")
+}
+
+func TestVersionLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		info *debug.BuildInfo
+		want string
+	}{
+		{name: "a binary with no build information", want: "wavez dev (none, unknown)"},
+		{
+			name: "go install module@v1.0.0, which the linker never stamped",
+			info: &debug.BuildInfo{Main: debug.Module{Version: "v1.0.0"}},
+			want: "wavez 1.0.0 (none, unknown)",
+		},
+		{
+			name: "go build in a checkout",
+			info: &debug.BuildInfo{
+				Main: debug.Module{Version: "(devel)"},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "12b4f17"},
+					{Key: "vcs.time", Value: "2026-11-21T10:00:00Z"},
+					{Key: "vcs.modified", Value: "true"},
+				},
+			},
+			want: "wavez dev (12b4f17, 2026-11-21T10:00:00Z)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, versionLine(tt.info))
+		})
+	}
+}
+
+var errRead = errors.New("read failed")
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errRead }
+
+func TestHook_StdinThatCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+
+	code := run(t.Context(), []string{"hook"}, stdio{in: failingReader{}, out: &out, err: &errOut})
+
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errOut.String(), "read failed")
 }

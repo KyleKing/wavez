@@ -9,19 +9,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/decide"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/session"
 )
-
-// DefaultMaxRounds is how many stops in a row may fail the same way before
-// the handler lets the agent stop.
-const DefaultMaxRounds = 3
-
-// chainFactor bounds one turn: however the failures vary, the handler
-// blocks at most chainFactor times the round cap between two stops the
-// agent made on its own.
-const chainFactor = 4
 
 // Verdict is what a gate run concluded, reduced to what a hook acts on.
 type Verdict struct {
@@ -36,6 +28,9 @@ type Verdict struct {
 	Notes string
 	// Failed is true when a blocking check failed.
 	Failed bool
+	// Abstained is true when a check could not run or could not finish,
+	// so that the run settled nothing about what that check covers.
+	Abstained bool
 }
 
 // Runner runs the checks a set of changed files selects.
@@ -56,7 +51,7 @@ func (g Gate) Run(ctx context.Context, root string, changed []string, stage gate
 	}
 
 	return Verdict{
-		Failed: report.Failed(), Fingerprint: report.Fingerprint(),
+		Failed: report.Failed(), Abstained: report.Abstained(), Fingerprint: report.Fingerprint(),
 		Text: report.Render(), Notes: report.Notes(),
 	}, nil
 }
@@ -70,8 +65,14 @@ type Handler struct {
 	// the hint turned off.
 	router decide.Decider
 	// lookPath finds a program the way the shell would.
-	lookPath  func(name string) (string, error)
-	maxRounds int
+	lookPath func(name string) (string, error)
+	// checks names what a stop in a project would run.
+	checks func(root string) (builtins, custom []string, err error)
+	// projectDir is where the harness says the session started.
+	projectDir string
+	maxRounds  int
+	// quiet turns the SessionStart announcement off.
+	quiet bool
 }
 
 // Option configures a Handler.
@@ -88,7 +89,7 @@ func WithMaxRounds(rounds int) Option {
 }
 
 // WithTrace makes the handler append one JSON line per event to w, saying
-// what arrived and what was decided.
+// what arrived, what was decided, and how many bytes the agent was handed.
 func WithTrace(w io.Writer) Option {
 	return func(h *Handler) { h.trace = w }
 }
@@ -100,19 +101,22 @@ func WithRoute(d decide.Decider) Option {
 	return func(h *Handler) { h.router = d }
 }
 
-// WithLookPath replaces how the handler finds gopls, which the command a
-// rename denial suggests cannot run without.
-func WithLookPath(find func(name string) (string, error)) Option {
-	return func(h *Handler) {
-		if find != nil {
-			h.lookPath = find
-		}
-	}
+// WithProjectDir tells the handler where the session started, which is what
+// the harness puts in CLAUDE_PROJECT_DIR. Handle resolves the project from
+// it before it looks at an event's cwd.
+func WithProjectDir(dir string) Option {
+	return func(h *Handler) { h.projectDir = dir }
+}
+
+// WithoutAnnouncement keeps a SessionStart from telling the agent that the
+// gates run by themselves.
+func WithoutAnnouncement() Option {
+	return func(h *Handler) { h.quiet = true }
 }
 
 // New returns a Handler that runs gates through runner.
 func New(runner Runner, opts ...Option) *Handler {
-	h := &Handler{runner: runner, maxRounds: DefaultMaxRounds, lookPath: exec.LookPath}
+	h := &Handler{runner: runner, maxRounds: config.DefaultMaxRounds, lookPath: exec.LookPath, checks: gate.Checks}
 	for _, opt := range opts {
 		opt(h)
 	}
@@ -120,22 +124,36 @@ func New(runner Runner, opts ...Option) *Handler {
 	return h
 }
 
-// Handle reads one hook event from in and writes the hook's JSON output, if
-// it has any, to out. A nil return is exit status 0. Any error means the
-// event could not be handled and nothing was written: the caller reports it
-// on stderr and exits with a status other than 0 and 2, which Claude Code
-// treats as a non-blocking error, so a wavez failure never holds a session.
+// Handle reads one hook event from in, finds the project it belongs to,
+// and handles it as HandleEvent does. An event that belongs to no project
+// is not an error: it is answered with nothing, and nothing is written
+// anywhere.
 func (h *Handler) Handle(ctx context.Context, in io.Reader, out io.Writer) error {
-	ev, err := readEvent(in)
+	ev, err := ReadEvent(in)
 	if err != nil {
 		return err
 	}
 
-	if ev.Cwd == "" {
-		return fmt.Errorf("%w: no cwd", ErrMalformedEvent)
+	root, _ := ResolveRoot(h.projectDir, ev.Cwd)
+
+	return h.HandleEvent(ctx, ev, root, out)
+}
+
+// HandleEvent handles one event of the project at root, as ResolveRoot
+// found it, and writes the hook's JSON output, if it has any, to out. An
+// empty root is an event that belongs to no project, which is answered
+// with nothing. A nil return is exit status 0. Any error means the event
+// could not be handled and nothing was written: the caller reports it on
+// stderr and exits with a status other than 0 and 2, which Claude Code
+// treats as a non-blocking error, so a wavez failure never holds a session.
+func (h *Handler) HandleEvent(ctx context.Context, ev Event, root string, out io.Writer) error {
+	if root == "" {
+		h.log(record{Event: ev.Name, Session: ev.SessionID, Note: "no project at " + ev.Cwd}, output{}, nil)
+
+		return nil
 	}
 
-	rec := record{Event: ev.Name, Session: ev.SessionID, Root: FindRoot(ev.Cwd), StopHookActive: ev.StopHookActive}
+	rec := record{Event: ev.Name, Session: ev.SessionID, Root: root, StopHookActive: ev.StopHookActive}
 
 	res, err := h.dispatch(ctx, ev, &rec)
 	h.log(rec, res, err)
@@ -151,7 +169,7 @@ func (h *Handler) Handle(ctx context.Context, in io.Reader, out io.Writer) error
 	return res.write(out)
 }
 
-func (h *Handler) dispatch(ctx context.Context, ev event, rec *record) (output, error) {
+func (h *Handler) dispatch(ctx context.Context, ev Event, rec *record) (output, error) {
 	store := session.NewStore(rec.Root)
 
 	switch ev.Name {
@@ -162,9 +180,11 @@ func (h *Handler) dispatch(ctx context.Context, ev event, rec *record) (output, 
 	case eventSessionStart:
 		// The baseline is taken here so that a shell command run before
 		// the first edit is still measured against the untouched tree.
-		_, err := store.Update(ctx, ev.SessionID, keep)
+		if _, err := store.Update(ctx, ev.SessionID, keep); err != nil {
+			return output{}, wrap("starting session", err)
+		}
 
-		return output{}, wrap("starting session", err)
+		return h.announced(ev, rec), nil
 	case eventUserPromptSubmit:
 		return h.prompted(ctx, ev, rec), nil
 	case eventPreToolUse:
@@ -178,13 +198,13 @@ func keep(*session.State) error { return nil }
 
 // edited records the file an edit tool wrote and runs the edit-stage checks
 // on it. Whatever they find is context for the model and never a block.
-func (h *Handler) edited(ctx context.Context, store *session.Store, ev event, rec *record) (output, error) {
+func (h *Handler) edited(ctx context.Context, store *session.Store, ev Event, rec *record) (output, error) {
 	rec.Tool = ev.ToolName
 	if !slices.Contains(strings.Split(EditTools, "|"), ev.ToolName) {
 		return output{}, nil
 	}
 
-	rel, ok := relative(rec.Root, ev.ToolInput.path())
+	rel, ok := relative(rec.Root, ev.Cwd, ev.ToolInput.path())
 	if ev.ToolInput.path() == "" || !ok {
 		_, err := store.Update(ctx, ev.SessionID, keep)
 
@@ -226,15 +246,17 @@ func wrap(doing string, err error) error {
 type record struct {
 	Event   string `json:"event"`
 	Session string `json:"session"`
-	Root    string `json:"root"`
+	Root    string `json:"root,omitempty"`
 	Tool    string `json:"tool,omitempty"`
 	// Outcome is what the handler did: silent, context, block, deny,
-	// released, or error.
-	Outcome        string   `json:"outcome"`
-	Note           string   `json:"note,omitempty"`
-	Error          string   `json:"error,omitempty"`
-	Changed        []string `json:"changed,omitempty"`
-	StopHookActive bool     `json:"stop_hook_active,omitempty"`
+	// released, notice, or error.
+	Outcome string   `json:"outcome"`
+	Note    string   `json:"note,omitempty"`
+	Error   string   `json:"error,omitempty"`
+	Changed []string `json:"changed,omitempty"`
+	// AgentBytes is the length of the text this event handed the agent.
+	AgentBytes     int  `json:"agent_bytes,omitempty"`
+	StopHookActive bool `json:"stop_hook_active,omitempty"`
 }
 
 func (h *Handler) log(rec record, res output, err error) {
@@ -242,9 +264,9 @@ func (h *Handler) log(rec record, res output, err error) {
 		return
 	}
 
-	rec.Outcome = res.outcome()
+	rec.Outcome, rec.AgentBytes = res.outcome(), len(res.agentText())
 	if err != nil {
-		rec.Outcome, rec.Error = "error", err.Error()
+		rec.Outcome, rec.Error, rec.AgentBytes = outcomeError, err.Error(), 0
 	}
 
 	line, marshalErr := json.Marshal(rec)

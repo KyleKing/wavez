@@ -17,7 +17,7 @@ const routeBudget = 5 * time.Second
 // has no way to fail: a decision that cannot be made is the fallback, and
 // the fallback is silence, so this hook never blocks or delays a prompt
 // past its budget.
-func (h *Handler) prompted(ctx context.Context, ev event, rec *record) output {
+func (h *Handler) prompted(ctx context.Context, ev Event, rec *record) output {
 	if h.router == nil || ev.Prompt == "" {
 		return output{}
 	}

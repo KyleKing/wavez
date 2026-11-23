@@ -66,7 +66,8 @@ func module(t *testing.T) string {
 	write(t, root, "internal/bench/stats.go", statsSource)
 	write(t, root, "internal/bench/stats_test.go", "package bench\n\nfunc helper() int { return Read() }\n")
 	write(t, root, "internal/other/read.go", "package other\n\n// Scan is declared twice.\nfunc Scan() {}\n")
-	write(t, root, "cmd/tool/main.go", "package main\n\nfunc main() {}\n\n// Scan is declared twice.\nfunc Scan() {}\n")
+	write(t, root, "cmd/tool/main.go",
+		"package main\n\nfunc main() { _ = bench.Read() }\n\n// Scan is declared twice.\nfunc Scan() {}\n")
 	write(t, root, "internal/bench/broken.go", "package bench\n\nfunc Vanished( {\n")
 	write(t, root, "vendor/dep/dep.go", "package dep\n\nfunc Vendored() {}\n")
 	write(t, root, "internal/bench/testdata/fixture.go", "package fixture\n\nfunc Fixture() {}\n")
@@ -103,24 +104,26 @@ func renamesBySed() []renameCase {
 		{name: "sed with no boundaries", command: `sed -i 's/Read/ReadLog/g' ./internal/bench/stats.go`},
 		{
 			name:    "sed with GNU word marks and another delimiter",
-			command: `sed -i 's|\<Read\>|ReadLog|g' cmd/tool/main.go`,
+			command: `sed -i 's|\<Read\>|ReadLog|g' internal/bench/stats.go`,
 		},
 		{name: "BSD sed with an empty suffix", command: `sed -i '' -e 's/Read/ReadLog/g' internal/bench/stats.go`},
-		{name: "sed with a backup suffix and -E", command: `sed -E -i.bak 's/\bRead\b/ReadLog/' a.go`},
-		{name: "sed with flags in one cluster", command: `sed -Ei 's/\bRead\b/ReadLog/g' a.go`},
-		{name: "sed with a long option", command: `sed --in-place --expression='s/Read/ReadLog/g' a.go`},
-		{name: "sed -e glued to its script", command: `sed -i -es/Read/ReadLog/g a.go`},
-		{name: "a call site pattern", command: `sed -i 's/Read(/ReadLog(/g' a.go`},
-		{name: "an escaped call site pattern", command: `sed -i 's/Read\(/ReadLog(/g' a.go`},
+		{
+			name:    "sed with a backup suffix and -E",
+			command: `sed -E -i.bak 's/\bRead\b/ReadLog/' internal/bench/stats.go`,
+		},
+		{name: "sed with flags in one cluster", command: `sed -Ei 's/\bRead\b/ReadLog/g' internal/bench/stats.go`},
+		{
+			name:    "sed with a long option",
+			command: `sed --in-place --expression='s/Read/ReadLog/g' internal/bench/stats.go`,
+		},
+		{name: "sed -e glued to its script", command: `sed -i -es/Read/ReadLog/g internal/bench/stats.go`},
+		{name: "a call site pattern", command: `sed -i 's/Read(/ReadLog(/g' internal/bench/stats.go`},
+		{name: "an escaped call site pattern", command: `sed -i 's/Read\(/ReadLog(/g' internal/bench/stats.go`},
 		{name: "a qualified pattern", command: `sed -i 's/bench\.Read/bench.ReadLog/g' cmd/tool/main.go`},
 		{name: "find piped to xargs", command: `find . -name '*.go' | xargs sed -i 's/\bRead\b/ReadLog/g'`},
 		{
 			name:    "grep piped to xargs with flags",
 			command: `grep -rl Read --include='*.go' . | xargs -n 10 -r sed -i 's/Read/ReadLog/g'`,
-		},
-		{
-			name:    "a recursive grep with no file filter",
-			command: `grep -rl 'Read' . | xargs sed -i 's/\bRead\b/ReadLog/g'`,
 		},
 		{name: "find -exec", command: `find . -name '*.go' -exec sed -i 's/\bRead\b/ReadLog/g' {} +`},
 		{
@@ -150,7 +153,7 @@ func renamesByOtherMeans() []renameCase {
 		{name: "perl with flags apart", command: `perl -i -pe 's/\bRead\b/ReadLog/g' $(git grep -l Read -- '*.go')`},
 		{name: "gofmt rewrite", command: `gofmt -r 'Read -> ReadLog' -w ./internal`},
 		{name: "gofmt rewrite, qualified", command: `gofmt -w -r 'bench.Read -> bench.ReadLog' .`},
-		{name: "an absolute sed", command: `/usr/bin/sed -i 's/Read/ReadLog/g' a.go`},
+		{name: "an absolute sed", command: `/usr/bin/sed -i 's/Read/ReadLog/g' internal/bench/stats.go`},
 		{
 			name:    "a method",
 			command: `sed -i 's/\bFree\b/Available/g' internal/bench/*.go`,
@@ -158,12 +161,12 @@ func renamesByOtherMeans() []renameCase {
 		},
 		{
 			name:    "a method on a generic type",
-			command: `sed -i 's/Key/Name/g' a.go`,
+			command: `sed -i 's/Key/Name/g' internal/bench/stats.go`,
 			want:    []string{"  wavez rename internal/bench/stats.go:Pair.Key Name"},
 		},
 		{
 			name:    "a method on a generic pointer",
-			command: `sed -i 's/Value/Val/g' a.go`,
+			command: `sed -i 's/Value/Val/g' internal/bench/stats.go`,
 			want:    []string{"  wavez rename internal/bench/stats.go:one.Value Val"},
 		},
 		{
@@ -183,17 +186,22 @@ func renamesByOtherMeans() []renameCase {
 		},
 		{
 			name:    "a variable in a block",
-			command: `sed -i 's/defaultName/fallbackName/g' a.go`,
+			command: `sed -i 's/defaultName/fallbackName/g' internal/bench/stats.go`,
 			want:    []string{"  wavez rename internal/bench/stats.go:defaultName fallbackName"},
 		},
 		{
 			name:    "a type",
-			command: `sed -i 's/\bMemory\b/Reading/g' a.go`,
+			command: `sed -i 's/\bMemory\b/Reading/g' internal/bench/stats.go`,
 			want:    []string{"  wavez rename internal/bench/stats.go:Memory Reading"},
 		},
 		{
-			name:    "a name declared twice lists both",
+			name:    "a name two packages declare offers only the one the command's files are in",
 			command: `sed -i 's/\bScan\b/Sweep/g' cmd/tool/*.go`,
+			want:    []string{"  wavez rename cmd/tool/main.go:Scan Sweep"},
+		},
+		{
+			name:    "a name two packages declare lists both when the files are the whole module's",
+			command: `find . -name '*.go' | xargs sed -i 's/\bScan\b/Sweep/g'`,
 			want: []string{
 				"(Scan is declared more than once; use the line for the one you mean)",
 				"  wavez rename cmd/tool/main.go:Scan Sweep",
@@ -202,13 +210,16 @@ func renamesByOtherMeans() []renameCase {
 		},
 		{
 			name:    "two renames in one script",
-			command: `sed -i 's/Read/ReadLog/g; s/"x"/"y"/; s/MaxRuns/RunLimit/g' a.go`,
+			command: `sed -i 's/Read/ReadLog/g; s/"x"/"y"/; s/MaxRuns/RunLimit/g' internal/bench/stats.go`,
 			want: []string{
 				"  wavez rename internal/bench/stats.go:Read ReadLog",
 				"  wavez rename internal/bench/stats.go:MaxRuns RunLimit",
 			},
 		},
-		{name: "two -e scripts", command: `sed -i -e 's/Read/ReadLog/g' -e 's/Nothing/Something/g' a.go`},
+		{
+			name:    "two -e scripts",
+			command: `sed -i -e 's/Read/ReadLog/g' -e 's/Nothing/Something/g' internal/bench/stats.go`,
+		},
 	}
 }
 
@@ -221,33 +232,51 @@ func notRenamesByText() []renameCase {
 		{name: "sed fed markdown files", command: `find . -name '*.md' | xargs sed -i 's/Read/ReadLog/g'`},
 		{name: "a loop over markdown", command: `for f in docs/*.md; do sed -i 's/Read/ReadLog/g' "$f"; done`},
 		{name: "a name the module does not declare", command: `sed -i 's/\bMissing\b/Present/g' internal/bench/*.go`},
-		{name: "a name declared only in a file that does not parse", command: `sed -i 's/Vanished/Gone/g' a.go`},
-		{name: "a name declared only under vendor", command: `sed -i 's/Vendored/Owned/g' a.go`},
-		{name: "a name declared only under testdata", command: `sed -i 's/Fixture/Sample/g' a.go`},
-		{name: "a name declared only in a nested module", command: `sed -i 's/Nested/Inner/g' a.go`},
-		{name: "a name declared only in a hidden directory", command: `sed -i 's/Hidden/Shown/g' a.go`},
-		{name: "a pattern that is not one identifier", command: `sed -i 's/Read the/ReadLog the/g' a.go`},
-		{name: "a regular expression", command: `sed -i 's/Read[A-Z]*/ReadLog/g' a.go`},
-		{name: "a replacement that is not an identifier", command: `sed -i 's/Read/bench.Read/g' a.go`},
-		{name: "a call pattern without a call replacement", command: `sed -i 's/Read(/ReadLog/g' a.go`},
-		{name: "the same name on both sides", command: `sed -i 's/Read/Read/g' a.go`},
-		{name: "a keyword", command: `sed -i 's/func/fn/g' a.go`},
-		{name: "an addressed substitution", command: `sed -i '3,9s/Read/ReadLog/' a.go`},
-		{name: "a delete command", command: `sed -i '/Read/d' a.go`},
-		{name: "a script with another command after it", command: `sed -i 's/Read/ReadLog/g;p' a.go`},
-		{name: "a substitution with no end", command: `sed -i 's/Read/ReadLog' a.go`},
-		{name: "a substitution with no replacement", command: `sed -i 's/Read' a.go`},
-		{name: "a script in a file", command: `sed -i -f rename.sed a.go`},
+		{
+			name:    "a name declared only in a file that does not parse",
+			command: `sed -i 's/Vanished/Gone/g' internal/bench/stats.go`,
+		},
+		{name: "a name declared only under vendor", command: `sed -i 's/Vendored/Owned/g' internal/bench/stats.go`},
+		{name: "a name declared only under testdata", command: `sed -i 's/Fixture/Sample/g' internal/bench/stats.go`},
+		{name: "a name declared only in a nested module", command: `sed -i 's/Nested/Inner/g' internal/bench/stats.go`},
+		{
+			name:    "a name declared only in a hidden directory",
+			command: `sed -i 's/Hidden/Shown/g' internal/bench/stats.go`,
+		},
+		{
+			name:    "a pattern that is not one identifier",
+			command: `sed -i 's/Read the/ReadLog the/g' internal/bench/stats.go`,
+		},
+		{name: "a regular expression", command: `sed -i 's/Read[A-Z]*/ReadLog/g' internal/bench/stats.go`},
+		{
+			name:    "a replacement that is not an identifier",
+			command: `sed -i 's/Read/bench.Read/g' internal/bench/stats.go`,
+		},
+		{
+			name:    "a call pattern without a call replacement",
+			command: `sed -i 's/Read(/ReadLog/g' internal/bench/stats.go`,
+		},
+		{name: "the same name on both sides", command: `sed -i 's/Read/Read/g' internal/bench/stats.go`},
+		{name: "a keyword", command: `sed -i 's/func/fn/g' internal/bench/stats.go`},
+		{name: "an addressed substitution", command: `sed -i '3,9s/Read/ReadLog/' internal/bench/stats.go`},
+		{name: "a delete command", command: `sed -i '/Read/d' internal/bench/stats.go`},
+		{
+			name:    "a script with another command after it",
+			command: `sed -i 's/Read/ReadLog/g;p' internal/bench/stats.go`,
+		},
+		{name: "a substitution with no end", command: `sed -i 's/Read/ReadLog' internal/bench/stats.go`},
+		{name: "a substitution with no replacement", command: `sed -i 's/Read' internal/bench/stats.go`},
+		{name: "a script in a file", command: `sed -i -f rename.sed internal/bench/stats.go`},
 		{name: "sed with nothing after it", command: `sed -i`},
-		{name: "perl that does not print", command: `perl -i -e 's/Read/ReadLog/g' a.go`},
-		{name: "perl that does not write", command: `perl -pe 's/Read/ReadLog/g' a.go`},
+		{name: "perl that does not print", command: `perl -i -e 's/Read/ReadLog/g' internal/bench/stats.go`},
+		{name: "perl that does not write", command: `perl -pe 's/Read/ReadLog/g' internal/bench/stats.go`},
 		{name: "gofmt without -w", command: `gofmt -r 'Read -> ReadLog' .`},
 		{name: "gofmt with a rule that is not a rename", command: `gofmt -w -r 'a[b:len(a)] -> a[b:]' .`},
 		{name: "gofmt with no rule", command: `gofmt -w .`},
 		{name: "find with no -exec", command: `find . -name '*.go' -newer go.mod`},
 		{name: "find with an empty -exec", command: `find . -name '*.go' -exec`},
 		{name: "xargs with nothing to run", command: `find . -name '*.go' | xargs -n 1`},
-		{name: "an unterminated quote", command: `sed -i 's/Read/ReadLog/g a.go`},
+		{name: "an unterminated quote", command: `sed -i 's/Read/ReadLog/g internal/bench/stats.go`},
 		{name: "an unterminated substitution", command: `sed -i 's/Read/ReadLog/g' $(ls`},
 		{name: "only an assignment", command: `FOO=bar`},
 		{name: "an empty command", command: ``},
@@ -320,11 +349,13 @@ func TestHandle_PreToolUse_DeniesOncePerSessionAndPair(t *testing.T) {
 
 	assert.True(t, deny("one", rename))
 	assert.False(t, deny("one", rename), "the same command sent again runs")
-	assert.False(t, deny("one", `perl -pi -e 's/Read/ReadLog/g' a.go`), "the pair is what was denied, not the spelling")
-	assert.True(t, deny("one", `sed -i 's/\bRead\b/ReadFile/g' a.go`), "another new name is another rename")
-	assert.True(t, deny("one", `sed -i 's/Read/ReadLog/g; s/MaxRuns/RunLimit/g' a.go`),
+	assert.False(t, deny("one", `perl -pi -e 's/Read/ReadLog/g' internal/bench/stats.go`),
+		"the pair is what was denied, not the spelling")
+	assert.True(t, deny("one", `sed -i 's/\bRead\b/ReadFile/g' internal/bench/stats.go`),
+		"another new name is another rename")
+	assert.True(t, deny("one", `sed -i 's/Read/ReadLog/g; s/MaxRuns/RunLimit/g' internal/bench/stats.go`),
 		"a pair not yet denied still is")
-	assert.False(t, deny("one", `sed -i 's/MaxRuns/RunLimit/g' a.go`))
+	assert.False(t, deny("one", `sed -i 's/MaxRuns/RunLimit/g' internal/bench/stats.go`))
 	assert.True(t, deny("two", rename), "another session has its own list")
 
 	assert.Equal(t, "Read ReadLog\nRead ReadFile\nMaxRuns RunLimit\n", read(t, root, ".wavez/sessions/one.renames"))

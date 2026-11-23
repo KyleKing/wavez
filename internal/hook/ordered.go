@@ -143,12 +143,26 @@ func decodeObject(dec *json.Decoder) (*object, error) {
 	return obj, nil
 }
 
-// encodeJSON renders a decoded value with two-space indentation and a
-// trailing newline, the way Claude Code writes its own settings.
-func encodeJSON(value any) ([]byte, error) {
+// defaultIndent is how Claude Code indents the settings it writes itself.
+const defaultIndent = "  "
+
+// layout is how a value is laid out on the page: the indentation of one
+// level, and how many levels deep the value starts.
+type layout struct {
+	indent string
+	depth  int
+}
+
+func (l layout) deeper() layout { return layout{indent: l.indent, depth: l.depth + 1} }
+
+func (l layout) lead() string { return "\n" + strings.Repeat(l.indent, l.depth) }
+
+// encodeJSON renders a decoded value with a trailing newline, each level
+// indented by indent.
+func encodeJSON(value any, indent string) ([]byte, error) {
 	var buf bytes.Buffer
 
-	if err := encodeValue(&buf, value, 0); err != nil {
+	if err := encodeValue(&buf, value, layout{indent: indent}); err != nil {
 		return nil, err
 	}
 
@@ -157,21 +171,21 @@ func encodeJSON(value any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func encodeValue(buf *bytes.Buffer, value any, depth int) error {
+func encodeValue(buf *bytes.Buffer, value any, at layout) error {
 	switch typed := value.(type) {
 	case *object:
-		return encodeItems(buf, depth, "{}", len(typed.keys), func(i int) error {
+		return encodeItems(buf, at, "{}", len(typed.keys), func(i int) error {
 			if err := encodeScalar(buf, typed.keys[i]); err != nil {
 				return err
 			}
 
 			buf.WriteString(": ")
 
-			return encodeValue(buf, typed.values[typed.keys[i]], depth+1)
+			return encodeValue(buf, typed.values[typed.keys[i]], at.deeper())
 		})
 	case []any:
-		return encodeItems(buf, depth, "[]", len(typed), func(i int) error {
-			return encodeValue(buf, typed[i], depth+1)
+		return encodeItems(buf, at, "[]", len(typed), func(i int) error {
+			return encodeValue(buf, typed[i], at.deeper())
 		})
 	default:
 		return encodeScalar(buf, value)
@@ -179,7 +193,7 @@ func encodeValue(buf *bytes.Buffer, value any, depth int) error {
 }
 
 // encodeItems writes the n members of an object or array, one per line.
-func encodeItems(buf *bytes.Buffer, depth int, brackets string, n int, item func(i int) error) error {
+func encodeItems(buf *bytes.Buffer, at layout, brackets string, n int, item func(i int) error) error {
 	if n == 0 {
 		buf.WriteString(brackets)
 
@@ -193,14 +207,14 @@ func encodeItems(buf *bytes.Buffer, depth int, brackets string, n int, item func
 			buf.WriteByte(',')
 		}
 
-		buf.WriteString("\n" + strings.Repeat("  ", depth+1))
+		buf.WriteString(at.deeper().lead())
 
 		if err := item(i); err != nil {
 			return err
 		}
 	}
 
-	buf.WriteString("\n" + strings.Repeat("  ", depth))
+	buf.WriteString(at.lead())
 	buf.WriteByte(brackets[1])
 
 	return nil
