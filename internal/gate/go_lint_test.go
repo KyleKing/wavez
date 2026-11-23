@@ -131,7 +131,7 @@ func TestRun_LintWithTheRealLinter(t *testing.T) {
 	t.Parallel()
 
 	if _, err := exec.LookPath("golangci-lint"); err != nil {
-		t.Skip("golangci-lint not on PATH")
+		t.Skip("NOT TESTED: golangci-lint is not on PATH, so the lint check never ran against the real linter")
 	}
 
 	root := project(t, module(map[string]string{
@@ -143,7 +143,8 @@ func TestRun_LintWithTheRealLinter(t *testing.T) {
 
 	report := runGate(t.Context(), t, root, gate.StageStop, []string{"a/a.go"})
 	if len(report.Results) == 1 && report.Results[0].Status == gate.StatusAbstained {
-		t.Skipf("golangci-lint on PATH cannot lint the fixture: %s", report.Results[0].Summary)
+		t.Skipf("NOT TESTED: the golangci-lint on PATH cannot lint the fixture, so the real linter did not run: %s",
+			report.Results[0].Summary)
 	}
 
 	expect(t, report, want{"lint", gate.StatusFail, "a/a.go:6:2: ineffectual assignment to x"})

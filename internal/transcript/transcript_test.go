@@ -127,20 +127,16 @@ func TestRead_Edges(t *testing.T) {
 		},
 		{
 			name: "a session that ends on its edit has none after it",
-			input: strings.Join([]string{
-				use("m1", "t1", "Read", `{"file_path":"a.go"}`),
+			input: use("m1", "t1", "Read", `{"file_path":"a.go"}`) + "\n" +
 				use("m2", "t2", "Write", `{"file_path":"a.go"}`),
-			}, "\n"),
 			want: transcript.Stats{
 				ToolCalls: map[string]int{"Read": 1, "Write": 1}, Turns: 2, Retrieval: 1, Edit: 1,
 			},
 		},
 		{
 			name: "a session with no edit counts none, however many turns it had",
-			input: strings.Join([]string{
-				use("m1", "t1", "Read", `{"file_path":"a.go"}`),
+			input: use("m1", "t1", "Read", `{"file_path":"a.go"}`) + "\n" +
 				use("m2", "t2", "Bash", `{"command":"go vet ./..."}`),
-			}, "\n"),
 			want: transcript.Stats{
 				ToolCalls: map[string]int{"Read": 1, "Bash": 1}, SweepCommands: map[string]int{"go vet": 1},
 				Turns: 2, Retrieval: 1, Shell: 1, Sweeps: 1,

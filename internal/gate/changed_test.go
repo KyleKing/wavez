@@ -32,7 +32,7 @@ func repository(t *testing.T) string {
 	t.Helper()
 
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
+		t.Skip("NOT TESTED: git is not on PATH, so nothing that needs a repository ran")
 	}
 
 	root := project(t, map[string]string{

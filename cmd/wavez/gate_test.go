@@ -155,7 +155,7 @@ func TestRunGate_AsksGitWhenNoFileIsNamed(t *testing.T) {
 	t.Parallel()
 
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
+		t.Skip("NOT TESTED: git is not on PATH, so nothing that needs a repository ran")
 	}
 
 	root := gateProject(t, gateBroken)
