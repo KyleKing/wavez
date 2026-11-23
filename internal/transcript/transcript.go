@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -150,6 +151,10 @@ type accumulator struct {
 	order    []string
 	stats    Stats
 	step     int
+	// lastWrite is the position in order of the turn that last wrote a
+	// file, and wrote says whether any turn did.
+	lastWrite int
+	wrote     bool
 }
 
 func newAccumulator() *accumulator {
@@ -212,6 +217,10 @@ func (a *accumulator) assistant(e *entry) {
 		if stronger(class, a.turns[id]) {
 			a.turns[id] = class
 		}
+
+		if writesFile(&b, class) {
+			a.lastWrite, a.wrote = slices.Index(a.order, id), true
+		}
 	}
 }
 
@@ -266,8 +275,29 @@ func (a *accumulator) results(bs []block) {
 	}
 }
 
+// writesFile reports whether a tool call changed a file: an edit tool, or
+// a shell command that redirects into one or runs a name-based refactor.
+// Other shell commands may write too (`sed -i`, a generator), and are not
+// counted, because the command alone does not say so.
+func writesFile(b *block, class Class) bool {
+	if class == ClassEdit {
+		return true
+	}
+
+	if b.Name != shellTool {
+		return false
+	}
+
+	return len(refactorCalls(b.Input.Command)) > 0 ||
+		slices.ContainsFunc(splitCommands(b.Input.Command), func(c simpleCommand) bool { return c.writes })
+}
+
 func (a *accumulator) finish() Stats {
 	a.stats.Turns = len(a.order)
+
+	if a.wrote {
+		a.stats.TurnsAfterLastEdit = len(a.order) - 1 - a.lastWrite
+	}
 
 	for _, id := range a.order {
 		a.count(a.turns[id])

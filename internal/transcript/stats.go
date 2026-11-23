@@ -35,6 +35,14 @@ type Stats struct {
 	// StopBlocks counts the times a Stop hook refused to let the session
 	// end.
 	StopBlocks int `json:"stop_blocks"`
+	// TurnsAfterLastEdit counts the assistant turns that came after the
+	// turn that last wrote a file: an edit tool, a shell command that
+	// redirects into a file, or a name-based refactor. It is 0 for a
+	// session that wrote nothing. These are the turns an agent spends
+	// checking its own work and saying it is done, which is what a gate
+	// that answers at the stop is meant to shorten. Subagent turns are not
+	// in it: it is read off the main transcript alone.
+	TurnsAfterLastEdit int `json:"turns_after_last_edit"`
 	// Subagents is how many subagent transcripts were folded in.
 	Subagents int `json:"subagents,omitempty"`
 	// Skipped counts lines that were not valid JSON.
@@ -114,6 +122,7 @@ func (s *Stats) Render(w io.Writer) error {
 	fmt.Fprintf(&b, "sweeps        %d%s\n", s.Sweeps, byName(s.SweepCommands))
 	fmt.Fprintf(&b, "refactors     %d%s\n", s.TotalRefactors(), byName(s.Refactors))
 	fmt.Fprintf(&b, "stop blocks   %d\n", s.StopBlocks)
+	fmt.Fprintf(&b, "after edits   %d turn(s) after the last file write\n", s.TurnsAfterLastEdit)
 
 	if s.Skipped > 0 {
 		fmt.Fprintf(&b, "skipped       %d unreadable line(s)\n", s.Skipped)
