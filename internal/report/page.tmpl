@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en" class="nojs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Project}} session {{.Short}}</title>
+<style>
+{{style}}</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="top">
+    <div>
+      <h1>{{.Project}}</h1>
+      <p class="sub">Session <span class="mono" title="{{.Session}}">{{.Short}}</span> &middot; {{.Date}}{{if .Dir}} &middot; <span class="mono">{{.Dir}}</span>{{end}}</p>
+    </div>
+    <button type="button" class="copy" data-copy="summary">Copy summary</button>
+  </div>
+  <dl class="stats">
+    {{- range .Stats}}
+    <div><dt>{{.Label}}</dt><dd{{if eq .Label "Model"}} class="long"{{end}}>{{if eq .Value "not recorded"}}<span class="na">{{.Value}}</span>{{else}}{{.Value}}{{end}}{{if .Note}}<small>{{.Note}}</small>{{end}}</dd></div>
+    {{- end}}
+  </dl>
+  {{- with .Goal}}
+  <div class="goal"><h3>Goal: {{.Sentence}}</h3><p class="soft">{{.Progress}}</p></div>
+  {{- end}}
+</header>
+{{if .Needs}}
+<section class="needs" aria-labelledby="h-needs">
+  <h2 id="h-needs">Needs you ({{len .Needs}})</h2>
+  <ul class="items">
+    {{- range .Needs}}
+    <li>
+      <h3>{{.Title}}</h3>
+      <p>{{.Detail}}</p>
+      {{- if .Copy}}
+      <div class="say"><span>Say</span><code id="{{.ID}}">{{.Copy}}</code><button type="button" class="copy" data-copy="{{.ID}}">Copy</button></div>
+      {{- end}}
+    </li>
+    {{- end}}
+  </ul>
+</section>
+{{end}}
+<section aria-labelledby="h-timeline">
+  <h2 id="h-timeline">Timeline</h2>
+  {{- if .Cells}}
+  <div class="strip" id="strip">
+    {{- range .Cells}}
+    <button type="button" class="c {{.Class}}{{if .Mark}} m-{{.Mark}}{{end}}" title="{{.Title}}"{{if .Detail}} data-detail="{{.Detail}}"{{end}}>{{.Letter}}</button>
+    {{- end}}
+  </div>
+  <p class="pin" id="pin" aria-live="polite">Each cell is one step, in order. Hover, tap, or tab to one to see what it was.</p>
+  <pre id="pin-detail"></pre>
+  <div class="bar" role="img" aria-label="Share of steps by kind">
+    {{- range .Shares}}
+    <span class="c {{.Class}}" style="width: {{.Width}}" title="{{.Name}}: {{.Count}} ({{.Percent}})">{{.Letter}}</span>
+    {{- end}}
+  </div>
+  <ul class="key">
+    {{- range .Shares}}
+    <li><span class="c {{.Class}}">{{.Letter}}</span>{{.Name}} <b>{{.Count}}</b> <span class="soft">{{.Percent}}</span></li>
+    {{- end}}
+  </ul>
+  <ul class="key soft">
+    {{- range .Legend}}
+    <li><span class="c {{.Class}}">{{.Letter}}</span>{{.Name}}</li>
+    {{- end}}
+  </ul>
+  {{- if .Segments}}
+  <details{{if le (len .Segments) 6}} open{{end}}>
+    <summary>Steps by prompt ({{len .Segments}})</summary>
+    <div class="wrap">
+    <table>
+      <thead><tr><th class="n">#</th><th>Prompt</th><th class="n">Steps</th><th class="n">Turns</th></tr></thead>
+      <tbody>
+        {{- range .Segments}}
+        <tr><td class="n">{{.Number}}</td><td class="label">{{.Label}}</td><td class="n">{{.Steps}}</td><td class="n">{{.Turns}}</td></tr>
+        {{- end}}
+      </tbody>
+    </table>
+    </div>
+  </details>
+  {{- end}}
+  {{- else}}
+  <p class="empty">The transcript holds no steps.</p>
+  {{- end}}
+</section>
+
+<section aria-labelledby="h-where">
+  <h2 id="h-where">Where it went</h2>
+  {{- if .Kinds}}
+  <div class="wrap">
+  <table>
+    <thead><tr><th>Kind</th><th class="n">Steps</th><th class="n">Share</th><th class="n">Turns</th><th class="n">Output tokens</th><th class="n">Input tokens</th></tr></thead>
+    <tbody>
+      {{- range .Kinds}}
+      <tr{{if .Total}} class="total"{{end}}>
+        <td class="name">{{if not .Total}}<span class="c {{.Class}}">{{.Letter}}</span>{{end}}{{.Name}}</td>
+        <td class="n">{{.Steps}}</td><td class="n">{{.Share}}</td><td class="n">{{.Turns}}</td>
+        <td class="n{{if eq .Output "not recorded"}} na{{end}}">{{.Output}}</td>
+        <td class="n{{if eq .Input "not recorded"}} na{{end}}">{{.Input}}</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  <p class="soft" style="margin-top: 8px; font-size: 12px">A turn is one request to the model and can hold several steps. Its tokens are counted under the strongest thing it did.</p>
+  {{- end}}
+  <dl class="facts">
+    {{- range .Facts}}
+    <div><dt>{{.Label}}</dt><dd>{{if eq .Value "not recorded"}}<span class="na">{{.Value}}</span>{{else}}{{.Value}}{{end}}{{if .Note}}<small>{{.Note}}</small>{{end}}</dd></div>
+    {{- end}}
+  </dl>
+</section>
+
+<section aria-labelledby="h-waste">
+  <h2 id="h-waste">Waste, and what to say next time</h2>
+  {{- if .Waste}}
+  <ul class="items">
+    {{- range .Waste}}
+    <li>
+      <h3>{{.Title}}</h3>
+      <p>{{.Detail}}</p>
+      {{- if .Copy}}
+      <div class="say"><span>Say</span><code id="{{.ID}}">{{.Copy}}</code><button type="button" class="copy" data-copy="{{.ID}}">Copy</button></div>
+      {{- end}}
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="empty">None of the patterns this page looks for turned up.</p>
+  {{- end}}
+</section>
+
+<section aria-labelledby="h-gates">
+  <h2 id="h-gates">Gate rounds</h2>
+  {{- if .Gates}}
+  <div class="wrap">
+  <table>
+    <thead><tr><th class="n">#</th><th class="n">At</th><th>Result</th><th>Checks named</th><th class="n">Ran for</th><th class="n">Told the agent</th><th class="n">Told you</th></tr></thead>
+    <tbody>
+      {{- range .Gates}}
+      <tr>
+        <td class="n">{{.Number}}</td><td class="n">{{.At}}</td>
+        <td><span class="g {{.Class}}">{{.Outcome}}</span></td>
+        <td class="label{{if eq .Checks "not recorded"}} na{{end}}">{{.Checks}}{{if .Said}}<small class="soft" style="display: block; white-space: pre-wrap">{{.Said}}</small>{{end}}</td>
+        <td class="n{{if eq .Duration "not recorded"}} na{{end}}">{{.Duration}}</td>
+        <td class="n">{{.Agent}}</td><td class="n">{{.Person}}</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  <p class="soft" style="margin-top: 8px; font-size: 12px">One row per run of the Stop hooks. A run that said nothing leaves no record of which checks it ran.</p>
+  {{- else}}
+  <p class="empty">{{.GateNote}}</p>
+  {{- end}}
+</section>
+
+<section aria-labelledby="h-summary">
+  <h2 id="h-summary">Summary</h2>
+  <pre id="summary">{{.Summary}}</pre>
+</section>
+
+<footer>Built by wavez report from the session transcript{{if not .Full}}. Labels only: no file contents or tool output are on this page{{end}}.</footer>
+</main>
+<script>
+(function () {
+  document.documentElement.classList.remove('nojs');
+  function fallback(text) {
+    var area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(area);
+    return ok;
+  }
+  function say(button, ok) {
+    var was = button.getAttribute('data-label') || button.textContent;
+    button.setAttribute('data-label', was);
+    button.textContent = ok ? 'Copied' : 'Select and copy';
+    button.classList.toggle('done', ok);
+    setTimeout(function () { button.textContent = was; button.classList.remove('done'); }, 1800);
+  }
+  document.querySelectorAll('.copy').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var text = document.getElementById(button.getAttribute('data-copy')).textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { say(button, true); },
+          function () { say(button, fallback(text)); });
+      } else {
+        say(button, fallback(text));
+      }
+    });
+  });
+  var pin = document.getElementById('pin');
+  var detail = document.getElementById('pin-detail');
+  var pinned = null;
+  function show(cell) {
+    pin.textContent = '';
+    var b = document.createElement('b');
+    b.textContent = cell.title;
+    pin.appendChild(b);
+    detail.textContent = cell.getAttribute('data-detail') || '';
+  }
+  document.querySelectorAll('#strip .c').forEach(function (cell) {
+    cell.addEventListener('focus', function () { if (!pinned) { show(cell); } });
+    cell.addEventListener('mouseenter', function () { if (!pinned) { show(cell); } });
+    cell.addEventListener('click', function () {
+      if (pinned) { pinned.classList.remove('on'); }
+      pinned = pinned === cell ? null : cell;
+      if (pinned) { cell.classList.add('on'); }
+      show(cell);
+    });
+  });
+}());
+</script>
+</body>
+</html>

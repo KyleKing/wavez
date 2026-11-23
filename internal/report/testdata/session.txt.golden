@@ -1,0 +1,52 @@
+proj  session 11111111  2026-03-01 10:00 UTC
+  duration  1m 07s
+  turns     13
+  steps     13
+  cost      $0.432
+  model     claude-test-1
+
+NEEDS YOU
+  - NOT CHECKED: lint
+    The check could not run, so nothing verified it for this session. wavez: NOT CHECKED lint: Error: can't load config
+  - ALREADY FAILING: test
+    It failed before the session started, so it did not block. test: example.com/proj/internal/daemon TestSubscribe
+    say: The test check was already failing before your last session. Fix that as its own change before building on it.
+  - A test was skipped in internal/sysinfo/memory_test.go
+    Step 5: t.Skip("flaky on this machine")
+    say: You added a skip in internal/sysinfo/memory_test.go (t.Skip("flaky on this machine")). Remove it and make the test pass, or say why it cannot.
+  - A test was removed in internal/sysinfo/memory_test.go
+    Step 5: TestReadMemory
+    say: You removed TestReadMemory in internal/sysinfo/memory_test.go. Put it back and make it pass, or say why it cannot.
+  - Context ran high
+    The largest request carried 160,102 tokens in, and the conversation was compacted once. Past this size a model starts losing what it read early.
+    say: Start a new session for the next piece of work and name the files it touches.
+
+WHERE IT WENT
+  kind                steps  share  turns  output tokens   input tokens
+  retrieval               3    23%      3            170          4,006
+  edit                    2    15%      2            700          5,904
+  shell                   2    15%      2            140          5,604
+  whole-project run       1     8%      1             60          2,502
+  refactor command        1     8%      1             70          3,102
+  other tool              1     8%      1             30          3,202
+  text only               3    23%      3             65        167,506
+  all                    13   100%     13          1,235        191,826
+  input read from cache: 99% (190,200 of 191,826 input tokens)
+  largest request: 160,102 tokens (the most context one turn carried in)
+  time in the model: 41.0s (as the harness counted it, subagents included)
+  time in tools: 9.0s
+  hook text handed to the agent: 154 bytes (Stop 45, UserPromptSubmit 109)
+  prompts given a hint: 1
+  text renames denied: 1
+  files edited: 2 (by the edit tools, per the transcript)
+
+WASTE
+  - 1 file read more than once
+    Read more than once: internal/sysinfo/memory.go 2 times.
+    say: The work is in internal/sysinfo/memory.go. Read a file once, in full, and start there.
+  - 1 whole-project run through the shell
+    The agent ran go build and go test over the whole project itself. The Stop hooks already run the checks for what changed.
+    say: Do not run go build and go test over the whole project. The checks for what you changed run on their own when you stop; fix what they report.
+  - A rename by text was denied and sent again
+    Step 7 rewrote a Go name with a text tool and the hook refused it once. The agent sent the same command again instead of using the rename command.
+    say: wavez rename internal/sysinfo/memory.go:Read ReadLog

@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en" class="nojs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>proj session 11111111</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #fafaf8; --panel: #ffffff; --ink: #1b1b19; --soft: #5f5f59; --line: #e2e2dc;
+  --alert: #a3260f; --alert-bg: #fdf1ee; --ok: #1d6b34; --focus: #1f5fbf;
+  --retrieval: #d9e6f7; --retrieval-ink: #1b4a8a;
+  --edit: #d3eedb; --edit-ink: #145c2b;
+  --shell: #f5e6c0; --shell-ink: #6f4b00;
+  --sweep: #f9d5cc; --sweep-ink: #94270f;
+  --refactor: #e5dbf7; --refactor-ink: #56289c;
+  --other: #e4e4df; --other-ink: #45453f;
+  --mark: #1b1b19; --mark-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151514; --panel: #1d1d1b; --ink: #ecece8; --soft: #a3a39c; --line: #33332f;
+    --alert: #ff9d8a; --alert-bg: #2b1915; --ok: #8fd9a5; --focus: #8ab4ff;
+    --retrieval: #1e3454; --retrieval-ink: #b3cffa;
+    --edit: #1a3f27; --edit-ink: #a6e3b8;
+    --shell: #473810; --shell-ink: #f1d590;
+    --sweep: #5a2216; --sweep-ink: #ffb9a9;
+    --refactor: #39265f; --refactor-ink: #d2bdf9;
+    --other: #32322f; --other-ink: #cdcdc7;
+    --mark: #ecece8; --mark-ink: #151514;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { font-size: 24px; line-height: 1.25; margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--soft); margin: 0 0 12px; font-weight: 600; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+p { margin: 0; }
+section { margin-top: 40px; }
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+.soft { color: var(--soft); }
+.top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.sub { color: var(--soft); margin-top: 4px; overflow-wrap: anywhere; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; margin: 24px 0 0;
+  background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.stats div { background: var(--panel); padding: 12px 16px; min-width: 0; }
+.stats dt { font-size: 12px; color: var(--soft); }
+.stats dd { margin: 2px 0 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.stats dd.long { font-size: 14px; line-height: 1.4; padding-top: 3px; }
+.stats small { display: block; font-size: 12px; font-weight: 400; color: var(--soft); }
+button { font: inherit; color: inherit; }
+.copy {
+  flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 6px;
+  padding: 5px 12px; font-size: 13px; cursor: pointer; min-width: 76px;
+}
+.copy:hover { border-color: var(--soft); }
+.copy.done { border-color: var(--ok); color: var(--ok); }
+.nojs .copy { display: none; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.items li { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.needs .items li { border-left: 4px solid var(--alert); background: var(--alert-bg); }
+.needs h2 { color: var(--alert); }
+.items p { color: var(--soft); margin-top: 4px; overflow-wrap: anywhere; }
+.say { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.say code { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); user-select: all; }
+.say span { flex: none; font-size: 12px; color: var(--soft); padding-top: 1px; }
+.strip { display: flex; flex-wrap: wrap; gap: 3px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.c {
+  width: 20px; height: 22px; padding: 0; border: 0; border-radius: 3px; cursor: pointer;
+  font: 600 11px/22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: center;
+  background: var(--other); color: var(--other-ink);
+}
+span.c { display: inline-block; cursor: default; flex: none; }
+.k-retrieval { background: var(--retrieval); color: var(--retrieval-ink); }
+.k-edit { background: var(--edit); color: var(--edit-ink); }
+.k-shell { background: var(--shell); color: var(--shell-ink); }
+.k-sweep { background: var(--sweep); color: var(--sweep-ink); }
+.k-refactor { background: var(--refactor); color: var(--refactor-ink); }
+.k-other { background: var(--other); color: var(--other-ink); }
+.k-prose { background: transparent; color: var(--soft); box-shadow: inset 0 0 0 1px var(--line); }
+.k-prompt { background: var(--mark); color: var(--mark-ink); border-radius: 11px; min-width: 26px; width: auto; padding: 0 7px; margin-left: 6px; }
+.k-prompt:first-child { margin-left: 0; }
+.k-hook { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); border-radius: 50%; width: 22px; }
+.k-compact { background: transparent; color: var(--soft); box-shadow: inset 0 0 0 1px var(--soft); border-radius: 0; }
+.m-blocked { background: var(--alert); color: var(--panel); box-shadow: none; }
+.m-failed, .m-denied { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; box-shadow: inset 0 -3px 0 var(--alert); }
+.c.on { outline: 2px solid var(--focus); outline-offset: 1px; }
+.pin { margin-top: 10px; min-height: 22px; color: var(--soft); overflow-wrap: anywhere; }
+.pin b { color: var(--ink); font-weight: 600; }
+#pin-detail { margin: 8px 0 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+#pin-detail:empty { display: none; }
+.bar { display: flex; height: 26px; margin-top: 20px; border-radius: 4px; overflow: hidden; gap: 2px; }
+.bar span { flex: 1 1 auto; min-width: 3px; font: 600 11px/26px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-align: center; overflow: hidden; border-radius: 0; }
+.key { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 12px 0 0; padding: 0; font-size: 13px; }
+.key li { display: flex; align-items: center; gap: 6px; }
+.key b { font-weight: 600; }
+.wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 8px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; font-weight: 600; color: var(--soft); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.n { text-align: right; white-space: nowrap; }
+td.name { white-space: nowrap; }
+td.name .c { margin-right: 8px; }
+tr.total td { font-weight: 600; border-top: 1px solid var(--soft); }
+.na { color: var(--soft); font-style: italic; }
+.label { overflow-wrap: anywhere; min-width: 180px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px 24px; margin: 20px 0 0; }
+.facts dt { font-size: 12px; color: var(--soft); }
+.facts dd { margin: 0; font-weight: 600; }
+.facts small { display: block; font-weight: 400; font-size: 12px; color: var(--soft); overflow-wrap: anywhere; }
+.g { font-weight: 600; white-space: nowrap; }
+.g::before { display: inline-block; width: 1.2em; }
+.g-pass::before { content: "\2713"; } .g-pass { color: var(--ok); }
+.g-note::before { content: "\2713"; }
+.g-block::before { content: "\00d7"; } .g-block, .g-released, .g-error { color: var(--alert); }
+.g-released::before { content: "!"; }
+.g-error::before { content: "?"; }
+.goal { margin-top: 16px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+details summary { cursor: pointer; color: var(--soft); font-size: 13px; margin-top: 12px; }
+details .wrap { margin-top: 8px; }
+#summary { margin: 0; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.empty { color: var(--soft); }
+footer { margin-top: 48px; font-size: 12px; color: var(--soft); }
+@media (max-width: 560px) {
+  main { padding: 20px 14px 48px; }
+  h1 { font-size: 20px; }
+  section { margin-top: 32px; }
+  .say { flex-wrap: wrap; }
+  .say code { flex-basis: 100%; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .stats div:last-child:nth-child(odd) { grid-column: span 2; }
+  table { font-size: 13px; }
+  th { white-space: normal; }
+  th, td { padding: 7px 8px; }
+  .label { min-width: 150px; }
+}
+.arms td { vertical-align: middle; }
+.meter { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.meter i { display: block; height: 10px; min-width: 2px; border-radius: 2px; background: var(--other-ink); opacity: .55; }
+.meter .track { flex: none; width: 90px; display: flex; justify-content: flex-start; }
+.pass-all { color: var(--ok); font-weight: 600; }
+.pass-some { color: var(--alert); font-weight: 600; }
+.task { margin-top: 32px; }
+.task h3 { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="top">
+    <div>
+      <h1>proj</h1>
+      <p class="sub">Session <span class="mono" title="11111111-2222-3333-4444-555555555555">11111111</span> &middot; 2026-03-01 10:00 UTC &middot; <span class="mono">/work/proj</span></p>
+    </div>
+    <button type="button" class="copy" data-copy="summary">Copy summary</button>
+  </div>
+  <dl class="stats">
+    <div><dt>Duration</dt><dd>1m 07s</dd></div>
+    <div><dt>Turns</dt><dd>13</dd></div>
+    <div><dt>Steps</dt><dd>13</dd></div>
+    <div><dt>Cost</dt><dd>$0.432</dd></div>
+    <div><dt>Model</dt><dd class="long">claude-test-1</dd></div>
+  </dl>
+  <div class="goal"><h3>Goal: Memory reports its used fraction</h3><p class="soft">2 of 3 done</p></div>
+</header>
+
+<section class="needs" aria-labelledby="h-needs">
+  <h2 id="h-needs">Needs you (6)</h2>
+  <ul class="items">
+    <li>
+      <h3>NOT CHECKED: lint</h3>
+      <p>The check could not run, so nothing verified it for this session. wavez: NOT CHECKED lint: Error: can&#39;t load config</p>
+    </li>
+    <li>
+      <h3>ALREADY FAILING: test</h3>
+      <p>It failed before the session started, so it did not block. test: example.com/proj/internal/daemon TestSubscribe</p>
+      <div class="say"><span>Say</span><code id="need-2">The test check was already failing before your last session. Fix that as its own change before building on it.</code><button type="button" class="copy" data-copy="need-2">Copy</button></div>
+    </li>
+    <li>
+      <h3>Goal item not met: docs mention UsedFraction</h3>
+      <p>2 of 3 items of the goal are done.</p>
+      <div class="say"><span>Say</span><code id="need-3">This is still not done: docs mention UsedFraction. Finish it, then check with `wavez goal status`.</code><button type="button" class="copy" data-copy="need-3">Copy</button></div>
+    </li>
+    <li>
+      <h3>A test was skipped in internal/sysinfo/memory_test.go</h3>
+      <p>Step 5: t.Skip(&#34;flaky on this machine&#34;)</p>
+      <div class="say"><span>Say</span><code id="need-4">You added a skip in internal/sysinfo/memory_test.go (t.Skip(&#34;flaky on this machine&#34;)). Remove it and make the test pass, or say why it cannot.</code><button type="button" class="copy" data-copy="need-4">Copy</button></div>
+    </li>
+    <li>
+      <h3>A test was removed in internal/sysinfo/memory_test.go</h3>
+      <p>Step 5: TestReadMemory</p>
+      <div class="say"><span>Say</span><code id="need-5">You removed TestReadMemory in internal/sysinfo/memory_test.go. Put it back and make it pass, or say why it cannot.</code><button type="button" class="copy" data-copy="need-5">Copy</button></div>
+    </li>
+    <li>
+      <h3>Context ran high</h3>
+      <p>The largest request carried 160,102 tokens in, and the conversation was compacted once. Past this size a model starts losing what it read early.</p>
+      <div class="say"><span>Say</span><code id="need-6">Start a new session for the next piece of work and name the files it touches.</code><button type="button" class="copy" data-copy="need-6">Copy</button></div>
+    </li>
+  </ul>
+</section>
+
+<section aria-labelledby="h-timeline">
+  <h2 id="h-timeline">Timeline</h2>
+  <div class="strip" id="strip">
+    <button type="button" class="c k-prompt" title="Prompt 1: In internal/sysinfo/memory.go add a method UsedFraction on Memory and c…">1</button>
+    <button type="button" class="c k-retrieval" title="#2 Read internal/sysinfo/memory.go (1.0s)">R</button>
+    <button type="button" class="c k-retrieval" title="#3 Grep UsedFraction (1.0s)">R</button>
+    <button type="button" class="c k-retrieval" title="#4 Read internal/sysinfo/memory.go (1.0s)">R</button>
+    <button type="button" class="c k-edit" title="#5 Edit internal/sysinfo/memory_test.go (1.0s)">E</button>
+    <button type="button" class="c k-sweep m-failed" title="#6 Bash go build ./... &amp;&amp; go test ./... (7.0s) [failed]">W</button>
+    <button type="button" class="c k-shell m-denied" title="#7 Bash sed -i &#39;s/\bRead\b/ReadLog/g&#39; internal/sysinfo/*.go (1.0s) [denied]">S</button>
+    <button type="button" class="c k-shell" title="#8 Bash sed -i &#39;s/\bRead\b/ReadLog/g&#39; internal/sysinfo/*.go (1.0s)">S</button>
+    <button type="button" class="c k-refactor" title="#9 Bash wavez rename internal/sysinfo/memory.go:Used UsedFraction (1.0s)">F</button>
+    <button type="button" class="c k-other" title="#10 TodoWrite (1.0s)">O</button>
+    <button type="button" class="c k-prose" title="#11 reply without a tool call">T</button>
+    <button type="button" class="c k-hook m-blocked" title="#12 Stop hooks: block: FAIL test [blocked]">!</button>
+    <button type="button" class="c k-edit" title="#13 Edit internal/sysinfo/memory.go (1.0s)">E</button>
+    <button type="button" class="c k-prose" title="#14 reply without a tool call">T</button>
+    <button type="button" class="c k-hook" title="#15 Stop hooks: note: wavez: NOT CHECKED lint: Error: can&#39;t load config (2.8s)">G</button>
+    <button type="button" class="c k-prompt" title="Prompt 2: notification: Agent &#34;lint lane&#34; finished">2</button>
+    <button type="button" class="c k-compact" title="#17 conversation compacted">C</button>
+    <button type="button" class="c k-prose" title="#18 reply without a tool call">T</button>
+    <button type="button" class="c k-hook" title="#19 Stop hooks: pass (31ms)">G</button>
+  </div>
+  <p class="pin" id="pin" aria-live="polite">Each cell is one step, in order. Hover, tap, or tab to one to see what it was.</p>
+  <pre id="pin-detail"></pre>
+  <div class="bar" role="img" aria-label="Share of steps by kind">
+    <span class="c k-retrieval" style="width: 23.08%" title="Retrieval: 3 (23%)">R</span>
+    <span class="c k-edit" style="width: 15.38%" title="Edit: 2 (15%)">E</span>
+    <span class="c k-shell" style="width: 15.38%" title="Shell: 2 (15%)">S</span>
+    <span class="c k-sweep" style="width: 7.69%" title="Whole-project run: 1 (8%)">W</span>
+    <span class="c k-refactor" style="width: 7.69%" title="Refactor command: 1 (8%)">F</span>
+    <span class="c k-other" style="width: 7.69%" title="Other tool: 1 (8%)">O</span>
+    <span class="c k-prose" style="width: 23.08%" title="Text only: 3 (23%)">T</span>
+  </div>
+  <ul class="key">
+    <li><span class="c k-retrieval">R</span>Retrieval <b>3</b> <span class="soft">23%</span></li>
+    <li><span class="c k-edit">E</span>Edit <b>2</b> <span class="soft">15%</span></li>
+    <li><span class="c k-shell">S</span>Shell <b>2</b> <span class="soft">15%</span></li>
+    <li><span class="c k-sweep">W</span>Whole-project run <b>1</b> <span class="soft">8%</span></li>
+    <li><span class="c k-refactor">F</span>Refactor command <b>1</b> <span class="soft">8%</span></li>
+    <li><span class="c k-other">O</span>Other tool <b>1</b> <span class="soft">8%</span></li>
+    <li><span class="c k-prose">T</span>Text only <b>3</b> <span class="soft">23%</span></li>
+  </ul>
+  <ul class="key soft">
+    <li><span class="c k-prompt">1</span>Prompt, numbered</li>
+    <li><span class="c k-hook">G</span>Stop hooks ran</li>
+    <li><span class="c k-compact">C</span>Compaction</li>
+    <li><span class="c k-hook m-blocked">!</span>Stop blocked</li>
+    <li><span class="c k-shell m-failed">S</span>Underlined: the call failed or was denied</li>
+  </ul>
+  <details open>
+    <summary>Steps by prompt (2)</summary>
+    <div class="wrap">
+    <table>
+      <thead><tr><th class="n">#</th><th>Prompt</th><th class="n">Steps</th><th class="n">Turns</th></tr></thead>
+      <tbody>
+        <tr><td class="n">1</td><td class="label">In internal/sysinfo/memory.go add a method UsedFraction on Memory and c…</td><td class="n">12</td><td class="n">12</td></tr>
+        <tr><td class="n">2</td><td class="label">notification: Agent &#34;lint lane&#34; finished</td><td class="n">1</td><td class="n">1</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </details>
+</section>
+
+<section aria-labelledby="h-where">
+  <h2 id="h-where">Where it went</h2>
+  <div class="wrap">
+  <table>
+    <thead><tr><th>Kind</th><th class="n">Steps</th><th class="n">Share</th><th class="n">Turns</th><th class="n">Output tokens</th><th class="n">Input tokens</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="name"><span class="c k-retrieval">R</span>Retrieval</td>
+        <td class="n">3</td><td class="n">23%</td><td class="n">3</td>
+        <td class="n">170</td>
+        <td class="n">4,006</td>
+      </tr>
+      <tr>
+        <td class="name"><span class="c k-edit">E</span>Edit</td>
+        <td class="n">2</td><td class="n">15%</td><td class="n">2</td>
+        <td class="n">700</td>
+        <td class="n">5,904</td>
+      </tr>
+      <tr>
+        <td class="name"><span class="c k-shell">S</span>Shell</td>
+        <td class="n">2</td><td class="n">15%</td><td class="n">2</td>
+        <td class="n">140</td>
+        <td class="n">5,604</td>
+      </tr>
+      <tr>
+        <td class="name"><span class="c k-sweep">W</span>Whole-project run</td>
+        <td class="n">1</td><td class="n">8%</td><td class="n">1</td>
+        <td class="n">60</td>
+        <td class="n">2,502</td>
+      </tr>
+      <tr>
+        <td class="name"><span class="c k-refactor">F</span>Refactor command</td>
+        <td class="n">1</td><td class="n">8%</td><td class="n">1</td>
+        <td class="n">70</td>
+        <td class="n">3,102</td>
+      </tr>
+      <tr>
+        <td class="name"><span class="c k-other">O</span>Other tool</td>
+        <td class="n">1</td><td class="n">8%</td><td class="n">1</td>
+        <td class="n">30</td>
+        <td class="n">3,202</td>
+      </tr>
+      <tr>
+        <td class="name"><span class="c k-prose">T</span>Text only</td>
+        <td class="n">3</td><td class="n">23%</td><td class="n">3</td>
+        <td class="n">65</td>
+        <td class="n">167,506</td>
+      </tr>
+      <tr class="total">
+        <td class="name">All</td>
+        <td class="n">13</td><td class="n">100%</td><td class="n">13</td>
+        <td class="n">1,235</td>
+        <td class="n">191,826</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="soft" style="margin-top: 8px; font-size: 12px">A turn is one request to the model and can hold several steps. Its tokens are counted under the strongest thing it did.</p>
+  <dl class="facts">
+    <div><dt>Input read from cache</dt><dd>99%<small>190,200 of 191,826 input tokens</small></dd></div>
+    <div><dt>Largest request</dt><dd>160,102 tokens<small>the most context one turn carried in</small></dd></div>
+    <div><dt>Time in the model</dt><dd>41.0s<small>as the harness counted it, subagents included</small></dd></div>
+    <div><dt>Time in tools</dt><dd>9.0s</dd></div>
+    <div><dt>Hook text handed to the agent</dt><dd>154 bytes<small>Stop 45, UserPromptSubmit 109</small></dd></div>
+    <div><dt>Prompts given a hint</dt><dd>1</dd></div>
+    <div><dt>Text renames denied</dt><dd>1</dd></div>
+    <div><dt>Files edited</dt><dd>2<small>as wavez recorded them</small></dd></div>
+  </dl>
+</section>
+
+<section aria-labelledby="h-waste">
+  <h2 id="h-waste">Waste, and what to say next time</h2>
+  <ul class="items">
+    <li>
+      <h3>1 file read more than once</h3>
+      <p>Read more than once: internal/sysinfo/memory.go 2 times.</p>
+      <div class="say"><span>Say</span><code id="waste-1">The work is in internal/sysinfo/memory.go. Read a file once, in full, and start there.</code><button type="button" class="copy" data-copy="waste-1">Copy</button></div>
+    </li>
+    <li>
+      <h3>1 whole-project run through the shell</h3>
+      <p>The agent ran go build and go test over the whole project itself. The Stop hooks already run the checks for what changed.</p>
+      <div class="say"><span>Say</span><code id="waste-2">Do not run go build and go test over the whole project. The checks for what you changed run on their own when you stop; fix what they report.</code><button type="button" class="copy" data-copy="waste-2">Copy</button></div>
+    </li>
+    <li>
+      <h3>A rename by text was denied and sent again</h3>
+      <p>Step 7 rewrote a Go name with a text tool and the hook refused it once. The agent sent the same command again instead of using the rename command.</p>
+      <div class="say"><span>Say</span><code id="waste-3">wavez rename internal/sysinfo/memory.go:Read ReadLog</code><button type="button" class="copy" data-copy="waste-3">Copy</button></div>
+    </li>
+  </ul>
+</section>
+
+<section aria-labelledby="h-gates">
+  <h2 id="h-gates">Gate rounds</h2>
+  <div class="wrap">
+  <table>
+    <thead><tr><th class="n">#</th><th class="n">At</th><th>Result</th><th>Checks named</th><th class="n">Ran for</th><th class="n">Told the agent</th><th class="n">Told you</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="n">1</td><td class="n">0:26</td>
+        <td><span class="g g-block">block</span></td>
+        <td class="label">test (fail)<small class="soft" style="display: block; white-space: pre-wrap">FAIL test</small></td>
+        <td class="n na">not recorded</td>
+        <td class="n">45 bytes</td><td class="n">0 bytes</td>
+      </tr>
+      <tr>
+        <td class="n">2</td><td class="n">0:33</td>
+        <td><span class="g g-note">note</span></td>
+        <td class="label">lint (not checked), test (already failing)<small class="soft" style="display: block; white-space: pre-wrap">wavez: NOT CHECKED lint: Error: can&#39;t load config</small></td>
+        <td class="n">2.8s</td>
+        <td class="n">0 bytes</td><td class="n">162 bytes</td>
+      </tr>
+      <tr>
+        <td class="n">3</td><td class="n">1:07</td>
+        <td><span class="g g-pass">pass</span></td>
+        <td class="label na">not recorded</td>
+        <td class="n">31ms</td>
+        <td class="n">0 bytes</td><td class="n">0 bytes</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="soft" style="margin-top: 8px; font-size: 12px">One row per run of the Stop hooks. A run that said nothing leaves no record of which checks it ran.</p>
+</section>
+
+<section aria-labelledby="h-summary">
+  <h2 id="h-summary">Summary</h2>
+  <pre id="summary">Session 11111111 in proj, 2026-03-01 10:00 UTC
+13 turns and 13 steps in 1m 07s, cost $0.432, model claude-test-1
+Steps: retrieval 3 (23%), edit 2 (15%), shell 2 (15%), whole-project run 1 (8%), refactor command 1 (8%), other tool 1 (8%), text only 3 (23%)
+Needs you: NOT CHECKED: lint; ALREADY FAILING: test; Goal item not met: docs mention UsedFraction; A test was skipped in internal/sysinfo/memory_test.go; A test was removed in internal/sysinfo/memory_test.go; Context ran high
+Waste: 1 file read more than once; 1 whole-project run through the shell; A rename by text was denied and sent again</pre>
+</section>
+
+<footer>Built by wavez report from the session transcript. Labels only: no file contents or tool output are on this page.</footer>
+</main>
+<script>
+(function () {
+  document.documentElement.classList.remove('nojs');
+  function fallback(text) {
+    var area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(area);
+    return ok;
+  }
+  function say(button, ok) {
+    var was = button.getAttribute('data-label') || button.textContent;
+    button.setAttribute('data-label', was);
+    button.textContent = ok ? 'Copied' : 'Select and copy';
+    button.classList.toggle('done', ok);
+    setTimeout(function () { button.textContent = was; button.classList.remove('done'); }, 1800);
+  }
+  document.querySelectorAll('.copy').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var text = document.getElementById(button.getAttribute('data-copy')).textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () { say(button, true); },
+          function () { say(button, fallback(text)); });
+      } else {
+        say(button, fallback(text));
+      }
+    });
+  });
+  var pin = document.getElementById('pin');
+  var detail = document.getElementById('pin-detail');
+  var pinned = null;
+  function show(cell) {
+    pin.textContent = '';
+    var b = document.createElement('b');
+    b.textContent = cell.title;
+    pin.appendChild(b);
+    detail.textContent = cell.getAttribute('data-detail') || '';
+  }
+  document.querySelectorAll('#strip .c').forEach(function (cell) {
+    cell.addEventListener('focus', function () { if (!pinned) { show(cell); } });
+    cell.addEventListener('mouseenter', function () { if (!pinned) { show(cell); } });
+    cell.addEventListener('click', function () {
+      if (pinned) { pinned.classList.remove('on'); }
+      pinned = pinned === cell ? null : cell;
+      if (pinned) { cell.classList.add('on'); }
+      show(cell);
+    });
+  });
+}());
+</script>
+</body>
+</html>

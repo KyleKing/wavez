@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wavez benchmark</title>
+<style>
+{{style}}</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Benchmark</h1>
+  <p class="sub">{{.Runs}} runs in <span class="mono">{{.Source}}</span></p>
+</header>
+<section aria-labelledby="h-tasks">
+  <h2 id="h-tasks">Arms side by side, per task</h2>
+  <p class="soft">Each number is the median over the runs the harness completed. Bars are sized against the largest arm of the same task. An arm marked with * has fewer runs than a comparison needs, and a difference there is noise until it has more.</p>
+  {{- range .Tasks}}
+  <div class="task">
+  <h3>{{.ID}}</h3>
+  <div class="wrap">
+  <table class="arms">
+    <thead><tr><th>Arm</th><th>Model served</th><th class="n">Runs</th><th class="n">Passed</th><th class="n">Turns</th><th class="n">Cost</th><th class="n">Wall clock</th><th class="n">Sweeps</th></tr></thead>
+    <tbody>
+      {{- range .Arms}}
+      <tr>
+        <td><b>{{.Arm}}</b></td>
+        <td class="mono{{if eq .Model "not recorded"}} na{{end}}">{{.Model}}</td>
+        <td class="n">{{.Runs}}{{if .Thin}}*{{end}}</td>
+        <td class="n {{.PassClass}}">{{.Passed}}</td>
+        <td class="n{{if eq .Turns "not recorded"}} na{{end}}"><div class="meter">{{.Turns}}{{if .TurnsWidth}}<span class="track"><i style="width: {{.TurnsWidth}}"></i></span>{{end}}</div></td>
+        <td class="n{{if eq .Cost "not recorded"}} na{{end}}"><div class="meter">{{.Cost}}{{if .CostWidth}}<span class="track"><i style="width: {{.CostWidth}}"></i></span>{{end}}</div></td>
+        <td class="n{{if eq .Wall "not recorded"}} na{{end}}"><div class="meter">{{.Wall}}{{if .WallWidth}}<span class="track"><i style="width: {{.WallWidth}}"></i></span>{{end}}</div></td>
+        <td class="n{{if eq .Sweeps "not recorded"}} na{{end}}">{{.Sweeps}}</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  </div>
+  {{- else}}
+  <p class="empty">No runs are recorded.</p>
+  {{- end}}
+</section>
+<footer>Built by wavez report --bench. `wavez bench report` prints the ratios between arms and says which are inside the noise.</footer>
+</main>
+</body>
+</html>
