@@ -25,7 +25,8 @@ var (
 type step struct {
 	// touch rewrites a.go with this content before the stop, when set.
 	touch string
-	// want is block, released, context, or silent.
+	// want is block, released, context, told (a line for the person and
+	// nothing for the agent), or silent.
 	want    string
 	verdict hook.Verdict
 	active  bool
@@ -88,10 +89,12 @@ func outcome(res result) string {
 	switch {
 	case res.Decision == "block":
 		return "block"
-	case res.SystemMessage != "":
+	case strings.Contains(res.SystemMessage, "allowed to stop"):
 		return "released"
 	case res.Specific.AdditionalContext != "":
 		return "context"
+	case res.SystemMessage != "":
+		return "told"
 	case res.raw == "":
 		return "silent"
 	default:
@@ -110,9 +113,9 @@ func TestHandle_Stop_Passing(t *testing.T) {
 			steps: []step{{want: "silent"}, {want: "silent"}},
 		},
 		{
-			name: "a pass is silent and the same change set is not checked twice",
+			name: "a pass tells the person once and the same change set is not checked twice",
 			steps: []step{
-				{touch: "one", verdict: green, want: "silent", ran: true},
+				{touch: "one", verdict: green, want: "told", ran: true},
 				{verdict: red, want: "silent"},
 				{active: true, verdict: red, want: "silent"},
 			},
@@ -120,7 +123,7 @@ func TestHandle_Stop_Passing(t *testing.T) {
 		{
 			name: "a further change after a pass is checked again",
 			steps: []step{
-				{touch: "one", verdict: green, want: "silent", ran: true},
+				{touch: "one", verdict: green, want: "told", ran: true},
 				{touch: "two", verdict: red, want: "block", ran: true},
 				{touch: "three", active: true, verdict: green, want: "silent", ran: true},
 				{touch: "three", verdict: red, want: "silent"},
@@ -139,7 +142,7 @@ func TestHandle_Stop_Passing(t *testing.T) {
 			steps: []step{
 				{touch: "one", verdict: red, want: "block", ran: true},
 				{touch: "two", active: true, verdict: red, want: "block", ran: true},
-				{touch: "fixed", active: true, verdict: green, want: "silent", ran: true},
+				{touch: "fixed", active: true, verdict: green, want: "told", ran: true},
 				{touch: "broken again", verdict: red, want: "block", ran: true},
 			},
 		},

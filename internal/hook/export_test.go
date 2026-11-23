@@ -1,5 +1,7 @@
 package hook
 
+import "context"
+
 // WithLookPath replaces how the handler finds gopls, which the command a
 // rename denial suggests cannot run without. A nil find is ignored.
 func WithLookPath(find func(name string) (string, error)) Option {
@@ -29,4 +31,9 @@ func RenamesIn(command string) []string {
 	}
 
 	return pairs
+}
+
+// WithGoals replaces how the handler checks a project's goal at a stop.
+func WithGoals(goals func(ctx context.Context, root string) (person, agent string, hold bool, err error)) Option {
+	return func(h *Handler) { h.goals = goals }
 }

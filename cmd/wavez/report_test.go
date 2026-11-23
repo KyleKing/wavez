@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kyleking/wavez/internal/hook"
 )
 
 const reportSession = "11111111-2222-3333-4444-555555555555"
@@ -41,7 +43,7 @@ func TestReport_WritesThePageForTheLatestSession(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(hookLogEnv, "")
+	t.Setenv(hook.TraceEnv, "")
 
 	project, _ := reportProject(t, home)
 
@@ -70,7 +72,7 @@ func TestReport_NamedSessionFullAndOut(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(hookLogEnv, "")
+	t.Setenv(hook.TraceEnv, "")
 
 	project, path := reportProject(t, home)
 	out := filepath.Join(t.TempDir(), "page.html")
@@ -91,7 +93,7 @@ func TestReport_ReadsWavezOwnSessionState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(hookLogEnv, "")
+	t.Setenv(hook.TraceEnv, "")
 
 	project, _ := reportProject(t, home)
 
@@ -122,7 +124,7 @@ func TestReport_Text(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(hookLogEnv, "")
+	t.Setenv(hook.TraceEnv, "")
 
 	project, _ := reportProject(t, home)
 
@@ -141,7 +143,7 @@ func TestReport_Failures(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(hookLogEnv, "")
+	t.Setenv(hook.TraceEnv, "")
 
 	project, _ := reportProject(t, home)
 	elsewhere := t.TempDir()
@@ -171,7 +173,7 @@ func TestReport_Bench(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(hookLogEnv, "")
+	t.Setenv(hook.TraceEnv, "")
 
 	project, _ := reportProject(t, home)
 

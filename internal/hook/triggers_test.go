@@ -33,7 +33,8 @@ func TestHandle_Stop_ACheckThatTimedOutIsNotAPass(t *testing.T) {
 	first, err := fire(t, h, stop(root, false))
 	require.NoError(t, err)
 	assert.Empty(t, first.Decision, "a check that could not run never blocks")
-	assert.Equal(t, "wavez: NOT CHECKED test: timed out after 1m30s\n", first.SystemMessage)
+	assert.Equal(t,
+		"wavez: 1 file changed · checks could not run\nNOT CHECKED test: timed out after 1m30s\n", first.SystemMessage)
 	assert.Empty(t, first.Specific.AdditionalContext, "and the agent hears nothing of it")
 
 	st := state(t, root)

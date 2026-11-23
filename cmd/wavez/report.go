@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/kyleking/wavez/internal/bench"
+	"github.com/kyleking/wavez/internal/goal"
 	"github.com/kyleking/wavez/internal/hook"
 	page "github.com/kyleking/wavez/internal/report"
 	"github.com/kyleking/wavez/internal/session"
@@ -158,23 +159,23 @@ func textPage(built *page.Page, w io.Writer) error {
 	return nil
 }
 
-// goalProgress is where the session's goal is read from once something
-// tracks one. Until then no page shows a goal.
-func goalProgress(_ string) *page.Goal {
-	return nil
+// goalProgress reads the project's goal as its last end-of-turn check left
+// it, and returns nil when there is none or it cannot be read.
+func goalProgress(root string) *page.Goal {
+	sum, err := goal.Snapshot(root)
+	if err != nil {
+		return nil
+	}
+
+	return &page.Goal{Sentence: sum.Goal, Unmet: sum.Unmet, Total: sum.Total, Done: sum.Done}
 }
 
 // sessionState reads what wavez's hooks kept about the session, and
 // returns nil when they kept nothing: the page then says so instead of
 // showing a zero.
 func sessionState(root, id string) *page.State {
-	raw, err := os.ReadFile(session.NewStore(root).Path(id))
-	if err != nil {
-		return nil
-	}
-
-	var state session.State
-	if err := json.Unmarshal(raw, &state); err != nil || state.Version != session.Version {
+	state, ok := session.NewStore(root).Read(id)
+	if !ok {
 		return nil
 	}
 

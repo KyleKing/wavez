@@ -125,6 +125,18 @@ func validID(id string) error {
 	return nil
 }
 
+// Read returns what is stored about a session without taking its lock or
+// writing anything, and false when nothing is stored. It is for a reader
+// that only shows the state, such as the status line, and may see a write
+// that is one event old.
+func (s *Store) Read(id string) (State, bool) {
+	if id == "" {
+		return State{}, false
+	}
+
+	return s.load(id)
+}
+
 // load returns the stored state, and false when there is none worth
 // keeping: no file, a truncated one, or one from another schema version.
 func (s *Store) load(id string) (State, bool) {
