@@ -42,6 +42,8 @@ func TestRead_AttributesTheFixture(t *testing.T) {
 		Sweeps:        1,
 		StopBlocks:    1,
 		Skipped:       1,
+
+		TurnsAfterLastEdit: 3,
 	}
 	assert.Equal(t, want, got)
 	assert.Equal(t, 8, got.TotalToolCalls())
@@ -98,6 +100,53 @@ func TestRead_Edges(t *testing.T) {
 			want: transcript.Stats{ToolErrors: map[string]int{"unknown": 1}},
 		},
 		{
+			name: "turns after the last edit are the ones that follow the final edit tool call",
+			input: strings.Join([]string{
+				use("m1", "t1", "Edit", `{"file_path":"a.go"}`),
+				use("m2", "t2", "Read", `{"file_path":"a.go"}`),
+				use("m3", "t3", "Edit", `{"file_path":"a.go"}`),
+				use("m4", "t4", "Bash", `{"command":"go test ./a/"}`),
+				`{"type":"assistant","message":{"id":"m5","content":[{"type":"text","text":"Done."}]}}`,
+			}, "\n"),
+			want: transcript.Stats{
+				ToolCalls: map[string]int{"Edit": 2, "Read": 1, "Bash": 1},
+				Turns:     5, Retrieval: 1, Edit: 2, Shell: 1, Prose: 1, TurnsAfterLastEdit: 2,
+			},
+		},
+		{
+			name: "a shell command that redirects into a file is the last edit",
+			input: strings.Join([]string{
+				use("m1", "t1", "Edit", `{"file_path":"a.go"}`),
+				use("m2", "t2", "Bash", `{"command":"cat > b.go <<EOF\npackage b\nEOF"}`),
+				use("m3", "t3", "Bash", `{"command":"ls"}`),
+			}, "\n"),
+			want: transcript.Stats{
+				ToolCalls: map[string]int{"Edit": 1, "Bash": 2},
+				Turns:     3, Retrieval: 1, Edit: 1, Shell: 1, TurnsAfterLastEdit: 1,
+			},
+		},
+		{
+			name: "a session that ends on its edit has none after it",
+			input: strings.Join([]string{
+				use("m1", "t1", "Read", `{"file_path":"a.go"}`),
+				use("m2", "t2", "Write", `{"file_path":"a.go"}`),
+			}, "\n"),
+			want: transcript.Stats{
+				ToolCalls: map[string]int{"Read": 1, "Write": 1}, Turns: 2, Retrieval: 1, Edit: 1,
+			},
+		},
+		{
+			name: "a session with no edit counts none, however many turns it had",
+			input: strings.Join([]string{
+				use("m1", "t1", "Read", `{"file_path":"a.go"}`),
+				use("m2", "t2", "Bash", `{"command":"go vet ./..."}`),
+			}, "\n"),
+			want: transcript.Stats{
+				ToolCalls: map[string]int{"Read": 1, "Bash": 1}, SweepCommands: map[string]int{"go vet": 1},
+				Turns: 2, Retrieval: 1, Shell: 1, Sweeps: 1,
+			},
+		},
+		{
 			name: "notebook edit resets the repeat read",
 			input: strings.Join([]string{
 				use("m1", "t1", "Read", `{"file_path":"n.ipynb"}`),
@@ -107,7 +156,7 @@ func TestRead_Edges(t *testing.T) {
 			}, "\n"),
 			want: transcript.Stats{
 				ToolCalls: map[string]int{"Read": 3, "NotebookEdit": 1},
-				Turns:     4, Retrieval: 3, Edit: 1, RepeatReads: 1,
+				Turns:     4, Retrieval: 3, Edit: 1, RepeatReads: 1, TurnsAfterLastEdit: 2,
 			},
 		},
 	}
@@ -206,6 +255,7 @@ func TestStats_Render(t *testing.T) {
 		"sweeps        2 (go test 1, pytest 1)",
 		"refactors     1 (rename 1)",
 		"stop blocks   1",
+		"after edits   3 turn(s) after the last file write",
 		"skipped       1 unreadable line(s)",
 		"",
 	}, "\n")
