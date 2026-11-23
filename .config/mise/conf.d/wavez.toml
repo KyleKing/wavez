@@ -50,4 +50,4 @@ run = "gh pr create --head $usage_name --fill"
 [tools]
 # The refactor commands shell out to gopls, and their tests skip without it.
 # 0.24.0 needs Go 1.27, so it waits on the go.mod toolchain.
-"go:golang.org/x/tools/gopls" = "0.23.0"
+"go:golang.org/x/tools/gopls" = "0.24.0"
