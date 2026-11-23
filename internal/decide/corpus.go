@@ -8,9 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
-	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -60,144 +61,225 @@ func ReadCorpus(r io.Reader) ([]Case, error) {
 	}
 }
 
-// BackendCount is how one backend did over a corpus.
-type BackendCount struct {
-	// Backend is BackendRule, BackendCache, BackendFallback, or a model
-	// backend's name.
-	Backend string
-	// Answered is how many cases this backend decided.
+// Tally is how many cases something answered and how many of those matched
+// their label.
+type Tally struct {
 	Answered int
-	// Correct is how many of those matched the label.
-	Correct int
+	Correct  int
 }
 
-// Miss is one case the Decider got wrong.
+// ModelTally is how one model backend did on the cases the rules left.
+type ModelTally struct {
+	Backend string
+	Model   string
+	Tally
+}
+
+// Miss is one case that was decided wrongly.
 type Miss struct {
-	Want    string
-	Got     string
+	Want string
+	Got  string
+	// Backend is who decided it: BackendRule, BackendFallback, or a
+	// model backend's name.
 	Backend string
 	// State is the start of the case's state on one line.
 	State string
 }
 
-// Report is the result of running a corpus through a Decider.
+// Report is the result of running a corpus through an Engine. It keeps
+// the rules apart from what came after them, because the two answer
+// different questions: whether a rule should exist, and whether a model is
+// worth asking about what the rules leave.
 type Report struct {
+	// Reasons counts why cases fell back, by Decision.Reason.
+	Reasons map[string]int
+	// Question and Fallback are the question's name and fallback key.
 	Question string
-	// Backends is in the order a decision is tried: rule, cache, each
-	// model backend by name, then fallback. A backend that answered
-	// nothing is left out.
-	Backends []BackendCount
+	Fallback string
+	// Models has one entry per model backend that answered, by name.
+	Models []ModelTally
 	// Wrong lists the missed cases in corpus order.
 	Wrong []Miss
-	// Total is how many cases were decided, and Correct how many of them
-	// matched their label.
-	Total   int
-	Correct int
+	// Rules is what the rules answered. Its Answered over Total is their
+	// coverage, and its Correct over its Answered is their precision.
+	Rules Tally
+	// FellBack is the cases neither a rule nor a model answered. Its
+	// Correct is how many of them were labeled with the fallback.
+	FellBack Tally
+	// Total is how many cases were decided.
+	Total int
+	// LeftForFallback is how many of the cases the rules left were labeled
+	// with the fallback: what never asking a model would have scored.
+	LeftForFallback int
 	// Skipped is how many cases were left when the context ended.
 	Skipped int
 }
 
-// Accuracy is the share of decided cases that matched their label, from 0
-// to 1. An empty report has an accuracy of 0.
-func (r Report) Accuracy() float64 {
-	return ratio(r.Correct, r.Total)
+// Left is how many cases the rules did not answer.
+func (r Report) Left() int {
+	return r.Total - r.Rules.Answered
 }
 
-// Evaluate decides every case with d and compares the choice with the
-// case's label. It reads what each backend took and how often it was right:
-// a rule that is wrong on the corpus should not fire, a model that does no
-// better than the fallback should not be asked, and a question nothing
-// answers well should stay in code. A case labeled with a key outside q's
-// choices counts as wrong. Evaluate stops early when ctx ends and reports
-// the rest as skipped.
-func Evaluate(ctx context.Context, d Decider, q Question, rules []Rule, cases []Case) Report {
-	report := Report{Question: q.Name}
-	counts := map[string]*BackendCount{}
+// Evaluate decides every case with d, at most parallel at a time, and
+// compares each choice with the case's label. A case labeled with a key
+// outside q's choices counts as wrong. Evaluate stops starting cases when
+// ctx ends and reports the rest as skipped.
+func Evaluate(ctx context.Context, d *Engine, q Question, rules []Rule, cases []Case, parallel int) Report {
+	decisions := make([]*Decision, len(cases))
+
+	var wg sync.WaitGroup
+
+	slots := make(chan struct{}, max(parallel, 1))
 
 	for i, c := range cases {
+		slots <- struct{}{}
+
 		if ctx.Err() != nil {
-			report.Skipped = len(cases) - i
+			<-slots
 
 			break
 		}
 
-		got := d.Decide(ctx, q, c.State, rules...)
+		wg.Go(func() {
+			defer func() { <-slots }()
 
-		count := counts[got.Backend]
-		if count == nil {
-			count = &BackendCount{Backend: got.Backend}
-			counts[got.Backend] = count
-		}
+			got := d.Decide(ctx, q, c.State, rules...)
+			decisions[i] = &got
+		})
+	}
 
-		report.Total++
-		count.Answered++
+	wg.Wait()
 
-		if got.Choice == c.Want {
-			report.Correct++
-			count.Correct++
+	report := Report{Question: q.Name, Fallback: q.Fallback, Reasons: map[string]int{}}
+	models := map[string]*ModelTally{}
+
+	for i, got := range decisions {
+		if got == nil {
+			report.Skipped++
 
 			continue
 		}
 
-		report.Wrong = append(report.Wrong, Miss{
-			Want: c.Want, Got: got.Choice, Backend: got.Backend, State: excerpt(c.State),
-		})
+		report.count(models, *got, cases[i])
 	}
 
-	for _, count := range counts {
-		report.Backends = append(report.Backends, *count)
+	for _, tally := range models {
+		report.Models = append(report.Models, *tally)
 	}
 
-	slices.SortFunc(report.Backends, func(a, b BackendCount) int {
-		if byRank := backendRank(a.Backend) - backendRank(b.Backend); byRank != 0 {
-			return byRank
-		}
-
-		return strings.Compare(a.Backend, b.Backend)
+	slices.SortFunc(report.Models, func(a, b ModelTally) int {
+		return strings.Compare(a.Backend+" "+a.Model, b.Backend+" "+b.Model)
 	})
 
 	return report
 }
 
-// Render prints the report as plain text: a summary line, a row per
-// backend, and a row per wrong case.
+// count adds one decided case to the report.
+func (r *Report) count(models map[string]*ModelTally, got Decision, c Case) {
+	r.Total++
+
+	tally := &r.Rules
+
+	if got.Backend != BackendRule {
+		if c.Want == r.Fallback {
+			r.LeftForFallback++
+		}
+
+		switch got.Backend {
+		case BackendFallback:
+			tally = &r.FellBack
+			r.Reasons[got.Reason]++
+		default:
+			name := got.Backend + " " + got.Model
+			if models[name] == nil {
+				models[name] = &ModelTally{Backend: got.Backend, Model: got.Model}
+			}
+
+			tally = &models[name].Tally
+		}
+	}
+
+	tally.Answered++
+
+	if got.Choice == c.Want {
+		tally.Correct++
+
+		return
+	}
+
+	r.Wrong = append(r.Wrong, Miss{Want: c.Want, Got: got.Choice, Backend: got.Backend, State: excerpt(c.State)})
+}
+
+// Render prints the report as plain text: the rules' coverage and
+// precision first, then what became of the cases they left, then each
+// wrong case under who decided it.
 func (r Report) Render() string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "question: %s\n", r.Question)
-	fmt.Fprintf(&b, "cases: %d  correct: %d  accuracy: %s\n", r.Total, r.Correct, percent(r.Correct, r.Total))
+	fmt.Fprintf(&b, "question: %s\ncases: %d\n", r.Question, r.Total)
 
 	if r.Skipped > 0 {
 		fmt.Fprintf(&b, "skipped: %d (stopped early)\n", r.Skipped)
 	}
 
-	if len(r.Backends) > 0 {
-		rows := make([][]string, 0, 1+len(r.Backends))
-		rows = append(rows, []string{"backend", "answered", "correct", "accuracy"})
+	fmt.Fprintf(&b, "\nrules: answered %d of %d (coverage %s); %d right, %d wrong (precision %s)\n",
+		r.Rules.Answered, r.Total, percent(r.Rules.Answered, r.Total),
+		r.Rules.Correct, r.Rules.Answered-r.Rules.Correct, percent(r.Rules.Correct, r.Rules.Answered))
 
-		for _, c := range r.Backends {
-			rows = append(rows, []string{
-				c.Backend, strconv.Itoa(c.Answered), strconv.Itoa(c.Correct), percent(c.Correct, c.Answered),
-			})
-		}
+	left := r.Left()
+	right := r.Rules.Correct + r.FellBack.Correct
 
-		b.WriteString("\n")
-		writeTable(&b, rows)
+	fmt.Fprintf(&b, "\nthe %d cases the rules left:\n", left)
+
+	for _, m := range r.Models {
+		right += m.Correct
+
+		fmt.Fprintf(&b, "  %s: answered %d; %d right, %d wrong (%s)\n",
+			strings.TrimSpace(m.Backend+" "+m.Model), m.Answered, m.Correct, m.Answered-m.Correct,
+			percent(m.Correct, m.Answered))
 	}
 
-	if len(r.Wrong) > 0 {
-		rows := make([][]string, 0, 1+len(r.Wrong))
-		rows = append(rows, []string{"want", "got", "backend", "state"})
+	fmt.Fprintf(&b, "  fallback: %d got %q; %d right\n", r.FellBack.Answered, r.Fallback, r.FellBack.Correct)
 
-		for _, m := range r.Wrong {
-			rows = append(rows, []string{m.Want, m.Got, m.Backend, m.State})
-		}
-
-		b.WriteString("\nwrong:\n")
-		writeTable(&b, rows)
+	for _, reason := range slices.Sorted(maps.Keys(r.Reasons)) {
+		fmt.Fprintf(&b, "    %d: %s\n", r.Reasons[reason], reason)
 	}
+
+	fmt.Fprintf(&b, "  with no model: %q for all %d would be right %d times (%s)\n",
+		r.Fallback, left, r.LeftForFallback, percent(r.LeftForFallback, left))
+
+	fmt.Fprintf(&b, "\noverall: %d of %d right (%s)\n", right, r.Total, percent(right, r.Total))
+
+	r.renderWrong(&b)
 
 	return b.String()
+}
+
+// renderWrong lists the misses of the rules, then of each model, then the
+// cases that fell back and were labeled otherwise.
+func (r Report) renderWrong(b *strings.Builder) {
+	var order []string
+
+	for _, m := range r.Wrong {
+		if !slices.Contains(order, m.Backend) {
+			order = append(order, m.Backend)
+		}
+	}
+
+	slices.SortStableFunc(order, func(a, b string) int { return backendRank(a) - backendRank(b) })
+
+	for _, backend := range order {
+		rows := [][]string{{"want", "got", "state"}}
+
+		for _, m := range r.Wrong {
+			if m.Backend == backend {
+				rows = append(rows, []string{m.Want, m.Got, m.State})
+			}
+		}
+
+		fmt.Fprintf(b, "\nwrong by %s:\n", backend)
+		writeTable(b, rows)
+	}
 }
 
 // writeTable pads every column but the last to its widest cell.
@@ -228,16 +310,16 @@ const (
 	tablePadding = 2
 	// How much of a state a wrong case shows, and how much is read to
 	// find that much once its whitespace is collapsed.
-	excerptLimit = 80
+	excerptLimit = 100
 	excerptRead  = 2 * excerptLimit
 	// What turns a ratio into a percentage.
 	percentScale = 100
 )
 
-// The order backends report in, which is the order a decision tries them.
+// The order wrong cases are listed in, which is the order a decision is
+// tried.
 const (
 	rankRule = iota
-	rankCache
 	rankModel
 	rankFallback
 )
@@ -246,8 +328,6 @@ func backendRank(backend string) int {
 	switch backend {
 	case BackendRule:
 		return rankRule
-	case BackendCache:
-		return rankCache
 	case BackendFallback:
 		return rankFallback
 	default:
@@ -255,20 +335,12 @@ func backendRank(backend string) int {
 	}
 }
 
-func ratio(part, whole int) float64 {
-	if whole == 0 {
-		return 0
-	}
-
-	return float64(part) / float64(whole)
-}
-
 func percent(part, whole int) string {
 	if whole == 0 {
 		return "-"
 	}
 
-	return fmt.Sprintf("%.1f%%", percentScale*ratio(part, whole))
+	return fmt.Sprintf("%.1f%%", percentScale*float64(part)/float64(whole))
 }
 
 // excerpt is the start of a state with its whitespace collapsed, so one

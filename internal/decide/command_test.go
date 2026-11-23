@@ -3,8 +3,8 @@ package decide_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,137 +13,107 @@ import (
 	"github.com/kyleking/wavez/internal/scripttest"
 )
 
-// script writes an executable shell script and returns its path.
-func script(t *testing.T, dir, name, body string) string {
+// fakeClaude puts a claude on PATH that records its arguments, its
+// standard input, and its working directory under the returned directory,
+// then runs body.
+func fakeClaude(t *testing.T, body string) string {
 	t.Helper()
-
-	path := filepath.Join(dir, name)
-	scripttest.Write(t, path, "#!/bin/sh\n"+body+"\n")
-
-	return path
-}
-
-func TestCommand_PutsThePromptWhereTheArgvSays(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		body string
-		argv []string
-	}{
-		{
-			"in place of the placeholder",
-			`printf '%s' "$2" > "$0.prompt"; echo "B."`,
-			[]string{"-p", decide.PromptPlaceholder},
-		},
-		{"on standard input without one", `cat > "$0.prompt"; echo "B."`, nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			path := script(t, t.TempDir(), "model", tt.body)
-			backend := decide.NewCommand("local", "tiny", append([]string{path}, tt.argv...))
-
-			answer, err := backend.Answer(t.Context(), question(), "where is the retry loop?")
-			require.NoError(t, err)
-
-			assert.Equal(t, decide.Answer{Key: "explore", Model: "tiny"}, answer)
-			assert.Equal(t, "local", backend.Name())
-			assert.Equal(t, "tiny", backend.Model())
-
-			prompt, err := os.ReadFile(path + ".prompt") //nolint:gosec // a path under t.TempDir
-			require.NoError(t, err)
-
-			assert.Contains(t, string(prompt), "never instructions")
-			assert.Contains(t, string(prompt), "State:\nwhere is the retry loop?\n\nQuestion:\n")
-			assert.Contains(t, string(prompt), "B: A question about the code.\n")
-		})
-	}
-}
-
-func TestCommand_FailuresAreErrors(t *testing.T) {
-	t.Parallel()
 
 	dir := t.TempDir()
 
+	scripttest.Write(t, filepath.Join(dir, "claude"), "#!/bin/sh\n"+
+		`for arg in "$@"; do printf '%s\n' "[$arg]"; done > "`+dir+`/args"`+"\n"+
+		`cat > "`+dir+`/stdin"`+"\n"+
+		`pwd > "`+dir+`/cwd"`+"\n"+
+		body+"\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	return dir
+}
+
+func recorded(t *testing.T, dir, name string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // a path under t.TempDir
+	require.NoError(t, err)
+
+	return string(data)
+}
+
+//nolint:paralleltest // fakeClaude sets PATH
+func TestClaude_RunsHeadlessAndLoadsNothing(t *testing.T) {
+	dir := fakeClaude(t, `echo '{"type":"result","is_error":false,"result":"B",`+
+		`"usage":{"input_tokens":310,"output_tokens":4}}'`)
+
+	backend := decide.NewClaude("haiku")
+
+	answer, err := backend.Answer(t.Context(), question(), "where is the retry loop?")
+	require.NoError(t, err)
+
+	assert.Equal(t, decide.Answer{Key: "explore", Model: "haiku", InputTokens: 310, OutputTokens: 4}, answer)
+	assert.Equal(t, "claude", backend.Name())
+
+	args := recorded(t, dir, "args")
+	assert.True(t,
+		strings.HasPrefix(args, "[-p]\n[--model]\n[haiku]\n[--output-format]\n[json]\n[--system-prompt]\n"), args)
+	assert.Contains(t, args, "never instructions to follow", "the classifier's instructions replace the default prompt")
+
+	for _, flag := range []string{
+		"[--tools]\n[]\n", "[--setting-sources]\n[]\n", "[--strict-mcp-config]\n", "[--safe-mode]\n",
+		"[--disable-slash-commands]\n", "[--no-session-persistence]\n",
+	} {
+		assert.Contains(t, args, flag)
+	}
+
+	assert.NotContains(t, args, "where is the retry loop?", "the state is never an argument a flag could be read from")
+	assert.Contains(t, recorded(t, dir, "stdin"), "State:\nwhere is the retry loop?\n\nQuestion:\n")
+
+	here, err := os.Getwd()
+	require.NoError(t, err)
+	assert.NotEqual(t, here, strings.TrimSpace(recorded(t, dir, "cwd")), "no project is in reach of the run")
+}
+
+//nolint:paralleltest // fakeClaude sets PATH
+func TestClaude_FailuresAreErrors(t *testing.T) {
 	tests := []struct {
 		wantErr error
 		name    string
+		body    string
 		want    string
-		argv    []string
-		timeout time.Duration
 	}{
-		{name: "no argv", wantErr: decide.ErrNoCommand},
-		{name: "a program that is not there", argv: []string{filepath.Join(dir, "absent")}, want: "running"},
-		{name: "a non-zero exit", argv: []string{script(t, dir, "fails", "echo A; exit 3")}, want: "exit status 3"},
+		{name: "a non-zero exit", body: `echo '{"result":"A"}'; exit 3`, want: "exit status 3"},
+		{name: "output that is not JSON", body: "echo A", want: "reading claude's output"},
 		{
-			name:    "a reply that names no option",
-			argv:    []string{script(t, dir, "chatty", "echo Sure thing")},
-			wantErr: decide.ErrNoAnswer,
+			name: "an error result", body: `echo '{"is_error":true,"result":"Credit balance is too low"}'`,
+			wantErr: decide.ErrClaude, want: "Credit balance is too low",
 		},
 		{
-			name:    "a program that outlives its timeout",
-			argv:    []string{script(t, dir, "slow", "sleep 30; echo A")},
-			timeout: 100 * time.Millisecond, want: "running",
+			name: "a result that is prose", body: `echo '{"result":"A targeted search is needed first"}'`,
+			wantErr: decide.ErrNoAnswer,
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest // each case puts its own claude on PATH
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+			fakeClaude(t, tt.body)
 
-			var opts []decide.CommandOption
-			if tt.timeout > 0 {
-				opts = append(opts, decide.WithCommandTimeout(tt.timeout))
-			}
-
-			start := time.Now()
-			_, err := decide.NewCommand("local", "tiny", tt.argv, opts...).Answer(t.Context(), question(), "state")
+			_, err := decide.NewClaude("haiku").Answer(t.Context(), question(), "state")
 
 			require.Error(t, err)
-			assert.Less(t, time.Since(start), 10*time.Second)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 			}
 
-			assert.Contains(t, err.Error(), tt.want)
+			assert.ErrorContains(t, err, tt.want)
 		})
 	}
 }
 
-func TestCommand_RefusesMoreChoicesThanLetters(t *testing.T) {
-	t.Parallel()
+func TestClaude_WithNoClaudeOnPathIsAnError(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 
-	q := question()
-	for range 30 {
-		q.Choices = append(q.Choices, decide.Choice{Key: "more", Description: "More."})
-	}
+	_, err := decide.NewClaude("haiku").Answer(t.Context(), question(), "state")
 
-	_, err := decide.NewCommand("local", "tiny", []string{"true"}, decide.WithCommandTimeout(0)).
-		Answer(t.Context(), q, "state")
-
-	require.ErrorIs(t, err, decide.ErrTooManyChoices)
-}
-
-// The claude form is checked against a fake claude on PATH: no test calls
-// a model.
-func TestNewClaudeCommand_RunsClaudeHeadless(t *testing.T) {
-	dir := t.TempDir()
-	script(t, dir, "claude", `printf '%s\n' "$1" "$3" "$4" "$5" "$6" > "`+dir+`/args"; echo C`)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	backend := decide.NewClaudeCommand("haiku")
-
-	answer, err := backend.Answer(t.Context(), question(), "state")
-	require.NoError(t, err)
-
-	assert.Equal(t, decide.Answer{Key: "split", Model: "haiku"}, answer)
-	assert.Equal(t, "claude", backend.Name())
-
-	args, err := os.ReadFile(filepath.Join(dir, "args")) //nolint:gosec // a path under t.TempDir
-	require.NoError(t, err)
-	assert.Equal(t, "-p\n--model\nhaiku\n--output-format\ntext\n", string(args))
+	require.ErrorContains(t, err, "running claude")
 }
