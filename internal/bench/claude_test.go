@@ -44,7 +44,7 @@ func TestClaude_ParsesTheResultObject(t *testing.T) {
 
 	got, err := harness.Run(t.Context(), bench.Request{
 		Dir: dir, Prompt: "Change 'one thing' and nothing else.", Model: "haiku",
-		SessionID: "abc", Env: []string{"BENCH_MARK=marked", "PATH=/usr/bin:/bin"},
+		SessionID: fixtureSession, Env: []string{"BENCH_MARK=marked", "PATH=/usr/bin:/bin"},
 	})
 	require.NoError(t, err)
 
@@ -68,7 +68,7 @@ func TestClaude_ParsesTheResultObject(t *testing.T) {
 		"--allowedTools", "Bash,Read,Edit,Write,MultiEdit,NotebookEdit,Glob,Grep,TodoWrite,Task,Agent,Skill",
 		"--strict-mcp-config",
 		"--setting-sources", "project,local",
-		"--session-id", "abc",
+		"--session-id", fixtureSession,
 		"--model", "haiku",
 	}, args)
 	assert.Equal(t, "marked\n", read(t, bin+".env"))
@@ -94,10 +94,6 @@ func TestClaude_OptionalFlags(t *testing.T) {
 	assert.NotContains(t, args, "--setting-sources")
 	assert.NotContains(t, args, "--model")
 	assert.NotContains(t, args, "--session-id")
-
-	line := harness.Invocation(bench.Request{Prompt: "p", Model: "m"})
-	assert.True(t, strings.HasPrefix(line, "claude -p p --output-format json"), line)
-	assert.True(t, strings.HasSuffix(line, "--model m"), line)
 }
 
 func TestClaude_Outcomes(t *testing.T) {

@@ -183,9 +183,3 @@ func compareDesc(a, b float64) int {
 
 	return 1
 }
-
-// Invocation renders the command line a request becomes, for a reader who
-// wants to run it by hand.
-func (c *Claude) Invocation(req Request) string {
-	return "claude " + strings.Join(c.args(req), " ")
-}

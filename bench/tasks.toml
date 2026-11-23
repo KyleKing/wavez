@@ -16,7 +16,7 @@
 #           a leading ! inverts any of them. A task with no check can never
 #           pass: it records what a run spent and proves nothing about it.
 #
-# These thirteen are the old agent loop's timing set, pinned to the last commit
+# These seventeen are the old agent loop's timing set, pinned to the last commit
 # of that tree.
 
 [[task]]

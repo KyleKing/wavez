@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -108,7 +109,7 @@ func TestVerify(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := bench.Verify(t.Context(), mustChecks(t, tt.check), tt.dir, tt.answer)
+			got := bench.Verify(t.Context(), mustChecks(t, tt.check), tt.dir, tt.answer, time.Minute)
 			require.Len(t, got, 1)
 
 			assert.Equal(t, tt.check, got[0].Check)
@@ -126,7 +127,7 @@ func TestVerify(t *testing.T) {
 func TestVerify_UnknownKindFails(t *testing.T) {
 	t.Parallel()
 
-	got := bench.Verify(t.Context(), []bench.Check{{Kind: "smell", Want: "x"}}, t.TempDir(), "")
+	got := bench.Verify(t.Context(), []bench.Check{{Kind: "smell", Want: "x"}}, t.TempDir(), "", time.Minute)
 	require.Len(t, got, 1)
 	assert.False(t, got[0].Pass)
 	assert.Contains(t, got[0].Detail, "smell")
@@ -139,7 +140,7 @@ func TestVerify_DetailIsOneBoundedLine(t *testing.T) {
 
 	check := "cmd:printf '\\n# heading\\n" + long + "\\nsecond'; exit 1"
 
-	got := bench.Verify(t.Context(), mustChecks(t, check), t.TempDir(), "")
+	got := bench.Verify(t.Context(), mustChecks(t, check), t.TempDir(), "", time.Minute)
 	require.Len(t, got, 1)
 
 	assert.NotContains(t, got[0].Detail, "\n")

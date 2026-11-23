@@ -6,14 +6,20 @@ commit, and a list of checks. A run checks the commit out into a throwaway git
 worktree, hands the prompt to the harness, runs the checks against what it left
 behind, and appends one line to `records.jsonl`.
 
-There are three arms. `baseline` is Claude Code alone. `wavez` is the same
+There are four arms. `baseline` is Claude Code alone. `wavez` is the same
 Claude Code after `wavez init` has written its hooks and its refactor skill into
-the workspace, with the `wavez` binary first on `PATH`. `wavez-route` is the
-`wavez` arm with `route = true` written into the workspace's `.wavez.toml`, so
-each prompt may get a one-sentence hint about how to start on it. Nothing else
-differs: every arm gets the same model, the same allowed tools, no MCP servers,
-and only the workspace's own settings (pass `--user-settings` to load yours as
-well).
+the workspace, with the `wavez` binary first on `PATH`. `wavez-quiet` is the
+`wavez` arm with `WAVEZ_ANNOUNCE=0` in the harness's environment, which every
+hook inherits. `wavez-route` is the `wavez` arm with `route = true` written into
+the workspace's `.wavez.toml`, so each prompt may get a one-sentence hint about
+how to start on it. Nothing else differs: every arm gets the same model, the
+same allowed tools, no MCP servers, and only the workspace's own settings (pass
+`--user-settings` to load yours as well).
+
+An arm is one line of `armSpecs` in `internal/bench/arm.go`: whether it is
+wired, the top-level `.wavez.toml` keys it sets, and the environment it adds.
+A new variant of the wavez arm is one more line there, and each record keeps
+what its arm set as `arm_env` and `arm_config`.
 
 The route hint is answered by rules first and by the decision model only when
 no rule fires. A workspace has no `[decide]` endpoint unless the pinned tree
@@ -23,25 +29,53 @@ prompt no rule answers gets no hint.
 ## Running an A/B
 
     wavez bench list
-    wavez bench run h3 --arm baseline --model sonnet --n 5
-    wavez bench run h3 --arm wavez    --model sonnet --n 5
-    wavez bench run h3 --arm wavez-route --model sonnet --n 5
+    wavez bench run h3 --arm baseline,wavez,wavez-route --model sonnet --n 5
+    wavez bench run --all --arm baseline,wavez --model sonnet
     wavez bench report h3
+    wavez bench report
 
 Run from the repository root, or point `--tasks` and `--records` elsewhere.
-Each run prints one line as it finishes and bills your Claude account. A run
-past `--timeout` (default 15m) is recorded with stop reason `timeout`. `--keep`
+Each run prints one line as it finishes and bills your Claude account. `--keep`
 leaves the workspace behind and prints where. Keep the machine otherwise idle,
 because wall clock measures the laptop as much as the harness.
+
+Name every arm of a comparison in one invocation. Each repetition then runs
+every task named (comma-separated, or `--all`) once under every arm, with the
+arms in a freshly shuffled order for each task. Running one arm's runs and then
+the other's hands the second arm the first one's warm prompt cache and whatever
+else changed on the machine meanwhile. The shuffle's seed is printed and kept
+in each record with the repetition and the run's position in it; `--seed`
+gives an order again.
+
+A run past `--timeout` (default 15m) is recorded with stop reason `timeout`,
+and the harness's whole process group is stopped, with SIGTERM and five seconds
+later SIGKILL, so nothing it started outlives the workspace. A check that runs
+a program gets `--check-timeout` (default 10m); one that takes longer is a
+failed check whose detail says it timed out.
+
+Each record carries `build`, a hash of the wavez binary the run used, and
+`flags`, the bounds and settings of the invocation. The version string cannot
+tell builds apart, since every local build calls itself `dev`. Runs that
+differ in either are never summarized together or compared, so a comparison
+needs its baseline from the same build: the price of never crediting wavez
+with a change to the harness. Records from before these fields were kept show
+`unknown` for both and stand apart from every stamped record.
 
 Another harness joins with `--harness-cmd 'pi -p {prompt}'`. Its stdout is the
 answer and wall clock is its only recorded cost.
 
 ## Reading the report
 
-Each task gets one row per arm, harness, served model, and task definition:
-runs, how many passed, and the median turns, cost, wall clock, and sweeps. A
-run passes when the harness finished without error and every check held.
+Each task gets one table per setup (harness, served model, task definition,
+build, and flags) with one row per arm: runs, how many passed, how many failed
+or timed out, and the median turns, cost, wall clock, and sweeps. A run passes
+when the harness finished without error and every check held.
+
+The medians are over the runs the harness completed. A run that timed out or
+failed stopped wherever it happened to be and usually reports no turns and no
+cost at all, so counting it would make an arm that fails look cheap. Those runs
+are in the `failed` and `timeout` columns and in the pass count, and nowhere
+else.
 
 Sweeps are whole-project build, test, or lint commands the model ran through the
 shell (`go test ./...`, bare `pytest`, `npm test`). The gates exist to make
@@ -55,22 +89,57 @@ PreToolUse hook refused because they renamed a Go symbol with `sed`, `perl`, or
 with no `wavez rename` in the transcript after it means the agent sent the same
 command again, which the hook lets through.
 
-Below the rows comes each wired arm divided by baseline for each median, one
-block per arm. No arm is compared with anything but the baseline. Below 1x
-means the arm used less. Read the words after the number before the number:
+Below the rows comes each other arm divided by the baseline, one block per arm
+and one line per metric: the ratio of the medians, how many runs of each arm
+measured the metric, and `p`. `--against wavez` divides by another arm instead,
+which is how two wired arms are compared. Below 1x means the arm named first
+used less. Read the words after the numbers before the numbers:
 
-- `inside the noise (too few runs)`: an arm has fewer than 5 runs. Run more.
-- `inside the noise (between 0.5x and 2x)`: the old project measured 40 to 70
-  percent run-to-run variance in turns on an unchanged tree, so a difference
-  smaller than a factor of two is not evidence of anything.
-- `outside the noise`: at least 5 runs per arm and at least a factor of two.
+- `no verdict: fewer than 5 measured runs in an arm`: run more. Fewer than
+  five runs an arm cannot reach the threshold however far apart they are.
+- `inside the noise`: the two arms' runs could have come from one pile. The
+  old project measured 40 to 70 percent run-to-run variance in turns on an
+  unchanged tree, so a ratio alone is evidence of nothing.
+- `outside the noise`: at least 5 measured runs per arm and `p` at most 0.05.
   This is the only line that counts as a result.
 
-The report prints `no comparison` instead of ratios when an arm and the baseline
-were served different models, ran under different harnesses, or ran different
-versions of the task, since the difference would then measure that and not
-wavez. The
-served model comes from the harness's own accounting, not from `--model`.
+`p` is from the Mann-Whitney rank-sum test, two-sided: the chance of two arms
+interleaving this unevenly when sorted together if the arm made no difference.
+It is counted exactly up to 20 runs in all and approximated above that. It
+looks at the spread and the number of runs as well as the gap, so a quarter
+fewer turns on tight runs is a result and half as many on scattered ones is
+not. Each metric is tested alone and nothing corrects for looking at four, so
+one `outside the noise` among many lines is weaker than it reads.
+
+The report prints `no comparison` instead of ratios when two arms never shared
+a setup, and names what differed, since the difference would then measure that
+and not wavez. The served model comes from the harness's own accounting, not
+from `--model`.
+
+### Across tasks
+
+Five runs an arm on one task cannot show an effect of a fifth at this
+variance. A report of every task therefore ends with a summary across tasks
+for each pair of arms, which is where an effect of that size can show. Each
+task both arms completed under one setup gives one line: the arm's median
+divided by the other's for turns, cost, and wall clock, and the difference in
+median sweeps. Each task is its own control, so raw numbers are never pooled
+across tasks and a task that costs ten times another weighs the same.
+
+Under the lines come the pass counts of both arms, and for each metric the
+geometric mean of the per-task ratios (the mean difference for sweeps), the
+number of tasks, and `p` from a paired sign-flip permutation test: the share
+of all the ways of swapping the arms within tasks that gives a mean at least
+as far from no difference. It is exact up to 20 tasks and sampled with a fixed
+seed above that. The words are the same, with `outside the noise` needing `p`
+at most 0.05 and at least 6 paired tasks, the fewest that can reach it. When
+the arm that spent less also passed a smaller share of its runs, the line ends
+`but not a win`, because doing less of the work is the cheapest way to spend
+less.
+
+The budget goes further on many tasks at one repetition than on many
+repetitions of one task. Keep the per-task blocks for looking closely at one
+task.
 
 ## The route corpus
 

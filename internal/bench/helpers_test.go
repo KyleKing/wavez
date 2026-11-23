@@ -101,3 +101,10 @@ func mustChecks(t *testing.T, texts ...string) []bench.Check {
 
 	return checks
 }
+
+// fileHasContent reports whether path exists and is not empty.
+func fileHasContent(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && info.Size() > 0
+}

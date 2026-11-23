@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -283,6 +284,11 @@ func TestRunner_RouteArmTurnsTheHintOnAndCountsWhatTheHooksSaid(t *testing.T) {
 			config: "route = false\nmax_rounds = 2\n",
 			want:   "route = true\nmax_rounds = 2\n",
 		},
+		{
+			name:   "a key of the same name inside a table is another key and stays",
+			config: "max_rounds = 2\n\n[decide]\nroute = \"local\"\n",
+			want:   "route = true\nmax_rounds = 2\n\n[decide]\nroute = \"local\"\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -325,6 +331,8 @@ func TestRunner_RouteArmTurnsTheHintOnAndCountsWhatTheHooksSaid(t *testing.T) {
 			assert.Equal(t, tt.want, config)
 			assert.Equal(t, 1, rec.RouteHints)
 			assert.Equal(t, 2, rec.RenameDenials)
+			assert.Equal(t, []string{"route = true"}, rec.ArmConfig)
+			assert.Empty(t, rec.ArmEnv)
 		})
 	}
 }
@@ -351,7 +359,7 @@ func TestRunner_RouteArmThatCannotBeConfiguredIsAnError(t *testing.T) {
 				t.Helper()
 				require.NoError(t, os.Symlink(filepath.Join("missing", "x"), filepath.Join(repo, ".wavez.toml")))
 			},
-			want: "turning the route hint on",
+			want: "writing the arm's settings",
 		},
 	}
 
@@ -498,10 +506,100 @@ func TestRunner_BaselineRefusesAWiredWorkspace(t *testing.T) {
 	}
 }
 
+func TestRunner_ArmsDifferByWhatTheirDefinitionSays(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		arm        bench.Arm
+		wantEnv    []string
+		wantConfig []string
+		wantWired  bool
+	}{
+		{arm: bench.ArmBaseline},
+		{arm: bench.ArmWavez, wantWired: true},
+		{arm: bench.ArmWavezQuiet, wantWired: true, wantEnv: []string{"WAVEZ_ANNOUNCE=0"}},
+		{arm: bench.ArmWavezRoute, wantWired: true, wantConfig: []string{"route = true"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.arm), func(t *testing.T) {
+			t.Parallel()
+
+			task := newTask(t)
+			wavez := script(t, "wavez", "touch \"$0.ran\"\n")
+			harness := editor(bench.Outcome{Answer: "Done"})
+			runner := &bench.Runner{
+				Harness: harness, WavezBin: wavez, TempDir: t.TempDir(), Env: []string{"PATH=/usr/bin:/bin"},
+				Build: "0123456789ab", Flags: "timeout=1m0s",
+			}
+
+			rec, err := runner.Run(t.Context(), &task, tt.arm, "")
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantEnv, rec.ArmEnv)
+			assert.Equal(t, tt.wantConfig, rec.ArmConfig)
+			assert.Equal(t, "0123456789ab", rec.Build)
+			assert.Equal(t, "timeout=1m0s", rec.Flags)
+
+			env := harness.reqs[0].Env
+			assert.Equal(t, !tt.wantWired, slices.Equal(env, []string{"PATH=/usr/bin:/bin"}),
+				"only the baseline gets the environment as it came")
+			assert.Subset(t, env, tt.wantEnv, "the harness, and so every hook it runs, sees the arm's environment")
+			assert.Equal(t, tt.arm == bench.ArmWavezQuiet, slices.Contains(env, "WAVEZ_ANNOUNCE=0"))
+
+			if tt.wantWired {
+				assert.FileExists(t, wavez+".ran")
+			} else {
+				assert.NoFileExists(t, wavez+".ran")
+			}
+		})
+	}
+}
+
+func TestRunner_ACheckThatHangsFailsTheRunAndIsNotWaitedFor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		check string
+	}{
+		{name: "a command that never returns", check: "cmd:sleep 600"},
+		{name: "inverted, it still fails", check: "!cmd:sleep 600"},
+		{name: "a command whose child never returns", check: "cmd:sleep 600 & wait"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			task := newTask(t)
+			task.Checks = mustChecks(t, "answer:Done", tt.check)
+			runner := &bench.Runner{
+				Harness: editor(bench.Outcome{Answer: "Done"}), TempDir: t.TempDir(),
+				CheckTimeout: 200 * time.Millisecond,
+			}
+
+			start := time.Now()
+			rec, err := runner.Run(t.Context(), &task, bench.ArmBaseline, "")
+			require.NoError(t, err)
+			assert.Less(t, time.Since(start), time.Minute)
+
+			assert.Equal(t, bench.StopCompleted, rec.Stop, "the harness finished; it is the check that did not")
+			assert.False(t, rec.Pass)
+			assert.Equal(t, []bench.CheckResult{
+				{Check: "answer:Done", Pass: true},
+				{Check: tt.check, Detail: "timed out after 200ms"},
+			}, rec.Checks)
+		})
+	}
+}
+
 func TestParseArm(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"baseline", "wavez", "wavez-route"} {
+	assert.Equal(t, []bench.Arm{"baseline", "wavez", "wavez-quiet", "wavez-route"}, bench.Arms())
+
+	for _, name := range []string{"baseline", "wavez", "wavez-quiet", "wavez-route"} {
 		arm, err := bench.ParseArm(name)
 		require.NoError(t, err)
 		assert.Equal(t, bench.Arm(name), arm)
@@ -513,6 +611,7 @@ func TestParseArm(t *testing.T) {
 
 	require.ErrorAs(t, err, &unknown)
 	assert.Contains(t, err.Error(), "control")
+	assert.Contains(t, err.Error(), "baseline, wavez, wavez-quiet, wavez-route")
 }
 
 func TestBinaryVersion(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,10 @@ const (
 	defaultTasks   = "bench/tasks.toml"
 	defaultRecords = "bench/records.jsonl"
 	defaultTimeout = 15 * time.Minute
-	harnessClaude  = "claude"
+	// Long enough for a cold `go test` of a pinned tree, and short enough
+	// that a check which hangs does not hold up the whole schedule.
+	defaultCheckTimeout = 10 * time.Minute
+	harnessClaude       = "claude"
 )
 
 // usageError is a command line the bench or stats command cannot act on.
@@ -33,10 +37,15 @@ func (e *usageError) Error() string { return e.msg }
 
 const benchUsage = `usage:
   wavez bench list   [--tasks PATH]
-  wavez bench run    <task-id> --arm baseline|wavez|wavez-route [--model M] [--n N] [--keep]
-                     [--timeout D] [--tasks PATH] [--records PATH]
+  wavez bench run    <task-id[,task-id...]> | --all  --arm ARM[,ARM...]
+                     [--model M] [--n N] [--seed S] [--keep]
+                     [--timeout D] [--check-timeout D] [--tasks PATH] [--records PATH]
                      [--harness-cmd 'prog {prompt}'] [--wavez-bin PATH] [--user-settings]
-  wavez bench report [task-id] [--records PATH]`
+  wavez bench report [task-id] [--against ARM] [--records PATH]
+
+arms: baseline, wavez, wavez-quiet, wavez-route. Several arms are interleaved:
+each of the N repetitions runs every task once under every arm, the arms in a
+freshly shuffled order for each task.`
 
 func runBench(ctx context.Context, args []string, streams stdio) error {
 	if len(args) == 0 {
@@ -105,31 +114,67 @@ func benchList(args []string, streams stdio) error {
 // runOptions is the parsed command line of `bench run`.
 type runOptions struct {
 	task         string
-	arm          string
 	model        string
 	tasks        string
 	records      string
 	harnessCmd   string
 	wavezBin     string
+	arms         armList
+	seed         uint64
 	n            int
 	timeout      time.Duration
+	checkTimeout time.Duration
 	keep         bool
 	userSettings bool
+	all          bool
+}
+
+// armList is the --arm flag: arm names separated by commas, given once or
+// several times.
+type armList []bench.Arm
+
+func (l *armList) String() string {
+	names := make([]string, 0, len(*l))
+	for _, arm := range *l {
+		names = append(names, string(arm))
+	}
+
+	return strings.Join(names, ",")
+}
+
+func (l *armList) Set(value string) error {
+	for name := range strings.SplitSeq(value, ",") {
+		arm, err := bench.ParseArm(strings.TrimSpace(name))
+		if err != nil {
+			return fmt.Errorf("reading --arm: %w", err)
+		}
+
+		if slices.Contains(*l, arm) {
+			return &usageError{msg: fmt.Sprintf("arm %s is named twice", arm)}
+		}
+
+		*l = append(*l, arm)
+	}
+
+	return nil
 }
 
 func parseRun(args []string, streams stdio) (runOptions, error) {
 	var o runOptions
 
 	fs := flag.NewFlagSet("bench run", flag.ContinueOnError)
-	fs.StringVar(&o.arm, "arm", "", "baseline, wavez, or wavez-route (required)")
+	fs.Var(&o.arms, "arm", "arms to run, separated by commas: "+armNames()+" (required)")
 	fs.StringVar(&o.model, "model", "", "model to ask the harness for")
-	fs.IntVar(&o.n, "n", 1, "how many times to run the task")
+	fs.IntVar(&o.n, "n", 1, "how many times to run the task under each arm")
+	fs.Uint64Var(&o.seed, "seed", 0, "seed for the order of the arms within a repetition (default: a new one)")
 	fs.BoolVar(&o.keep, "keep", false, "leave each workspace behind")
+	fs.BoolVar(&o.all, "all", false, "run every task in the tasks file")
 	fs.DurationVar(&o.timeout, "timeout", defaultTimeout, "bound on one harness run")
+	fs.DurationVar(&o.checkTimeout, "check-timeout", defaultCheckTimeout, "bound on one check that runs a program")
 	fs.StringVar(&o.tasks, "tasks", defaultTasks, "tasks file")
 	fs.StringVar(&o.records, "records", defaultRecords, "records file to append to")
 	fs.StringVar(&o.harnessCmd, "harness-cmd", "", "run this argv template instead of Claude Code")
-	fs.StringVar(&o.wavezBin, "wavez-bin", "", "wavez binary the wavez arm wires in (default: this one)")
+	fs.StringVar(&o.wavezBin, "wavez-bin", "", "wavez binary the wired arms use (default: this one)")
 	fs.BoolVar(&o.userSettings, "user-settings", false, "let Claude Code load user-level settings")
 
 	task, err := parseFlags(fs, args, streams)
@@ -140,15 +185,39 @@ func parseRun(args []string, streams stdio) (runOptions, error) {
 	o.task = task
 
 	switch {
-	case o.task == "":
-		return o, &usageError{msg: "bench run needs a task id\n" + benchUsage}
-	case o.arm == "":
-		return o, &usageError{msg: "bench run needs --arm baseline, wavez, or wavez-route"}
+	case o.task == "" && !o.all:
+		return o, &usageError{msg: "bench run needs a task id or --all\n" + benchUsage}
+	case o.task != "" && o.all:
+		return o, &usageError{msg: "bench run takes task ids or --all, not both"}
+	case len(o.arms) == 0:
+		return o, &usageError{msg: "bench run needs --arm with one or more of " + armNames()}
 	case o.n < 1:
 		return o, &usageError{msg: "--n must be at least 1"}
 	}
 
 	return o, nil
+}
+
+func armNames() string {
+	var all armList = bench.Arms()
+
+	return all.String()
+}
+
+// flags renders the settings that change what a run does, so that a report
+// never pools runs made under different ones.
+func (o *runOptions) flags() string {
+	parts := []string{"timeout=" + o.timeout.String(), "check-timeout=" + o.checkTimeout.String()}
+
+	if o.harnessCmd != "" {
+		return strings.Join(append(parts, "harness-cmd="+strconv.Quote(o.harnessCmd)), " ")
+	}
+
+	if o.userSettings {
+		parts = append(parts, "user-settings")
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func benchRun(ctx context.Context, args []string, streams stdio) error {
@@ -157,19 +226,9 @@ func benchRun(ctx context.Context, args []string, streams stdio) error {
 		return err
 	}
 
-	arm, err := bench.ParseArm(opts.arm)
+	tasks, err := chooseTasks(&opts)
 	if err != nil {
-		return fmt.Errorf("reading --arm: %w", err)
-	}
-
-	tasks, err := bench.LoadTasks(opts.tasks)
-	if err != nil {
-		return fmt.Errorf("loading tasks: %w", err)
-	}
-
-	task, err := bench.FindTask(tasks, opts.task)
-	if err != nil {
-		return fmt.Errorf("choosing a task: %w", err)
+		return err
 	}
 
 	runner, err := newRunner(ctx, &opts)
@@ -177,19 +236,95 @@ func benchRun(ctx context.Context, args []string, streams stdio) error {
 		return err
 	}
 
-	for i := 1; i <= opts.n; i++ {
-		rec, err := runner.Run(ctx, &task, arm, opts.model)
+	interleaved := len(opts.arms) > 1
+	if interleaved {
+		if err := announceSeed(&opts, streams); err != nil {
+			return err
+		}
+	}
+
+	// One block is one task in one repetition: every arm once.
+	for block, order := range bench.Schedule(opts.arms, opts.n*len(tasks), opts.seed) {
+		task, rep := &tasks[block%len(tasks)], block/len(tasks)+1
+
+		for slot, arm := range order {
+			rec, err := runner.Run(ctx, task, arm, opts.model)
+			if err != nil {
+				return fmt.Errorf("%s under %s, run %d of %d: %w", task.ID, arm, rep, opts.n, err)
+			}
+
+			if interleaved {
+				rec.Seed, rec.Rep, rec.Slot = opts.seed, rep, slot+1
+			}
+
+			if err := keep(&opts, &rec, rep, streams); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// keep appends a finished run to the records file and prints its line.
+func keep(opts *runOptions, rec *bench.Record, rep int, streams stdio) error {
+	if err := bench.AppendRecord(opts.records, rec); err != nil {
+		return fmt.Errorf("recording %s under %s, run %d: %w", rec.TaskID, rec.Arm, rep, err)
+	}
+
+	if _, err := fmt.Fprintln(streams.out, rec.Summary(rep, opts.n)); err != nil {
+		return fmt.Errorf("writing run line: %w", err)
+	}
+
+	return nil
+}
+
+// chooseTasks loads the tasks file and picks the tasks named, in the order
+// named, or all of them.
+func chooseTasks(opts *runOptions) ([]bench.Task, error) {
+	tasks, err := bench.LoadTasks(opts.tasks)
+	if err != nil {
+		return nil, fmt.Errorf("loading tasks: %w", err)
+	}
+
+	if opts.all {
+		return tasks, nil
+	}
+
+	var chosen []bench.Task
+
+	for id := range strings.SplitSeq(opts.task, ",") {
+		task, err := bench.FindTask(tasks, strings.TrimSpace(id))
 		if err != nil {
-			return fmt.Errorf("run %d of %d: %w", i, opts.n, err)
+			return nil, fmt.Errorf("choosing a task: %w", err)
 		}
 
-		if err := bench.AppendRecord(opts.records, &rec); err != nil {
-			return fmt.Errorf("recording run %d: %w", i, err)
+		if slices.ContainsFunc(chosen, func(t bench.Task) bool { return t.ID == task.ID }) {
+			return nil, &usageError{msg: fmt.Sprintf("task %s is named twice", task.ID)}
 		}
 
-		if _, err := fmt.Fprintln(streams.out, runLine(&rec, i, opts.n)); err != nil {
-			return fmt.Errorf("writing run line: %w", err)
+		chosen = append(chosen, task)
+	}
+
+	return chosen, nil
+}
+
+// announceSeed settles the seed of an interleaved run and prints it, so the
+// order the arms ran in can be had again.
+func announceSeed(opts *runOptions, streams stdio) error {
+	if opts.seed == 0 {
+		seed, err := bench.NewSeed()
+		if err != nil {
+			return fmt.Errorf("interleaving the arms: %w", err)
 		}
+
+		opts.seed = seed
+	}
+
+	_, err := fmt.Fprintf(streams.out, "seed %d: each repetition runs %s in a freshly shuffled order\n",
+		opts.seed, opts.arms.String())
+	if err != nil {
+		return fmt.Errorf("writing the seed: %w", err)
 	}
 
 	return nil
@@ -203,6 +338,8 @@ func newRunner(ctx context.Context, opts *runOptions) (*bench.Runner, error) {
 		Harness:        &bench.Claude{UserSettings: opts.userSettings},
 		Env:            os.Environ(),
 		Timeout:        opts.timeout,
+		CheckTimeout:   opts.checkTimeout,
+		Flags:          opts.flags(),
 		Keep:           opts.keep,
 		TranscriptRoot: transcriptRoot(),
 		WavezVersion:   version,
@@ -238,6 +375,10 @@ func newRunner(ctx context.Context, opts *runOptions) (*bench.Runner, error) {
 
 	runner.WavezBin = abs
 
+	if runner.Build, err = bench.BinaryDigest(abs); err != nil {
+		return nil, fmt.Errorf("identifying the build: %w", err)
+	}
+
 	return runner, nil
 }
 
@@ -256,56 +397,19 @@ func transcriptRoot() string {
 	return filepath.Join(home, ".claude", "projects")
 }
 
-// runLine is the one line printed as a run finishes.
-func runLine(rec *bench.Record, i, n int) string {
-	held := 0
-
-	for _, c := range rec.Checks {
-		if c.Pass {
-			held++
-		}
-	}
-
-	verdict := "FAIL"
-	if rec.Pass {
-		verdict = "pass"
-	}
-
-	sweeps := "-"
-	if rec.Transcript != nil {
-		sweeps = strconv.Itoa(rec.Transcript.Sweeps)
-	}
-
-	line := fmt.Sprintf("%s %s %d/%d %s stop=%s checks=%d/%d turns=%d cost=$%.4f wall=%s sweeps=%s served=%s",
-		rec.TaskID, rec.Arm, i, n, verdict, rec.Stop, held, len(rec.Checks), rec.Turns, rec.CostUSD,
-		(time.Duration(rec.WallMS) * time.Millisecond).Round(time.Second), sweeps, orDash(rec.Served))
-
-	if rec.Workspace != "" {
-		line += " workspace=" + rec.Workspace
-	}
-
-	if rec.Error != "" {
-		line += " error=" + rec.Error
-	}
-
-	return line
-}
-
-func orDash(s string) string {
-	if s == "" {
-		return "-"
-	}
-
-	return s
-}
-
 func benchReport(args []string, streams stdio) error {
 	fs := flag.NewFlagSet("bench report", flag.ContinueOnError)
 	recordsPath := fs.String("records", defaultRecords, "records file")
+	against := fs.String("against", string(bench.ArmBaseline), "arm every other arm is compared with")
 
 	task, err := parseFlags(fs, args, streams)
 	if err != nil {
 		return err
+	}
+
+	base, err := bench.ParseArm(*against)
+	if err != nil {
+		return fmt.Errorf("reading --against: %w", err)
 	}
 
 	recs, err := bench.LoadRecords(*recordsPath)
@@ -313,7 +417,7 @@ func benchReport(args []string, streams stdio) error {
 		return fmt.Errorf("loading records: %w", err)
 	}
 
-	if err := bench.Report(streams.out, recs, task); err != nil {
+	if err := bench.Report(streams.out, recs, bench.ReportOptions{Task: task, Against: base}); err != nil {
 		return fmt.Errorf("reporting: %w", err)
 	}
 
