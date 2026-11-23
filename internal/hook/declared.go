@@ -21,27 +21,44 @@ const (
 	maxTargets      = 3
 )
 
-// declarations finds where the Go module at root declares name and returns
-// each place as the target `wavez rename` takes: file.go:Name for a
-// function, type, constant, or variable, and file.go:Type.Name for a
-// method, a struct field, or an interface method. Paths are relative to
-// root. It returns at most maxTargets, and stops when ctx ends.
-func declarations(ctx context.Context, root, name string) []string {
+// site is one place a Go module declares a name.
+type site struct {
+	// file is the declaring file, relative to the module root.
+	file string
+	// name is how `wavez rename` takes it: Name for a function, type,
+	// constant, or variable, and Type.Name for a method, a struct field, or
+	// an interface method.
+	name string
+}
+
+// target is the site as the argument `wavez rename` takes.
+func (s site) target() string { return s.file + ":" + s.name }
+
+// member reports whether the site is a method or a field, which code
+// reaches through a selector and never by its bare name.
+func (s site) member() bool { return strings.Contains(s.name, ".") }
+
+// dir is the package directory the site is in.
+func (s site) dir() string { return path.Dir(s.file) }
+
+// declarations finds where the Go module at root declares name. It stops
+// after maxTargets sites, and when ctx ends.
+func declarations(ctx context.Context, root, name string) []site {
 	var (
-		targets []string
+		sites   []site
 		scanned int
 		tree    = os.DirFS(root)
 	)
 
-	err := fs.WalkDir(tree, ".", func(path string, entry fs.DirEntry, err error) error {
+	err := fs.WalkDir(tree, ".", func(file string, entry fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			// A directory that cannot be read declares nothing.
 			return fs.SkipDir
-		case ctx.Err() != nil || scanned >= maxScannedFiles || len(targets) >= maxTargets:
+		case ctx.Err() != nil || scanned >= maxScannedFiles || len(sites) >= maxTargets:
 			return fs.SkipAll
 		case entry.IsDir():
-			if path != "." && skippedDir(tree, path, entry.Name()) {
+			if file != "." && skippedDir(tree, file, entry.Name()) {
 				return fs.SkipDir
 			}
 
@@ -52,9 +69,9 @@ func declarations(ctx context.Context, root, name string) []string {
 
 		scanned++
 
-		for _, declared := range declaredIn(tree, path, name) {
-			if len(targets) < maxTargets {
-				targets = append(targets, path+":"+declared)
+		for _, declared := range declaredIn(tree, file, name) {
+			if len(sites) < maxTargets {
+				sites = append(sites, site{file: file, name: declared})
 			}
 		}
 
@@ -64,7 +81,37 @@ func declarations(ctx context.Context, root, name string) []string {
 		return nil
 	}
 
-	return targets
+	return sites
+}
+
+// declaredInDir finds where the package directory dir of the module at
+// root declares name, in the files directly in it.
+func declaredInDir(ctx context.Context, root, dir, name string) []site {
+	tree := os.DirFS(root)
+
+	entries, err := fs.ReadDir(tree, dir)
+	if err != nil {
+		return nil
+	}
+
+	var sites []site
+
+	for _, entry := range entries {
+		if ctx.Err() != nil || len(sites) >= maxTargets {
+			break
+		}
+
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+
+		file := path.Join(dir, entry.Name())
+		for _, declared := range declaredIn(tree, file, name) {
+			sites = append(sites, site{file: file, name: declared})
+		}
+	}
+
+	return sites
 }
 
 // skippedDir reports a directory the go tool does not build as part of the
@@ -84,22 +131,33 @@ func skippedDir(tree fs.FS, dir, name string) bool {
 	return err == nil
 }
 
-// declaredIn returns the names under which one file declares name: the
-// bare name, or Type.name for a member.
-func declaredIn(tree fs.FS, file, name string) []string {
+// parsed reads one Go file that mentions name. It returns nil for a file
+// that does not, that is too large, or that does not parse.
+func parsed(tree fs.FS, file, name string) *ast.File {
 	src, err := fs.ReadFile(tree, file)
 	if err != nil || len(src) > maxSourceBytes || !bytes.Contains(src, []byte(name)) {
 		return nil
 	}
 
-	parsed, err := parser.ParseFile(token.NewFileSet(), file, src, parser.SkipObjectResolution)
+	syntax, err := parser.ParseFile(token.NewFileSet(), file, src, parser.SkipObjectResolution)
 	if err != nil {
+		return nil
+	}
+
+	return syntax
+}
+
+// declaredIn returns the names under which one file declares name: the
+// bare name, or Type.name for a member.
+func declaredIn(tree fs.FS, file, name string) []string {
+	syntax := parsed(tree, file, name)
+	if syntax == nil {
 		return nil
 	}
 
 	var out []string
 
-	for _, decl := range parsed.Decls {
+	for _, decl := range syntax.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			if d.Name.Name != name {
@@ -119,6 +177,42 @@ func declaredIn(tree fs.FS, file, name string) []string {
 	}
 
 	return out
+}
+
+// mentions reports whether one file uses name the way the site is reached:
+// through a selector for a member, as an identifier for anything else. A
+// local variable of the same name counts as a use, since telling them apart
+// takes the type checker.
+func mentions(tree fs.FS, file, name string, member bool) bool {
+	syntax := parsed(tree, file, name)
+	if syntax == nil {
+		return false
+	}
+
+	found := false
+
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.SelectorExpr:
+			found = found || (member && n.Sel.Name == name)
+
+			// The selected name is not a bare use of it.
+			ast.Inspect(n.X, func(inner ast.Node) bool {
+				ident, ok := inner.(*ast.Ident)
+				found = found || (ok && !member && ident.Name == name)
+
+				return !found
+			})
+
+			return false
+		case *ast.Ident:
+			found = found || (!member && n.Name == name)
+		}
+
+		return !found
+	})
+
+	return found
 }
 
 // receiver returns the type a method is declared on, and "" for a function.

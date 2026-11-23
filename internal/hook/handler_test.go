@@ -429,9 +429,9 @@ func TestHandle_Trace(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(trace.String()), "\n")
 	require.Len(t, lines, 2, "an event that could not be read has nothing to trace")
 	assert.JSONEq(t, `{"event":"PostToolUse","session":"`+sessionID+`","root":"`+root+
-		`","tool":"Edit","changed":["a.go"],"outcome":"context"}`, lines[0])
+		`","tool":"Edit","changed":["a.go"],"outcome":"context","agent_bytes":3}`, lines[0])
 	assert.JSONEq(t, `{"event":"Stop","session":"`+sessionID+`","root":"`+root+
-		`","changed":["a.go"],"outcome":"block"}`, lines[1])
+		`","changed":["a.go"],"outcome":"block","agent_bytes":3}`, lines[1])
 }
 
 type stubGate struct {

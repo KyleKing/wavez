@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strings"
 	"syscall"
 )
 
@@ -18,6 +20,39 @@ var (
 	commit  = "none"
 	date    = "unknown"
 )
+
+// The values version, commit, and date hold until a release build sets them.
+const (
+	unsetVersion = "dev"
+	unsetCommit  = "none"
+	unsetDate    = "unknown"
+)
+
+// versionLine is what `wavez --version` prints. A release build is stamped
+// through the linker. A binary from `go install module@version` is not, so
+// what the linker left unset is read from the build information Go embeds:
+// the module version, and the commit and time when it was built in a
+// checkout.
+func versionLine(info *debug.BuildInfo) string {
+	v, c, d := version, commit, date
+
+	if info != nil {
+		if v == unsetVersion && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			v = strings.TrimPrefix(info.Main.Version, "v")
+		}
+
+		for _, setting := range info.Settings {
+			switch {
+			case setting.Key == "vcs.revision" && c == unsetCommit:
+				c = setting.Value
+			case setting.Key == "vcs.time" && d == unsetDate:
+				d = setting.Value
+			}
+		}
+	}
+
+	return fmt.Sprintf("wavez %s (%s, %s)", v, c, d)
+}
 
 // stdio is the process's streams, passed in so a command can be tested
 // without a subprocess.
@@ -63,14 +98,15 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, streams stdio) int {
-	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+	if len(args) == 0 || asksForHelp(args[0]) {
 		usage(streams.out)
 
 		return 0
 	}
 
 	if args[0] == "version" || args[0] == "--version" {
-		sayf(streams.out, "wavez %s (%s, %s)\n", version, commit, date)
+		info, _ := debug.ReadBuildInfo()
+		sayf(streams.out, "%s\n", versionLine(info))
 
 		return 0
 	}
@@ -87,6 +123,12 @@ func run(ctx context.Context, args []string, streams stdio) int {
 	usage(streams.err)
 
 	return usageStatus
+}
+
+// asksForHelp reports whether an argument is one of the ways to ask a
+// command what it does.
+func asksForHelp(arg string) bool {
+	return arg == "help" || arg == "-h" || arg == "--help"
 }
 
 func status(err error, name string, stderr io.Writer) int {

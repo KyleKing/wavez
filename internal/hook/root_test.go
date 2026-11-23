@@ -31,7 +31,7 @@ func TestFindRoot(t *testing.T) {
 	}{
 		{name: "the configured root itself", dir: "configured", want: "configured"},
 		{name: "a nested module does not shadow the config", dir: "configured/tools/cmd", want: "configured"},
-		{name: "without a config the nearest module wins", dir: "plain/nested/pkg", want: "plain/nested"},
+		{name: "a nested module does not shadow the repository", dir: "plain/nested/pkg", want: "plain"},
 		{name: "a repository without modules", dir: "plain/docs", want: "plain"},
 		{name: "a module outside any repository", dir: "module/internal/x", want: "module"},
 		{name: "a directory that does not exist yet", dir: "module/internal/new/deeper", want: "module"},

@@ -11,6 +11,18 @@ import (
 // a file path and a preview.
 const contextCap = 9500
 
+// The outcomes a trace line can carry.
+const (
+	outcomeSilent   = "silent"
+	outcomeContext  = "context"
+	outcomeDeny     = "deny"
+	outcomeBlock    = "block"
+	outcomeReleased = "released"
+	// A notice is text for the person and nothing for the agent.
+	outcomeNotice = "notice"
+	outcomeError  = "error"
+)
+
 // output is what a hook answers with. It is printed as one JSON object on
 // stdout with exit status 0, and Claude Code reads it only when it is the
 // whole of stdout.
@@ -22,14 +34,17 @@ type output struct {
 	Reason   string
 	// SystemMessage is shown to the user and never reaches the model.
 	SystemMessage string
+	// released marks a stop that was let through with the gates still
+	// failing.
+	released bool
 }
 
 // specific carries what one event defines for itself. AdditionalContext is
 // text for the model that is not an error: next to the tool result on
-// PostToolUse, beside the prompt on UserPromptSubmit, and as feedback that
-// continues the turn once on Stop. PermissionDecision "deny" on a
-// PreToolUse event stops the tool call and hands the model
-// PermissionReason in its place.
+// PostToolUse, beside the prompt on UserPromptSubmit, ahead of the first
+// prompt on SessionStart, and as feedback that continues the turn once on
+// Stop. PermissionDecision "deny" on a PreToolUse event stops the tool call
+// and hands the model PermissionReason in its place.
 type specific struct {
 	EventName          string
 	AdditionalContext  string
@@ -67,6 +82,18 @@ func (o output) wire() map[string]any {
 	}
 
 	return fields
+}
+
+// agentText is everything in the output the model reads. Its length is what
+// a hook costs the session, on this turn and on every later one.
+func (o output) agentText() string {
+	text := o.Reason
+
+	if o.Specific != nil {
+		text += o.Specific.AdditionalContext + o.Specific.PermissionReason
+	}
+
+	return text
 }
 
 func contextFor(eventName, text string) output {
@@ -108,14 +135,16 @@ func (o output) empty() bool {
 func (o output) outcome() string {
 	switch {
 	case o.Decision != "":
-		return "block"
-	case o.SystemMessage != "":
-		return "released"
+		return outcomeBlock
+	case o.released:
+		return outcomeReleased
 	case o.Specific != nil && o.Specific.PermissionDecision != "":
 		return outcomeDeny
 	case o.Specific != nil:
 		return outcomeContext
+	case o.SystemMessage != "":
+		return outcomeNotice
 	default:
-		return "silent"
+		return outcomeSilent
 	}
 }

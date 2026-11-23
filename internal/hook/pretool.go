@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,8 +18,12 @@ import (
 // Every shell command waits on this hook.
 const renameBudget = 2 * time.Second
 
-// maxRenames is how many renames of one command are looked up.
-const maxRenames = 3
+// maxRenames is how many renames of one command are looked up, and
+// maxGlobbed how many files one of its globs may name.
+const (
+	maxRenames = 3
+	maxGlobbed = 200
+)
 
 // deniedSuffix names the file beside a session's state that lists the
 // renames already denied in it, one "old new" pair a line.
@@ -26,10 +31,13 @@ const deniedSuffix = ".renames"
 
 const (
 	deniedFileMode = 0o600
-	deniedDirMode  = 0o750
 	renameProgram  = "gopls"
 	moduleFile     = "go.mod"
 )
+
+// reservedNames are the declarations `wavez rename` will not rename, and
+// the names it will not rename anything to.
+var reservedNames = []string{"main", "init", "_"}
 
 // running answers a PreToolUse event for the shell tool. A command that
 // renames a Go identifier by rewriting text is denied once per session and
@@ -37,23 +45,19 @@ const (
 // same command sent again runs: the agent may have a reason, and a rule
 // that is wrong must cost one round and no more.
 //
-// It speaks up only when the suggestion can work: the directory is inside
-// a Go module, gopls is installed, and the module declares the old name.
-// It has no way to fail, because anything it cannot establish lets the
-// command through in silence.
-func (h *Handler) running(ctx context.Context, ev event, rec *record) output {
+// It speaks up only when the suggestion can work: gopls is installed, the
+// files the command rewrites are Go files of this project, and their own
+// packages declare the old name and not yet the new one. It has no way to
+// fail, because anything it cannot establish lets the command through in
+// silence.
+func (h *Handler) running(ctx context.Context, ev Event, rec *record) output {
 	rec.Tool = ev.ToolName
 	if ev.ToolName != ShellTool {
 		return output{}
 	}
 
-	pairs := textRenames(ev.ToolInput.Command)
-	if len(pairs) == 0 {
-		return output{}
-	}
-
-	module, ok := nearest(filepath.Clean(ev.Cwd), moduleFile)
-	if !ok {
+	renames := textRenames(ev.ToolInput.Command)
+	if len(renames) == 0 {
 		return output{}
 	}
 
@@ -65,10 +69,10 @@ func (h *Handler) running(ctx context.Context, ev event, rec *record) output {
 
 	// A pair already denied in this session is let through before the
 	// module is searched, so a repeat costs one small read.
-	list := deniedList{path: deniedPath(rec.Root, ev.SessionID)}
-	pairs = list.unseen(pairs)
+	list := deniedList{store: session.NewStore(rec.Root), path: deniedPath(rec.Root, ev.SessionID)}
+	renames = list.unseen(renames)
 
-	if len(pairs) == 0 {
+	if len(renames) == 0 {
 		rec.Note = "text rename let through: already denied once"
 
 		return output{}
@@ -82,14 +86,14 @@ func (h *Handler) running(ctx context.Context, ev event, rec *record) output {
 		lines []string
 	)
 
-	for _, pair := range pairs[:min(len(pairs), maxRenames)] {
-		targets := declarations(ctx, module, pair.old)
-		if len(targets) == 0 {
+	for _, rename := range renames[:min(len(renames), maxRenames)] {
+		sites := renameSites(ctx, rec.Root, ev.Cwd, rename)
+		if len(sites) == 0 {
 			continue
 		}
 
-		found = append(found, pair)
-		lines = append(lines, suggestion(pair, targets)...)
+		found = append(found, rename.pair)
+		lines = append(lines, suggestion(rename.pair, sites)...)
 	}
 
 	if len(found) == 0 {
@@ -112,17 +116,169 @@ func (h *Handler) running(ctx context.Context, ev event, rec *record) output {
 		"\nThe command you sent will run if you send it again.")
 }
 
+// renameSites returns the declarations a text rename is really renaming, or
+// none when it is not surely a rename `wavez rename` could make instead.
+//
+// With files named, the declaration has to be in the packages those files
+// are in, and one of the files has to declare it or use it. With files fed
+// from a pipeline that filtered on Go source, the whole module is in scope.
+// Either way a new name the package already declares means the command is
+// switching to something that exists, not renaming.
+func renameSites(ctx context.Context, root, cwd string, rename textRename) []site {
+	if slices.Contains(reservedNames, rename.pair.old) || slices.Contains(reservedNames, rename.pair.new) {
+		return nil
+	}
+
+	base := filepath.Join(cwd, filepath.FromSlash(rename.dir))
+	if path.IsAbs(rename.dir) {
+		base = filepath.FromSlash(rename.dir)
+	}
+
+	files := goFilesOf(root, base, rename.files)
+	if len(files) == 0 && !rename.module {
+		return nil
+	}
+
+	start := base
+	if len(files) > 0 {
+		start = filepath.Dir(files[0])
+	}
+
+	module, ok := nearest(start, moduleFile)
+	if !ok {
+		return nil
+	}
+
+	var named []string
+
+	for _, file := range files {
+		if rel, ok := under(module, file); ok {
+			named = append(named, rel)
+		}
+	}
+
+	if len(named) == 0 && !rename.module {
+		return nil
+	}
+
+	sites := candidateSites(ctx, module, named, rename)
+	if introduced(ctx, module, sites, rename.pair.new) {
+		return nil
+	}
+
+	return sites
+}
+
+// candidateSites finds the declarations of the old name that are in scope
+// and that the command's files reach.
+func candidateSites(ctx context.Context, module string, named []string, rename textRename) []site {
+	var sites []site
+
+	switch {
+	case rename.qualifier != "":
+		// `bench.Read` is declared in a package called bench, wherever the
+		// file that says so is.
+		for _, s := range declarations(ctx, module, rename.pair.old) {
+			if path.Base(s.dir()) == rename.qualifier && !s.member() {
+				sites = append(sites, s)
+			}
+		}
+	case len(named) == 0:
+		return declarations(ctx, module, rename.pair.old)
+	default:
+		for _, dir := range dirsOf(named) {
+			sites = append(sites, declaredInDir(ctx, module, dir, rename.pair.old)...)
+		}
+	}
+
+	if len(named) == 0 {
+		return sites
+	}
+
+	tree := os.DirFS(module)
+
+	return slices.DeleteFunc(sites, func(s site) bool {
+		return !slices.Contains(named, s.file) && !slices.ContainsFunc(named, func(file string) bool {
+			return mentions(tree, file, rename.pair.old, s.member() || rename.qualifier != "")
+		})
+	})
+}
+
+// introduced reports whether a package that declares the old name already
+// declares the new one.
+func introduced(ctx context.Context, module string, sites []site, name string) bool {
+	return slices.ContainsFunc(sites, func(s site) bool {
+		return len(declaredInDir(ctx, module, s.dir(), name)) > 0
+	})
+}
+
+// goFilesOf resolves the file arguments of a command run in base to the Go
+// files they name that exist inside the project at root. A glob is expanded
+// the way the shell would.
+func goFilesOf(root, base string, args []string) []string {
+	var files []string
+
+	for _, arg := range args {
+		full := filepath.FromSlash(arg)
+		if !filepath.IsAbs(full) {
+			full = filepath.Join(base, full)
+		}
+
+		matches := []string{full}
+
+		if strings.ContainsAny(arg, globChars) {
+			globbed, err := filepath.Glob(full)
+			if err != nil {
+				continue
+			}
+
+			matches = globbed[:min(len(globbed), maxGlobbed)]
+		}
+
+		for _, match := range matches {
+			if !strings.HasSuffix(match, ".go") || !isRegular(match) {
+				continue
+			}
+
+			if _, inside := relative(root, root, match); inside && !slices.Contains(files, match) {
+				files = append(files, match)
+			}
+		}
+	}
+
+	return files
+}
+
+func isRegular(name string) bool {
+	info, err := os.Stat(name)
+
+	return err == nil && info.Mode().IsRegular()
+}
+
+// dirsOf returns the distinct directories of slash-separated files.
+func dirsOf(files []string) []string {
+	var dirs []string
+
+	for _, file := range files {
+		if dir := path.Dir(file); !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+
+	return dirs
+}
+
 // suggestion is the command lines that rename one pair, one per place the
 // old name is declared.
-func suggestion(pair renamePair, targets []string) []string {
+func suggestion(pair renamePair, sites []site) []string {
 	var lines []string
 
-	if len(targets) > 1 {
+	if len(sites) > 1 {
 		lines = append(lines, "("+pair.old+" is declared more than once; use the line for the one you mean)")
 	}
 
-	for _, target := range targets {
-		lines = append(lines, "  wavez rename "+quote(target)+" "+pair.new)
+	for _, s := range sites[:min(len(sites), maxTargets)] {
+		lines = append(lines, "  wavez rename "+quote(s.target())+" "+pair.new)
 	}
 
 	return lines
@@ -131,7 +287,8 @@ func suggestion(pair renamePair, targets []string) []string {
 // deniedList is the renames already denied in one session: a file of its
 // own beside the session's state, appended to and never rewritten.
 type deniedList struct {
-	path string
+	store *session.Store
+	path  string
 }
 
 // deniedPath is where a session's list is kept, and "" for a session id
@@ -146,9 +303,9 @@ func deniedPath(root, id string) string {
 
 func (pair renamePair) line() string { return pair.old + " " + pair.new }
 
-// unseen returns the pairs the list does not hold. A list that cannot be
+// unseen returns the renames the list does not hold. A list that cannot be
 // read holds everything, which lets every command through.
-func (l deniedList) unseen(pairs []renamePair) []renamePair {
+func (l deniedList) unseen(renames []textRename) []textRename {
 	if l.path == "" {
 		return nil
 	}
@@ -160,11 +317,11 @@ func (l deniedList) unseen(pairs []renamePair) []renamePair {
 
 	seen := strings.Split(string(known), "\n")
 
-	var out []renamePair
+	var out []textRename
 
-	for _, pair := range pairs {
-		if !slices.Contains(seen, pair.line()) {
-			out = append(out, pair)
+	for _, rename := range renames {
+		if !slices.Contains(seen, rename.pair.line()) {
+			out = append(out, rename)
 		}
 	}
 
@@ -173,8 +330,8 @@ func (l deniedList) unseen(pairs []renamePair) []renamePair {
 
 // add appends pairs to the list.
 func (l deniedList) add(pairs []renamePair) error {
-	if err := os.MkdirAll(filepath.Dir(l.path), deniedDirMode); err != nil {
-		return fmt.Errorf("creating session directory: %w", err)
+	if err := l.store.Prepare(); err != nil {
+		return fmt.Errorf("recording denied renames: %w", err)
 	}
 
 	file, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, deniedFileMode)
