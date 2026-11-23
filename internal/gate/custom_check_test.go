@@ -170,7 +170,7 @@ func TestRun_BoundsALongFailure(t *testing.T) {
 	})
 
 	report := runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"})
-	expect(t, report, want{"noisy", gate.StatusFail, "bytes cut"})
+	expect(t, report, want{"noisy", gate.StatusFail, "more lines not shown)"})
 
 	if n := len(report.Results[0].Summary); n > 3100 {
 		t.Errorf("summary is %d bytes", n)

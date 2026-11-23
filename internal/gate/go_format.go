@@ -45,7 +45,13 @@ func skippedDir(segment string) bool {
 // ones whose bytes changed. A file that does not parse is left alone and
 // reported as the failure. It never runs goimports: an agent adds an import
 // in one edit and uses it in the next, and goimports would strip it between.
-func (r *runner) format(ctx context.Context, proj project) []Result {
+//
+// At the edit stage it is a check and says all of that. At the stop stage it
+// is only a fixer, run over the whole change set because a file a shell
+// command wrote never saw the edit stage: it reports the files it rewrote
+// and nothing else, since a file that does not parse is the build's to
+// report there.
+func (r *runner) format(ctx context.Context, proj project, stage Stage) []Result {
 	files := present(proj.root, goFiles(proj.changed))
 	if len(files) == 0 || !proj.cfg.Enabled(config.BuiltinFormat) {
 		return nil
@@ -54,6 +60,10 @@ func (r *runner) format(ctx context.Context, proj project) []Result {
 	res := Result{Check: config.BuiltinFormat, Blocking: true}
 
 	tool, err := r.lookPath("gofmt")
+	if err != nil && stage == StageStop {
+		return nil
+	}
+
 	if err != nil {
 		return []Result{res.abstain("gofmt not on PATH")}
 	}
@@ -66,12 +76,16 @@ func (r *runner) format(ctx context.Context, proj project) []Result {
 	res.Fixed = rewritten(before, hashFiles(proj.root, files))
 
 	switch {
+	case stage == StageStop && len(res.Fixed) == 0:
+		return nil
+	case stage == StageStop:
+		return []Result{res.pass()}
 	case out.reason != "":
 		return []Result{res.abstain(out.reason)}
 	case out.exit == 0:
 		return []Result{res.pass()}
 	case hasLine(out.output, goDiagnostic.MatchString):
-		return []Result{res.fail(out.output)}
+		return []Result{res.fail(proj.root, out.output)}
 	default:
 		return []Result{res.abstain(oneLine(out.output))}
 	}

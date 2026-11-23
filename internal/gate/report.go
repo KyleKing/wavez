@@ -51,6 +51,9 @@ type Result struct {
 	// already had. They are for the person. A result that is still a
 	// failure carries the rest in Summary.
 	Preexisting []string `json:"preexisting,omitempty"`
+	// Flaky names the tests that failed and then passed when run again on
+	// the same tree. They are for the person and do not block.
+	Flaky []string `json:"flaky,omitempty"`
 	// Note is for the person: why a failure could not be compared with the
 	// tree the session started from, and so still blocks.
 	Note string `json:"note,omitempty"`

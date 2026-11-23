@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kyleking/wavez/internal/config"
 )
@@ -17,17 +18,15 @@ import (
 // Option adjusts the Runner New returns.
 type Option func(*runner)
 
-// WithLookPath replaces how the runner finds a tool's binary, which is
-// exec.LookPath by default. A lookup that fails makes every check needing
-// that tool abstain.
-func WithLookPath(lookPath func(name string) (string, error)) Option {
-	return func(r *runner) { r.lookPath = lookPath }
-}
-
-// WithoutCache makes the runner neither read nor write .wavez/cache, as
-// setting WAVEZ_NO_CACHE does.
-func WithoutCache() Option {
-	return func(r *runner) { r.noCache = true }
+// WithBudget sets how long one stop-stage run may take in all, which is
+// DefaultStopBudget otherwise. The time a Go test binary and a Go command
+// get are fixed shares of it. A budget of zero or less is ignored.
+func WithBudget(budget time.Duration) Option {
+	return func(r *runner) {
+		if budget > 0 {
+			r.budget = budget
+		}
+	}
 }
 
 // New returns the Runner that loads the project's configuration from root on
@@ -35,7 +34,7 @@ func WithoutCache() Option {
 //
 //nolint:ireturn // Runner is the frozen surface internal/hook and cmd/wavez consume
 func New(opts ...Option) Runner {
-	r := &runner{lookPath: exec.LookPath, noCache: cacheDisabled()}
+	r := &runner{lookPath: exec.LookPath, noCache: cacheDisabled(), budget: DefaultStopBudget}
 	for _, opt := range opts {
 		opt(r)
 	}
@@ -45,6 +44,7 @@ func New(opts ...Option) Runner {
 
 type runner struct {
 	lookPath func(name string) (string, error)
+	budget   time.Duration
 	noCache  bool
 }
 
@@ -60,27 +60,17 @@ type project struct {
 	cfg     config.Config
 }
 
-// Run loads root's configuration and runs the checks changed selects for
-// stage. Fixers run first and one at a time, since two of them may rewrite
-// the same file; the checks then run side by side and report in a fixed
-// order: the built-ins, then the project's own in file order. A blocking
-// failure at the stop stage is then compared with the baseline the context
-// carries, if it carries one. The error is for a configuration or root that
-// cannot be read, never for a check.
-func (r *runner) Run(ctx context.Context, root string, changed []string, stage Stage) (Report, error) {
-	changed = normalize(changed)
-	if len(changed) == 0 {
-		return Report{}, nil
-	}
-
+// load reads root's configuration into a project. A root without a go.mod
+// has no Go built-ins.
+func load(root string, changed []string) (project, error) {
 	root, err := resolveRoot(root)
 	if err != nil {
-		return Report{}, err
+		return project{}, err
 	}
 
 	cfg, err := config.Load(root)
 	if err != nil {
-		return Report{}, fmt.Errorf("loading configuration: %w", err)
+		return project{}, fmt.Errorf("loading configuration: %w", err)
 	}
 
 	proj := project{root: root, changed: changed, cfg: cfg}
@@ -88,10 +78,38 @@ func (r *runner) Run(ctx context.Context, root string, changed []string, stage S
 		proj.cfg.Disabled = config.Builtins()
 	}
 
-	var results []Result
-	if stage == StageEdit {
-		results = r.format(ctx, proj)
+	return proj, nil
+}
+
+// Run loads root's configuration and runs the checks changed selects for
+// stage. Fixers run first and one at a time, since two of them may rewrite
+// the same file, and the Go formatter is one of them at both stages: a file
+// a shell command wrote never passed through the edit stage. The checks
+// then run side by side and report in a fixed order: the built-ins, then
+// the project's own in file order. A blocking failure at the stop stage is
+// then compared with the baseline the context carries, if it carries one.
+// A stop-stage run ends inside the runner's budget, and what had not
+// answered by then abstains. The error is for a configuration or root that
+// cannot be read, never for a check.
+func (r *runner) Run(ctx context.Context, root string, changed []string, stage Stage) (Report, error) {
+	changed = normalize(changed)
+	if len(changed) == 0 {
+		return Report{}, nil
 	}
+
+	proj, err := load(root, changed)
+	if err != nil {
+		return Report{}, err
+	}
+
+	if stage == StageStop {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, r.budget)
+		defer cancel()
+	}
+
+	results := r.format(ctx, proj, stage)
 
 	checks := selectChecks(proj, stage)
 	for i := range checks {
@@ -120,6 +138,33 @@ func (r *runner) Run(ctx context.Context, root string, changed []string, stage S
 	}
 
 	return Report{Results: results}, nil
+}
+
+// Checks names what a stop in the project at root would run: the Go
+// built-ins that are on, in the order they report, and then the names of
+// the project's own stop-stage checks. Lint counts only where the project configured a
+// linter, since without a configuration it never runs.
+func Checks(root string) ([]string, []string, error) {
+	proj, err := load(root, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var builtins, custom []string
+
+	for _, name := range config.Builtins() {
+		if proj.cfg.Enabled(name) && (name != config.BuiltinLint || lintConfigured(proj.root)) {
+			builtins = append(builtins, name)
+		}
+	}
+
+	for _, check := range proj.cfg.Checks {
+		if Stage(check.Stage) == StageStop {
+			custom = append(custom, check.Name)
+		}
+	}
+
+	return builtins, custom, nil
 }
 
 // resolveRoot returns root absolute with symlinks followed, which is the

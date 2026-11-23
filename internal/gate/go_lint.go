@@ -2,23 +2,45 @@ package gate
 
 import (
 	"context"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/kyleking/wavez/internal/config"
 )
 
 const (
-	lintTool    = "golangci-lint"
-	lintTimeout = 5 * time.Minute
+	lintTool = "golangci-lint"
 	// The typecheckSuffix ends a finding golangci-lint reports when the package
 	// does not compile, which is the build check's to say.
 	typecheckSuffix = "(typecheck)"
 )
+
+// lintCacheEnv names the variable that tells golangci-lint where its cache
+// is.
+const lintCacheEnv = "GOLANGCI_LINT_CACHE"
+
+// lintEnv gives golangci-lint a cache of the project's own, unless the
+// person chose one. Its results cache is keyed by package content and holds
+// absolute paths, so two checkouts with the same bytes (the baseline tree,
+// a benchmark worktree) that share the default cache replay each other's
+// paths, and a finding reported under another checkout's path matches no
+// changed file here and reads as a pass.
+func lintEnv(root string) []string {
+	if os.Getenv(lintCacheEnv) != "" {
+		return nil
+	}
+
+	dir := filepath.Join(root, filepath.FromSlash(cacheDir), lintCacheDir)
+	if !prepareCache(root, dir) {
+		return nil
+	}
+
+	return []string{lintCacheEnv + "=" + dir}
+}
 
 // lintFinding matches a finding's location prefix and captures its path.
 var lintFinding = regexp.MustCompile(`^(\S+?):\d+(?::\d+)?: `)
@@ -45,7 +67,9 @@ func (r *runner) lint(ctx context.Context, proj project, changed []string) []Res
 		args = append(args, pattern(dir))
 	}
 
-	out := run(ctx, invocation{dir: proj.root, name: bin, timeout: lintTimeout, args: args})
+	out := run(ctx, invocation{
+		dir: proj.root, name: bin, timeout: r.commandTimeout(), args: args, env: lintEnv(proj.root),
+	})
 
 	switch findings, all := lintFindings(out.output, files); {
 	case out.reason != "":
@@ -55,7 +79,7 @@ func (r *runner) lint(ctx context.Context, proj project, changed []string) []Res
 	case hasLine(out.output, func(line string) bool { return strings.HasSuffix(line, typecheckSuffix) }):
 		return []Result{res.abstain("the change does not compile")}
 	case len(findings) > 0:
-		return []Result{res.fail(strings.Join(findings, "\n"))}
+		return []Result{res.fail(proj.root, strings.Join(findings, "\n"))}
 	case all > 0:
 		return []Result{res.pass()}
 	default:

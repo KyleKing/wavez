@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -25,9 +25,8 @@ const (
 	dirPerm     = 0o750
 	filePerm    = 0o600
 
-	lockWait  = 5 * time.Second
-	lockPoll  = 15 * time.Millisecond
-	lockStale = 30 * time.Second
+	lockWait = 5 * time.Second
+	lockPoll = 15 * time.Millisecond
 )
 
 // ErrInvalidID reports a session id that cannot name a state file.
@@ -62,8 +61,8 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*State) error) (S
 		return State{}, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(s.Path(id)), dirPerm); err != nil {
-		return State{}, fmt.Errorf("creating session directory: %w", err)
+	if err := s.Prepare(); err != nil {
+		return State{}, err
 	}
 
 	unlock, err := s.lock(ctx, id)
@@ -77,6 +76,27 @@ func (s *Store) Update(ctx context.Context, id string, fn func(*State) error) (S
 	}
 
 	return state, nil
+}
+
+// Prepare creates the directory session state lives in. Whoever creates
+// .wavez also makes it ignore itself, so that a project whose hooks came
+// from a user-level settings file, and so never ran `wavez init`, does not
+// find wavez's state in its git status.
+func (s *Store) Prepare() error {
+	if err := os.MkdirAll(filepath.Join(s.root, Dir, sessionsDir), dirPerm); err != nil {
+		return fmt.Errorf("creating session directory: %w", err)
+	}
+
+	ignore := filepath.Join(s.root, Dir, ".gitignore")
+	if _, err := os.Lstat(ignore); err == nil {
+		return nil
+	}
+
+	if err := os.WriteFile(ignore, []byte("*\n"), filePerm); err != nil {
+		return fmt.Errorf("writing %s: %w", ignore, err)
+	}
+
+	return nil
 }
 
 func (s *Store) apply(ctx context.Context, id string, fn func(*State) error) (State, error) {
@@ -191,39 +211,39 @@ func (s *Store) save(state State) error {
 	return nil
 }
 
-// lock takes the session's lock file and returns the function releasing it.
-// A lock older than lockStale belongs to a hook that was killed, and is
-// taken over.
+// lock takes an exclusive flock on the session's lock file and returns the
+// function releasing it. The kernel holds the lock for the open file, so a
+// hook that is killed releases it by dying, and nobody ever has to decide
+// that a lock is stale. The file itself is never removed: removing it would
+// let a third process lock a new file while a second still holds the old.
 func (s *Store) lock(ctx context.Context, id string) (func() error, error) {
 	path := strings.TrimSuffix(s.Path(id), ".json") + ".lock"
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, filePerm) //nolint:gosec // id is validated
+	if err != nil {
+		return nil, wrapLock(err)
+	}
+
 	deadline := time.Now().Add(lockWait)
 
 	for {
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, filePerm) //nolint:gosec // id is validated
+		err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			return func() error { return os.Remove(path) }, wrapLock(file.Close())
+			// Closing the file is what releases the lock.
+			return func() error { return wrapLock(file.Close()) }, nil
 		}
 
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, wrapLock(err)
-		}
-
-		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > lockStale {
-			// Another hook may have removed it first, which is as good.
-			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return nil, wrapLock(err)
-			}
-
-			continue
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			return nil, errors.Join(wrapLock(err), file.Close())
 		}
 
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("%w: %s", ErrLocked, path)
+			return nil, errors.Join(fmt.Errorf("%w: %s", ErrLocked, path), file.Close())
 		}
 
 		select {
 		case <-ctx.Done():
-			return nil, wrapLock(ctx.Err())
+			return nil, errors.Join(wrapLock(ctx.Err()), file.Close())
 		case <-time.After(lockPoll):
 		}
 	}

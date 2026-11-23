@@ -14,6 +14,13 @@ const (
 	treeTimeout = time.Minute
 	// The envTimeout bounds asking go what it is.
 	envTimeout = 10 * time.Second
+	// The treePrefix names the temporary directory a baseline tree is
+	// checked out under, and staleTree is how old one must be before
+	// another run may remove it.
+	treePrefix = "wavez-baseline-"
+	// The gitWorktree subcommand manages the checkouts of one repository.
+	gitWorktree = "worktree"
+	staleTree   = time.Hour
 )
 
 // Baseline names the tree a session started from, which is what a failure
@@ -105,7 +112,9 @@ func (c *comparison) checkout(ctx context.Context) (string, string) {
 		return "", "the project is not in a git repository"
 	}
 
-	tmp, err := os.MkdirTemp("", "wavez-baseline-*")
+	sweepTrees(ctx, git, c.root)
+
+	tmp, err := os.MkdirTemp("", treePrefix+"*")
 	if err != nil {
 		return "", oneLine(err.Error())
 	}
@@ -120,7 +129,10 @@ func (c *comparison) checkout(ctx context.Context) (string, string) {
 
 	tree := filepath.Join(tmp, "tree")
 
-	args := []string{"worktree", "add", "--detach"}
+	// The repository's own hooks stay out of it: `git worktree add` fires
+	// post-checkout, and a hook that installs dependencies or prints has
+	// no business in a throwaway tree.
+	args := []string{"-c", "core.hooksPath=" + os.DevNull, gitWorktree, "add", "--detach"}
 	if c.base.Tree != "" {
 		args = append(args, "--no-checkout")
 	}
@@ -140,6 +152,32 @@ func (c *comparison) checkout(ctx context.Context) (string, string) {
 	}
 
 	return filepath.Join(tree, filepath.FromSlash(strings.TrimSpace(prefix.output))), ""
+}
+
+// sweepTrees clears what a killed run left behind. A run that is killed
+// outright never reaches close, so its tree stays in the temporary
+// directory and its registration in the repository. A tree older than
+// staleTree belongs to no run that could still be going, since a run ends
+// inside its budget, and `git worktree prune` then drops every registration
+// whose directory is gone.
+func sweepTrees(ctx context.Context, git, root string) {
+	left, err := filepath.Glob(filepath.Join(os.TempDir(), treePrefix+"*"))
+	if err != nil {
+		return
+	}
+
+	for _, dir := range left {
+		info, err := os.Stat(dir)
+		if err != nil || time.Since(info.ModTime()) < staleTree {
+			continue
+		}
+
+		if err := os.RemoveAll(dir); err != nil {
+			continue
+		}
+	}
+
+	run(ctx, invocation{dir: root, name: git, timeout: treeTimeout, args: []string{gitWorktree, "prune"}})
 }
 
 // gitReason is why a git command did not do its work, or "".
@@ -166,7 +204,7 @@ func (c *comparison) close(ctx context.Context) {
 	if git, err := c.r.lookPath("git"); err == nil {
 		run(ctx, invocation{
 			dir: c.root, name: git, timeout: treeTimeout,
-			args: []string{"worktree", "remove", "--force", filepath.Join(c.tmp, "tree")},
+			args: []string{gitWorktree, "remove", "--force", filepath.Join(c.tmp, "tree")},
 		})
 	}
 

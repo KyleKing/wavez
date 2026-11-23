@@ -12,7 +12,7 @@ import (
 // Version is the schema of the state file. A file written under any other
 // version is discarded and the session starts over with a fresh baseline.
 //
-// Baseline.Tree was added without a new version, on purpose: a new version
+// Baseline.Tree and Abstained were added without a new version, on purpose: a new version
 // would throw away every live session's baseline, and with it what that
 // session changed. A file written before the field existed reads as a
 // baseline with no tree, which is exactly what it is, and an older binary
@@ -25,6 +25,12 @@ type State struct {
 	// Passed is the Fingerprint of the change set the gates last passed
 	// on. A stop that finds the same fingerprint has nothing to check.
 	Passed string `json:"passed,omitempty"`
+	// Abstained is the Fingerprint of the change set on which the gates
+	// last could not finish: a check timed out or could not run, and none
+	// failed. It is not a pass, and it is not run again either, because a
+	// check that could not run on these bytes will not run on them a
+	// minute later, and the person has been told.
+	Abstained string `json:"abstained,omitempty"`
 	// Advised identifies the non-blocking text last handed to the agent,
 	// so the same advisory is surfaced once.
 	Advised  string   `json:"advised,omitempty"`
@@ -98,6 +104,13 @@ func (s *State) Fail(fingerprint, changeSet string) int {
 // Pass records that the gates passed on the change set and clears the
 // failure count.
 func (s *State) Pass(changeSet string) {
-	s.Passed = changeSet
+	s.Passed, s.Abstained = changeSet, ""
+	s.Failure = Failure{}
+}
+
+// Abstain records that the gates neither failed nor finished on the change
+// set, and clears the failure count. What last passed stays what it was.
+func (s *State) Abstain(changeSet string) {
+	s.Abstained = changeSet
 	s.Failure = Failure{}
 }

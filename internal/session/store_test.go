@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -353,8 +354,9 @@ func TestStore_Update(t *testing.T) {
 
 		entries, err := os.ReadDir(filepath.Dir(store.Path(sessionID)))
 		require.NoError(t, err)
-		require.Len(t, entries, 1)
+		require.Len(t, entries, 2, "the state and its lock file, and no temporary file")
 		assert.Equal(t, sessionID+".json", entries[0].Name())
+		assert.Equal(t, sessionID+".lock", entries[1].Name())
 	})
 
 	t.Run("an error from the callback writes nothing", func(t *testing.T) {
@@ -425,30 +427,49 @@ func lockPath(store *session.Store) string {
 	return strings.TrimSuffix(store.Path(sessionID), ".json") + ".lock"
 }
 
+// closeQuietly closes a file that may already be closed.
+func closeQuietly(file *os.File) {
+	if err := file.Close(); err != nil {
+		return
+	}
+}
+
 func TestStore_Update_Lock(t *testing.T) {
 	t.Parallel()
 
-	t.Run("a lock left by a killed hook is taken over", func(t *testing.T) {
+	// held takes the session's lock the way another hook process holds it.
+	held := func(t *testing.T, store *session.Store) *os.File {
+		t.Helper()
+
+		require.NoError(t, os.MkdirAll(filepath.Dir(lockPath(store)), 0o750))
+
+		file, err := os.OpenFile(lockPath(store), os.O_CREATE|os.O_RDWR, 0o600)
+		require.NoError(t, err)
+		require.NoError(t, syscall.Flock(int(file.Fd()), syscall.LOCK_EX))
+		t.Cleanup(func() { closeQuietly(file) })
+
+		return file
+	}
+
+	t.Run("a lock file left by a killed hook holds nobody up", func(t *testing.T) {
 		t.Parallel()
 
 		store := session.NewStore(t.TempDir())
 		require.NoError(t, os.MkdirAll(filepath.Dir(lockPath(store)), 0o750))
+		// The file outlives its process; the lock on it does not.
 		require.NoError(t, os.WriteFile(lockPath(store), nil, 0o600))
 
-		old := time.Now().Add(-time.Hour)
-		require.NoError(t, os.Chtimes(lockPath(store), old, old))
-
+		started := time.Now()
 		_, err := store.Update(t.Context(), sessionID, keep)
 		require.NoError(t, err)
-		assert.NoFileExists(t, lockPath(store))
+		assert.Less(t, time.Since(started), time.Second)
 	})
 
 	t.Run("a held lock gives up when the hook is canceled", func(t *testing.T) {
 		t.Parallel()
 
 		store := session.NewStore(t.TempDir())
-		require.NoError(t, os.MkdirAll(filepath.Dir(lockPath(store)), 0o750))
-		require.NoError(t, os.WriteFile(lockPath(store), nil, 0o600))
+		held(t, store)
 
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()
@@ -457,6 +478,40 @@ func TestStore_Update_Lock(t *testing.T) {
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.NoFileExists(t, store.Path(sessionID))
 	})
+
+	t.Run("a held lock is waited for, and taken once it is released", func(t *testing.T) {
+		t.Parallel()
+
+		store := session.NewStore(t.TempDir())
+		file := held(t, store)
+
+		time.AfterFunc(100*time.Millisecond, func() { closeQuietly(file) })
+
+		_, err := store.Update(t.Context(), sessionID, keep)
+		require.NoError(t, err)
+		assert.FileExists(t, store.Path(sessionID))
+	})
+
+	t.Run("releasing one session's lock leaves another holder's alone", func(t *testing.T) {
+		t.Parallel()
+
+		store := session.NewStore(t.TempDir())
+		_, err := store.Update(t.Context(), sessionID, keep)
+		require.NoError(t, err)
+		assert.FileExists(t, lockPath(store), "the lock file is never removed, so no two holders can each have one")
+	})
+}
+
+func TestStore_Update_FirstWriteMakesTheStateDirectoryIgnoreItself(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	_, err := session.NewStore(root).Update(t.Context(), sessionID, keep)
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(filepath.Join(root, ".wavez", ".gitignore")) //nolint:gosec // a file the test wrote
+	require.NoError(t, err)
+	assert.Equal(t, "*\n", string(raw))
 }
 
 func TestFingerprint(t *testing.T) {

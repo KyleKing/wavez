@@ -27,6 +27,12 @@ func (r Result) blocks() bool {
 	return r.Blocking && r.Status == StatusFail
 }
 
+// Abstained reports whether any check could not run. A run in which one did
+// has not established that the change is sound, whatever the others said.
+func (r Report) Abstained() bool {
+	return slices.ContainsFunc(r.Results, func(res Result) bool { return res.Status == StatusAbstained })
+}
+
 // Fingerprint identifies the set of blocking failures, so a caller can tell
 // a repeated failure from a new one. It is empty when nothing blocks, does
 // not depend on the order the checks reported in, and ignores the elapsed
@@ -103,6 +109,11 @@ func (r Report) Notes() string {
 		if len(res.Preexisting) > 0 {
 			lines = append(lines, "ALREADY FAILING before this session, so it does not block: "+
 				res.Check+": "+strings.Join(res.Preexisting, ", "))
+		}
+
+		if len(res.Flaky) > 0 {
+			lines = append(lines, "FLAKY, failed and then passed on the same tree, so it does not block: "+
+				res.Check+": "+strings.Join(res.Flaky, ", "))
 		}
 
 		if res.Note != "" {

@@ -81,22 +81,15 @@ func (r *runner) fix(ctx context.Context, root string, c customCheck) []string {
 
 // command runs the check's command and reads its exit status: zero passes,
 // the shell's own "not found" and "not executable" statuses abstain, and
-// anything else is a failure carrying the reduced output. A command that
-// names {files} and already passed on these exact bytes is not run again.
+// anything else is a failure carrying the reduced output. A pass is never
+// remembered here: the command may read a script, a config, or a lockfile
+// that the files it was handed say nothing about.
 func (r *runner) command(ctx context.Context, root string, c customCheck) Result {
 	res := Result{Check: c.check.Name, Blocking: c.check.Level != config.LevelAdvise, Fixed: c.fixed}
 
 	sh, err := r.lookPath("sh")
 	if err != nil {
 		return res.abstain("sh not on PATH")
-	}
-
-	// The fixer has already run, so the key is for the bytes the command
-	// would see. Only a pass is ever kept: a failure has to be shown again
-	// and an abstention says nothing about the files.
-	passes, key := r.cacheFor(root), passKey(root, c)
-	if key != "" && passes.has(passDir, key) {
-		return res.pass()
 	}
 
 	out := run(ctx, invocation{
@@ -108,17 +101,13 @@ func (r *runner) command(ctx context.Context, root string, c customCheck) Result
 	case out.reason != "":
 		return res.abstain(out.reason)
 	case out.exit == 0:
-		if key != "" {
-			passes.store(passDir, key, nil)
-		}
-
 		return res.pass()
 	case out.exit == exitNotFound, out.exit == exitNotExecutable:
 		return res.abstain(oneLine(out.output))
 	default:
 		res.evidence = &evidence{custom: &c, output: out.output}
 
-		return res.fail(out.output)
+		return res.fail(root, out.output)
 	}
 }
 
@@ -134,11 +123,12 @@ func (r Result) abstain(reason string) Result {
 	return r
 }
 
-// fail records output as the failure, reduced to the lines that name it and
-// bounded so one check cannot spend the reader's whole budget.
-func (r Result) fail(output string) Result {
+// fail records output as the failure, reduced to the lines that name it,
+// with paths relative to root, and bounded so one check cannot spend the
+// reader's whole budget.
+func (r Result) fail(root, output string) Result {
 	r.Status = StatusFail
-	r.Summary = reduce.Bound(strings.TrimSpace(reduce.Output(output).Text), summaryLimit)
+	r.Summary = reduce.Failure(output, root, summaryLimit)
 
 	return r
 }

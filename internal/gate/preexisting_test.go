@@ -234,11 +234,11 @@ func TestRun_TestsThatAlreadyFailedDoNotBlock(t *testing.T) {
 			person: []string{pkgA + " TestTable"},
 		},
 		{
-			name:   "tests of a package that did not compile at the baseline predate the session",
+			name:   "tests of a package that did not compile at the baseline could not be compared and block",
 			base:   map[string]string{"a/a_test.go": srcATestBad},
 			during: map[string]string{"a/a_test.go": srcATestRed}, changed: []string{"a/a_test.go"},
-			check: "test", status: gate.StatusPreexisting, existing: []string{pkgA + " TestA"},
-			person: []string{pkgA + " TestA"},
+			check: "test", status: gate.StatusFail, agent: []string{"--- FAIL: TestA"},
+			person: []string{"NOT COMPARED test", pkgA + " does not compile there"},
 		},
 		{
 			name:   "a baseline with uncommitted changes is compared as it was",
@@ -515,58 +515,24 @@ func runs(t *testing.T, root string) int {
 	return strings.Count(string(data), "\n")
 }
 
-func TestRun_ACustomCheckThatPassedOnTheseBytesIsNotRunAgain(t *testing.T) {
+func TestRun_CustomCheckRunsAgain_AfterAFileItWasNotHandedChanged(t *testing.T) {
 	t.Parallel()
 
-	perFile := counted("! grep -l bad {files}")
-
 	tests := []struct {
-		// between happens after the first run and before the second.
-		between func(t *testing.T, root string)
 		name    string
-		config  string
-		first   string
+		command string
+		// between happens after the first run, which passes.
+		between map[string]string
 		status  gate.Status
-		opts    []gate.Option
 		want    int
 	}{
 		{
-			name: "the same bytes are not checked twice", config: perFile, first: "good\n",
-			want: 1, status: gate.StatusPass,
+			name: "the script the command runs was edited to fail", command: "sh ./check.sh {files}",
+			between: map[string]string{"check.sh": "exit 1\n"}, status: gate.StatusFail, want: 2,
 		},
 		{
-			name: "an edit is checked", config: perFile, first: "good\n", want: 2, status: gate.StatusPass,
-			between: func(t *testing.T, root string) { t.Helper(); writeFile(t, root, "a.txt", "better\n") },
-		},
-		{
-			name: "an edit to the command is checked", config: perFile, first: "good\n",
-			want: 2, status: gate.StatusPass,
-			between: func(t *testing.T, root string) {
-				t.Helper()
-				writeFile(t, root, ".wavez.toml", counted("! grep -l worse {files}"))
-			},
-		},
-		{name: "a failure is never kept", config: perFile, first: "bad\n", want: 2, status: gate.StatusFail},
-		{
-			name: "an abstention is never kept", config: counted(": {files}; exit 127"), first: "good\n",
-			want: 2, status: gate.StatusAbstained,
-		},
-		{
-			name: "a command that is not handed the files reads what it likes and is run", first: "good\n",
-			config: counted("! grep -l bad a.txt"), want: 2, status: gate.StatusPass,
-		},
-		{
-			name: "the opt-out runs it", config: perFile, first: "good\n", want: 2, status: gate.StatusPass,
-			opts: []gate.Option{gate.WithoutCache()},
-		},
-		{
-			name: "a cache that cannot be written costs only the shortcut", config: perFile, first: "good\n",
-			want: 2, status: gate.StatusPass,
-			between: func(t *testing.T, root string) {
-				t.Helper()
-				require.NoError(t, os.RemoveAll(filepath.Join(root, ".wavez")))
-				writeFile(t, root, ".wavez", "a file where the directory would go")
-			},
+			name: "nothing changed and it is still run", command: "sh ./check.sh {files}",
+			status: gate.StatusPass, want: 2,
 		},
 	}
 
@@ -574,38 +540,42 @@ func TestRun_ACustomCheckThatPassedOnTheseBytesIsNotRunAgain(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			root := project(t, map[string]string{".wavez.toml": tt.config, "a.txt": tt.first})
-			if tt.name == "a cache that cannot be written costs only the shortcut" {
-				tt.between(t, root)
+			root := project(t, map[string]string{
+				".wavez.toml": counted(tt.command), "check.sh": "exit 0\n", "a.txt": "good\n",
+			})
+
+			expect(t, runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"}),
+				want{"counted", gate.StatusPass, ""})
+
+			for name, body := range tt.between {
+				writeFile(t, root, name, body)
 			}
 
-			runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"}, tt.opts...)
-
-			if tt.between != nil {
-				tt.between(t, root)
-			}
-
-			report := runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"}, tt.opts...)
+			report := runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"})
 
 			expect(t, report, want{"counted", tt.status, ""})
-			assert.Equal(t, tt.want, runs(t, root))
+			assert.Equal(t, tt.want, runs(t, root),
+				"a pass on the handed files is not a pass on what the command reads")
 		})
 	}
 }
 
 func TestRun_TheCacheIgnoresItselfAndHonorsTheEnvironment(t *testing.T) {
-	root := committed(t, map[string]string{".wavez.toml": counted("true {files}"), "a.txt": "good\n"})
+	root := committed(t, module(map[string]string{"a/a_test.go": srcATestRed}))
+	ctx := began(t, root)
+	writeFile(t, root, "a/extra.go", srcExtra)
 	require.NoError(t, os.RemoveAll(filepath.Join(root, ".wavez")))
 
 	t.Setenv(gate.NoCacheEnv, "1")
-	runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"})
-	runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"})
-	assert.Equal(t, 2, runs(t, root))
+
+	off := result(t, runGate(ctx, t, root, gate.StageStop, []string{"a/extra.go"}), "test")
+	assert.Equal(t, gate.StatusPreexisting, off.Status)
 	assert.NoDirExists(t, filepath.Join(root, ".wavez"))
 
 	t.Setenv(gate.NoCacheEnv, "0")
-	runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"})
-	runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"})
-	assert.Equal(t, 3, runs(t, root))
-	assert.Equal(t, "?? runs.log\n", status(t, root), "a project that never ran init does not see the cache")
+
+	on := result(t, runGate(ctx, t, root, gate.StageStop, []string{"a/extra.go"}), "test")
+	assert.Equal(t, gate.StatusPreexisting, on.Status)
+	assert.DirExists(t, filepath.Join(root, ".wavez", "cache", "baseline"))
+	assert.Equal(t, "?? a/extra.go\n", status(t, root), "a project that never ran init does not see the cache")
 }

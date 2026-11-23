@@ -139,17 +139,17 @@ type scope struct {
 	buildable []string
 }
 
-// affected returns the packages a change to files touches: each file's own
+// affected returns the packages a change in dirs touches: each directory's own
 // package and every module package that imports one, directly or not.
 // Patterns are ./-prefixed directories, because go resolves a bare
 // `internal/x` against the standard library. A directory that is gone still
 // selects whoever imported it. A directory go did not list (a nested module,
 // or one whose every file a build constraint excludes) is left out, since
 // naming it would fail the whole run on something go already declined.
-func (g *importGraph) affected(files []string) scope {
+func (g *importGraph) affected(dirs []string) scope {
 	var queue []string
 
-	for _, dir := range dirsOf(files) {
+	for _, dir := range dirs {
 		importPath, listed := g.pathOf[dir]
 		if !listed {
 			importPath = path.Join(g.module, dir)

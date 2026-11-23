@@ -7,8 +7,9 @@ import (
 )
 
 // goTest keeps the lines a failing `go test` run puts the answer on: the
-// failing test names, whatever they printed, and the per-package verdicts. A
-// passing subtest is reported by the package's own ok line, so `=== RUN` and
+// failing test names, the first lines each printed, a panic's message with
+// its frames inside the project, and the per-package verdicts. A passing
+// subtest is reported by the package's own ok line, so `=== RUN` and
 // `--- PASS` are the bulk of a verbose run and say nothing the summary does
 // not.
 var goTest = reducer{
@@ -31,44 +32,70 @@ var packageVerdict = regexp.MustCompile(`^(ok {2}\t|\? {3}\t)`)
 // failure.
 const minCollapse = 4
 
+// testBodyLines is how many lines of what a test printed are kept after
+// each marker. The first lines of a failing test carry the assertion; the
+// thousandth says what the first did.
+const testBodyLines = 5
+
 // failVerdict matches the per-package line of a package that failed.
 var failVerdict = regexp.MustCompile(`^FAIL\t`)
 
 // isGoTest claims a verbose run by its per-test markers and a plain sweep by
 // the per-package verdicts it prints instead, since a sweep over this module
-// is thirty lines of which the failures are three.
+// is thirty lines of which the failures are three. A run that died in a
+// panic with nothing but its package verdict is still a test run.
 func isGoTest(lines []string) bool {
 	return hasPrefixLine("=== RUN", "--- PASS", "--- FAIL", "--- SKIP")(lines) ||
-		countMatching(lines, packageVerdict.MatchString) >= minCollapse
+		countMatching(lines, packageVerdict.MatchString) >= minCollapse ||
+		(countMatching(lines, failVerdict.MatchString) > 0 && countMatching(lines, isPanic) > 0)
 }
 
-func keepGoTest(lines []string) []string {
+// keepGoTest returns the kept lines and how many lines of test output its
+// caps left out. Every failure marker and every failing package's verdict
+// is kept whatever the caps say.
+func keepGoTest(lines []string) ([]string, int) {
 	out := make([]string, 0, len(lines))
-	passed, quiet := 0, 0
+	passed, quiet, cut, body := 0, 0, 0, 0
 	failing := countMatching(lines, failVerdict.MatchString) > 0
 	collapse := failing || countMatching(lines, packageVerdict.MatchString) >= minCollapse
-	// A failing test's output is the indented block under its --- FAIL, and
-	// go prints that block before the marker, so a kept marker pulls the
-	// indented run above it back in.
-	for i, line := range lines {
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		trimmed := strings.TrimLeft(line, " \t")
 
 		switch {
-		case strings.HasPrefix(trimmed, "--- FAIL"), strings.HasPrefix(trimmed, "=== FAIL"):
-			out = append(out, indentedRunBefore(lines, i, out)...)
+		case isFailMarker(trimmed), failVerdict.MatchString(line):
 			out = append(out, line)
+			body = 0
 		case hasAnyPrefix(trimmed, goTestNoise):
 			if strings.HasPrefix(trimmed, "--- PASS") {
 				passed++
 			}
+
+			body = 0
 		case collapse && packageVerdict.MatchString(line):
 			quiet++
 		case trimmed == "", collapse && line == bareFail:
+		case isPanic(line):
+			end := panicEnd(lines, i)
+			kept := collapsePanic(lines[i:end])
+			out = append(out, kept...)
+			cut += end - i - len(kept)
+			i, body = end-1, 0
+		case body >= testBodyLines:
+			cut++
 		default:
 			out = append(out, line)
+			body++
 		}
 	}
 
+	return counted(out, passed, quiet, failing), cut
+}
+
+// counted closes the kept lines with how many tests and packages passed
+// without being listed.
+func counted(out []string, passed, quiet int, failing bool) []string {
 	if passed > 0 {
 		out = append(out, fmt.Sprintf("(%s passed)", plural(passed, "subtest")))
 	}
@@ -81,34 +108,8 @@ func keepGoTest(lines []string) []string {
 	return out
 }
 
-// indentedRunBefore returns the indented body immediately above i that out
-// does not already end with, which is what the failing test printed. The walk
-// stops at the nearest marker, since a subtest's own verdict line ends the
-// block above it and is not part of it.
-func indentedRunBefore(lines []string, i int, out []string) []string {
-	start := i
-	for start > 0 && isBody(lines[start-1]) {
-		start--
-	}
-
-	body := lines[start:i]
-	for len(body) > 0 && len(out) > 0 && out[len(out)-1] == body[0] {
-		body = body[1:]
-	}
-
-	return body
-}
-
-// isBody reports whether s is output a test printed rather than a marker the
-// runner emitted about one.
-func isBody(s string) bool {
-	trimmed := strings.TrimLeft(s, " \t")
-	if trimmed == "" || len(trimmed) == len(s) {
-		return false
-	}
-
-	return !hasAnyPrefix(trimmed, goTestNoise) && !strings.HasPrefix(trimmed, "--- FAIL") &&
-		!strings.HasPrefix(trimmed, "=== FAIL")
+func isFailMarker(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "--- FAIL") || strings.HasPrefix(trimmed, "=== FAIL")
 }
 
 func hasAnyPrefix(s string, prefixes []string) bool {

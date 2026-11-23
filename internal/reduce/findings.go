@@ -39,7 +39,7 @@ var (
 // nothing it cannot halve.
 var findings = reducer{
 	detect: findingsGroupingPays,
-	keep:   keepFindingKinds,
+	keep:   func(lines []string) ([]string, int) { return keepFindingKinds(lines), 0 },
 }
 
 type findingGroup struct {

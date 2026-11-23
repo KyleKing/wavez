@@ -16,7 +16,7 @@ var diagnostic = regexp.MustCompile(`^\S+\.go:\d+(:\d+)?: `)
 // that were fine are not what the reader came for.
 var goBuild = reducer{
 	detect: hasDiagnostic,
-	keep:   keepDiagnostics,
+	keep:   func(lines []string) ([]string, int) { return keepDiagnostics(lines), 0 },
 }
 
 func hasDiagnostic(lines []string) bool {
