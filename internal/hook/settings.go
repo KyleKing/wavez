@@ -195,9 +195,49 @@ func unmergeSettings(current []byte, command string) ([]byte, error) {
 		return nil, nil
 	}
 
-	// Taking a key out of the middle of a file by hand would have to guess
-	// at its commas and comments, so the file is laid out again.
+	// The key is cut out of the file's own bytes, so the rest keeps its
+	// layout. Where that cannot be done cleanly the file is laid out again.
+	if cut, ok := withoutKey(current, "hooks"); ok {
+		return cut, nil
+	}
+
 	return encodeJSON(parsed.doc, indentOf(current))
+}
+
+// withoutKey removes a top-level member from a JSON object's text: the key,
+// its value, and the one comma that joined it to its neighbors. It reports
+// false when what is left would not be JSON.
+func withoutKey(raw []byte, key string) ([]byte, bool) {
+	start, end, ok := valueSpan(raw, key)
+	if !ok {
+		return nil, false
+	}
+
+	at := bytes.LastIndex(raw[:start], []byte(`"`+key+`"`))
+	if at < 0 {
+		return nil, false
+	}
+
+	before := bytes.TrimRight(raw[:at], " \t\r\n")
+	after := raw[end:]
+
+	switch {
+	case bytes.HasSuffix(before, []byte(",")):
+		// Not the first member: it goes with the comma in front of it. An
+		// object that was written on one line goes back onto one.
+		if before = before[:len(before)-1]; !bytes.Contains(before, []byte("\n")) {
+			after = bytes.TrimLeft(after, " \t\r\n")
+		}
+	case bytes.HasPrefix(bytes.TrimLeft(after, " \t\r\n"), []byte(",")):
+		// The first of several: it goes with the comma behind it, and what
+		// follows keeps the indentation the key had.
+		before = raw[:at]
+		after = bytes.TrimLeft(bytes.TrimLeft(after, " \t\r\n")[1:], " \t\r\n")
+	}
+
+	cut := slicesJoin(before, after)
+
+	return cut, json.Valid(cut)
 }
 
 func groupsOf(hooks *object, event string) ([]any, error) {

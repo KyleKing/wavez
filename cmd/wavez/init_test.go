@@ -245,6 +245,10 @@ func TestInit_RemoveTakesOutWhatInitPutIn(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(after), &got))
 			assert.Equal(t, want, got, "init and then --remove is the file the project started with")
 
+			if !strings.Contains(tt.before, `"hooks"`) {
+				assert.Equal(t, tt.before, after, "a file that had no hooks comes back byte for byte")
+			}
+
 			code, out, _ = invoke(t, "", "init", "--dir", dir, "--bin", "/opt/wavez/wavez", "--remove")
 			require.Equal(t, 0, code)
 			assert.Equal(t, "nothing to remove: no wavez hook or skill is installed here\n", out)

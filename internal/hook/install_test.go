@@ -583,6 +583,11 @@ func TestInstall_RewritingSettingsKeepsTheFilesOwnLayout(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(tt.before), &want))
 			require.NoError(t, json.Unmarshal(left, &got))
 			assert.Equal(t, want, got)
+
+			for _, line := range tt.kept {
+				assert.Contains(t, string(left), strings.TrimSuffix(line, ",")+"",
+					"removal laid out a line that was not wavez's")
+			}
 		})
 	}
 }
