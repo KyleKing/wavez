@@ -1,3 +1,21 @@
+## v2.0.0 (2026-11-23)
+
+### Feat
+
+- **hook**: end each turn with one line for the person, hold it on an unmet goal, and add a status line
+- **report**: add wavez report, a page on how a session went
+- **goal**: check a written goal with code and report how much is done
+- **transcript**: count the turns after a session's last file write
+- **bench**: interleave arms, test differences by rank, and pair tasks across the report
+
+### Fix
+
+- **cli**: say when gate checked nothing, and keep a settings file's layout when init is removed
+- **hook**: find the project once, never record an unchecked stop as passed, and deny a text rename only when it is one
+- **gate**: bound the stop gate, select packages by any changed file, and stop trusting what could not be compared
+- **refactor**: report build-excluded uses, tolerate a broken tree, guard entry points
+- **route**: answer by rule only what code can check, and keep keys and prompts off untrusted endpoints
+
 ## v1.0.0 (2026-11-21)
 
 ### Feat
