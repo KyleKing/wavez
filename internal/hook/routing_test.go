@@ -63,7 +63,7 @@ func TestHandle_UserPromptSubmit(t *testing.T) {
 		wantAsked int
 	}{
 		{
-			name: "a rule answers and the model is not asked", text: "In a.go return early when n is 0.",
+			name: "a rule answers and the model is not asked", text: "Rename Read in a.go to ReadLog.",
 			model: &model{key: route.Explore}, want: route.Direct,
 		},
 		{
@@ -80,7 +80,7 @@ func TestHandle_UserPromptSubmit(t *testing.T) {
 		{name: "no model and no rule", text: "Make startup faster."},
 		{name: "an empty prompt", text: "", model: &model{key: route.Explore}},
 		{
-			name: "the hint is off", text: "In a.go return early when n is 0.",
+			name: "the hint is off", text: "Rename Read in a.go to ReadLog.",
 			model: &model{key: route.Explore}, off: true,
 		},
 	}
@@ -159,7 +159,7 @@ func TestReadTally(t *testing.T) {
 	handler := hook.New(&fakeRunner{}, hook.WithTrace(&trace), hook.WithRoute(decide.New()), hook.WithLookPath(found))
 
 	for _, ev := range []map[string]any{
-		prompt(root, "In go.mod bump the go line."),
+		prompt(root, "Rename Read in internal/bench/stats.go to ReadLog."),
 		prompt(root, "thanks"),
 		shell(root, "tally", `sed -i 's/\bRead\b/ReadLog/g' internal/bench/*.go`),
 		shell(root, "tally", `sed -i 's/\bRead\b/ReadLog/g' internal/bench/*.go`),

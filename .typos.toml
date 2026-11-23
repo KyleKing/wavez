@@ -1,7 +1,7 @@
 [files]
 # Generated from commit subjects by commitizen, so a typo here can only be fixed
 # by rewriting history. Catch it in the commit message instead.
-extend-exclude = ["CHANGELOG.md"]
+extend-exclude = ["CHANGELOG.md", "bench/route_holdout.jsonl"]
 
 # Identifiers and prefixes typos reads as misspellings: golangci-lint linter
 # names, a TUI framework, an English prefix, an Apache project surveyed in
