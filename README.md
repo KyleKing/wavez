@@ -133,6 +133,11 @@ A remote endpoint goes in your own environment as `WAVEZ_DECIDE_ENDPOINT`,
 with `WAVEZ_DECIDE_API_KEY` beside it. A project file cannot name one, since
 a cloned repository would then choose where your key is sent.
 
+With [detest](https://github.com/KyleKing/detest) on PATH and a `.detest`
+directory in the project, `wavez check` runs only the tests that reach the
+change, from detest's trace, and falls back to the changed packages' tests
+whenever detest cannot vouch for its selection.
+
 ## Commands
 
 | Command | What it does |

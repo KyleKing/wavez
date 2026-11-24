@@ -84,7 +84,9 @@ func checkAs(ctx context.Context, name string, args []string, streams stdio) err
 		}
 	}
 
-	report, err := gate.New(handOptions(projectConfig(root))...).Run(ctx, root, changed, gate.Stage(*stage))
+	opts := withSelector(root, handOptions(projectConfig(root)))
+
+	report, err := gate.New(opts...).Run(ctx, root, changed, gate.Stage(*stage))
 	if err != nil {
 		return fmt.Errorf("running checks: %w", err)
 	}
