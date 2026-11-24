@@ -128,6 +128,9 @@ func (r Report) Notes() string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// Rewrote reports whether a fixer of the run changed a file.
+func (r Report) Rewrote() bool { return len(r.fixed()) > 0 }
+
 // fixed returns every rewritten file once, sorted.
 func (r Report) fixed() []string {
 	var out []string

@@ -22,6 +22,8 @@ var (
 	// The pathToken pattern matches a word with a slash in it, which a
 	// prompt uses for a directory or a file.
 	pathToken = regexp.MustCompile(`[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+`)
+	// The fileToken pattern matches a bare file name, by its extension.
+	fileToken = regexp.MustCompile(`[A-Za-z0-9_\-]+\.(?:go|py|ts|tsx|js|jsx|rs|rb|java|kt|c|h|cc|cpp)\b`)
 	// The quoted pattern matches text between a pair of quotes or backticks.
 	quoted = regexp.MustCompile("'([^'\n]+)'|\"([^\"\n]+)\"|`([^`\n]+)`")
 	// The declaring pattern is what `git grep -E` is asked for: a line that
@@ -71,6 +73,23 @@ func described(ctx context.Context, git, root, prompt string, have []Site) []Sit
 	}
 
 	return sites[:min(len(sites), maxNames)]
+}
+
+// namedPaths returns the paths a prompt spells out, each as written and
+// cleaned. Only a word with a slash in it, or one that ends as a file name
+// does, is a path: a directory called cmd is also a word of prose, and the
+// directory of a file at the top of the repository is ".", which every
+// sentence holds.
+func namedPaths(prompt string) []string {
+	var out []string
+
+	for _, token := range append(pathToken.FindAllString(prompt, -1), fileToken.FindAllString(prompt, -1)...) {
+		if cleaned := strings.Trim(token, "./"); cleaned != "" && !slices.Contains(out, cleaned) {
+			out = append(out, cleaned)
+		}
+	}
+
+	return out
 }
 
 // namedDirs returns the directories the prompt names that exist under root:

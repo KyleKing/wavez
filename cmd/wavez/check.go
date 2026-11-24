@@ -104,6 +104,13 @@ func checkWith(ctx context.Context, name string, args []string, streams stdio, k
 
 	noteMissing(streams, name, flags.Args())
 
+	// What the session's files were when the run began, to tell afterwards
+	// whether the run saw what is there now.
+	began := ""
+	if source == sessionSource {
+		began, _ = session.Fingerprint(root, changed) //nolint:errcheck // "" is never what a tree fingerprints to
+	}
+
 	report, err := gate.New(checkOptions(root, kind)...).Run(ctx, root, changed, gate.Stage(*stage))
 	if err != nil {
 		return fmt.Errorf("running checks: %w", err)
@@ -116,7 +123,7 @@ func checkWith(ctx context.Context, name string, args []string, streams stdio, k
 	// Only the whole run speaks for the change set: one made ahead ran no
 	// fixer, and a quick one no lint.
 	if source == sessionSource && gate.Stage(*stage) == gate.StageStop && kind == "" {
-		remembered(ctx, root, name, report, streams)
+		remembered(ctx, root, name, began, report, streams)
 	}
 
 	switch {
@@ -217,8 +224,8 @@ func checkOptions(root, kind string) []gate.Option {
 
 // remembered records the report in the session and says so on stderr when it
 // could not. The report is printed and stands either way.
-func remembered(ctx context.Context, root, name string, report gate.Report, streams stdio) {
-	if err := remember(ctx, root, report); err != nil {
+func remembered(ctx context.Context, root, name, began string, report gate.Report, streams stdio) {
+	if err := remember(ctx, root, began, report); err != nil {
 		sayf(streams.err, "wavez %s: the result was not recorded in the session: %v\n", name, err)
 	}
 }
@@ -227,7 +234,7 @@ func remembered(ctx context.Context, root, name string, report gate.Report, stre
 // changed, as a stop that ran them would: the end-of-turn line and the
 // status line then say so, and a commit held for an unchecked change is let
 // through. A failure is left for the stop to count.
-func remember(ctx context.Context, root string, report gate.Report) error {
+func remember(ctx context.Context, root, began string, report gate.Report) error {
 	resolved, err := filepath.Abs(root)
 	if err != nil || report.Failed() {
 		return nil //nolint:nilerr // sessionScope read the session under this root, so it resolves
@@ -250,6 +257,13 @@ func remember(ctx context.Context, root string, report gate.Report) error {
 	set, err := session.Fingerprint(resolved, changed)
 	if err != nil {
 		return fmt.Errorf("fingerprinting what the session changed: %w", err)
+	}
+
+	// A file written while the checks ran was not checked. Only a fixer of
+	// this run may have changed the tree under it, and then the checks ran
+	// on what it left.
+	if set != began && !report.Rewrote() {
+		return nil
 	}
 
 	_, err = store.Update(ctx, id, func(state *session.State) error {

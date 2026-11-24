@@ -2,45 +2,90 @@ package hook
 
 import (
 	"context"
+	"path"
 	"slices"
+	"strings"
 
 	"github.com/kyleking/wavez/internal/session"
 )
 
 // recorders are the subcommands that put the working tree into history or
-// send history elsewhere, by the program that has them. `jj git push` is the
-// one that takes two words.
+// send history elsewhere, by the program that has them. `jj git push` and
+// `gh pr create`, which pushes the branch it opens a pull request for, are
+// the ones that take two words.
 var recorders = map[string][][]string{
 	"git": {{"commit"}, {"push"}},
 	"jj":  {{"commit"}, {"git", "push"}},
+	"gh":  {{"pr", "create"}},
 }
+
+// wrappers are the programs that run the command given after them, and
+// valued the options of git and jj that take a value of their own before
+// the subcommand.
+var (
+	wrappers = []string{"env", "exec", "nohup", "timeout"}
+	valued   = []string{
+		"-C", "-c", "-R", "--repository", "--git-dir", "--work-tree", "--config", "--config-file", "--at-op",
+		"--at-operation", "--color",
+	}
+	// The rehearsals are the options with which a command records nothing.
+	rehearsals = []string{"--dry-run", "--help", "-h"}
+)
 
 // recordsHistory reports whether a shell command commits or pushes. A command that
 // cannot be read all the way does not: holding one that is something else
 // costs the agent a turn.
 func recordsHistory(command string) bool {
+	return recordsAt(command, 0)
+}
+
+func recordsAt(command string, depth int) bool {
 	segments, ok := shellSegments(command)
 	if !ok {
 		return false
 	}
 
 	return slices.ContainsFunc(segments, func(words []string) bool {
-		inv, ok := invocationOf(words)
+		inv, ok := invocationOf(unwrapped(words))
 		if !ok {
 			return false
 		}
 
-		return slices.ContainsFunc(recorders[inv.prog], func(sub []string) bool {
-			return startsWith(subcommand(inv.args), sub)
-		})
+		if script, ok := inv.shellScript(); ok && depth < maxShellDepth {
+			return recordsAt(script, depth+1)
+		}
+
+		args := subcommand(inv.args)
+
+		return !slices.ContainsFunc(args, func(arg string) bool { return slices.Contains(rehearsals, arg) }) &&
+			slices.ContainsFunc(recorders[inv.prog], func(sub []string) bool { return startsWith(args, sub) })
 	})
+}
+
+// unwrapped drops the programs that only run what follows them, with their
+// own options, assignments, and the duration timeout takes.
+func unwrapped(words []string) []string {
+	for len(words) > 1 && slices.Contains(wrappers, path.Base(words[0])) {
+		timed := path.Base(words[0]) == "timeout"
+		words = words[1:]
+
+		for len(words) > 1 && (strings.HasPrefix(words[0], "-") || isAssignment(words[0])) {
+			words = words[1:]
+		}
+
+		if timed && len(words) > 1 {
+			words = words[1:]
+		}
+	}
+
+	return words
 }
 
 // subcommand drops the options a program takes before its subcommand, such as
 // git's `-C dir` and `-c key=value` and jj's `-R dir`.
 func subcommand(args []string) []string {
 	for len(args) > 0 && len(args[0]) > 1 && args[0][0] == '-' {
-		takesValue := slices.Contains([]string{"-C", "-c", "-R", "--repository", "--git-dir", "--work-tree"}, args[0])
+		takesValue := slices.Contains(valued, args[0])
 		args = args[1:]
 
 		if takesValue && len(args) > 0 {

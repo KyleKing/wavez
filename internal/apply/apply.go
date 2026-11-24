@@ -7,7 +7,9 @@ package apply
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -80,6 +82,8 @@ const (
 var (
 	errNoFile  = errors.New("opens an edit before any " + filePrefix + "path line")
 	errOutside = errors.New("is outside an edit")
+	errMarker  = errors.New("is a second " + splitMark + " line in one edit: text that holds a line " +
+		"like that cannot be edited this way")
 )
 
 // parser reads edits one line at a time.
@@ -102,6 +106,12 @@ func (p *parser) take(line string) error {
 			p.old = append(p.old, line)
 		}
 	case inNew:
+		// A second split line means a line of the file is itself a marker,
+		// and where the lines to replace end can no longer be told.
+		if mark == splitMark {
+			return errMarker
+		}
+
 		if mark == closeMark {
 			p.edits = append(p.edits, Edit{File: p.file, Old: join(p.old), New: join(p.repl)})
 			p.part = outside
@@ -143,52 +153,136 @@ func join(lines []string) string {
 // Apply makes the edits under root and returns the files it wrote, sorted.
 // Edits to one file apply in order, each to what the ones before it left.
 // When any edit fails nothing is written, and the error says which and why.
+// A file is reached only inside root: a path that leaves it, by its own
+// spelling or through a symbolic link on the way, is an edit that fails.
 func Apply(root string, edits []Edit) ([]string, error) {
-	contents := map[string]string{}
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", root, err)
+	}
+
+	defer dir.Close() //nolint:errcheck // nothing was written through a handle left open
+
+	var (
+		contents = map[string]string{}
+		before   = map[string]*string{}
+		infos    = map[string]os.FileInfo{}
+	)
 
 	for i, edit := range edits {
-		if !filepath.IsLocal(filepath.FromSlash(edit.File)) {
+		// One file spelled two ways is one file, or the second edit would
+		// start from what is on disk and undo the first.
+		file := path.Clean(edit.File)
+		if !filepath.IsLocal(filepath.FromSlash(file)) {
 			return nil, fmt.Errorf("%w: edit %d names %q, which is not a path under the project",
 				ErrEdits, i+1, edit.File)
 		}
 
-		body, known := contents[edit.File]
-		if !known {
-			raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(edit.File))) //nolint:gosec // checked local
-			if err != nil && (!errors.Is(err, os.ErrNotExist) || edit.Old != "") {
+		if _, known := contents[file]; !known {
+			body, info, err := original(dir, file, edit.Old == "")
+			if err == nil {
+				err = distinct(infos, file, info)
+			}
+
+			if err != nil {
 				return nil, fmt.Errorf("%w: edit %d: %w", ErrEdits, i+1, err)
 			}
 
-			body = string(raw)
+			contents[file], before[file] = "", body
+			if body != nil {
+				contents[file] = *body
+			}
 		}
 
-		next, err := replaced(body, edit)
+		next, err := replaced(contents[file], edit)
 		if err != nil {
-			return nil, fmt.Errorf("%w: edit %d, in %s: %w", ErrEdits, i+1, edit.File, err)
+			return nil, fmt.Errorf("%w: edit %d, in %s: %w", ErrEdits, i+1, file, err)
 		}
 
-		contents[edit.File] = next
+		contents[file] = next
 	}
 
-	files := make([]string, 0, len(contents))
-	for file := range contents {
-		files = append(files, file)
+	return written(dir, contents, before)
+}
+
+// errSameFile is two paths of one set of edits that name one file.
+var errSameFile = errors.New("names a file an earlier edit names by another path")
+
+// original reads a file as it is before the edits. A file that is not there
+// is nil, and an error unless the edit may create it.
+func original(dir *os.Root, file string, mayCreate bool) (*string, os.FileInfo, error) {
+	raw, err := dir.ReadFile(filepath.FromSlash(file))
+	if errors.Is(err, os.ErrNotExist) && mayCreate {
+		return nil, nil, nil
 	}
 
-	slices.Sort(files)
+	if err != nil {
+		return nil, nil, err //nolint:wrapcheck // the error names the file and what went wrong
+	}
 
-	for _, file := range files {
-		full := filepath.Join(root, filepath.FromSlash(file))
-		if err := os.MkdirAll(filepath.Dir(full), dirPerm); err != nil {
-			return nil, fmt.Errorf("creating the directory of %s: %w", file, err)
+	info, err := dir.Stat(filepath.FromSlash(file))
+	if err != nil {
+		return nil, nil, err //nolint:wrapcheck // as above
+	}
+
+	body := string(raw)
+
+	return &body, info, nil
+}
+
+// distinct refuses a file that an earlier edit reached by another path, as
+// two spellings do where the file system folds case, and remembers this one.
+func distinct(infos map[string]os.FileInfo, file string, info os.FileInfo) error {
+	if info == nil {
+		return nil
+	}
+
+	for other, seen := range infos {
+		if os.SameFile(seen, info) {
+			return fmt.Errorf("%q %w, %q", file, errSameFile, other)
+		}
+	}
+
+	infos[file] = info
+
+	return nil
+}
+
+// written writes the new contents, and when a write fails puts back what
+// the earlier ones replaced, so that the edits are all made or none is.
+func written(dir *os.Root, contents map[string]string, before map[string]*string) ([]string, error) {
+	files := slices.Sorted(maps.Keys(contents))
+
+	for at, file := range files {
+		err := dir.MkdirAll(filepath.FromSlash(path.Dir(file)), dirPerm)
+		if err == nil {
+			err = dir.WriteFile(filepath.FromSlash(file), []byte(contents[file]), filePerm)
 		}
 
-		if err := os.WriteFile(full, []byte(contents[file]), filePerm); err != nil {
-			return nil, fmt.Errorf("writing %s: %w", file, err)
+		if err == nil {
+			continue
 		}
+
+		for _, done := range files[:at] {
+			restore(dir, done, before[done])
+		}
+
+		return nil, fmt.Errorf("%w: writing %s: %w", ErrEdits, file, err)
 	}
 
 	return files, nil
+}
+
+// restore puts a file back as it was, or removes one the edits created. It
+// runs after a write already failed, and what it cannot undo stays written.
+func restore(dir *os.Root, file string, body *string) {
+	if body == nil {
+		_ = dir.Remove(filepath.FromSlash(file)) //nolint:errcheck // see above
+
+		return
+	}
+
+	_ = dir.WriteFile(filepath.FromSlash(file), []byte(*body), filePerm) //nolint:errcheck // see above
 }
 
 var (
@@ -196,7 +290,10 @@ var (
 	errAmbiguous = errors.New("the lines to replace are in the file more than once; include a line more of context")
 )
 
-// replaced is body with the edit made.
+// replaced is body with the edit made. The lines to replace have to be
+// whole lines of the file: text that only occurs inside a longer line, as an
+// edit written without its indentation does, is not a match, since replacing
+// it would leave the start of that line in front of the replacement.
 func replaced(body string, edit Edit) (string, error) {
 	if edit.Old == "" {
 		if body != "" && !strings.HasSuffix(body, "\n") {
@@ -208,18 +305,48 @@ func replaced(body string, edit Edit) (string, error) {
 
 	old := edit.Old
 
-	switch strings.Count(body, old) {
-	case 1:
-	case 0:
+	at := lineStarts(body, old)
+	if len(at) == 0 {
 		// A file whose last line has no newline still holds that line.
-		if old = strings.TrimSuffix(old, "\n"); !strings.HasSuffix(body, old) || strings.Count(body, old) != 1 {
-			return "", fmt.Errorf("%w%s", errNoMatch, nearest(body, edit.Old))
+		old = strings.TrimSuffix(old, "\n")
+		if strings.HasSuffix(body, old) {
+			at = lineStarts(body[len(body)-len(old):], old)
+			for i := range at {
+				at[i] += len(body) - len(old)
+			}
+
+			if start := len(body) - len(old); start > 0 && body[start-1] != '\n' {
+				at = nil
+			}
 		}
+	}
+
+	switch len(at) {
+	case 1:
+		return body[:at[0]] + edit.New + body[at[0]+len(old):], nil
+	case 0:
+		return "", fmt.Errorf("%w%s", errNoMatch, nearest(body, edit.Old))
 	default:
 		return "", errAmbiguous
 	}
+}
 
-	return strings.Replace(body, old, edit.New, 1), nil
+// lineStarts returns where old occurs in body at the start of a line.
+func lineStarts(body, old string) []int {
+	var at []int
+
+	for from := 0; ; {
+		i := strings.Index(body[from:], old)
+		if i < 0 {
+			return at
+		}
+
+		if start := from + i; start == 0 || body[start-1] == '\n' {
+			at = append(at, start)
+		}
+
+		from += i + 1
+	}
 }
 
 // nearest says where the first line of old does appear, which is usually

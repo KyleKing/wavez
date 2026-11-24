@@ -320,3 +320,41 @@ func TestRunCheck_RemembersAPassInTheSession(t *testing.T) {
 		})
 	}
 }
+
+// A file written while the checks ran was not checked, so the run is not
+// remembered as a pass on it. A check that writes stands in for the edit.
+func TestRunCheck_DoesNotRememberAPassOnWhatChangedMeanwhile(t *testing.T) {
+	root := gateProject(t, gateClean)
+	store := session.NewStore(root)
+
+	files := map[string]string{
+		"extra.txt":   "one\n",
+		".wavez.toml": "[[check]]\nname = \"writes\"\nglobs = [\"*.txt\"]\ncommand = \"echo more >> extra.txt\"\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := store.Update(t.Context(), "s1", func(state *session.State) error {
+		state.Record("one.go")
+		state.Record("extra.txt")
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("recording the session: %v", err)
+	}
+
+	t.Setenv(hook.SessionEnv, "s1")
+
+	out, errOut, code := checkRun(t.Context(), "--root", root)
+	if code != 0 {
+		t.Fatalf("status %d, stdout %q, stderr %q", code, out, errOut)
+	}
+
+	if state, _ := store.Read("s1"); state.Passed != "" {
+		t.Errorf("a pass was remembered for a tree that changed under the run: %q", state.Passed)
+	}
+}
