@@ -1,11 +1,11 @@
 ---
 name: wavez-refactor
-description: Renaming a Go function, method, or type, moving declarations to another file of the package, or deleting declarations with their tests. Run `wavez rename|move|delete` (one call that updates every reference and compiles the result) before reaching for Edit or sed.
+description: Renaming, moving, or deleting Go declarations, extracting lines into a function, removing or reordering a function's parameters, or inlining a call. Run `wavez rename|move|delete|extract|params|inline` (one call that updates every reference and compiles the result) before reaching for Edit or sed.
 ---
 
 # wavez refactor
 
-Three commands that take Go names instead of text. Run them through the Bash
+Six commands that take Go names or line ranges instead of text. Run them through the Bash
 tool as `wavez ...`, never by editing each occurrence yourself. Paths are
 relative to the working directory or the module root (`--root DIR` overrides
 it). Each command changes everything or nothing, compiles the touched
@@ -48,6 +48,12 @@ wavez delete internal/edit/apply.go:ApplyToFile internal/edit/apply_test.go:Test
 
 Deletes declarations across any number of files and fixes imports. Deleting a
 type deletes its methods. A file left with nothing in it is removed.
+
+## extract, params, inline
+
+- `wavez extract internal/x/run.go:40-58 parseFlags` moves the whole statements on those lines into a new function (a method if they use the receiver) and prints its signature.
+- `wavez params internal/x/run.go:Run ctx,opts` keeps those parameters in that order at the declaration and every call; leave one out to remove it. Adding one is not supported.
+- `wavez inline internal/x/run.go:72 helper` replaces the calls to `helper` on that line (or `FROM-TO`) with its body.
 
 ## Refusals
 

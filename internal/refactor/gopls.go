@@ -104,6 +104,14 @@ func (t toolchain) rename(ctx context.Context, at, to string) ([]string, error) 
 	return files, nil
 }
 
+// codeAction has gopls run the first code action of a kind that it offers
+// at a position or range, writing the files.
+func (t toolchain) codeAction(ctx context.Context, op, kind, at string) error {
+	_, err := t.runGopls(ctx, op, "codeaction", "-kind="+kind, "-exec", "-w", at)
+
+	return err
+}
+
 // implementations lists the methods inside the module that implement the
 // interface method at an offset, each at its name.
 func (t toolchain) implementations(ctx context.Context, rel string, offset int) ([]location, error) {
