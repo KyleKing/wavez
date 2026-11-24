@@ -46,7 +46,16 @@ func reapGroup(pid int, grace time.Duration) {
 			// leaves nothing further to try.
 			_ = signalGroup(pid, syscall.SIGKILL) //nolint:errcheck // see above
 
-			return
+			break
 		}
+	}
+
+	// A kill is delivered, not finished, when the call returns: a process
+	// inside a system call completes it first, and a rename it was making
+	// still lands. The caller is about to read and remove the workspace, so
+	// it waits here until the group is empty, for as long as a kill that
+	// works can take.
+	for deadline := time.Now().Add(killSettle); groupAlive(pid) && time.Now().Before(deadline); {
+		time.Sleep(groupPoll)
 	}
 }
