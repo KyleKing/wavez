@@ -35,8 +35,9 @@ const (
 var (
 	// The identifier pattern matches a word that reads as code: it has an inner capital
 	// (parseID, ParseActionID), an underscore (timedelta_to_expr), or a
-	// qualifier's dot before it. A plain capitalized word is prose.
-	identifier = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9]*(?:[a-z0-9][A-Z]|_[a-z0-9])[A-Za-z0-9_]*\b`)
+	// run of capitals before a word (TTLCache). A plain capitalized word
+	// is prose.
+	identifier = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9]*(?:[a-z0-9][A-Z]|_[a-z0-9]|[A-Z]{2}[a-z])[A-Za-z0-9_]*\b`)
 	// The declares pattern matches a line that introduces a name, with the name
 	// captured, in Go, Python, TypeScript, and JavaScript.
 	declares = regexp.MustCompile(`^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?` +
@@ -88,9 +89,10 @@ func Find(ctx context.Context, root, prompt string) []Site {
 	for _, name := range Names(prompt) {
 		found := declared(ctx, git, root, name)
 
-		// A file the prompt names settles which declaration is meant.
+		// A file or a directory the prompt names settles which declaration
+		// is meant.
 		if named := slices.DeleteFunc(slices.Clone(found), func(s Site) bool {
-			return !strings.Contains(prompt, s.File)
+			return !strings.Contains(prompt, s.File) && !strings.Contains(prompt, path.Dir(s.File))
 		}); len(named) > 0 {
 			found = named
 		}
@@ -103,6 +105,14 @@ func Find(ctx context.Context, root, prompt string) []Site {
 			site.Tests = tests(ctx, git, root, site)
 			sites = append(sites, site)
 		}
+	}
+
+	for _, site := range described(ctx, git, root, prompt, sites) {
+		if len(site.Tests) == 0 {
+			site.Tests = tests(ctx, git, root, site)
+		}
+
+		sites = append(sites, site)
 	}
 
 	return sites

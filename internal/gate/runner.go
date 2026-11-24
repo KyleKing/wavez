@@ -34,6 +34,14 @@ func Without(checks ...string) Option {
 	return func(r *runner) { r.skip = append(r.skip, checks...) }
 }
 
+// WithNearTests keeps the test check to the packages the change is in. The
+// tests of their importers, or the ones a selector picks elsewhere, are
+// left to a run that is not being waited on, since each of those packages
+// is a test binary to compile and link.
+func WithNearTests() Option {
+	return func(r *runner) { r.near = true }
+}
+
 // WithoutFixers makes a run rewrite nothing: no formatter and no check's fix
 // command. It is for a run nobody is waiting on, which must not change a
 // file under an agent that is about to edit it.
@@ -63,6 +71,8 @@ type runner struct {
 	noCache bool
 	// readOnly keeps the fixers from running.
 	readOnly bool
+	// near keeps the test check to the changed packages.
+	near bool
 }
 
 func (r *runner) cacheFor(root string) cache {
