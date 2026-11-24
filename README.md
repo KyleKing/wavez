@@ -120,7 +120,8 @@ found turns and cost inside the noise (1.08x and 1.05x of Claude Code alone)
 and wall clock 1.5x, because the stop gate runs checks the baseline skips.
 The pass rate did not move. [DESIGN.md](DESIGN.md#what-has-been-measured)
 has the table. So the stop checks are off unless
-a project turns them on. What wavez gives by default is for you and not for
+a project turns them on, and a second run on nine Hatchet tasks with them
+off found no difference from Claude Code alone in either direction. What wavez gives by default is for you and not for
 the bill: a goal code checks, a line saying what needs you, and a flag on a
 skipped test.
 

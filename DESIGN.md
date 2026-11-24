@@ -321,10 +321,17 @@ against the baseline, with `p` from the paired permutation test.
   ones a build and test of the changed packages do not catch
 
 These rows are the stop checks on, which was the default when the run was
-made and is the `wavez-gates` arm now. One repetition on tasks from one repository is thin, and the tasks are small
-enough that the baseline finishes in three to ten turns, which leaves a gate
-little to save. That is the case for the Hatchet tasks in
-`bench/tasks_hatchet.toml`, not a reason to discount the result.
+made and is the `wavez-gates` arm now.
+
+With the stop checks off and the targeted-checks sentence in their place, a
+second paired run on the nine Hatchet tasks (Go, Python, TypeScript, same
+model and day, 18 sessions) found no difference in either direction: both
+arms passed 9 of 9, wall clock 1.01x (p 0.94), cost 1.07x (p 0.28), turns
+1.22x (p 0.19). The wall-clock penalty is gone, and nothing is gained yet.
+
+One repetition is thin, and these tasks are small enough that the baseline
+finishes in three to seventeen turns and rarely runs a whole-project
+command, which leaves little to save.
 
 Earlier single runs, also in the records, proved the plumbing: the hooks
 fire end to end, a pre-existing failure stopped blocking once the baseline
@@ -339,8 +346,8 @@ for itself.
 
 ## What is not here yet
 
-- **A result on a project wavez did not write, and on longer tasks.** The
-  one paired run is on small tasks from this repository
+- **A result on longer tasks, and more than one repetition.** Both paired
+  runs are one repetition on small tasks
 - **Checks narrow enough to be worth their wait.** The stop checks select
   by package. A check selected by the tests a change can affect, or left to
   CI and read back from it, has not been tried
@@ -353,7 +360,9 @@ for itself.
   so a second writer for its settings file is the likely next adapter
 - The main task set is seventeen tasks on this repository at its last
   first-design commit. Nine tasks on Hatchet, a project wavez did not write,
-  are in `bench/tasks_hatchet.toml` and have never been run live
+  are in `bench/tasks_hatchet.toml`. Neither set has a task long enough for
+  a whole-project type check or test run to dominate, which is the case the
+  targeted-checks sentence is for
 - Cross-package `move` is not built, and neither is adding a parameter:
   gopls cannot add one, and a hand-written rewriter of every call site is
   the cost this design avoids. `extract`, `params`, and `inline` have no
