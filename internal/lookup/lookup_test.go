@@ -43,12 +43,7 @@ func TestNames(t *testing.T) {
 func repo(t *testing.T) string {
 	t.Helper()
 
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("NOT TESTED: git is not on PATH")
-	}
-
-	root := t.TempDir()
-	files := map[string]string{
+	return committed(t, map[string]string{
 		"pkg/types/action.go":      "package types\n\n// ParseActionID parses.\nfunc ParseActionID() {}\n",
 		"pkg/types/action_test.go": "package types\n\nfunc TestParse(t *testing.T) { ParseActionID() }\n",
 		"pkg/other/far_test.go":    "package other\n\nfunc TestFar(t *testing.T) { types.ParseActionID(\"a\") }\n",
@@ -65,7 +60,18 @@ func repo(t *testing.T) string {
 			"func headerName() string { return \"x\" }\n\nfunc parseRetryAfter(h string) error {\n" +
 			"\tif h == \"\" {\n\t\treturn errors.New(\"unsupported retry header value\")\n\t}\n\n\treturn nil\n}\n",
 		"pkg/cache/ttl.go": "package cache\n\ntype TTLCache struct{}\n",
+	})
+}
+
+// committed is a new repository with files committed.
+func committed(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("NOT TESTED: git is not on PATH")
 	}
+
+	root := t.TempDir()
 
 	for name, body := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))
@@ -124,7 +130,9 @@ func TestFind(t *testing.T) {
 		{name: "a capitalized constant is taken for prose", prompt: "the TypeScriptLabel SDK"},
 		{
 			name: "a lower-case constant is a name", prompt: "raise maxRetries to five",
-			want: "wavez looked these up, so you need not search for them:\nmaxRetries is declared at web/labels.ts:2",
+			want: "wavez looked these up, so you need not search for them:\n" +
+				"maxRetries is declared at web/labels.ts:2; " +
+				"no test names it, the tests beside it: web/duration.test.ts",
 		},
 		{name: "a name declared nowhere", prompt: "add NarrowPtr beside it"},
 		{name: "no identifier", prompt: "the password rule counts bytes"},
@@ -150,6 +158,7 @@ func TestBrief(t *testing.T) {
 		"ParseActionID is declared at pkg/types/action.go:4",
 		"--- pkg/types/action.go lines 3-4\n3\t// ParseActionID parses.\n4\tfunc ParseActionID() {}\n",
 		"--- pkg/types/action_test.go lines 3-3\n3\tfunc TestParse(t *testing.T) { ParseActionID() }\n",
+		"You have the source, so skip reading",
 		"wavez apply <<'WAVEZ'",
 	} {
 		assert.Contains(t, got, want)
@@ -220,4 +229,26 @@ func TestFind_FromADirectoryAndAPhrase(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestBrief_ShowsWhatAFunctionReadsAndSaysWhenTestsAreMissing(t *testing.T) {
+	t.Parallel()
+
+	root := committed(t, map[string]string{
+		"scrub/rules.go": "package scrub\n\nconst masked = \"[x]\"\n\nvar (\n\tother = 1\n" +
+			"\t// tokenRules are tried in order.\n\ttokenRules = []string{\"a\"}\n)\n\ntype unused struct{}\n",
+		"scrub/scrub.go": "package scrub\n\nfunc scrubTokens(s string) string {\n" +
+			"\tfor range tokenRules {\n\t\ts = masked + s.other\n\t}\n\n\treturn s\n}\n",
+		"scrub/table_test.go": "package scrub\n\nfunc TestTable(t *testing.T) { scrub(\"a\") }\n",
+	})
+
+	got := lookup.Brief(root, lookup.Find(t.Context(), root, "scrubTokens lets a GitLab token through"))
+
+	assert.Contains(t, got, "no test names it, the tests beside it: scrub/table_test.go")
+	assert.Contains(t, got, "--- scrub/rules.go lines 3-3\n3\tconst masked")
+	assert.Contains(t, got, "--- scrub/rules.go lines 7-8\n7\t\t// tokenRules are tried in order.")
+	assert.NotContains(t, got, "other = 1", "a field the function selects is not a variable it reads")
+	assert.NotContains(t, got, "unused")
+	assert.Contains(t, got, "Read what else the change needs in one message")
+	assert.NotContains(t, got, "skip reading")
 }
