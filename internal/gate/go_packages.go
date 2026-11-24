@@ -49,6 +49,9 @@ type importGraph struct {
 	// pathOf is dirOf reversed.
 	pathOf    map[string]string
 	importers map[string][]string
+	// imports maps an import path to what its non-test source imports,
+	// and testImports to what its tests add.
+	imports, testImports map[string][]string
 	// testOnly holds the directories with no non-test source, which
 	// `go build` refuses and `go test` accepts.
 	testOnly map[string]bool
@@ -75,6 +78,7 @@ func loadGraph(ctx context.Context, goBin, root string) (importGraph, string) {
 	graph := importGraph{
 		dirOf: map[string]string{}, pathOf: map[string]string{},
 		importers: map[string][]string{}, testOnly: map[string]bool{},
+		imports: map[string][]string{}, testImports: map[string][]string{},
 	}
 	dec := json.NewDecoder(bytes.NewReader([]byte(jsonObjects(out.output))))
 
@@ -118,6 +122,9 @@ func (g *importGraph) add(root string, pkg listedPackage) {
 	g.dirOf[pkg.ImportPath] = dir
 	g.pathOf[dir] = pkg.ImportPath
 	g.testOnly[dir] = len(pkg.GoFiles)+len(pkg.CgoFiles) == 0
+
+	g.imports[pkg.ImportPath] = pkg.Imports
+	g.testImports[pkg.ImportPath] = slices.Concat(pkg.TestImports, pkg.XTestImports)
 
 	if pkg.Module != nil && g.module == "" {
 		g.module = pkg.Module.Path
@@ -189,6 +196,39 @@ func (g *importGraph) affected(dirs []string) scope {
 	slices.Sort(out.buildable)
 
 	return out
+}
+
+// closure returns the directory of the package in dir and of every module
+// package it imports, its tests' imports included and theirs not, sorted. It
+// is false for a directory the graph does not hold.
+func (g *importGraph) closure(dir string) ([]string, bool) {
+	start, ok := g.pathOf[dir]
+	if !ok {
+		return nil, false
+	}
+
+	seen := map[string]bool{}
+	queue := append([]string{start}, g.testImports[start]...)
+
+	var out []string
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+
+		pkgDir, inModule := g.dirOf[cur]
+		if seen[cur] || !inModule {
+			continue
+		}
+
+		seen[cur] = true
+		out = append(out, pkgDir)
+		queue = append(queue, g.imports[cur]...)
+	}
+
+	slices.Sort(out)
+
+	return out, true
 }
 
 // dirsOf returns the distinct directories of files, in first-seen order.

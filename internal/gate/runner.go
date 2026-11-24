@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kyleking/wavez/internal/config"
@@ -44,6 +43,7 @@ func New(opts ...Option) Runner {
 
 type runner struct {
 	lookPath func(name string) (string, error)
+	selector Selector
 	budget   time.Duration
 	noCache  bool
 }
@@ -55,6 +55,7 @@ func (r *runner) cacheFor(root string) cache {
 // project is one run's fixed inputs: where it runs, what the project
 // configured, and what changed.
 type project struct {
+	tree    *tree
 	root    string
 	changed []string
 	cfg     config.Config
@@ -73,7 +74,7 @@ func load(root string, changed []string) (project, error) {
 		return project{}, fmt.Errorf("loading configuration: %w", err)
 	}
 
-	proj := project{root: root, changed: changed, cfg: cfg}
+	proj := project{root: root, changed: changed, cfg: cfg, tree: &tree{root: root}}
 	if !isFile(filepath.Join(root, "go.mod")) {
 		proj.cfg.Disabled = config.Builtins()
 	}
@@ -84,9 +85,12 @@ func load(root string, changed []string) (project, error) {
 // Run loads root's configuration and runs the checks changed selects for
 // stage. Fixers run first and one at a time, since two of them may rewrite
 // the same file, and the Go formatter is one of them at both stages: a file
-// a shell command wrote never passed through the edit stage. The checks
-// then run side by side and report in a fixed order: the built-ins, then
-// the project's own in file order. A blocking failure at the stop stage is
+// a shell command wrote never passed through the edit stage. A configured
+// check whose pass is cached for these bytes skips its fixer too, since the
+// fixer already had its say over them. The checks then only read the tree,
+// so they run side by side, as many at once as the project's parallel key
+// allows, and report in a fixed order: the built-ins, then the project's
+// own in file order. A blocking failure at the stop stage is
 // then compared with the baseline the context carries, if it carries one.
 // A stop-stage run ends inside the runner's budget, and what had not
 // answered by then abstains. The error is for a configuration or root that
@@ -113,24 +117,34 @@ func (r *runner) Run(ctx context.Context, root string, changed []string, stage S
 
 	checks := selectChecks(proj, stage)
 	for i := range checks {
-		checks[i].fixed = r.fix(ctx, proj.root, checks[i])
+		if checks[i].hit = r.cachedPass(proj, &checks[i]); !checks[i].hit {
+			checks[i].fixed = r.fix(ctx, proj.root, checks[i])
+		}
 	}
 
-	slots := make([][]Result, len(checks)+1)
-
-	var wg sync.WaitGroup
+	var (
+		jobs   []job
+		goJobs int
+	)
 
 	if stage == StageStop {
-		wg.Go(func() { slots[0] = r.goStop(ctx, proj) })
+		jobs = r.goJobs(proj)
+		goJobs = len(jobs)
 	}
 
 	for i := range checks {
-		wg.Go(func() { slots[i+1] = []Result{r.command(ctx, proj.root, checks[i])} })
+		jobs = append(jobs, job{
+			exclusive: checks[i].check.Exclusive,
+			run:       func(ctx context.Context) []Result { return []Result{r.command(ctx, proj, checks[i])} },
+		})
 	}
 
-	wg.Wait()
+	done := schedule(ctx, slots(proj.cfg.Parallel), jobs)
+	if goJobs == goJobCount {
+		done[1] = lintBehindBuild(done[0], done[1])
+	}
 
-	results = append(results, slices.Concat(slots...)...)
+	results = append(results, slices.Concat(done...)...)
 
 	// Only a stop can block, and only a session has a tree it started from.
 	if base, ok := baselineFrom(ctx); ok && stage == StageStop {
@@ -158,7 +172,8 @@ func Checks(root string) ([]string, []string, error) {
 		}
 	}
 
-	for _, check := range proj.cfg.Checks {
+	for i := range proj.cfg.Checks {
+		check := &proj.cfg.Checks[i]
 		if Stage(check.Stage) == StageStop {
 			custom = append(custom, check.Name)
 		}

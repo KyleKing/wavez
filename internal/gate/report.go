@@ -57,6 +57,9 @@ type Result struct {
 	// Note is for the person: why a failure could not be compared with the
 	// tree the session started from, and so still blocks.
 	Note string `json:"note,omitempty"`
+	// Cached is true for a pass reused from an earlier run on the same
+	// bytes, which ran nothing.
+	Cached bool `json:"cached,omitempty"`
 	// evidence is what a failure keeps for that comparison.
 	evidence *evidence
 }

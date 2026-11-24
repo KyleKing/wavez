@@ -16,7 +16,9 @@ const problemEmpty = "is empty"
 type rawConfig struct {
 	MaxRounds *int `toml:"max_rounds"`
 	// Announce is a pointer because leaving it out means true.
-	Announce   *bool      `toml:"announce"`
+	Announce *bool `toml:"announce"`
+	// Parallel is a pointer because leaving it out means one per CPU.
+	Parallel   *int       `toml:"parallel"`
 	Decide     rawDecide  `toml:"decide"`
 	StopBudget string     `toml:"stop_budget"`
 	Disable    []string   `toml:"disable"`
@@ -32,13 +34,18 @@ type rawDecide struct {
 }
 
 type rawCheck struct {
-	Name    string   `toml:"name"`
-	Command string   `toml:"command"`
-	Fix     string   `toml:"fix"`
-	Level   string   `toml:"level"`
-	Stage   string   `toml:"stage"`
-	Timeout string   `toml:"timeout"`
-	Globs   []string `toml:"globs"`
+	// Inputs is a pointer because an empty list declares that the command
+	// reads nothing beyond what its globs match, and leaving it out says
+	// nothing.
+	Inputs    *[]string `toml:"inputs"`
+	Name      string    `toml:"name"`
+	Command   string    `toml:"command"`
+	Fix       string    `toml:"fix"`
+	Level     string    `toml:"level"`
+	Stage     string    `toml:"stage"`
+	Timeout   string    `toml:"timeout"`
+	Globs     []string  `toml:"globs"`
+	Exclusive bool      `toml:"exclusive"`
 }
 
 func (r rawConfig) parse() (Config, error) {
@@ -50,16 +57,8 @@ func (r rawConfig) parse() (Config, error) {
 		cfg.Announce = *r.Announce
 	}
 
-	if r.StopBudget != "" {
-		budget, err := time.ParseDuration(r.StopBudget)
-		if err != nil || budget <= 0 {
-			return Config{}, &Error{
-				Key:     "stop_budget",
-				Problem: fmt.Sprintf("is %q, want a positive duration such as 90s or 2m30s", r.StopBudget),
-			}
-		}
-
-		cfg.StopBudget = budget
+	if err := r.parseLimits(&cfg); err != nil {
+		return Config{}, err
 	}
 
 	decide, err := r.Decide.parse()
@@ -88,8 +87,8 @@ func (r rawConfig) parse() (Config, error) {
 
 	seen := map[string]bool{}
 
-	for i, rc := range r.Checks {
-		check, err := rc.parse(i)
+	for i := range r.Checks {
+		check, err := r.Checks[i].parse(i)
 		if err != nil {
 			return Config{}, err
 		}
@@ -110,6 +109,32 @@ func (r rawConfig) parse() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// parseLimits reads the keys that bound a run: how many checks at once and
+// how long in all.
+func (r rawConfig) parseLimits(cfg *Config) error {
+	if r.Parallel != nil {
+		if *r.Parallel < 1 {
+			return &Error{Key: "parallel", Problem: "must be at least 1"}
+		}
+
+		cfg.Parallel = *r.Parallel
+	}
+
+	if r.StopBudget != "" {
+		budget, err := time.ParseDuration(r.StopBudget)
+		if err != nil || budget <= 0 {
+			return &Error{
+				Key:     "stop_budget",
+				Problem: fmt.Sprintf("is %q, want a positive duration such as 90s or 2m30s", r.StopBudget),
+			}
+		}
+
+		cfg.StopBudget = budget
+	}
+
+	return nil
 }
 
 func (r rawDecide) parse() (Decide, error) {
@@ -164,17 +189,24 @@ func (r rawCheck) parse(index int) (Check, error) {
 	}
 
 	check := Check{
-		Name: r.Name, Command: r.Command, Fix: r.Fix,
+		Name: r.Name, Command: r.Command, Fix: r.Fix, Exclusive: r.Exclusive,
 		Level: LevelBlock, Stage: StageStop, Timeout: DefaultTimeout,
 	}
 
-	for _, pattern := range r.Globs {
-		glob, err := ParseGlob(pattern)
+	globs, err := parseGlobs(r.Name, "globs", r.Globs)
+	if err != nil {
+		return Check{}, err
+	}
+
+	check.Globs = globs
+
+	if r.Inputs != nil {
+		inputs, err := parseGlobs(r.Name, "inputs", *r.Inputs)
 		if err != nil {
-			return Check{}, &Error{Key: checkKey(r.Name, "globs"), Problem: err.Error()}
+			return Check{}, err
 		}
 
-		check.Globs = append(check.Globs, glob)
+		check.Inputs, check.Cacheable = inputs, true
 	}
 
 	if err := r.parseEnums(&check); err != nil {
@@ -182,6 +214,21 @@ func (r rawCheck) parse(index int) (Check, error) {
 	}
 
 	return check, nil
+}
+
+func parseGlobs(name, key string, patterns []string) ([]Glob, error) {
+	globs := make([]Glob, 0, len(patterns))
+
+	for _, pattern := range patterns {
+		glob, err := ParseGlob(pattern)
+		if err != nil {
+			return nil, &Error{Key: checkKey(name, key), Problem: err.Error()}
+		}
+
+		globs = append(globs, glob)
+	}
+
+	return globs, nil
 }
 
 func (r rawCheck) parseEnums(check *Check) error {
