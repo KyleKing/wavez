@@ -246,6 +246,10 @@ func (r *runner) goCompile(
 		plan = r.planTests(ctx, proj, pkgs.all)
 	}
 
+	if r.near {
+		plan.pkgs = narrowed(plan.pkgs, dirs)
+	}
+
 	if len(plan.pkgs) == 0 {
 		return enabled(wantBuild, build.pass(), wantTest, test.pass())
 	}

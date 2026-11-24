@@ -91,7 +91,17 @@ func runApply(ctx context.Context, args []string, streams stdio) error {
 		}
 	}
 
-	return checkWith(ctx, "apply", args, streams, runQuick)
+	err = checkWith(ctx, "apply", args, streams, runQuick)
+
+	// What the quick check left out is started now, where the project has
+	// background runs on, so that it is done by the time it is asked for.
+	if err == nil && tracked && projectConfig(root).Warm {
+		if warmErr := warmStart(root, os.Getenv(hook.SessionEnv), false); warmErr != nil {
+			sayf(streams.err, "wavez apply: the rest of the checks were not started: %v\n", warmErr)
+		}
+	}
+
+	return err
 }
 
 // noted records the files in the session the command runs in, as an edit

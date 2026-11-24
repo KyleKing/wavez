@@ -125,9 +125,10 @@ func (r *runner) bodiesOnly(ctx context.Context, root string, changed []string) 
 	})
 }
 
-// narrowed is what has to be compiled for a change that only rewrote
-// function bodies: the changed packages themselves. Their importers compiled
-// against the same declarations before and still do.
+// narrowed is the patterns that are the changed packages themselves. It is
+// what has to be compiled for a change that only rewrote function bodies,
+// whose importers compiled against the same declarations before and still
+// do, and what a run that tests only near the change tests.
 func narrowed(buildable, dirs []string) []string {
 	var own []string
 

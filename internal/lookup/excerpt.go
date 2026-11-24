@@ -247,13 +247,13 @@ func Brief(root string, sites []Site) string {
 		return hint
 	}
 
-	return hint + "\nTheir current source follows, so you need not read these files before changing them.\n" +
+	return hint + "\nTheir current source:\n" +
 		source + apply.Fill(applyHelp)
 }
 
 // applyHelp tells the model how to make its edits and check them in one
 // step. The format is the one `wavez apply` reads.
-const applyHelp = `To change files and check the result in one step, run wavez apply with every edit at once:
+const applyHelp = `You have the source, so skip reading and make every edit, tests included, in one command:
 wavez apply <<'WAVEZ'
 === path/to/file.go
 %OPEN%
@@ -262,6 +262,7 @@ exact lines to replace (no line numbers)
 their replacement
 %CLOSE%
 WAVEZ
-An edit with nothing above the ======= appends to the file, and a path that does not exist is created.
-It formats the files, runs the tests that reach the change, and prints one line when they pass.
+Nothing above the %SPLIT% line appends to the file, or creates it. Several edits may follow one === line.
+It formats, builds, and runs the changed packages' tests, and prints one line on a pass.
+No separate test run is needed.
 `

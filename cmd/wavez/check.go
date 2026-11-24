@@ -58,9 +58,11 @@ const (
 	// A run ahead is made before anyone asked: it rewrites no file and
 	// records nothing in the session.
 	runAhead = "ahead"
-	// A quick run follows an edit made through wavez and leaves lint out,
+	// A quick run follows an edit made through wavez. It leaves out lint,
 	// which in a tree new to the linter's cache type-checks every
-	// dependency from source and is what `wavez check` and a commit are for.
+	// dependency from source, and the tests outside the changed packages,
+	// each of which is a binary to link. Both are what `wavez check`, a
+	// background run, and a commit are for.
 	runQuick = "quick"
 )
 
@@ -183,7 +185,7 @@ func checkOptions(root, kind string) []gate.Option {
 	case runAhead:
 		opts = append(opts, gate.WithoutFixers())
 	case runQuick:
-		opts = append(opts, gate.Without(config.BuiltinLint))
+		opts = append(opts, gate.Without(config.BuiltinLint), gate.WithNearTests())
 	}
 
 	return opts

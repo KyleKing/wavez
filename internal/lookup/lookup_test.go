@@ -60,6 +60,10 @@ func repo(t *testing.T) string {
 		"web/duration.ts":          "export function durationToString(ms: number): string { return '' }\n",
 		"web/duration.test.ts":     "import { durationToString } from './duration'\n",
 		"web/labels.ts":            "export const TypeScriptLabel = 'ts'\nconst maxRetries = 3\n",
+		"pkg/valid/valid.go": "package valid\n\nfunc passwordValidation(pw string) bool { return pw != \"\" }\n\n" +
+			"func headerName() string { return \"x\" }\n\nfunc parseRetryAfter(h string) error {\n" +
+			"\tif h == \"\" {\n\t\treturn errors.New(\"unsupported retry header value\")\n\t}\n\n\treturn nil\n}\n",
+		"pkg/cache/ttl.go": "package cache\n\ntype TTLCache struct{}\n",
 	}
 
 	for name, body := range files {
@@ -170,4 +174,49 @@ func TestExcerpts_StopAtTheBudget(t *testing.T) {
 
 	got := lookup.Excerpts(root, []lookup.Site{{Name: "BigOne", File: "big.go", Line: 3}})
 	assert.Equal(t, "(more left out: read big.go for the rest)\n", got)
+}
+
+func TestFind_FromADirectoryAndAPhrase(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+
+	tests := []struct {
+		name   string
+		prompt string
+		want   []string
+	}{
+		{
+			name: "a word of the prompt in a name of the directory it names", want: []string{"passwordValidation"},
+			prompt: "The password rule in pkg/valid measures length in bytes.",
+		},
+		{
+			name: "the longer word wins over a shorter one", want: []string{"parseRetryAfter"},
+			prompt: "The Retry-After header is refused in pkg/valid when it is padded.",
+		},
+		{
+			name: "the declaration around a quoted message", want: []string{"parseRetryAfter"},
+			prompt: "It fails with 'unsupported retry header value' on a padded value.",
+		},
+		{
+			name: "a name that opens with capitals", want: []string{"TTLCache"},
+			prompt: "TTLCache has no way to ask how many entries it holds.",
+		},
+		{name: "a directory that is not there", prompt: "The password rule in pkg/nowhere is wrong."},
+		{name: "a word no name holds", prompt: "The widget rule in pkg/valid is wrong."},
+		{name: "a short quoted value is not searched for", prompt: "It turns '1500' into '1s'."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got []string
+			for _, site := range lookup.Find(t.Context(), root, tt.prompt) {
+				got = append(got, site.Name)
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

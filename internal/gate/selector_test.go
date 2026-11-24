@@ -90,3 +90,47 @@ func TestRun_TestSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestRun_NearTestsStayInTheChangedPackages(t *testing.T) {
+	t.Parallel()
+
+	// A value of nine in package a breaks only TestC, in a package that
+	// imports it.
+	nine := map[string]string{"a/a.go": srcANine, "a/a_test.go": removed}
+
+	tests := []struct {
+		name  string
+		opts  []gate.Option
+		wants []want
+	}{
+		{
+			name:  "every importer is tested",
+			wants: []want{{"build", gate.StatusPass, ""}, {"test", gate.StatusFail, "TestC"}},
+		},
+		{
+			name: "near the change nothing fails", opts: []gate.Option{gate.WithNearTests()},
+			wants: passed("build", "test"),
+		},
+		{
+			name: "a selection elsewhere is left for later",
+			opts: []gate.Option{gate.WithNearTests(), gate.WithSelector(&fakeSelector{sel: gate.Selection{
+				Complete: true, Tests: map[string][]string{"./c": {"TestC"}},
+			}})},
+			wants: passed("build", "test"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := project(t, module(nine))
+			expect(t, runGate(t.Context(), t, root, gate.StageStop, []string{"a/a.go"}, tt.opts...), tt.wants...)
+		})
+	}
+
+	// A failure in the changed package is still found.
+	root := project(t, module(map[string]string{"a/a.go": srcAThree}))
+	expect(t, runGate(t.Context(), t, root, gate.StageStop, []string{"a/a.go"}, gate.WithNearTests()),
+		want{"build", gate.StatusPass, ""}, want{"test", gate.StatusFail, "A() is not 1"})
+}
