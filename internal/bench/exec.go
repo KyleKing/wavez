@@ -21,6 +21,10 @@ type invocation struct {
 // after SIGTERM before they are killed and their pipes are abandoned.
 const killGrace = 5 * time.Second
 
+// killSettle is how long a killed process group is waited for before the
+// run returns without knowing it is gone.
+const killSettle = 2 * time.Second
+
 // groupPoll is how often a canceled child's process group is looked at
 // while it is given time to exit.
 const groupPoll = 20 * time.Millisecond
