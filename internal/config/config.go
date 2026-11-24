@@ -69,11 +69,23 @@ type Check struct {
 	Command string
 	// Fix is optional and runs before Command with the same substitution,
 	// so a finding a tool can repair itself never reaches the agent.
-	Fix     string
-	Level   Level
-	Stage   Stage
-	Globs   []Glob
+	Fix   string
+	Level Level
+	Stage Stage
+	Globs []Glob
+	// Inputs match the other files Command reads, such as its own
+	// configuration and the lockfile that pins its version. A pass is
+	// reused only for a check that declares them, and only while every
+	// file the globs or the inputs match is byte for byte what it was.
+	Inputs  []Glob
 	Timeout time.Duration
+	// Cacheable is true when the check declared its inputs, even as an
+	// empty list.
+	Cacheable bool
+	// Exclusive keeps every other check from running while this one
+	// does, for a command that contends with others over a port, a
+	// database, or a directory.
+	Exclusive bool
 }
 
 // Select returns the paths in changed that any of the check's globs match,
@@ -98,6 +110,9 @@ type Config struct {
 	Disabled   []string
 	MaxRounds  int
 	StopBudget time.Duration
+	// Parallel bounds how many checks run at once after the fixers. Zero
+	// means one per CPU.
+	Parallel   int
 	StopChecks bool
 	Route      bool
 	Announce   bool

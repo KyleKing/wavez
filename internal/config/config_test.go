@@ -143,6 +143,8 @@ func TestLoad_RejectsWhatItCannotHonor(t *testing.T) {
 		{"unparsable stop budget", "stop_budget = \"soon\"\n", "stop_budget"},
 		{"zero stop budget", "stop_budget = \"0s\"\n", "stop_budget"},
 		{"negative stop budget", "stop_budget = \"-2m\"\n", "stop_budget"},
+		{"zero parallel", "parallel = 0\n", "parallel"},
+		{"bad input glob", check + "inputs = [\"[a\"]\n", `check "x" inputs`},
 	}
 
 	for _, tt := range tests {
@@ -280,6 +282,49 @@ func TestLoad_StopBudgetAndAnnounce(t *testing.T) {
 			if cfg.StopBudget != tt.wantBudget || cfg.Announce != tt.wantAnnounce {
 				t.Errorf("got budget %v announce %v, want %v and %v",
 					cfg.StopBudget, cfg.Announce, tt.wantBudget, tt.wantAnnounce)
+			}
+		})
+	}
+}
+
+func TestLoad_ParallelExclusiveAndInputs(t *testing.T) {
+	t.Parallel()
+
+	const check = "[[check]]\nname = \"x\"\nglobs = [\"*.py\"]\ncommand = \"true\"\n"
+
+	tests := []struct {
+		name          string
+		body          string
+		wantParallel  int
+		wantExclusive bool
+		wantCacheable bool
+		wantInputs    int
+	}{
+		{name: "left out", body: check},
+		{name: "a bound", body: "parallel = 3\n" + check, wantParallel: 3},
+		{name: "an exclusive check", body: check + "exclusive = true\n", wantExclusive: true},
+		{name: "no inputs beyond the globs", body: check + "inputs = []\n", wantCacheable: true},
+		{
+			name: "declared inputs", body: check + "inputs = [\"pyproject.toml\", \"uv.lock\"]\n",
+			wantCacheable: true, wantInputs: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(write(t, tt.body))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			got := cfg.Checks[0]
+			if cfg.Parallel != tt.wantParallel || got.Exclusive != tt.wantExclusive ||
+				got.Cacheable != tt.wantCacheable || len(got.Inputs) != tt.wantInputs {
+				t.Errorf("got parallel %d exclusive %v cacheable %v inputs %d, want %d %v %v %d",
+					cfg.Parallel, got.Exclusive, got.Cacheable, len(got.Inputs),
+					tt.wantParallel, tt.wantExclusive, tt.wantCacheable, tt.wantInputs)
 			}
 		})
 	}

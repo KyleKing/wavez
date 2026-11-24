@@ -63,10 +63,14 @@ func (r *runner) testTimeout() string {
 	return "-timeout=" + (r.budget * testShare / budgetParts).Round(time.Second).String()
 }
 
-// goStop runs the stop-stage Go built-ins: build, then test and lint side by
-// side. A build failure is reported alone, since every test and finding
-// after it would restate the same errors.
-func (r *runner) goStop(ctx context.Context, proj project) []Result {
+// goJobCount is how many jobs goJobs returns when it returns any: compile,
+// then lint.
+const goJobCount = 2
+
+// goJobs returns the stop-stage Go built-ins as two jobs: build then test,
+// and lint. Both read one import graph, listed once by whichever asks first.
+// A change that selects no Go package gives no jobs.
+func (r *runner) goJobs(proj project) []job {
 	files := goFiles(proj.changed)
 	dirs := packageDirs(proj.root, proj.changed)
 	wholeModule := slices.Contains(proj.changed, "go.mod") || slices.Contains(proj.changed, "go.sum")
@@ -75,21 +79,51 @@ func (r *runner) goStop(ctx context.Context, proj project) []Result {
 		return nil
 	}
 
-	var (
-		compiled, linted []Result
-		wg               sync.WaitGroup
-	)
+	graph := &lazyGraph{r: r, root: proj.root}
 
-	wg.Go(func() { compiled = r.goCompile(ctx, proj, dirs, wholeModule) })
-	wg.Go(func() { linted = r.lint(ctx, proj, files) })
-	wg.Wait()
+	return []job{
+		{run: func(ctx context.Context) []Result { return r.goCompile(ctx, proj, graph, dirs, wholeModule) }},
+		{run: func(ctx context.Context) []Result { return r.lint(ctx, proj, graph, files) }},
+	}
+}
 
+// lintBehindBuild drops a lint abstention behind a build or test failure,
+// which is the reason lint could not type-check and is already reported.
+func lintBehindBuild(compiled, linted []Result) []Result {
 	if slices.ContainsFunc(compiled, func(res Result) bool { return res.Status == StatusFail }) &&
 		slices.ContainsFunc(linted, func(res Result) bool { return res.Status == StatusAbstained }) {
-		linted = nil
+		return nil
 	}
 
-	return append(compiled, linted...)
+	return linted
+}
+
+// lazyGraph lists the module's import graph the first time a job asks and
+// hands every later caller the same answer.
+type lazyGraph struct {
+	r      *runner
+	root   string
+	goBin  string
+	reason string
+	graph  importGraph
+	once   sync.Once
+}
+
+// get returns the go binary and the graph, or the reason there are none.
+func (l *lazyGraph) get(ctx context.Context) (string, importGraph, string) {
+	l.once.Do(func() {
+		goBin, err := l.r.lookPath("go")
+		if err != nil {
+			l.reason = "go not on PATH"
+
+			return
+		}
+
+		l.goBin = goBin
+		l.graph, l.reason = loadGraph(ctx, goBin, l.root)
+	})
+
+	return l.goBin, l.graph, l.reason
 }
 
 // packageDirs returns the directories of the Go packages a change touches.
@@ -170,7 +204,9 @@ func holdsGo(dir string) bool {
 // compiled by the test run itself, so a test binary is linked once: when
 // that run reports packages that did not build, the failure belongs to
 // build and test has nothing to add.
-func (r *runner) goCompile(ctx context.Context, proj project, dirs []string, wholeModule bool) []Result {
+func (r *runner) goCompile(
+	ctx context.Context, proj project, graph *lazyGraph, dirs []string, wholeModule bool,
+) []Result {
 	build := Result{Check: config.BuiltinBuild, Blocking: true}
 	test := Result{Check: config.BuiltinTest, Blocking: true}
 	wantBuild, wantTest := proj.cfg.Enabled(build.Check), proj.cfg.Enabled(test.Check)
@@ -179,7 +215,7 @@ func (r *runner) goCompile(ctx context.Context, proj project, dirs []string, who
 		return nil
 	}
 
-	goBin, pkgs, reason := r.goScope(ctx, proj.root, dirs, wholeModule)
+	goBin, pkgs, reason := r.goScope(ctx, graph, dirs, wholeModule)
 	if reason != "" {
 		return enabled(wantBuild, build.abstain(reason), wantTest, test.abstain(reason))
 	}
@@ -195,7 +231,16 @@ func (r *runner) goCompile(ctx context.Context, proj project, dirs []string, who
 		}
 	}
 
-	return r.goTests(ctx, proj.root, goBin, pkgs.all, build, test, wantBuild, wantTest)
+	plan := testPlan{pkgs: pkgs.all}
+	if wantTest {
+		plan = r.planTests(ctx, proj, pkgs.all)
+	}
+
+	if len(plan.pkgs) == 0 {
+		return enabled(wantBuild, build.pass(), wantTest, test.pass())
+	}
+
+	return r.goTests(ctx, proj.root, goBin, plan, build, test, wantBuild, wantTest)
 }
 
 // compileOnly is the command that compiles pkgs and links nothing.
@@ -212,17 +257,24 @@ func (r *runner) compileOnly(root, goBin string, pkgs []string) invocation {
 	}
 }
 
-// goTests runs the tests of pkgs, or only compiles them when the project
-// turned the test check off, and settles what build and test each say.
+// goTests runs the planned tests, or only compiles the planned packages'
+// tests when the project turned the test check off, and settles what build
+// and test each say.
 func (r *runner) goTests(
-	ctx context.Context, root, goBin string, pkgs []string, build, test Result, wantBuild, wantTest bool,
+	ctx context.Context, root, goBin string, plan testPlan, build, test Result, wantBuild, wantTest bool,
 ) []Result {
+	pkgs := plan.pkgs
+
 	// The linkOnly arguments build the test binaries and run nothing,
 	// which is also how a build failure found by the test run is put to
 	// the baseline tree.
 	linkOnly := []string{goTest, "-run", "^$"}
 
 	args := []string{goTest, r.testTimeout()}
+	if plan.run != "" {
+		args = append(args, "-run", plan.run)
+	}
+
 	if !wantTest {
 		linkOnly = append(linkOnly, "-vet=off")
 		args = linkOnly
@@ -251,25 +303,26 @@ func (r *runner) goTests(
 }
 
 // goScope finds the go binary and the package patterns the change affects.
-// A non-empty reason means neither could be established.
+// A non-empty reason means neither could be established. A change to go.mod
+// or go.sum affects every package and needs no graph.
 func (r *runner) goScope(
-	ctx context.Context, root string, dirs []string, wholeModule bool,
+	ctx context.Context, graph *lazyGraph, dirs []string, wholeModule bool,
 ) (string, scope, string) {
-	goBin, err := r.lookPath("go")
-	if err != nil {
-		return "", scope{}, "go not on PATH"
-	}
-
 	if wholeModule {
+		goBin, err := r.lookPath("go")
+		if err != nil {
+			return "", scope{}, "go not on PATH"
+		}
+
 		return goBin, scope{all: []string{wholeModulePattern}, buildable: []string{wholeModulePattern}}, ""
 	}
 
-	graph, reason := loadGraph(ctx, goBin, root)
+	goBin, g, reason := graph.get(ctx)
 	if reason != "" {
 		return "", scope{}, reason
 	}
 
-	return goBin, graph.affected(dirs), ""
+	return goBin, g.affected(dirs), ""
 }
 
 func enabled(wantBuild bool, build Result, wantTest bool, test Result) []Result {

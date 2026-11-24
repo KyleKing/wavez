@@ -26,6 +26,8 @@ type customCheck struct {
 	files []string
 	fixed []string
 	check config.Check
+	// hit is true when a pass on these bytes is cached.
+	hit bool
 }
 
 // selectChecks returns the configured checks for stage that the changed
@@ -34,7 +36,8 @@ type customCheck struct {
 func selectChecks(proj project, stage Stage) []customCheck {
 	var out []customCheck
 
-	for _, check := range proj.cfg.Checks {
+	for i := range proj.cfg.Checks {
+		check := &proj.cfg.Checks[i]
 		if Stage(check.Stage) != stage {
 			continue
 		}
@@ -49,7 +52,7 @@ func selectChecks(proj project, stage Stage) []customCheck {
 			continue
 		}
 
-		out = append(out, customCheck{check: check, files: files})
+		out = append(out, customCheck{check: *check, files: files})
 	}
 
 	return out
@@ -81,16 +84,25 @@ func (r *runner) fix(ctx context.Context, root string, c customCheck) []string {
 
 // command runs the check's command and reads its exit status: zero passes,
 // the shell's own "not found" and "not executable" statuses abstain, and
-// anything else is a failure carrying the reduced output. A pass is never
-// remembered here: the command may read a script, a config, or a lockfile
-// that the files it was handed say nothing about.
-func (r *runner) command(ctx context.Context, root string, c customCheck) Result {
+// anything else is a failure carrying the reduced output. A pass is
+// remembered only for a check that declared its inputs, under the key of
+// the bytes it was run on, and a cached one runs nothing.
+func (r *runner) command(ctx context.Context, proj project, c customCheck) Result {
+	root := proj.root
 	res := Result{Check: c.check.Name, Blocking: c.check.Level != config.LevelAdvise, Fixed: c.fixed}
+
+	if c.hit {
+		res.Cached = true
+
+		return res.pass()
+	}
 
 	sh, err := r.lookPath("sh")
 	if err != nil {
 		return res.abstain("sh not on PATH")
 	}
+
+	key := customKey(proj, c)
 
 	out := run(ctx, invocation{
 		dir: root, name: sh, timeout: c.check.Timeout,
@@ -101,6 +113,8 @@ func (r *runner) command(ctx context.Context, root string, c customCheck) Result
 	case out.reason != "":
 		return res.abstain(out.reason)
 	case out.exit == 0:
+		r.cacheFor(root).pass(key)
+
 		return res.pass()
 	case out.exit == exitNotFound, out.exit == exitNotExecutable:
 		return res.abstain(oneLine(out.output))
