@@ -261,6 +261,44 @@ sessions show is narrower and clearer:
 So the form works where it engages, it engages on too few prompts, and the
 check behind it is still paid for by somebody waiting.
 
+A second run after three changes (the lookup also reads the directory a
+prompt names and the messages it quotes, `wavez apply` tests only the
+packages it changed, and the session is told at its start to edit with it),
+same tasks, model, and day: both arms passed 15 of 15, and turns were 0.67x
+(p 0.021), the first difference in any run here that is outside the noise.
+Cost was 0.93x (p 0.22) and wall clock 1.16x (p 0.35), both inside it. The
+model used `wavez apply` on all thirteen edit tasks. Seven of them took
+half the baseline's turns or fewer, and on those cost fell by a fifth to a
+third. Two things kept the totals level:
+
+- One apply waited 37 seconds for the importers of a package that gained a
+  method to compile. A run near the change no longer compiles importers
+- A rename went from three turns to seven, because the session was told to
+  edit with `wavez apply` and a rename is `wavez rename`'s job
+
+One repetition still, and tasks a baseline finishes in three to eighteen
+turns.
+
+### Two changes, one checkout
+
+A change that is pushed and waiting on CI or a reviewer is not finished,
+and the checkout does not sit idle for it. The next change starts in the
+same directory, and then the first one needs a fix: made where, and checked
+against what? `internal/lane` answers with a second copy of the tree, a git
+worktree with a detached HEAD at the revision asked for, under the user
+cache directory where nothing that walks the checkout will find it.
+`wavez apply --at REV` and `wavez check --at REV` work there. The fix is
+checked against the review's head alone, the working directory keeps what
+is half done in it, and neither waits for the other. A lane that holds
+uncommitted work stays where it is, and one that is clean follows its
+revision when that moves.
+
+A lane was a cold build until the go commands carried `-trimpath`; now it
+reads the module's packages back from the build cache. What is not built:
+moving the checkout's own work onto the new base once the first change
+merges, which jj does by itself and git needs a rebase for, and any way to
+run a whole agent session in a lane.
+
 ### Checks ahead of the question
 
 A harness can only check when the agent asks or when the turn ends, and

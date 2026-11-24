@@ -34,10 +34,10 @@ func Without(checks ...string) Option {
 	return func(r *runner) { r.skip = append(r.skip, checks...) }
 }
 
-// WithNearTests keeps the test check to the packages the change is in. The
-// tests of their importers, or the ones a selector picks elsewhere, are
-// left to a run that is not being waited on, since each of those packages
-// is a test binary to compile and link.
+// WithNearTests keeps the build and the test check to the packages the
+// change is in. Their importers, and the tests a selector picks elsewhere,
+// are left to a run that is not being waited on, since each of those
+// packages is something to compile and a test binary to link.
 func WithNearTests() Option {
 	return func(r *runner) { r.near = true }
 }

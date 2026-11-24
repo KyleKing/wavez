@@ -153,6 +153,14 @@ the tests that reach the change, leaving lint to `wavez check`. `wavez apply
 symbol is answered with that symbol's source and its tests' and with how to
 call `wavez apply`, so a session can go from the prompt to one command.
 
+`--at REV` on `wavez apply` and `wavez check` works in a second copy of the
+tree at that revision, kept under the user cache directory, and leaves the
+checkout as it is. It is for the change that is out for review while the
+checkout has moved on to the next one: a fix for a failing CI job is made
+and checked against the review's own head, not against whatever is half
+done in the working directory, and is committed and pushed from the lane
+with `git -C`.
+
 With `warm = true`, every write starts the session's checks in a background
 process at low priority, and a session's start compiles the module. Nothing
 waits on either and neither says anything: the point is what they leave in

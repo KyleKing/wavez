@@ -77,7 +77,8 @@ const checkCommand = "Check your work with `wavez check`, not whole-project buil
 // edits and waits for lint and for the tests of every importer, which is
 // what `wavez apply` leaves out of the wait.
 const applyCommand = "Make edits with `wavez apply` (`wavez apply --help` shows the form): it writes " +
-	"several edits at once, then builds and tests what changed. Run no build, test, or lint command yourself."
+	"several edits at once, then builds and tests what changed. Rename a Go symbol with `wavez rename`. " +
+	"Run no build, test, or lint command yourself."
 
 // targetedOnly is the sentence for a project whose stop checks are off and
 // that has no check wavez could run. The agent is asked to check only what

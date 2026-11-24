@@ -19,7 +19,7 @@ import (
 )
 
 // errUsage is a check invocation the flags cannot make sense of.
-var errUsage = errors.New("usage: wavez check [--stage edit|stop] [--json] [--root DIR] [files...]")
+var errUsage = errors.New("usage: wavez check [--stage edit|stop] [--json] [--root DIR] [--at REV] [files...]")
 
 // The statuses wavez check exits with beyond 0 for a pass: a blocking check
 // failed, or none failed and at least one could not run, which has not
@@ -64,6 +64,9 @@ const (
 	// each of which is a binary to link. Both are what `wavez check`, a
 	// background run, and a commit are for.
 	runQuick = "quick"
+	// A lane run is a quick run in a second copy of the tree, which no
+	// session follows.
+	runLane = "lane"
 )
 
 // checkWith runs the checks as the kind of run it is told, "" for the run
@@ -75,6 +78,7 @@ func checkWith(ctx context.Context, name string, args []string, streams stdio, k
 	stage := flags.String("stage", string(gate.StageStop), "which checks to run: edit or stop")
 	asJSON := flags.Bool("json", false, "print the report as JSON")
 	rootFlag := flags.String("root", "", "project root (default: the project the working directory is in)")
+	at := flags.String("at", "", "check the second copy of the tree at this revision, not the checkout")
 
 	if err := flags.Parse(args); err != nil {
 		return exitError(usageStatus)
@@ -84,9 +88,9 @@ func checkWith(ctx context.Context, name string, args []string, streams stdio, k
 		return fmt.Errorf("%w: --stage is %q", errUsage, *stage)
 	}
 
-	root := *rootFlag
-	if root == "" {
-		root = hook.FindRoot(".")
+	root, err := checkRoot(ctx, *rootFlag, *at)
+	if err != nil {
+		return err
 	}
 
 	ctx, changed, source, err := checkScope(ctx, root, flags.Args())
@@ -166,6 +170,26 @@ func checkScope(
 // sessionSource is what checkScope calls the changes of an agent session.
 const sessionSource = "the session"
 
+// checkRoot is the tree to check: the project, or with a revision the lane
+// at it. What changed in a lane is what differs from its revision, and no
+// session is stored under it, so none is consulted.
+func checkRoot(ctx context.Context, root, at string) (string, error) {
+	if root == "" {
+		root = hook.FindRoot(".")
+	}
+
+	if at == "" {
+		return root, nil
+	}
+
+	opened, err := openLane(ctx, root, at)
+	if err != nil {
+		return "", err
+	}
+
+	return opened.Root, nil
+}
+
 // noteMissing says which named files are not there, since each is then
 // checked as a file that was deleted.
 func noteMissing(streams stdio, name string, files []string) {
@@ -184,7 +208,7 @@ func checkOptions(root, kind string) []gate.Option {
 	switch kind {
 	case runAhead:
 		opts = append(opts, gate.WithoutFixers())
-	case runQuick:
+	case runQuick, runLane:
 		opts = append(opts, gate.Without(config.BuiltinLint), gate.WithNearTests())
 	}
 
