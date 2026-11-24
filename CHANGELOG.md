@@ -1,3 +1,17 @@
+## v3.1.0 (2026-11-24)
+
+### Feat
+
+- **gate**: run only the tests detest says reach the change
+- find changes and the session baseline in a jj workspace without git
+- **cli**: add wavez check as the one command the agent is told to use
+- **gate**: bound the parallel checks, cache a pass by content, and add a test selector seam
+
+### Fix
+
+- **gate**: ask the verdict cache again after every fixer has run
+- **gate**: link test binaries without running TestMain when only build is checked
+
 ## v3.0.0 (2026-11-24)
 
 ### BREAKING CHANGE
