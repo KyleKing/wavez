@@ -406,8 +406,9 @@ func Brief(root string, sites []Site) string {
 		return ""
 	}
 
+	// A rename is one command, and the source is no help in typing it.
 	source := Excerpts(root, sites)
-	if source == "" {
+	if source == "" || goRename(sites) != "" {
 		return hint
 	}
 

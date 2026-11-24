@@ -252,3 +252,53 @@ func TestBrief_ShowsWhatAFunctionReadsAndSaysWhenTestsAreMissing(t *testing.T) {
 	assert.Contains(t, got, "Read what else the change needs in one message")
 	assert.NotContains(t, got, "skip reading")
 }
+
+func TestFind_HandsOverTheRenameCommand(t *testing.T) {
+	t.Parallel()
+
+	root := committed(t, map[string]string{
+		"ci/report/num.go":    "package report\n\n// num formats.\nfunc num(f float64) string { return \"\" }\n",
+		"other/num.go":        "package other\n\nfunc num() {}\n",
+		"sdk/chunks.py":       "def create_chunks(xs, n):\n    return xs\n",
+		"ci/report/x_test.go": "package report\n\nfunc TestNum(t *testing.T) { num(1) }\n",
+	})
+
+	tests := []struct {
+		name, prompt, absent string
+		want                 []string
+	}{
+		{
+			name:   "what it is called, then rename it",
+			prompt: "In ci/report, the helper is called num, which says nothing. Rename it to formatNumber everywhere.",
+			want: []string{
+				"num is declared at ci/report/num.go:4",
+				"To rename it everywhere it is used, tests included: wavez rename ./ci/report:num formatNumber",
+			},
+			absent: "Their current source",
+		},
+		{
+			name:   "the old name beside the word",
+			prompt: "Rename the helper create_chunks in sdk/chunks.py to chunked and update every use.",
+			want:   []string{"create_chunks is declared at sdk/chunks.py:1", "Their current source"},
+			absent: "wavez rename",
+		},
+		{
+			name:   "a name declared in two places with no directory named",
+			prompt: "Rename num to formatNumber.",
+			absent: "wavez rename",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := lookup.Brief(root, lookup.Find(t.Context(), root, tt.prompt))
+			for _, want := range tt.want {
+				assert.Contains(t, got, want)
+			}
+
+			assert.NotContains(t, got, tt.absent)
+		})
+	}
+}

@@ -35,6 +35,9 @@ const (
 	minLength = 5
 )
 
+// word is the pattern of one name.
+const word = `[A-Za-z_][A-Za-z0-9_]*`
+
 var (
 	// The identifier pattern matches a word that reads as code: it has an inner capital
 	// (parseID, ParseActionID), an underscore (timedelta_to_expr), or a
@@ -49,6 +52,13 @@ var (
 	// bound that way is as often a label in prose ("TypeScript") as a name
 	// somebody would ask about, so it only counts in lower case.
 	binding = regexp.MustCompile(`^(?:const|let|var)$`)
+	// The renames patterns match the two ways a prompt asks for a rename:
+	// naming the old name where it says rename, or saying what the thing is
+	// called and then to rename "it".
+	renames = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)\brename (?:the (?:[a-z]+ ){1,3})?(` + word + `)(?: in \S+)? to (` + word + `)`),
+		regexp.MustCompile(`(?i)\bcalled (` + word + `)\b[^.]*\.\s+rename it to (` + word + `)`),
+	}
 	// The testFile pattern matches the names test files go by in those languages.
 	testFile = regexp.MustCompile(`(?:_test\.go|(?:^|/)test_[^/]*\.py|_test\.py|\.(?:test|spec)\.[jt]sx?)$`)
 )
@@ -60,6 +70,9 @@ type Site struct {
 	File string
 	// Tests are the test files that mention the name, nearest first.
 	Tests []string
+	// RenameTo is the name the prompt asks for in place of Name, and ""
+	// when it asks for no rename.
+	RenameTo string
 	// Beside are the test files in the declaration's directory, and are
 	// only filled in when no test mentions the name.
 	Beside []string
@@ -95,23 +108,19 @@ func Find(ctx context.Context, root, prompt string) []Site {
 		paths = namedPaths(prompt)
 	)
 
-	for _, name := range Names(prompt) {
-		found := declared(ctx, git, root, name)
+	old, renamed := renaming(prompt)
 
-		// A file or a directory the prompt names settles which declaration
-		// is meant.
-		if named := slices.DeleteFunc(slices.Clone(found), func(s Site) bool {
-			return !slices.Contains(paths, s.File) && !slices.Contains(paths, path.Dir(s.File))
-		}); len(named) > 0 {
-			found = named
-		}
+	names := Names(prompt)
+	if old != "" && !slices.Contains(names, old) {
+		names = append([]string{old}, names...)
+	}
 
-		if len(found) == 0 || len(found) > maxSites {
-			continue
-		}
+	for _, name := range names {
+		for _, site := range located(ctx, git, root, name, paths) {
+			if name == old {
+				site.RenameTo = renamed
+			}
 
-		for _, site := range found {
-			site.Tests = tests(ctx, git, root, site)
 			sites = append(sites, site)
 		}
 	}
@@ -133,6 +142,29 @@ func Find(ctx context.Context, root, prompt string) []Site {
 	return sites
 }
 
+// located returns where name is declared, with the tests of each place, and
+// nothing when it is declared in more places than can be told apart. A file
+// or a directory among paths settles which declaration is meant.
+func located(ctx context.Context, git, root, name string, paths []string) []Site {
+	found := declared(ctx, git, root, name)
+
+	if kept := slices.DeleteFunc(slices.Clone(found), func(s Site) bool {
+		return !slices.Contains(paths, s.File) && !slices.Contains(paths, path.Dir(s.File))
+	}); len(kept) > 0 {
+		found = kept
+	}
+
+	if len(found) > maxSites {
+		return nil
+	}
+
+	for i := range found {
+		found[i].Tests = tests(ctx, git, root, found[i])
+	}
+
+	return found
+}
+
 // beside returns the test files tracked in file's own directory.
 func beside(ctx context.Context, git, root, file string) []string {
 	cmd := exec.CommandContext(ctx, git, "ls-files", "--", path.Dir(file)+"/") //nolint:gosec // git
@@ -152,6 +184,19 @@ func beside(ctx context.Context, git, root, file string) []string {
 	}
 
 	return files[:min(len(files), maxBeside)]
+}
+
+// renaming reads a prompt that asks for one name in place of another, and
+// returns both: "Rename the helper create_chunks in x.py to chunked", or
+// "is called num, which says little. Rename it to formatNumber".
+func renaming(prompt string) (string, string) {
+	for _, pattern := range renames {
+		if m := pattern.FindStringSubmatch(prompt); len(m) == 3 && m[1] != m[2] && !strings.EqualFold(m[1], "it") {
+			return m[1], m[2]
+		}
+	}
+
+	return "", ""
 }
 
 // declared returns the lines outside test files that declare name.
@@ -244,11 +289,32 @@ func Hint(sites []Site) string {
 		lines = append(lines, line)
 	}
 
-	if cmd := goTest(sites); cmd != "" {
+	if cmd := goRename(sites); cmd != "" {
+		lines = append(lines, "To rename it everywhere it is used, tests included: "+cmd,
+			"It lists the comments and strings that still say the old name, which are yours to edit.")
+	} else if cmd := goTest(sites); cmd != "" {
 		lines = append(lines, "To check: "+cmd)
 	}
 
 	return "wavez looked these up, so you need not search for them:\n" + strings.Join(lines, "\n")
+}
+
+// goRename is the command that makes the rename a prompt asks for, and ""
+// when it asks for none or the name is not Go's.
+func goRename(sites []Site) string {
+	for _, site := range sites {
+		// Two declarations of the name are two renames, and which is meant
+		// is not this command's to guess.
+		if slices.ContainsFunc(sites, func(s Site) bool { return s.Name == site.Name && s.File != site.File }) {
+			continue
+		}
+
+		if site.RenameTo != "" && strings.HasSuffix(site.File, ".go") {
+			return "wavez rename ./" + path.Dir(site.File) + ":" + site.Name + " " + site.RenameTo
+		}
+	}
+
+	return ""
 }
 
 // goTest is the command that tests the Go packages the sites are in, and ""
