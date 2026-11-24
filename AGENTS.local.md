@@ -43,3 +43,6 @@ holds the traps that are not visible from the code.
   The gates build with `go list -export`
 - The golden pages under `internal/report/testdata` regenerate with
   `go test ./internal/report -update`. No other package defines the flag
+- The stop-stage checks are off by default (`stop_checks`). A change that
+  makes any default run more at the end of a turn needs a benchmark showing
+  it is worth the wall clock

@@ -93,27 +93,14 @@ func (c Check) Select(changed []string) []string {
 // Config is a project's parsed configuration. The zero value is what a
 // project with no file gets, apart from MaxRounds, which Load fills in.
 type Config struct {
-	// Checks holds the declared checks in file order.
-	Checks []Check
-	// Disabled names the built-in checks the project turned off.
-	Disabled []string
-	// Decide says where the decision model is. The zero value is no model,
-	// and every question then gets its rule or its fallback.
-	Decide Decide
-	// MaxRounds is how many times a stop may be refused over the same
-	// failure before the agent is let go. This package only carries it.
-	MaxRounds int
-	// StopBudget is how long one whole stop-stage run may take. Zero means
-	// the gate package's default, which this package cannot name without
-	// importing it.
+	Decide     Decide
+	Checks     []Check
+	Disabled   []string
+	MaxRounds  int
 	StopBudget time.Duration
-	// Route turns on the hint that tells the agent whether a prompt is
-	// direct work, exploration, or work to split. It is off until a
-	// benchmark shows it pays.
-	Route bool
-	// Announce says whether a session's start tells the agent that the gates
-	// run by themselves.
-	Announce bool
+	StopChecks bool
+	Route      bool
+	Announce   bool
 }
 
 // Decide locates the decision model: an OpenAI-compatible chat completions

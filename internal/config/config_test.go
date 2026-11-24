@@ -285,6 +285,35 @@ func TestLoad_StopBudgetAndAnnounce(t *testing.T) {
 	}
 }
 
+func TestLoad_StopChecks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"left out, the stop checks are off", "max_rounds = 2\n", false},
+		{"turned on", "stop_checks = true\n", true},
+		{"turned off", "stop_checks = false\n", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(write(t, tt.body))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			if cfg.StopChecks != tt.want {
+				t.Errorf("got stop checks %v, want %v", cfg.StopChecks, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoad_NoFileAnnounces(t *testing.T) {
 	t.Parallel()
 

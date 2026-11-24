@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -134,40 +135,69 @@ func TestHook_EventsThatNeedNoGate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, strings.Count(string(trace), "\n"))
 	assert.Contains(t, string(trace), `"event":"Stop"`)
-	assert.Contains(t, string(trace), `"note":"nothing changed"`)
+	assert.Contains(t, string(trace), `"note":"stop checks are off"`)
 }
 
-func TestHook_SessionStartAnnouncesTheGates(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "hook.log")
-	t.Setenv(hook.TraceEnv, logPath)
+func TestHook_SessionStartSentence(t *testing.T) {
+	const (
+		targeted = "Check your work with the narrowest command that covers it: the tests, build, or " +
+			"type check for the files or packages you changed. Do not run whole-project build, test, lint, " +
+			"or type-check commands; CI runs those."
+		gated = "Format, build and tests for the packages you change run automatically when you finish; " +
+			"do not run whole-project build or test commands yourself."
+	)
 
-	root := goProject(t)
-	stdin := event(t, map[string]any{
-		"session_id": "s1", "cwd": root, "hook_event_name": "SessionStart", "source": "startup",
-	})
+	tests := []struct {
+		name   string
+		config string
+		want   string
+		note   string
+	}{
+		{name: "stop checks off asks for targeted checks", want: targeted, note: "announced targeted checks"},
+		{
+			name: "stop checks on says they run by themselves", config: "stop_checks = true\n",
+			want: gated, note: "announced the gates",
+		},
+	}
 
-	code, out, errOut := invoke(t, stdin, "hook")
-	require.Equal(t, 0, code, errOut)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "hook.log")
+			t.Setenv(hook.TraceEnv, logPath)
+			t.Setenv(hook.AnnounceEnv, "")
 
-	var answer map[string]map[string]string
+			root := goProject(t)
+			if tt.config != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(root, ".wavez.toml"), []byte(tt.config), 0o600))
+			}
 
-	require.NoError(t, json.Unmarshal([]byte(out), &answer), out)
-	assert.Equal(t, map[string]map[string]string{"hookSpecificOutput": {
-		"hookEventName": "SessionStart",
-		"additionalContext": "Format, build and tests for the packages you change run automatically when you finish; " +
-			"do not run whole-project build or test commands yourself.",
-	}}, answer)
+			stdin := event(t, map[string]any{
+				"session_id": "s1", "cwd": root, "hook_event_name": "SessionStart", "source": "startup",
+			})
 
-	trace, err := os.ReadFile(logPath) //nolint:gosec // a file this test wrote
-	require.NoError(t, err)
-	assert.Contains(t, string(trace), `"note":"announced the gates"`)
-	assert.Contains(t, string(trace), `"agent_bytes":144`, "the trace carries what the sentence cost")
+			code, out, errOut := invoke(t, stdin, "hook")
+			require.Equal(t, 0, code, errOut)
 
-	t.Setenv(hook.AnnounceEnv, "0")
+			var answer map[string]map[string]string
 
-	code, out, errOut = invoke(t, stdin, "hook")
-	assert.Equal(t, 0, code, errOut)
-	assert.Empty(t, out, "WAVEZ_ANNOUNCE=0 is the arm of a benchmark that goes without the sentence")
+			require.NoError(t, json.Unmarshal([]byte(out), &answer), out)
+			assert.Equal(t, map[string]map[string]string{"hookSpecificOutput": {
+				"hookEventName": "SessionStart", "additionalContext": tt.want,
+			}}, answer)
+
+			trace, err := os.ReadFile(logPath) //nolint:gosec // a file this test wrote
+			require.NoError(t, err)
+			assert.Contains(t, string(trace), `"note":"`+tt.note+`"`)
+			assert.Contains(t, string(trace), fmt.Sprintf(`"agent_bytes":%d`, len(tt.want)),
+				"the trace carries what the sentence cost")
+
+			t.Setenv(hook.AnnounceEnv, "0")
+
+			code, out, errOut = invoke(t, stdin, "hook")
+			assert.Equal(t, 0, code, errOut)
+			assert.Empty(t, out, "WAVEZ_ANNOUNCE=0 is the arm of a benchmark that goes without the sentence")
+		})
+	}
 }
 
 func TestHook_EventFromNowhereWritesNothing(t *testing.T) {

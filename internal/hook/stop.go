@@ -76,6 +76,8 @@ const (
 	statusPassed    = "checks passed"
 	statusAbstained = "checks could not run"
 	statusFailing   = "checks still failing"
+	// StatusNotRun is a project with the stop checks off.
+	statusNotRun = "not run"
 	// The two below are the same verdicts met again on an unchanged tree.
 	statusPassedBefore    = "passed before"
 	statusAbstainedBefore = "abstained before"
@@ -89,6 +91,8 @@ func said(status string) string {
 		return statusPassed
 	case statusAbstainedBefore:
 		return statusAbstained
+	case statusNotRun:
+		return ""
 	default:
 		return status
 	}
@@ -115,6 +119,12 @@ func (h *Handler) gated(ctx context.Context, store *session.Store, ev Event, rec
 	}
 
 	rec.Changed = changed
+
+	if h.unchecked {
+		rec.Note = "stop checks are off"
+
+		return output{}, statusNotRun, nil
+	}
 
 	if note, status := h.settled(state, changed, before); note != "" {
 		rec.Note = note
@@ -343,7 +353,10 @@ func (s summary) line() string {
 			noun = "file"
 		}
 
-		parts = append(parts, fmt.Sprintf("%d %s changed", s.changed, noun), said(s.status))
+		parts = append(parts, fmt.Sprintf("%d %s changed", s.changed, noun))
+		if words := said(s.status); words != "" {
+			parts = append(parts, words)
+		}
 	}
 
 	if s.goal != "" {

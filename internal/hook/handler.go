@@ -78,6 +78,8 @@ type Handler struct {
 	maxRounds  int
 	// quiet turns the SessionStart announcement off.
 	quiet bool
+	// unchecked ends a turn without running the stop-stage checks.
+	unchecked bool
 	// stopBudget is how long the gates may run at a stop, which sets how long
 	// the goal check may run after them.
 	stopBudget time.Duration
@@ -131,6 +133,13 @@ func WithStopBudget(budget time.Duration) Option {
 // gates run by themselves.
 func WithoutAnnouncement() Option {
 	return func(h *Handler) { h.quiet = true }
+}
+
+// WithoutStopChecks ends a turn without running the stop-stage checks. The
+// session's changes are still followed, so the goal, the end-of-turn line,
+// and the edit-stage checks work as they do with them.
+func WithoutStopChecks() Option {
+	return func(h *Handler) { h.unchecked = true }
 }
 
 // New returns a Handler that runs gates through runner.

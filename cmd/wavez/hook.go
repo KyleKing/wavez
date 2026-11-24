@@ -111,6 +111,10 @@ func handleHook(ctx context.Context, streams stdio) error {
 		opts = append(opts, hook.WithStopBudget(budget))
 	}
 
+	if !cfg.StopChecks {
+		opts = append(opts, hook.WithoutStopChecks())
+	}
+
 	if !announces(cfg) {
 		opts = append(opts, hook.WithoutAnnouncement())
 	}
