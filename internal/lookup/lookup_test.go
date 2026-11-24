@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -132,4 +133,41 @@ func TestFind(t *testing.T) {
 	}
 
 	assert.Empty(t, lookup.Find(t.Context(), t.TempDir(), "ParseActionID"), "outside a repository nothing is found")
+}
+
+func TestBrief(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+
+	got := lookup.Brief(root, lookup.Find(t.Context(), root, "ParseActionID accepts an empty part"))
+	for _, want := range []string{
+		"ParseActionID is declared at pkg/types/action.go:4",
+		"--- pkg/types/action.go lines 3-4\n3\t// ParseActionID parses.\n4\tfunc ParseActionID() {}\n",
+		"--- pkg/types/action_test.go lines 3-3\n3\tfunc TestParse(t *testing.T) { ParseActionID() }\n",
+		"wavez apply <<'WAVEZ'",
+	} {
+		assert.Contains(t, got, want)
+	}
+
+	assert.NotContains(t, got, "far_test.go", "a test elsewhere is left out when one sits beside the declaration")
+
+	python := lookup.Brief(root, lookup.Find(t.Context(), root, "create_chunks in sdk/util/chunks.py drops the tail"))
+	assert.Contains(t, python, "--- sdk/util/chunks.py lines 1-2\n1\tdef create_chunks(xs, n):\n2\t    return xs\n")
+	assert.Contains(t, python, "--- sdk/tests/test_chunks.py lines 1-1\n")
+
+	assert.Empty(t, lookup.Brief(root, nil))
+}
+
+func TestExcerpts_StopAtTheBudget(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	body := strings.Repeat("\tprintln(\"a line of the body that is long enough to add up\")\n", 400)
+	long := "package big\n\nfunc BigOne() {\n" + body + "}\n"
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.go"), []byte(long), 0o600))
+
+	got := lookup.Excerpts(root, []lookup.Site{{Name: "BigOne", File: "big.go", Line: 3}})
+	assert.Equal(t, "(more left out: read big.go for the rest)\n", got)
 }

@@ -36,7 +36,12 @@ func (h *Handler) prompted(ctx context.Context, ev Event, rec *record) output {
 
 		cancel()
 
-		if hint := lookup.Hint(sites); hint != "" {
+		hint := lookup.Hint(sites)
+		if h.brief {
+			hint = lookup.Brief(rec.Root, sites)
+		}
+
+		if hint != "" {
 			rec.Note = "located " + strconv.Itoa(len(sites))
 			parts = append(parts, hint)
 		}

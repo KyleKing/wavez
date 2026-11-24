@@ -34,6 +34,9 @@ const (
 	// ArmWavezLocate is the wavez arm that is told, with each prompt, where
 	// the identifiers it names are declared and tested.
 	ArmWavezLocate Arm = "wavez-locate"
+	// ArmWavezBrief is the wavez-locate arm that is handed the source of
+	// what was found as well, and the command that edits and checks at once.
+	ArmWavezBrief Arm = "wavez-brief"
 )
 
 // setting is one top-level key of a .wavez.toml and the value an arm gives
@@ -74,6 +77,7 @@ var armSpecs = []armSpec{
 		settings: []setting{{key: "stop_checks", value: on}, {key: "warm", value: on}},
 	},
 	{name: ArmWavezLocate, wired: true, settings: []setting{{key: "locate", value: on}}},
+	{name: ArmWavezBrief, wired: true, settings: []setting{{key: "brief", value: on}}},
 }
 
 // Arms lists the arms in the order a report shows them.

@@ -221,6 +221,27 @@ Hatchet it answers in under half a second. It is off by default until the
 `wavez-locate` arm shows it saves a turn, since the lines it adds are paid
 for on every later turn.
 
+### From the prompt to one command
+
+A session's time and cost follow its turns. In the twelve baseline sessions
+of the wide Hatchet runs the model's own time was 11.3 of 17.4 seconds, and
+in the one whose token counts were read nearly all the cost was the
+conversation read back from cache on each of its turns: about 308,000
+cached tokens against 2,400 written. A check that runs faster moves
+neither. Fewer turns move both.
+
+`brief = true` is `locate` with the source handed over: each declaration
+whole, the test functions beside it that mention it, numbered, up to 8,000
+bytes, and the form of `wavez apply`. That command takes every edit of a
+change at once, as the lines to replace and their replacement, writes all
+of them or none, and runs the build and the tests that reach the change.
+Lint is left to `wavez check`, because in a tree new to the linter's cache
+it type-checks every dependency from source. On a fresh Hatchet worktree a
+two-edit apply with its checks took 6.6 seconds. A session that uses both
+is a prompt, one command, and an answer, where the sessions measured so far
+took five or six turns. Whether a model does use them is what the
+`wavez-brief` arm is for, and it has not been run.
+
 ### Checks ahead of the question
 
 A harness can only check when the agent asks or when the turn ends, and
@@ -536,8 +557,9 @@ for itself.
 - **A result on longer tasks, and more than one repetition.** Both paired
   runs are one repetition on small tasks
 - **A benchmark since the last four fixes to `wavez check`,** and any
-  benchmark of `locate`, `warm`, or `commit_checks`. The `wavez-locate` and
-  `wavez-warm` arms exist and have not been run. The reused passes and the
+  benchmark of `locate`, `brief`, `warm`, or `commit_checks`. The
+  `wavez-locate`, `wavez-brief`, and `wavez-warm` arms exist and have not
+  been run. The reused passes and the
   jj paths are unmeasured on any task set
 - **Lint that survives a new path.** golangci-lint keys its cache on file
   paths, so in a fresh worktree it type-checks from source: about 10 of the

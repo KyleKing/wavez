@@ -122,7 +122,10 @@ type Config struct {
 	Warm bool
 	// Locate tells the agent, with each prompt, where the identifiers it
 	// names are declared and tested.
-	Locate   bool
+	Locate bool
+	// Brief hands over the source of what Locate finds as well, and the
+	// command that edits and checks in one step.
+	Brief    bool
 	Route    bool
 	Announce bool
 }

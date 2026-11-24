@@ -83,6 +83,7 @@ stop_checks = false     # true: build, test, lint at the end of every turn
 commit_checks = false   # true: a commit or push waits, once, for `wavez check` to pass
 warm = false            # true: run the checks in the background as files are written
 locate = false          # true: tell the agent where the names in each prompt are declared and tested
+brief = false           # true: hand over their source too, and the command that edits and checks at once
 max_rounds = 3          # the same failure this many times releases the agent
 stop_budget = "2m30s"   # how long one stop run may take in all; init sizes the Stop hook to it
 announce = true         # tell the agent at session start that the gates run
@@ -143,6 +144,14 @@ compilers' documentation and has not been timed here on a large app.
 
 `ruff check {files}`, `pyright {files}`, and `ty check {files}` take files
 directly.
+
+`wavez apply` makes several edits and checks them in one command. It reads
+the edits on stdin, each the exact lines to replace and their replacement
+under a `=== path` line, writes all of them or none, then builds and runs
+the tests that reach the change, leaving lint to `wavez check`. `wavez apply
+--help` shows the format. With `brief = true` each prompt that names a
+symbol is answered with that symbol's source and its tests' and with how to
+call `wavez apply`, so a session can go from the prompt to one command.
 
 With `warm = true`, every write starts the session's checks in a background
 process at low priority, and a session's start compiles the module. Nothing
