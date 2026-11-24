@@ -20,12 +20,14 @@ const shapeBudget = 5 * time.Second
 // started.
 const headRef = "HEAD"
 
-// shape is a Go source file with the inside of every function body removed:
-// the declarations, the imports, and every comment and directive outside a
-// body, byte for byte. Two versions of a file with one shape give every
-// importer the same thing to compile against, so a package that imports one
-// and compiled before the change compiles after it. It reports false for a
-// file that does not parse.
+// shape is a Go source file with its imports and the inside of every
+// function body removed: the declarations, and every comment and directive
+// outside a body, byte for byte. Two versions of a file with one shape give
+// every importer the same thing to compile against, so a package that
+// imports one and compiled before the change compiles after it. An import
+// the file gained can break only its own package, by a cycle or a name that
+// does not resolve, and that package is always compiled. It reports false
+// for a file that does not parse.
 func shape(src []byte) ([]byte, bool) {
 	fset := token.NewFileSet()
 
@@ -39,19 +41,39 @@ func shape(src []byte) ([]byte, bool) {
 		from int
 	)
 
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
-			continue
+	// cut drops src[open:shut] from what is kept.
+	cut := func(open, shut int) bool {
+		if open < from || shut < open || shut > len(src) {
+			return false
 		}
 
-		open, shut := fset.Position(fn.Body.Lbrace).Offset, fset.Position(fn.Body.Rbrace).Offset
-		if open < from || shut < open || shut > len(src) {
+		out.Write(src[from:open])
+		from = shut
+
+		return true
+	}
+
+	for _, decl := range file.Decls {
+		open, shut := 0, 0
+
+		switch d := decl.(type) {
+		case *ast.GenDecl:
+			if d.Tok != token.IMPORT {
+				continue
+			}
+
+			open, shut = fset.Position(d.Pos()).Offset, fset.Position(d.End()).Offset
+		case *ast.FuncDecl:
+			if d.Body == nil {
+				continue
+			}
+
+			open, shut = fset.Position(d.Body.Lbrace).Offset+1, fset.Position(d.Body.Rbrace).Offset
+		}
+
+		if !cut(open, shut) {
 			return nil, false
 		}
-
-		out.Write(src[from : open+1])
-		from = shut
 	}
 
 	out.Write(src[from:])

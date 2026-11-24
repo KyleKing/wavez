@@ -81,6 +81,7 @@ func commands() []command {
 		{name: "hook", summary: "handle one Claude Code hook event read from stdin", run: runHook},
 		{name: "check", summary: "check what changed: fixers, then build, test, lint, and your own", run: runCheck},
 		{name: "gate", run: runGate},
+		{name: "warm", run: runWarm},
 		{name: "rename", summary: "rename a Go symbol and every reference to it", run: runRename},
 		{name: "move", summary: "move Go declarations to another file in the package", run: runMove},
 		{name: "delete", summary: "delete Go declarations nothing else uses", run: runDelete},

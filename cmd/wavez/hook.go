@@ -14,6 +14,7 @@ import (
 	"github.com/kyleking/wavez/internal/decide"
 	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/hook"
+	"github.com/kyleking/wavez/internal/warm"
 )
 
 // stopBudgetEnv names the environment variable that sets how long one stop
@@ -113,6 +114,14 @@ func handleHook(ctx context.Context, streams stdio) error {
 
 	if !cfg.StopChecks {
 		opts = append(opts, hook.WithoutStopChecks())
+	}
+
+	if cfg.Locate {
+		opts = append(opts, hook.WithLocate())
+	}
+
+	if cfg.Warm {
+		opts = append(opts, hook.WithWarm(warmStart, warm.Wait))
 	}
 
 	if cfg.CommitChecks {

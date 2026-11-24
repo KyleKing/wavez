@@ -226,3 +226,38 @@ var errRead = errors.New("disk gone")
 type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errRead }
+
+func TestHandle_UserPromptSubmit_SaysWhereANamedSymbolIs(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+	write(t, root, "sub/parse.go", "package sub\n\n// ParseThing parses.\nfunc ParseThing() {}\n")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-qm", "parse")
+
+	tests := []struct {
+		name   string
+		prompt string
+		want   string
+		opts   []hook.Option
+	}{
+		{
+			name: "a name the repository declares", opts: []hook.Option{hook.WithLocate()},
+			prompt: "ParseThing drops its argument",
+			want: "wavez looked these up, so you need not search for them:\n" +
+				"ParseThing is declared at sub/parse.go:4\nTo check: go test ./sub/",
+		},
+		{name: "a prompt that names nothing", opts: []hook.Option{hook.WithLocate()}, prompt: "tidy the readme"},
+		{name: "the lookup is off", prompt: "ParseThing drops its argument"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := fire(t, hook.New(&fakeRunner{}, tt.opts...), prompt(root, tt.prompt))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, res.Specific.AdditionalContext)
+		})
+	}
+}

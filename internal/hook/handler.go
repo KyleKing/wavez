@@ -73,22 +73,29 @@ type Handler struct {
 	// goals checks the project's goal at the end of a turn: a line for the
 	// person, text for the agent, and whether the turn should be held.
 	goals func(ctx context.Context, root string) (person, agent string, hold bool, err error)
+	// warm starts a background run of the session's checks, or with prewarm
+	// only fills the build cache, and returns at once. waitWarm returns when
+	// no such run is alive. Both are nil while the project has warming off.
+	warm     func(root, id string, prewarm bool) error
+	waitWarm func(ctx context.Context, root, id string)
 	// projectDir is where the harness says the session started.
 	projectDir string
 	// envFile is where the harness reads variables for the session's
 	// later shell commands from.
 	envFile   string
 	maxRounds int
+	// stopBudget is how long the gates may run at a stop, which sets how long
+	// the goal check may run after them.
+	stopBudget time.Duration
 	// quiet turns the SessionStart announcement off.
 	quiet bool
 	// unchecked ends a turn without running the stop-stage checks.
 	unchecked bool
+	// locate looks up the identifiers a prompt names.
+	locate bool
 	// commitChecks holds a commit or a push of changes `wavez check` has not
 	// passed on.
 	commitChecks bool
-	// stopBudget is how long the gates may run at a stop, which sets how long
-	// the goal check may run after them.
-	stopBudget time.Duration
 }
 
 // Option configures a Handler.
@@ -154,6 +161,34 @@ func WithoutAnnouncement() Option {
 // and the edit-stage checks work as they do with them.
 func WithoutStopChecks() Option {
 	return func(h *Handler) { h.unchecked = true }
+}
+
+// WithWarm makes the handler start a background run of the checks whenever
+// a file is written, and fill the build cache when a session starts. A stop
+// that would run the checks waits for the run in flight first, since its
+// answer is the one the stop is about to ask for.
+func WithWarm(
+	start func(root, id string, prewarm bool) error, wait func(ctx context.Context, root, id string),
+) Option {
+	return func(h *Handler) { h.warm, h.waitWarm = start, wait }
+}
+
+// warming starts a background run and notes a failure in the trace. A run
+// that could not start costs the time it would have saved and nothing else.
+func (h *Handler) warming(ev Event, rec *record, prewarm bool) {
+	if h.warm == nil {
+		return
+	}
+
+	if err := h.warm(rec.Root, ev.SessionID, prewarm); err != nil {
+		rec.Note = err.Error()
+	}
+}
+
+// WithLocate hands the agent, beside each prompt, where the identifiers the
+// prompt names are declared and which tests mention them.
+func WithLocate() Option {
+	return func(h *Handler) { h.locate = true }
 }
 
 // WithCommitChecks holds a shell command that commits or pushes until
@@ -242,6 +277,8 @@ func (h *Handler) dispatch(ctx context.Context, ev Event, rec *record) (output, 
 			rec.Note = err.Error()
 		}
 
+		h.warming(ev, rec, true)
+
 		return h.announced(ev, rec), nil
 	case eventUserPromptSubmit:
 		return h.prompted(ctx, ev, rec), nil
@@ -284,6 +321,9 @@ func (h *Handler) edited(ctx context.Context, store *session.Store, ev Event, re
 	if err != nil {
 		return output{}, wrap("edit gates", err)
 	}
+
+	// After the edit-stage fixers, so the run sees the bytes they left.
+	h.warming(ev, rec, false)
 
 	if verdict.Text == "" {
 		return output{}, nil

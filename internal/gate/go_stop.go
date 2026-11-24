@@ -37,6 +37,12 @@ const (
 	testShare    = 2
 	commandShare = 3
 	budgetParts  = 5
+	// The trimpath flag keeps the directory a tree is checked out in out of
+	// what go compiles, so that a worktree under a new path reads the
+	// module's packages back from the build cache instead of compiling
+	// every one of them again. Positions in compile errors stay relative to
+	// the package, and a panic's trace names files by import path.
+	trimpath = "-trimpath"
 	// The quietFormat template prints nothing for a package. An empty -f
 	// would mean go list's default, which prints the import path.
 	quietFormat = `{{""}}`
@@ -257,7 +263,7 @@ func (r *runner) goCompile(
 func (r *runner) compileOnly(root, goBin string, pkgs []string) invocation {
 	return invocation{
 		dir: root, name: goBin, timeout: r.commandTimeout(),
-		args: append([]string{"list", "-export", "-f", quietFormat, "--"}, pkgs...),
+		args: append([]string{"list", "-export", trimpath, "-f", quietFormat, "--"}, pkgs...),
 	}
 }
 
@@ -273,12 +279,12 @@ func (r *runner) goTests(
 	// which is also how a build failure found by the test run is put to
 	// the baseline tree. A binary run with -run '^$' still runs TestMain,
 	// which in some projects starts a database, so it is handed to true.
-	linkOnly := []string{goTest, "-run", "^$"}
+	linkOnly := []string{goTest, trimpath, "-run", "^$"}
 	if noop, err := r.lookPath("true"); err == nil {
 		linkOnly = append(linkOnly, "-exec", noop)
 	}
 
-	args := []string{goTest, r.testTimeout()}
+	args := []string{goTest, trimpath, r.testTimeout()}
 	if plan.run != "" {
 		args = append(args, "-run", plan.run)
 	}
@@ -353,6 +359,8 @@ func enabled(wantBuild bool, build Result, wantTest bool, test Result) []Result 
 // go's own first line as the reason. A failure keeps ev, so that it can be
 // compared with the baseline.
 func classifyGo(root string, res Result, out outcome, ev evidence) Result {
+	out.output = untrimmed(root, out.output)
+
 	switch {
 	case out.reason != "":
 		return res.abstain(out.reason)
@@ -372,4 +380,40 @@ func sourceFailure(line string) bool {
 	return goDiagnostic.MatchString(line) || testVerdict.MatchString(line) ||
 		strings.HasPrefix(line, "--- FAIL") || strings.HasPrefix(line, "panic:") ||
 		strings.Contains(line, "import cycle not allowed") || strings.HasPrefix(line, "found packages ")
+}
+
+// moduleLine matches the line of a go.mod that names the module.
+var moduleLine = regexp.MustCompile(`(?m)^module\s+(\S+)`)
+
+// tracedFile matches the line of a goroutine trace that names a file by a
+// path with no directory in front of it, as a binary built with -trimpath
+// names every file.
+var tracedFile = regexp.MustCompile(`(?m)^\t([^\s/][^\s:]*\.go:\d)`)
+
+// untrimmed puts directories back into the file names of a panic's trace. A
+// binary built with -trimpath names a file by import path, the module's own
+// and the standard library's alike, and what reads the trace tells the
+// project's frames from the rest by which paths are under the root. A file
+// of the module gets root in front of it, and every other file a slash, so
+// that it reads as outside the project, which it is.
+func untrimmed(root, output string) string {
+	mod, err := os.ReadFile(filepath.Join(root, "go.mod")) //nolint:gosec // the project's own go.mod
+	if err != nil {
+		return output
+	}
+
+	abs, err := filepath.Abs(root)
+	if m := moduleLine.FindSubmatch(mod); err == nil && m != nil {
+		own := string(m[1]) + "/"
+
+		return tracedFile.ReplaceAllStringFunc(output, func(line string) string {
+			if file := line[1:]; strings.HasPrefix(file, own) {
+				return "\t" + filepath.ToSlash(abs) + "/" + strings.TrimPrefix(file, own)
+			}
+
+			return "\t/" + line[1:]
+		})
+	}
+
+	return output
 }

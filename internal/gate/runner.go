@@ -28,6 +28,13 @@ func WithBudget(budget time.Duration) Option {
 	}
 }
 
+// WithoutFixers makes a run rewrite nothing: no formatter and no check's fix
+// command. It is for a run nobody is waiting on, which must not change a
+// file under an agent that is about to edit it.
+func WithoutFixers() Option {
+	return func(r *runner) { r.readOnly = true }
+}
+
 // New returns the Runner that loads the project's configuration from root on
 // each run.
 //
@@ -46,6 +53,8 @@ type runner struct {
 	selector Selector
 	budget   time.Duration
 	noCache  bool
+	// readOnly keeps the fixers from running.
+	readOnly bool
 }
 
 func (r *runner) cacheFor(root string) cache {
@@ -113,11 +122,14 @@ func (r *runner) Run(ctx context.Context, root string, changed []string, stage S
 		defer cancel()
 	}
 
-	results := r.format(ctx, proj, stage)
+	var results []Result
+	if !r.readOnly {
+		results = r.format(ctx, proj, stage)
+	}
 
 	checks := selectChecks(proj, stage)
 	for i := range checks {
-		if !r.cachedPass(proj, &checks[i]) {
+		if !r.readOnly && !r.cachedPass(proj, &checks[i]) {
 			checks[i].fixed = r.fix(ctx, proj.root, checks[i])
 		}
 	}
