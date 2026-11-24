@@ -123,7 +123,20 @@ func (h *Handler) gated(ctx context.Context, store *session.Store, ev Event, rec
 	if h.unchecked {
 		rec.Note = "stop checks are off"
 
+		// What `wavez check` or a background run found is still worth saying.
+		if _, status := h.settled(state, changed, before); status == statusPassedBefore ||
+			status == statusAbstainedBefore {
+			return output{}, status, nil
+		}
+
 		return output{}, statusNotRun, nil
+	}
+
+	// A background run on these bytes is doing the work this stop is about
+	// to ask for. Waiting for it and then reading its answers back from the
+	// caches costs less than doing the same work beside it.
+	if h.waitWarm != nil && len(changed) > 0 {
+		h.waitWarm(ctx, rec.Root, ev.SessionID)
 	}
 
 	if note, status := h.settled(state, changed, before); note != "" {

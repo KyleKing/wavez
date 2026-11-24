@@ -53,3 +53,9 @@ holds the traps that are not visible from the code.
 - `shellSegments` drops here-document bodies itself. Passing it a command
   that already went through `withoutHeredocs` drops the lines after the
   first body as well
+- `filepath.Abs` comes before any walk up from a directory named by hand.
+  `wavez check` run from a subdirectory once took "." for the root and
+  reported nothing to check
+- The Go build and test commands carry `-trimpath`, and `untrimmed` puts the
+  directories back into a panic's trace. A new go command in the gates needs
+  the flag too, or it compiles the module again beside the others

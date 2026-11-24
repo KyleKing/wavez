@@ -49,6 +49,13 @@ func runGate(ctx context.Context, args []string, streams stdio) error {
 }
 
 func checkAs(ctx context.Context, name string, args []string, streams stdio) error {
+	return checkWith(ctx, name, args, streams, false)
+}
+
+// checkWith runs the checks. Ahead is a run made before anyone asked for it:
+// it rewrites no file and records nothing in the session, so that all it
+// leaves is what the tools and wavez cache.
+func checkWith(ctx context.Context, name string, args []string, streams stdio, ahead bool) error {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.SetOutput(streams.err)
 
@@ -78,15 +85,9 @@ func checkAs(ctx context.Context, name string, args []string, streams stdio) err
 		return err
 	}
 
-	for _, file := range flags.Args() {
-		if _, statErr := os.Lstat(file); statErr != nil {
-			sayf(streams.err, "wavez %s: %s does not exist; it is checked as a file that was deleted\n", name, file)
-		}
-	}
+	noteMissing(streams, name, flags.Args())
 
-	opts := withSelector(root, handOptions(projectConfig(root)))
-
-	report, err := gate.New(opts...).Run(ctx, root, changed, gate.Stage(*stage))
+	report, err := gate.New(checkOptions(root, ahead)...).Run(ctx, root, changed, gate.Stage(*stage))
 	if err != nil {
 		return fmt.Errorf("running checks: %w", err)
 	}
@@ -95,7 +96,7 @@ func checkAs(ctx context.Context, name string, args []string, streams stdio) err
 		return err
 	}
 
-	if source == sessionSource && gate.Stage(*stage) == gate.StageStop {
+	if source == sessionSource && gate.Stage(*stage) == gate.StageStop && !ahead {
 		remembered(ctx, root, name, report, streams)
 	}
 
@@ -149,6 +150,27 @@ func checkScope(
 
 // sessionSource is what checkScope calls the changes of an agent session.
 const sessionSource = "the session"
+
+// noteMissing says which named files are not there, since each is then
+// checked as a file that was deleted.
+func noteMissing(streams stdio, name string, files []string) {
+	for _, file := range files {
+		if _, err := os.Lstat(file); err != nil {
+			sayf(streams.err, "wavez %s: %s does not exist; it is checked as a file that was deleted\n", name, file)
+		}
+	}
+}
+
+// checkOptions is the runner's options for a run started from the shell,
+// and with the fixers off for one made ahead.
+func checkOptions(root string, ahead bool) []gate.Option {
+	opts := withSelector(root, handOptions(projectConfig(root)))
+	if ahead {
+		opts = append(opts, gate.WithoutFixers())
+	}
+
+	return opts
+}
 
 // remembered records the report in the session and says so on stderr when it
 // could not. The report is printed and stands either way.

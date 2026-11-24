@@ -81,6 +81,8 @@ For anything else, declare checks in `.wavez.toml`:
 ```toml
 stop_checks = false     # true: build, test, lint at the end of every turn
 commit_checks = false   # true: a commit or push waits, once, for `wavez check` to pass
+warm = false            # true: run the checks in the background as files are written
+locate = false          # true: tell the agent where the names in each prompt are declared and tested
 max_rounds = 3          # the same failure this many times releases the agent
 stop_budget = "2m30s"   # how long one stop run may take in all; init sizes the Stop hook to it
 announce = true         # tell the agent at session start that the gates run
@@ -141,6 +143,13 @@ compilers' documentation and has not been timed here on a large app.
 
 `ruff check {files}`, `pyright {files}`, and `ty check {files}` take files
 directly.
+
+With `warm = true`, every write starts the session's checks in a background
+process at low priority, and a session's start compiles the module. Nothing
+waits on either and neither says anything: the point is what they leave in
+the build, test, and lint caches, so that `wavez check` or the stop checks
+read most of their answers back. A background run rewrites no file, a newer
+one ends the one before it, and a stop waits for the one in flight.
 
 With `commit_checks = true`, a shell command that commits or pushes (`git
 commit`, `git push`, `jj commit`, `jj git push`) is held once while the

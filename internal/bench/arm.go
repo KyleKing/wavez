@@ -28,6 +28,12 @@ const (
 	// ArmWavezGates is the wavez arm with the stop-stage checks turned on
 	// in the workspace's .wavez.toml.
 	ArmWavezGates Arm = "wavez-gates"
+	// ArmWavezWarm is the wavez-gates arm with the checks also run in the
+	// background each time a file is written.
+	ArmWavezWarm Arm = "wavez-warm"
+	// ArmWavezLocate is the wavez arm that is told, with each prompt, where
+	// the identifiers it names are declared and tested.
+	ArmWavezLocate Arm = "wavez-locate"
 )
 
 // setting is one top-level key of a .wavez.toml and the value an arm gives
@@ -63,6 +69,11 @@ var armSpecs = []armSpec{
 	{name: ArmWavezQuiet, wired: true, env: []string{"WAVEZ_ANNOUNCE=0"}},
 	{name: ArmWavezRoute, wired: true, settings: []setting{{key: "route", value: on}}},
 	{name: ArmWavezGates, wired: true, settings: []setting{{key: "stop_checks", value: on}}},
+	{
+		name: ArmWavezWarm, wired: true,
+		settings: []setting{{key: "stop_checks", value: on}, {key: "warm", value: on}},
+	},
+	{name: ArmWavezLocate, wired: true, settings: []setting{{key: "locate", value: on}}},
 }
 
 // Arms lists the arms in the order a report shows them.

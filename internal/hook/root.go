@@ -54,6 +54,13 @@ func ResolveRoot(projectDir, cwd string) (string, bool) {
 // workspace the directory is in, and without one the nearest go.mod. A directory with no
 // marker above it is its own root.
 func FindRoot(dir string) string {
+	// A relative directory has no parent to walk up to: the parent of "." is
+	// ".", so a run started below the root would take where it stands for
+	// the root and find nothing to check.
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+
 	dir = filepath.Clean(dir)
 
 	if root, ok := locate(dir); ok {

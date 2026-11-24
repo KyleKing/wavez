@@ -31,7 +31,7 @@ func TestShape(t *testing.T) {
 		{name: "a struct field", edit: replace("n int", "n int64")},
 		{name: "a build constraint", edit: replace("linux", "darwin")},
 		{name: "a doc comment", edit: replace("reads n", "returns n")},
-		{name: "an import", edit: replace(`import "fmt"`, "import (\n\t\"fmt\"\n\t_ \"os\"\n)")},
+		{name: "an import", edit: replace(`import "fmt"`, "import (\n\t\"fmt\"\n\t_ \"os\"\n)"), same: true},
 		{name: "a variable's initializer", edit: replace("return 1", "return 2")},
 		{name: "a new function", edit: func(s string) string { return s + "\nfunc More() {}\n" }},
 	}

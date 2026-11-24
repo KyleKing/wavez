@@ -664,9 +664,16 @@ func TestRunner_ACheckThatHangsFailsTheRunAndIsNotWaitedFor(t *testing.T) {
 func TestParseArm(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, []bench.Arm{"baseline", "wavez", "wavez-quiet", "wavez-route", "wavez-gates"}, bench.Arms())
+	names := []string{"baseline", "wavez", "wavez-quiet", "wavez-route", "wavez-gates", "wavez-warm", "wavez-locate"}
 
-	for _, name := range []string{"baseline", "wavez", "wavez-quiet", "wavez-route", "wavez-gates"} {
+	arms := make([]bench.Arm, 0, len(names))
+	for _, name := range names {
+		arms = append(arms, bench.Arm(name))
+	}
+
+	assert.Equal(t, arms, bench.Arms())
+
+	for _, name := range names {
 		arm, err := bench.ParseArm(name)
 		require.NoError(t, err)
 		assert.Equal(t, bench.Arm(name), arm)
@@ -678,7 +685,7 @@ func TestParseArm(t *testing.T) {
 
 	require.ErrorAs(t, err, &unknown)
 	assert.Contains(t, err.Error(), "control")
-	assert.Contains(t, err.Error(), "baseline, wavez, wavez-quiet, wavez-route, wavez-gates")
+	assert.Contains(t, err.Error(), "baseline, wavez, wavez-quiet, wavez-route, wavez-gates, wavez-warm, wavez-locate")
 }
 
 func TestBinaryVersion(t *testing.T) {

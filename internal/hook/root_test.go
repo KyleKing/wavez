@@ -1,10 +1,12 @@
 package hook_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kyleking/wavez/internal/hook"
 )
@@ -58,4 +60,25 @@ func TestFindRoot_WalkEndsWhereTheParentStopsChanging(t *testing.T) {
 	}
 
 	assert.Equal(t, string(filepath.Separator), hook.FindRoot(string(filepath.Separator)))
+}
+
+// A run started below the root names its directory ".", which has no parent
+// to walk up to until it is made absolute.
+//
+//nolint:paralleltest // it changes the working directory
+func TestFindRoot_FromBelowTheRootByARelativePath(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "pkg", "deep")
+
+	require.NoError(t, os.MkdirAll(sub, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n"), 0o600))
+
+	resolved, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+
+	t.Chdir(sub)
+
+	got, err := filepath.EvalSymlinks(hook.FindRoot("."))
+	require.NoError(t, err)
+	assert.Equal(t, resolved, got)
 }

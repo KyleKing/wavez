@@ -117,8 +117,14 @@ type Config struct {
 	// CommitChecks holds a commit or a push until `wavez check` has passed
 	// on what the session changed.
 	CommitChecks bool
-	Route        bool
-	Announce     bool
+	// Warm runs the checks in the background each time a file is written,
+	// so that a later run reads most of its answers back.
+	Warm bool
+	// Locate tells the agent, with each prompt, where the identifiers it
+	// names are declared and tested.
+	Locate   bool
+	Route    bool
+	Announce bool
 }
 
 // Decide locates the decision model: an OpenAI-compatible chat completions

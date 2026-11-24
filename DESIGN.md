@@ -208,6 +208,39 @@ detest cannot trust its selection (no trace, a stale one, a dependency or
 test-config change) or fails, every test runs as before. A selection is
 never allowed to pass a change on a guess.
 
+### Where the prompt's names are
+
+Most sessions open with a search for a name the prompt already gave. With
+`locate = true` the UserPromptSubmit hook does that lookup with `git grep`
+before the model starts: for each identifier in the prompt, the file and
+line that declares it, the test files beside it that mention it, and for Go
+the command that tests its package. It says nothing for a name declared
+nowhere, or in more than two places unless the prompt names the file, and
+nothing for a capitalized constant, which is as often a word of prose. On
+Hatchet it answers in under half a second. It is off by default until the
+`wavez-locate` arm shows it saves a turn, since the lines it adds are paid
+for on every later turn.
+
+### Checks ahead of the question
+
+A harness can only check when the agent asks or when the turn ends, and
+either way somebody waits. Wavez sits under the harness and sees every
+write, and the machine is idle while the model generates its next step.
+`warm = true` uses that time: each write starts `wavez warm`, a detached
+process at low priority that runs the session's stop-stage checks with the
+fixers off and throws the report away. What it leaves is the compiler's
+cache, the test results go keeps, the lint cache, and the passes wavez
+keeps, so the run somebody does wait for, at a stop or from `wavez check`,
+mostly reads answers back. A session's start does the same for the module's
+packages, which a tree under a new path compiles from nothing.
+
+One warm run per session is alive: it holds a lock on a file beside the
+session's state, a newer run asks it to end, and a stop that is about to
+run the checks waits for it instead of doing the same work beside it. It
+records nothing in the session, so a pass is still only what a run that
+was asked for found, fixers included. It is off by default and has no
+benchmark yet; the `wavez-warm` arm is the stop checks with it on.
+
 ### Checks before a commit
 
 `commit_checks = true` makes the PreToolUse hook hold a shell command that
@@ -415,7 +448,29 @@ package it changed and stopped, in 13 to 41 seconds. The wavez arm ran
 `wavez check`, which recompiled every importer of the changed package, about
 45 seconds in a fresh worktree, to guard against a break none of these edits
 could cause. The run is what led to compiling importers only when a
-declaration changed; it has not been repeated since.
+declaration changed.
+
+The same six tasks again with that change, same model and day: both arms
+6 of 6, turns 1.03x (p 0.84), cost 1.01x (p 0.94), wall clock 2.13x
+(p 0.062). Three tasks ran level with the baseline, and three still took
+about four times as long. Reading those three sessions found four causes,
+all fixed since and none benchmarked since:
+
+- the agent added an import, which counted as a changed declaration and
+  compiled every importer again
+- the same import made detest select every test that reaches the file, 220
+  tests in 15 packages where one reaches the edited function
+- a worktree under a new path compiled the module's packages from nothing,
+  which `-trimpath` on the build and test commands avoids after the first
+  run on a machine
+- `wavez check` run from a subdirectory took that directory for the project
+  root and checked nothing, which is why one of the level tasks was level
+
+Every session in these runs has the same shape in both arms: search for the
+symbol, read the source, read the test, edit both, run the test. Wavez
+touched only the last step, and replaced a two-second `go test` of one
+package with a slower command. The lookup beside the prompt and the
+background runs below are the first parts aimed at the other steps.
 
 One repetition is thin, and these tasks are small enough that the baseline
 finishes in three to seventeen turns and rarely runs a whole-project
@@ -480,10 +535,13 @@ for itself.
 
 - **A result on longer tasks, and more than one repetition.** Both paired
   runs are one repetition on small tasks
-- **A benchmark of `wavez check` since importers stopped being compiled for
-  a change to function bodies.** The one run before that found it four times
-  slower than the baseline on wide packages. The reused passes, the jj
-  paths, and `commit_checks` are unmeasured on any task set
+- **A benchmark since the last four fixes to `wavez check`,** and any
+  benchmark of `locate`, `warm`, or `commit_checks`. The `wavez-locate` and
+  `wavez-warm` arms exist and have not been run. The reused passes and the
+  jj paths are unmeasured on any task set
+- **Lint that survives a new path.** golangci-lint keys its cache on file
+  paths, so in a fresh worktree it type-checks from source: about 10 of the
+  21 seconds `wavez check` takes there on a one-function Hatchet edit
 - **A task where the unaided agent checks too much.** On every task so far
   the baseline tested the package it changed and nothing else, so there has
   been nothing for a targeted check to save. A slow whole-program type
