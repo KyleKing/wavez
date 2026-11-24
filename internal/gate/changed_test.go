@@ -114,3 +114,65 @@ func TestChanged_OutsideARepository(t *testing.T) {
 		t.Error("a root that does not exist returned no error")
 	}
 }
+
+// fakeJJ puts a stand-in jj first on an otherwise empty PATH, so git is not
+// found and a workspace at ws is asked through jj. Its diff prints diff, or
+// fails when diff is "fail".
+func fakeJJ(t *testing.T, ws, diff string) {
+	t.Helper()
+
+	bin := t.TempDir()
+	answer := "printf '%s\\n' " + diff
+	if diff == "fail" {
+		answer = "echo 'Error: the working copy is stale' >&2; exit 1"
+	}
+
+	writeFile(t, bin, "jj", "#!/bin/sh\ncase \"$1\" in\nroot) echo '"+ws+"' ;;\n"+
+		"diff) [ \"$PWD\" = '"+ws+"' ] || exit 9; "+answer+" ;;\n*) exit 2 ;;\nesac\n")
+	t.Setenv("PATH", bin)
+}
+
+// The fake jj replaces PATH for the whole process, so these do not run in
+// parallel.
+func TestChanged_AJJWorkspaceWithoutGit(t *testing.T) {
+	tests := []struct {
+		name    string
+		sub     string
+		diff    string
+		want    []string
+		jj      bool
+		wantErr bool
+	}{
+		{name: "the working-copy changes", jj: true, diff: "a.go sub/b.go", want: []string{"a.go", "sub/b.go"}},
+		{name: "a root below the workspace", jj: true, sub: "sub", diff: "a.go sub/b.go", want: []string{"b.go"}},
+		{name: "a failing jj is an error", jj: true, diff: "fail", wantErr: true},
+		{name: "a .jj without jj installed is not a repository", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ws, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			writeFile(t, ws, ".jj/repo/store/git/HEAD", "ref: refs/heads/main\n")
+			writeFile(t, ws, "sub/b.go", "package sub\n")
+
+			if tt.jj {
+				fakeJJ(t, ws, tt.diff)
+			} else {
+				t.Setenv("PATH", t.TempDir())
+			}
+
+			got, err := gate.Changed(t.Context(), filepath.Join(ws, tt.sub))
+			if (err != nil) != tt.wantErr || !slices.Equal(got, tt.want) {
+				t.Errorf("Changed() = %q, %v; want %q, error %v", got, err, tt.want, tt.wantErr)
+			}
+
+			if !tt.jj && !errors.Is(err, gate.ErrNotRepository) {
+				t.Errorf("got %v, want ErrNotRepository", err)
+			}
+		})
+	}
+}

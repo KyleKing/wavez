@@ -23,6 +23,9 @@ func TestFindRoot(t *testing.T) {
 	write(t, base, "plain/docs/readme.md", "")
 	write(t, base, "module/go.mod", "module m\n")
 	write(t, base, "module/internal/x/x.go", "package x\n")
+	write(t, base, "jj/.jj/repo/store/git/HEAD", "")
+	write(t, base, "jj/nested/go.mod", "module nested\n")
+	write(t, base, "jj/nested/pkg/a.go", "package pkg\n")
 
 	tests := []struct {
 		name string
@@ -35,6 +38,7 @@ func TestFindRoot(t *testing.T) {
 		{name: "a repository without modules", dir: "plain/docs", want: "plain"},
 		{name: "a module outside any repository", dir: "module/internal/x", want: "module"},
 		{name: "a directory that does not exist yet", dir: "module/internal/new/deeper", want: "module"},
+		{name: "a jj workspace without .git is a repository", dir: "jj/nested/pkg", want: "jj"},
 	}
 
 	for _, tt := range tests {
