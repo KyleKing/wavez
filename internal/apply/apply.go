@@ -22,6 +22,14 @@ const (
 	closeMark  = ">>>>>>>"
 )
 
+// Fill puts the framing lines into text written with %OPEN%, %SPLIT%, and
+// %CLOSE% in their place. Source that shows the format is written that way,
+// because a line that is only one of them reads as an unresolved merge to
+// every tool that looks for one.
+func Fill(text string) string {
+	return strings.NewReplacer("%OPEN%", openMark, "%SPLIT%", splitMark, "%CLOSE%", closeMark).Replace(text)
+}
+
 const (
 	filePerm = 0o644
 	dirPerm  = 0o750

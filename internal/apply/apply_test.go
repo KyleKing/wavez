@@ -11,24 +11,24 @@ import (
 	"github.com/kyleking/wavez/internal/apply"
 )
 
-const twoFiles = `=== a/a.go
-<<<<<<<
+var twoFiles = apply.Fill(`=== a/a.go
+%OPEN%
 func A() int { return 1 }
-=======
+%SPLIT%
 func A() int { return 2 }
->>>>>>>
+%CLOSE%
 
-<<<<<<<
-=======
+%OPEN%
+%SPLIT%
 
 func B() {}
->>>>>>>
+%CLOSE%
 === a/new_test.go
-<<<<<<<
-=======
+%OPEN%
+%SPLIT%
 package a
->>>>>>>
-`
+%CLOSE%
+`)
 
 func TestParse(t *testing.T) {
 	t.Parallel()

@@ -239,8 +239,27 @@ Lint is left to `wavez check`, because in a tree new to the linter's cache
 it type-checks every dependency from source. On a fresh Hatchet worktree a
 two-edit apply with its checks took 6.6 seconds. A session that uses both
 is a prompt, one command, and an answer, where the sessions measured so far
-took five or six turns. Whether a model does use them is what the
-`wavez-brief` arm is for, and it has not been run.
+took five or six turns.
+
+One paired run of the `wavez-brief` arm against the baseline, all fifteen
+Hatchet tasks once each on `claude-sonnet-5-5`, 30 sessions: turns 0.78x
+(p 0.071), cost 0.90x (p 0.125), wall clock 1.52x (p 0.060), and 14 of 15
+passed against 15 of 15. None of that is outside the noise. What the
+sessions show is narrower and clearer:
+
+- On the two tasks where the prompt named a Go function and the model
+  took the offer, the session was two turns. One went from 22 seconds and
+  $0.097 to 9 seconds and $0.052. The other was two turns and 57 seconds,
+  49 of them inside `wavez apply`, whose change reached 55 tests in other
+  packages that a fresh worktree had to compile and link
+- On six tasks the prompt named no identifier and the brief said nothing
+- On the rest the model had the source and still edited with a script of
+  its own, or read the files again
+- Every wall-clock loss was one `wavez check` or `wavez apply` of 18 to 59
+  seconds in a fresh worktree
+
+So the form works where it engages, it engages on too few prompts, and the
+check behind it is still paid for by somebody waiting.
 
 ### Checks ahead of the question
 

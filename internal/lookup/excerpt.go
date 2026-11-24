@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/kyleking/wavez/internal/apply"
 )
 
 const (
@@ -246,7 +248,7 @@ func Brief(root string, sites []Site) string {
 	}
 
 	return hint + "\nTheir current source follows, so you need not read these files before changing them.\n" +
-		source + applyHelp
+		source + apply.Fill(applyHelp)
 }
 
 // applyHelp tells the model how to make its edits and check them in one
@@ -254,11 +256,11 @@ func Brief(root string, sites []Site) string {
 const applyHelp = `To change files and check the result in one step, run wavez apply with every edit at once:
 wavez apply <<'WAVEZ'
 === path/to/file.go
-<<<<<<<
+%OPEN%
 exact lines to replace (no line numbers)
-=======
+%SPLIT%
 their replacement
->>>>>>>
+%CLOSE%
 WAVEZ
 An edit with nothing above the ======= appends to the file, and a path that does not exist is created.
 It formats the files, runs the tests that reach the change, and prints one line when they pass.

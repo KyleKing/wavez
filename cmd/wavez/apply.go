@@ -20,11 +20,11 @@ Makes every edit read from stdin, or none of them, then checks the result as
 wavez check does. An edit is the lines to replace and their replacement:
 
 === path/from/the/project/root.go
-<<<<<<<
+%OPEN%
 exact lines to replace
-=======
+%SPLIT%
 their replacement
->>>>>>>
+%CLOSE%
 
 Nothing above the ======= appends to the file, and creates it when it is not
 there. Several edits may follow one === line, and several files one another.
@@ -40,7 +40,7 @@ const maxEdits = 4 << 20
 func runApply(ctx context.Context, args []string, streams stdio) error {
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
 	flags.SetOutput(streams.err)
-	flags.Usage = func() { sayf(streams.err, "%s", applyUsage) }
+	flags.Usage = func() { sayf(streams.err, "%s", apply.Fill(applyUsage)) }
 
 	rootFlag := flags.String("root", "", "project root (default: the project the working directory is in)")
 	noCheck := flags.Bool("no-check", false, "make the edits and check nothing")
