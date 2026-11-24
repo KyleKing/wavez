@@ -15,6 +15,7 @@ import (
 	"github.com/kyleking/wavez/internal/decide"
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/route"
+	"github.com/kyleking/wavez/internal/session"
 )
 
 var errModel = errors.New("model is down")
@@ -274,4 +275,45 @@ func TestHandle_SessionStart_WithTheBriefNamesWavezApply(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, res.Specific.AdditionalContext, "Make edits with `wavez apply`")
 	assert.NotContains(t, res.Specific.AdditionalContext, "wavez check")
+}
+
+func TestHandle_SessionStart_AfterACompactionSaysWhatTheSessionHad(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+	handler := hook.New(&fakeRunner{}, hook.WithoutStopChecks(), hook.WithoutAnnouncement(),
+		hook.WithGoals(func(context.Context, string) (string, string, bool, error) {
+			return "goal: 1 of 2 done", "", false, nil
+		}))
+
+	start := func(source string) string {
+		res, err := fire(t, handler, map[string]any{
+			"session_id": sessionID, "cwd": root, "hook_event_name": "SessionStart", "source": source,
+		})
+		require.NoError(t, err)
+
+		return res.Specific.AdditionalContext
+	}
+
+	assert.Empty(t, start("startup"), "a session that starts has nothing to be reminded of")
+
+	_, err := fire(t, handler, edit(root, "Edit", "a.go"))
+	require.NoError(t, err)
+	write(t, root, "a.go", "package a\n\nfunc A() {}\n")
+
+	assert.Equal(t, "wavez kept this across the compaction:\nFiles this session changed: a.go.\n"+
+		"They have not been checked as they are now.\nGoal: goal: 1 of 2 done", start("compact"))
+
+	id, err := session.Fingerprint(root, []string{"a.go"})
+	require.NoError(t, err)
+
+	_, err = session.NewStore(root).Update(t.Context(), sessionID, func(s *session.State) error {
+		s.Pass(id)
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, start("compact"), "The checks passed on them as they are now.")
+	assert.Empty(t, start("resume"))
 }

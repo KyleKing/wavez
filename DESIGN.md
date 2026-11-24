@@ -279,6 +279,33 @@ third. Two things kept the totals level:
 One repetition still, and tasks a baseline finishes in three to eighteen
 turns.
 
+### What a turn costs, and what survives a compaction
+
+Each turn reads the whole conversation back, from cache when the cache is
+warm. In the baseline sessions of the brief runs that was about 27,000
+tokens a turn and 190,000 a session, against 1,800 written. Three rules
+follow for anything wavez puts in front of the model:
+
+- **Fewer turns before anything else.** A turn removed is a whole re-read
+  removed, which is why the brief and `wavez apply` exist
+- **Fixed text, said once, and never rewritten.** The session-start
+  sentence is constant and the brief arrives with the prompt it answers.
+  Text that changed early in a conversation would put everything after it
+  out of the cache
+- **No wait that outlasts the cache.** A check that holds a turn for longer
+  than the cache lives makes the next turn read everything at full price,
+  which is what the stop budget is sized against
+
+When a conversation is compacted, the SessionStart hook fires again with
+the source `compact`. Wavez then says what it knows for certain and a
+summary carries loosely: the files the session changed, whether the checks
+passed on them as they are, and how far the goal is. It is a few lines of
+fixed shape, read from the session's state, and costs no model call.
+
+Not built: telling the person when the cache is about to go cold or that a
+turn's end is a good place to compact, and starting a session with fewer
+tools so that the part every turn re-reads is smaller.
+
 ### Two changes, one checkout
 
 A change that is pushed and waiting on CI or a reviewer is not finished,
@@ -309,8 +336,8 @@ process at low priority that runs the session's stop-stage checks with the
 fixers off and throws the report away. What it leaves is the compiler's
 cache, the test results go keeps, the lint cache, and the passes wavez
 keeps, so the run somebody does wait for, at a stop or from `wavez check`,
-mostly reads answers back. A session's start does the same for the module's
-packages, which a tree under a new path compiles from nothing.
+mostly reads answers back. Nothing is run when a session starts: a session
+that only asks a question would pay for it and use none of it.
 
 One warm run per session is alive: it holds a lock on a file beside the
 session's state, a newer run asks it to end, and a stop that is about to

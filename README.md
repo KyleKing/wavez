@@ -162,8 +162,7 @@ done in the working directory, and is committed and pushed from the lane
 with `git -C`.
 
 With `warm = true`, every write starts the session's checks in a background
-process at low priority, and a session's start compiles the module. Nothing
-waits on either and neither says anything: the point is what they leave in
+process at low priority. Nothing waits on it and it says nothing: the point is what they leave in
 the build, test, and lint caches, so that `wavez check` or the stop checks
 read most of their answers back. A background run rewrites no file, a newer
 one ends the one before it, and a stop waits for the one in flight.
