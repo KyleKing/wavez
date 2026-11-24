@@ -31,6 +31,12 @@ func (h *Handler) announced(ev Event, rec *record) output {
 		return output{}
 	}
 
+	if h.unchecked {
+		rec.Note = "announced targeted checks"
+
+		return contextFor(eventSessionStart, targetedOnly)
+	}
+
 	builtins, custom, err := h.checks(rec.Root)
 	if err != nil {
 		return output{}
@@ -45,6 +51,14 @@ func (h *Handler) announced(ev Event, rec *record) output {
 
 	return contextFor(eventSessionStart, text)
 }
+
+// targetedOnly is the sentence for a project whose stop checks are off.
+// Nothing runs for the agent, so it is asked to check only what it changed:
+// a whole-project build, test, or type check is the slowest thing a session
+// does, and CI does it anyway.
+const targetedOnly = "Check your work with the narrowest command that covers it: the tests, build, or " +
+	"type check for the files or packages you changed. Do not run whole-project build, test, lint, " +
+	"or type-check commands; CI runs those."
 
 // announcement is the sentence for a project with these checks enabled,
 // and "" for a project with none. It is fixed text over a closed set of

@@ -25,6 +25,9 @@ const (
 	// ArmWavezRoute is the wavez arm with the route hint turned on in the
 	// workspace's .wavez.toml.
 	ArmWavezRoute Arm = "wavez-route"
+	// ArmWavezGates is the wavez arm with the stop-stage checks turned on
+	// in the workspace's .wavez.toml.
+	ArmWavezGates Arm = "wavez-gates"
 )
 
 // setting is one top-level key of a .wavez.toml and the value an arm gives
@@ -48,6 +51,9 @@ type armSpec struct {
 	wired bool
 }
 
+// on is a setting turned on, as TOML and as git write it.
+const on = "true"
+
 // armSpecs is every arm, in the order a report shows them. A new variant
 // of the wavez arm is one more line here: the settings and environment it
 // changes.
@@ -55,7 +61,8 @@ var armSpecs = []armSpec{
 	{name: ArmBaseline},
 	{name: ArmWavez, wired: true},
 	{name: ArmWavezQuiet, wired: true, env: []string{"WAVEZ_ANNOUNCE=0"}},
-	{name: ArmWavezRoute, wired: true, settings: []setting{{key: "route", value: "true"}}},
+	{name: ArmWavezRoute, wired: true, settings: []setting{{key: "route", value: on}}},
+	{name: ArmWavezGates, wired: true, settings: []setting{{key: "stop_checks", value: on}}},
 }
 
 // Arms lists the arms in the order a report shows them.

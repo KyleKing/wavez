@@ -3,10 +3,12 @@
 The deterministic layer under a coding agent. Wavez runs beside Claude Code
 and does the parts of the work that never needed a model:
 
-- **Gates** run the checks a change selects, without the agent asking. A pass
-  is silent, a failure blocks the end of the turn with the lines that carry a
-  diagnostic, and a check that could not run, or a test that was already
-  failing when the session started, is reported to you and not to the agent
+- **Gates** run the checks a change selects, without the agent asking. The
+  edit-stage formatter is on by default. The stop-stage checks (build, test,
+  lint) are opt-in with `stop_checks = true`: a failure then blocks the end
+  of the turn with the lines that carry a diagnostic, and a check that could
+  not run, or a test that was already failing, is reported to you and not to
+  the agent
 - **A goal** you write once in `.wavez/goal.toml` is checked by code at the
   end of every turn: a test passes, a pattern is present or absent, a file
   exists, a command exits 0
@@ -40,9 +42,12 @@ wavez init
 and keeps its session state under `.wavez/`, which ignores itself. In a Go
 module it also installs a skill that tells the agent when to use the refactor
 commands. Run it again after an upgrade, and `wavez init --remove` takes the
-hooks and the skill back out. Nothing else is needed for a Go module. The
-built-in checks are format, build, test, and lint (lint only when the project
-has a `.golangci.*` file).
+hooks and the skill back out. The built-in Go checks are format, build, test, and lint (lint only when the
+project has a `.golangci.*` file). Out of the box only format runs, after
+each edit, and the agent is told once to check its work with the narrowest
+command and leave whole-project runs to CI. `stop_checks = true` adds build,
+test, and lint over the changed packages at the end of every turn, which a
+benchmark found costs half again the wall clock.
 
 The status line is your own choice, so init leaves it alone. `wavez
 statusline --config` prints what to add to `~/.claude/settings.json`.
@@ -62,6 +67,7 @@ while a condition is unmet.
 For anything else, declare checks in `.wavez.toml`:
 
 ```toml
+stop_checks = false     # true: build, test, lint at the end of every turn
 max_rounds = 3          # the same failure this many times releases the agent
 stop_budget = "2m30s"   # how long one stop run may take in all; init sizes the Stop hook to it
 announce = true         # tell the agent at session start that the gates run
@@ -113,14 +119,16 @@ Not on cost, so far. One paired run on Sonnet over seventeen small tasks
 found turns and cost inside the noise (1.08x and 1.05x of Claude Code alone)
 and wall clock 1.5x, because the stop gate runs checks the baseline skips.
 The pass rate did not move. [DESIGN.md](DESIGN.md#what-has-been-measured)
-has the table. What wavez gives today is for you and not for the bill: a
-goal code checks, a line saying what needs you, and a flag on a skipped test.
+has the table. So the stop checks are off unless
+a project turns them on. What wavez gives by default is for you and not for
+the bill: a goal code checks, a line saying what needs you, and a flag on a
+skipped test.
 
 To repeat the run, which bills a Claude account:
 
 ```bash
 go build -o bin/wavez ./cmd/wavez
-bin/wavez bench run --all --arm baseline,wavez,wavez-quiet --model sonnet
+bin/wavez bench run --all --arm baseline,wavez,wavez-gates --model sonnet
 bin/wavez bench report
 ```
 

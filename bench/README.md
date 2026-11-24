@@ -6,11 +6,12 @@ commit, and a list of checks. A run checks the commit out into a throwaway git
 worktree, hands the prompt to the harness, runs the checks against what it left
 behind, and appends one line to `records.jsonl`.
 
-There are four arms. `baseline` is Claude Code alone. `wavez` is the same
+There are five arms. `baseline` is Claude Code alone. `wavez` is the same
 Claude Code after `wavez init` has written its hooks and its refactor skill into
 the workspace, with the `wavez` binary first on `PATH`. `wavez-quiet` is the
 `wavez` arm with `WAVEZ_ANNOUNCE=0` in the harness's environment, which every
-hook inherits. `wavez-route` is the `wavez` arm with `route = true` written into
+hook inherits. `wavez-gates` is the `wavez` arm with `stop_checks = true`, so build, test, and
+lint run at the end of every turn. `wavez-route` is the `wavez` arm with `route = true` written into
 the workspace's `.wavez.toml`, so each prompt may get a one-sentence hint about
 how to start on it. Nothing else differs: every arm gets the same model, the
 same allowed tools, no MCP servers, and only the workspace's own settings (pass

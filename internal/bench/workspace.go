@@ -173,7 +173,7 @@ func ensureMirror(ctx context.Context, cacheDir, mirror, url string) error {
 func isShallow(ctx context.Context, repo string) bool {
 	out, err := output(ctx, invocation{Dir: repo, Name: gitBin, Args: []string{"rev-parse", "--is-shallow-repository"}})
 
-	return err == nil && strings.TrimSpace(string(out)) == "true"
+	return err == nil && strings.TrimSpace(string(out)) == on
 }
 
 func hasCommit(ctx context.Context, repo, rev string) bool {

@@ -90,7 +90,12 @@ flowchart LR
 
 ## Gates
 
-A gate is a check the agent never asks for. Two stages:
+A gate is a check the agent never asks for. The stop stage is off unless a
+project sets `stop_checks = true`, because the one paired run found it made
+sessions half again as long without making them cheaper or more often right.
+A project turns it on where a failure caught before CI is worth that wait,
+and should not where a check is slow, such as a whole-program type check.
+Two stages:
 
 - **edit** runs after every write and has to be near-instant. The built-in
   formats the file. If bytes changed the agent is told its view is stale, and
@@ -105,11 +110,14 @@ A gate is a check the agent never asks for. Two stages:
 Rules, most of them paid for:
 
 - **Silence on a pass.** A passing gate costs the agent zero tokens
-- **One sentence at the start.** SessionStart tells the agent that format,
-  build, and tests run by themselves and not to run whole-project commands.
-  The first design's sweeps went from 8 to 0 on a sentence this size, not on
-  the gates alone. `announce = false` or `WAVEZ_ANNOUNCE=0` turns it off, and the `wavez-quiet`
-  benchmark arm exists to measure it
+- **One sentence at the start.** With the stop checks off, SessionStart asks
+  the agent to check its work with the narrowest command that covers it and
+  to leave whole-project build, test, lint, and type-check commands to CI.
+  With them on, it says they run by themselves. Either way the aim is fewer
+  whole-project runs, which are the slowest thing a session does. The run
+  below could not tell the sentence's arms apart, so it is kept for the
+  machine time it should save and is not shown to save turns.
+  `announce = false` or `WAVEZ_ANNOUNCE=0` turns it off
 - **A check that could not run abstains, and only the person hears it.** A
   missing binary, a process-level timeout, or a toolchain error is
   `NOT CHECKED`, never a failure. It is recorded as neither a pass nor a
@@ -312,7 +320,8 @@ against the baseline, with `p` from the paired permutation test.
 - **The gates did not raise the pass rate.** The checks that failed were
   ones a build and test of the changed packages do not catch
 
-One repetition on tasks from one repository is thin, and the tasks are small
+These rows are the stop checks on, which was the default when the run was
+made and is the `wavez-gates` arm now. One repetition on tasks from one repository is thin, and the tasks are small
 enough that the baseline finishes in three to ten turns, which leaves a gate
 little to save. That is the case for the Hatchet tasks in
 `bench/tasks_hatchet.toml`, not a reason to discount the result.
@@ -332,9 +341,9 @@ for itself.
 
 - **A result on a project wavez did not write, and on longer tasks.** The
   one paired run is on small tasks from this repository
-- **A cheaper stop gate.** The measured cost of wavez is wall clock at the
-  end of a turn. Running the gate only when the agent has not already run
-  the same checks itself is the first thing to try
+- **Checks narrow enough to be worth their wait.** The stop checks select
+  by package. A check selected by the tests a change can affect, or left to
+  CI and read back from it, has not been tried
 - The goal, the end-of-turn line, and the status line have no before and
   after, because they tell the agent nothing unless a goal blocks
 - Lint failures and failures that name no test are not compared against the

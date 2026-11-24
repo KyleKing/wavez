@@ -154,3 +154,23 @@ func TestHandle_Stop_GoalWindowFollowsTheStopBudget(t *testing.T) {
 		})
 	}
 }
+
+func TestHandle_Stop_WithoutStopChecks(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+	runner := &fakeRunner{verdicts: []hook.Verdict{red}}
+	h := hook.New(runner, hook.WithoutStopChecks())
+	start(t, h, root)
+	write(t, root, "a.go", "package a // changed\n")
+
+	res, err := fire(t, h, stop(root, false))
+	require.NoError(t, err)
+	assert.Empty(t, runner.calls, "no stop-stage check runs")
+	assert.Empty(t, res.Decision, "so nothing holds the turn")
+	assert.Equal(t, "wavez: 1 file changed", res.SystemMessage)
+
+	_, err = fire(t, h, edit(root, "Write", root+"/a.go"))
+	require.NoError(t, err)
+	assert.Len(t, runner.calls, 1, "the edit-stage checks still run")
+}

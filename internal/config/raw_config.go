@@ -22,6 +22,7 @@ type rawConfig struct {
 	Disable    []string   `toml:"disable"`
 	Checks     []rawCheck `toml:"check"`
 	Route      bool       `toml:"route"`
+	StopChecks bool       `toml:"stop_checks"`
 }
 
 type rawDecide struct {
@@ -41,7 +42,9 @@ type rawCheck struct {
 }
 
 func (r rawConfig) parse() (Config, error) {
-	cfg := Config{MaxRounds: DefaultMaxRounds, Disabled: r.Disable, Route: r.Route, Announce: true}
+	cfg := Config{
+		MaxRounds: DefaultMaxRounds, Disabled: r.Disable, Route: r.Route, Announce: true, StopChecks: r.StopChecks,
+	}
 
 	if r.Announce != nil {
 		cfg.Announce = *r.Announce
