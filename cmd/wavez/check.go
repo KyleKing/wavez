@@ -19,6 +19,8 @@ import (
 )
 
 // errUsage is a check invocation the flags cannot make sense of.
+var errBinaryName = errors.New("a benchmark needs its binary to be named wavez, which is what a wired arm runs")
+
 var errUsage = errors.New("usage: wavez check [--stage edit|stop] [--json] [--root DIR] [--at REV] [files...]")
 
 // The statuses wavez check exits with beyond 0 for a pass: a blocking check
