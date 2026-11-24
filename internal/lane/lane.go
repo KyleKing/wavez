@@ -33,6 +33,10 @@ const (
 // revision, which moving it would lose.
 var ErrBusy = errors.New("the lane has uncommitted changes from another revision")
 
+// ErrDiverged is a lane holding commits that the revision it was asked for
+// does not have, which moving it would leave unreachable.
+var ErrDiverged = errors.New("the lane has commits the revision does not: push or drop them first")
+
 // unsafe matches what a revision's name may not carry into a directory name.
 var unsafe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
@@ -48,8 +52,9 @@ type Lane struct {
 
 // Open returns the lane for rev of the repository the project at root is
 // in, under cache, making it or moving it to rev as needed. A lane that
-// already holds uncommitted changes at rev is returned as it is, so that
-// work in it can go on. One that holds them at another commit is ErrBusy.
+// holds uncommitted changes at rev, or commits made on top of it, is
+// returned as it is, so that work in it can go on. Commit is then where the
+// revision is, which the lane may be ahead of.
 func Open(ctx context.Context, root, cache, rev string) (Lane, error) {
 	top, err := git(ctx, root, "rev-parse", "--show-toplevel")
 	if err != nil {
@@ -72,8 +77,9 @@ func Open(ctx context.Context, root, cache, rev string) (Lane, error) {
 		return Lane{}, fmt.Errorf("placing %s in the repository: %w", root, err)
 	}
 
-	sum := sha256.Sum256([]byte(top))
-	dir := filepath.Join(cache, hex.EncodeToString(sum[:])[:keyLength], unsafe.ReplaceAllString(rev, "-"))
+	// The name keeps the revision readable and the hash keeps two revisions
+	// whose names differ only in what a directory cannot hold apart.
+	dir := filepath.Join(cache, key(top), unsafe.ReplaceAllString(rev, "-")+"-"+key(rev))
 	lane := Lane{Top: dir, Root: filepath.Join(dir, below), Commit: commit}
 
 	if _, statErr := os.Stat(filepath.Join(dir, ".git")); statErr != nil {
@@ -94,15 +100,30 @@ func Open(ctx context.Context, root, cache, rev string) (Lane, error) {
 	return lane, moved(ctx, dir, commit)
 }
 
-// moved puts an existing lane at commit, unless it has work in progress.
+// key is a short name for text that cannot be a directory name as it is.
+func key(text string) string {
+	sum := sha256.Sum256([]byte(text))
+
+	return hex.EncodeToString(sum[:])[:keyLength]
+}
+
+// moved puts an existing lane at commit, unless that would lose something.
+// A lane with commits of its own on top of commit stays where it is: they
+// are the fix that was made there, pushed or not, and work goes on from
+// them. One with commits that are not in commit's history at all is
+// ErrDiverged, and one with uncommitted changes from elsewhere is ErrBusy.
 func moved(ctx context.Context, dir, commit string) error {
 	head, err := git(ctx, dir, "rev-parse", "HEAD")
 	if err != nil {
 		return fmt.Errorf("reading the lane: %w", err)
 	}
 
-	if head == commit {
+	if head == commit || ancestor(ctx, dir, commit, head) {
 		return nil
+	}
+
+	if !ancestor(ctx, dir, head, commit) {
+		return fmt.Errorf("%w: %s is at %s", ErrDiverged, dir, head)
 	}
 
 	dirty, err := git(ctx, dir, "status", "--porcelain")
@@ -119,6 +140,13 @@ func moved(ctx context.Context, dir, commit string) error {
 	}
 
 	return nil
+}
+
+// ancestor reports whether commit a is in the history of commit b.
+func ancestor(ctx context.Context, dir, a, b string) bool {
+	_, err := git(ctx, dir, "merge-base", "--is-ancestor", a, b)
+
+	return err == nil
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {

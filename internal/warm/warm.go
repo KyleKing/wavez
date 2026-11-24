@@ -121,7 +121,12 @@ func Hold(ctx context.Context, root, id string) (func(), error) {
 		return nil, errors.Join(err, file.Close())
 	}
 
-	return func() { _ = file.Close() }, nil //nolint:errcheck // closing is what releases the lock
+	return func() {
+		// The id is taken out before the lock is let go, so that the next
+		// run never asks a process that is no longer this one to end.
+		_ = file.Truncate(0) //nolint:errcheck // a stale id is only ever signaled while the lock is held
+		_ = file.Close()     //nolint:errcheck // closing is what releases the lock
+	}, nil
 }
 
 // Wait returns when no warm run of the session is alive, or when ctx ends.
@@ -138,8 +143,15 @@ func Wait(ctx context.Context, root, id string) {
 
 	defer file.Close() //nolint:errcheck // closing is what releases the lock
 
-	// An error is ctx ending, and the caller goes on without the answer.
-	_ = waitFor(ctx, file) //nolint:errcheck // see above
+	// A shared lock waits for the run and not for other waiters, and never
+	// stands in the way of the next run as if it were one.
+	for syscall.Flock(int(file.Fd()), syscall.LOCK_SH|syscall.LOCK_NB) != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(poll):
+		}
+	}
 }
 
 // locked takes the lock if nobody holds it and reports whether it did.

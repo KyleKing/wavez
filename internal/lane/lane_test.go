@@ -100,19 +100,20 @@ func TestOpen_FollowsARevisionThatMoved(t *testing.T) {
 	opened, err := lane.Open(t.Context(), root, cache, "review")
 	require.NoError(t, err)
 
+	// With work in it, a lane is not moved out from under that work.
+	write(t, filepath.Join(opened.Top, "sub", "f.txt"), "one, half fixed\n")
 	run(t, root, "branch", "-f", "review", "two")
+
+	_, err = lane.Open(t.Context(), root, cache, "review")
+	require.ErrorIs(t, err, lane.ErrBusy)
+
+	// Clean again, it follows.
+	run(t, opened.Top, "checkout", "-q", "--", ".")
 
 	moved, err := lane.Open(t.Context(), root, cache, "review")
 	require.NoError(t, err)
 	assert.Equal(t, opened.Top, moved.Top)
 	assert.Equal(t, "two\n", read(t, filepath.Join(moved.Top, "sub", "f.txt")))
-
-	// With work in it, a lane is not moved out from under that work.
-	write(t, filepath.Join(moved.Top, "sub", "f.txt"), "two, fixed\n")
-	run(t, root, "branch", "-f", "review", "one")
-
-	_, err = lane.Open(t.Context(), root, cache, "review")
-	require.ErrorIs(t, err, lane.ErrBusy)
 }
 
 func TestOpen_RefusesWhatIsNotARevision(t *testing.T) {
@@ -123,4 +124,47 @@ func TestOpen_RefusesWhatIsNotARevision(t *testing.T) {
 
 	_, err = lane.Open(t.Context(), t.TempDir(), t.TempDir(), "HEAD")
 	require.ErrorContains(t, err, "finding the repository")
+}
+
+func TestOpen_KeepsCommitsMadeInTheLane(t *testing.T) {
+	t.Parallel()
+
+	root, cache := repo(t), t.TempDir()
+	run(t, root, "branch", "review", "one")
+
+	opened, err := lane.Open(t.Context(), root, cache, "review")
+	require.NoError(t, err)
+
+	// The fix is committed in the lane. The branch in the checkout has not
+	// moved, and asking for it again must not take the lane back.
+	write(t, filepath.Join(opened.Top, "sub", "f.txt"), "one, fixed\n")
+	run(t, opened.Top, "commit", "-qam", "fix")
+
+	again, err := lane.Open(t.Context(), root, cache, "review")
+	require.NoError(t, err)
+	assert.Equal(t, "one, fixed\n", read(t, filepath.Join(again.Top, "sub", "f.txt")))
+
+	// A revision that left those commits behind does not get the lane.
+	run(t, root, "branch", "-f", "review", "two")
+
+	_, err = lane.Open(t.Context(), root, cache, "review")
+	require.ErrorIs(t, err, lane.ErrDiverged)
+}
+
+func TestOpen_RevisionsThatDifferOnlyInPunctuationGetTheirOwnLanes(t *testing.T) {
+	t.Parallel()
+
+	root, cache := repo(t), t.TempDir()
+	run(t, root, "branch", "a/b", "one")
+	run(t, root, "branch", "a-b", "two")
+
+	slash, err := lane.Open(t.Context(), root, cache, "a/b")
+	require.NoError(t, err)
+
+	dash, err := lane.Open(t.Context(), root, cache, "a-b")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, slash.Top, dash.Top)
+	assert.Equal(t, "one\n", read(t, filepath.Join(slash.Top, "sub", "f.txt")))
+	assert.Equal(t, "two\n", read(t, filepath.Join(dash.Top, "sub", "f.txt")))
 }

@@ -132,3 +132,26 @@ func TestHold_RefusesAnIDThatCannotNameAFile(t *testing.T) {
 		require.Error(t, warm.Start("/bin/true", t.TempDir(), id), id)
 	}
 }
+
+// The id a finished run leaves behind would be a stranger's by the time the
+// next run reads it, so it leaves none.
+func TestHold_LeavesNoProcessIDBehind(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	release, err := warm.Hold(t.Context(), root, "s1")
+	require.NoError(t, err)
+
+	lock := filepath.Join(root, ".wavez", "sessions", "s1.warm")
+
+	held, err := os.ReadFile(lock) //nolint:gosec // a file the test made
+	require.NoError(t, err)
+	assert.Equal(t, strconv.Itoa(os.Getpid())+"\n", string(held))
+
+	release()
+
+	left, err := os.ReadFile(lock) //nolint:gosec // a file the test made
+	require.NoError(t, err)
+	assert.Empty(t, string(left))
+}

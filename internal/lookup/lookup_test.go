@@ -56,6 +56,7 @@ func repo(t *testing.T) string {
 		"sdk/util/chunks.py":       "def create_chunks(xs, n):\n    return xs\n",
 		"examples/a/worker.py":     "def create_chunks(xs, n):\n    return xs\n",
 		"examples/b/worker.py":     "def create_chunks(xs, n):\n    return xs\n",
+		"top.py":                   "def create_chunks(xs, n):\n    return xs\n",
 		"sdk/tests/test_chunks.py": "from sdk.util.chunks import create_chunks\n",
 		"web/duration.ts":          "export function durationToString(ms: number): string { return '' }\n",
 		"web/duration.test.ts":     "import { durationToString } from './duration'\n",
@@ -113,7 +114,7 @@ func TestFind(t *testing.T) {
 			want: "wavez looked these up, so you need not search for them:\n" +
 				"durationToString is declared at web/duration.ts:1; tests that name it: web/duration.test.ts",
 		},
-		{name: "a name declared in too many places says nothing", prompt: "Rename create_chunks to chunked"},
+		{name: "a name declared in too many places says nothing", prompt: "Rename create_chunks to chunked."},
 		{
 			name:   "the file the prompt names settles it",
 			prompt: "Rename create_chunks in sdk/util/chunks.py to chunked",

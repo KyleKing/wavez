@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -78,7 +79,17 @@ func shape(src []byte) ([]byte, bool) {
 
 	out.Write(src[from:])
 
-	return out.Bytes(), true
+	// An import taken out leaves the blank lines around it, and an empty
+	// line is nothing an importer compiles against.
+	var kept [][]byte
+
+	for line := range bytes.SplitSeq(out.Bytes(), []byte("\n")) {
+		if len(bytes.TrimSpace(line)) > 0 {
+			kept = append(kept, line)
+		}
+	}
+
+	return bytes.Join(kept, []byte("\n")), true
 }
 
 // bodiesOnly reports whether the change left every importer of the changed
@@ -96,6 +107,12 @@ func (r *runner) bodiesOnly(ctx context.Context, root string, changed []string) 
 	ref := headRef
 	if base, ok := baselineFrom(ctx); ok {
 		ref = base.ref()
+	}
+
+	// A header or a C file changes the types cgo makes of it, which no Go
+	// file's shape shows.
+	if slices.ContainsFunc(changed, func(file string) bool { return slices.Contains(foreign, path.Ext(file)) }) {
+		return false
 	}
 
 	return !slices.ContainsFunc(goFiles(changed), func(file string) bool {
@@ -121,8 +138,65 @@ func (r *runner) bodiesOnly(ctx context.Context, root string, changed []string) 
 		before, ok := shape([]byte(was.output))
 		after, parsed := shape(now)
 
-		return !ok || !parsed || !bytes.Equal(before, after)
+		return !ok || !parsed || !bytes.Equal(before, after) || repointed([]byte(was.output), now)
 	})
+}
+
+// foreign is the extensions of the sources a Go package compiles that are
+// not Go.
+var foreign = []string{".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".m", ".s", ".S"}
+
+// repointed reports whether a name the file imported now means another
+// package. The declarations then read the same and are not: `foo.T` in a
+// signature is another type, and an importer that held the old one no
+// longer compiles. An import that is new, or gone, changes no name the
+// declarations already used. A file that does not parse is repointed.
+func repointed(was, now []byte) bool {
+	before, ok := imported(was)
+	after, parsed := imported(now)
+
+	if !ok || !parsed {
+		return true
+	}
+
+	for name, pkg := range before {
+		if moved, kept := after[name]; kept && moved != pkg {
+			return true
+		}
+	}
+
+	return false
+}
+
+// imported maps each name a file imports under to the path it imports: the
+// name given, or the last element of the path, which is what the package is
+// called by every convention this cannot check.
+func imported(src []byte) (map[string]string, bool) {
+	file, err := parser.ParseFile(token.NewFileSet(), "", src, parser.ImportsOnly)
+	if err != nil {
+		return nil, false
+	}
+
+	names := make(map[string]string, len(file.Imports))
+
+	for _, spec := range file.Imports {
+		pkg := strings.Trim(spec.Path.Value, "\"`")
+
+		name := path.Base(pkg)
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+
+		// A dot or a blank import gives the file no name to compare, and
+		// either one arriving or leaving is a change of its own.
+		if name == "." || name == "_" {
+			name += pkg
+		}
+
+		names[name] = pkg
+	}
+
+	return names, true
 }
 
 // narrowed is the patterns that are the changed packages themselves. It is

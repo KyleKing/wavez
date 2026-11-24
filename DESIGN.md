@@ -276,8 +276,21 @@ third. Two things kept the totals level:
 - A rename went from three turns to seven, because the session was told to
   edit with `wavez apply` and a rename is `wavez rename`'s job
 
-One repetition still, and tasks a baseline finishes in three to eighteen
-turns.
+A third run with both of those fixed, three repetitions of every task under
+each arm, 90 sessions: both arms passed 45 of 45, turns were 0.65x
+(p 0.008), cost 0.90x (p 0.077), and wall clock 0.98x (p 0.90). Turns are
+down by a third and that is outside the noise. Cost is down by a tenth
+and time is level, and neither of those is. Eight of the fifteen tasks took
+at most six tenths of the baseline's turns and cost a fifth to a third
+less. The tasks that did not improve are the two questions, the two
+renames, and the one change across three files, where the brief named one
+symbol of several and the session went on to read the rest.
+
+That is where this stands against halving the time: a third of the turns
+are gone, the money has started to follow, and the seconds have not,
+because a turn saved is a short turn and the one command that replaces
+three still builds and tests. These tasks are also ones a baseline finishes
+in three to eleven turns.
 
 ### What a turn costs, and what survives a compaction
 

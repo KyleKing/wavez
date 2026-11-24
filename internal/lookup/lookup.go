@@ -84,7 +84,10 @@ func Find(ctx context.Context, root, prompt string) []Site {
 		return nil
 	}
 
-	var sites []Site
+	var (
+		sites []Site
+		paths = namedPaths(prompt)
+	)
 
 	for _, name := range Names(prompt) {
 		found := declared(ctx, git, root, name)
@@ -92,7 +95,7 @@ func Find(ctx context.Context, root, prompt string) []Site {
 		// A file or a directory the prompt names settles which declaration
 		// is meant.
 		if named := slices.DeleteFunc(slices.Clone(found), func(s Site) bool {
-			return !strings.Contains(prompt, s.File) && !strings.Contains(prompt, path.Dir(s.File))
+			return !slices.Contains(paths, s.File) && !slices.Contains(paths, path.Dir(s.File))
 		}); len(named) > 0 {
 			found = named
 		}

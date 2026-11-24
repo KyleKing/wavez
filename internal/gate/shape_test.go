@@ -60,6 +60,14 @@ func replace(old, with string) func(string) string {
 	return func(s string) string { return strings.Replace(s, old, with, 1) }
 }
 
+// Package a importing a random source under one name, from two packages.
+const (
+	srcARand = "package a\n\nimport rand \"math/rand\"\n\n" +
+		"// A returns one.\nfunc A() int { return 1 + rand.Intn(1) }\n"
+	srcARandV2 = "package a\n\nimport rand \"math/rand/v2\"\n\n" +
+		"// A returns one.\nfunc A() int { return 1 + rand.IntN(1) }\n"
+)
+
 const srcBNeverBuilt = "package b\n\nimport \"example.com/scratch/a\"\n\n" +
 	"// B is broken.\nfunc B() int { return a.A() + helper() }\n"
 
@@ -82,6 +90,11 @@ func TestRun_BuildSkipsImportersOfAChangeToFunctionBodies(t *testing.T) {
 			wants: passed("build", "test"),
 		},
 		{
+			name:  "an import now names another package",
+			a:     srcARandV2,
+			wants: []want{{"build", gate.StatusFail, "undefined: helper"}},
+		},
+		{
 			name: "a declaration is added", a: srcA + "\n// More is new.\nfunc More() {}\n",
 			wants: []want{{"build", gate.StatusFail, "undefined: helper"}},
 		},
@@ -95,7 +108,10 @@ func TestRun_BuildSkipsImportersOfAChangeToFunctionBodies(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			root := committed(t, module(map[string]string{"b/b.go": srcBNeverBuilt}))
+			root := committed(t, module(map[string]string{
+				"b/b.go": srcBNeverBuilt,
+				"a/a.go": srcARand,
+			}))
 			writeFile(t, root, "a/a.go", tt.a)
 
 			expect(t, runGate(t.Context(), t, root, gate.StageStop, []string{"a/a.go"}, onlyA), tt.wants...)
