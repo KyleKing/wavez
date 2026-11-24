@@ -31,13 +31,20 @@ func (h *Handler) announced(ev Event, rec *record) output {
 		return output{}
 	}
 
+	builtins, custom, err := h.checks(rec.Root)
+
 	if h.unchecked {
+		if err == nil && len(builtins)+len(custom) > 0 {
+			rec.Note = "announced wavez check"
+
+			return contextFor(eventSessionStart, checkCommand)
+		}
+
 		rec.Note = "announced targeted checks"
 
 		return contextFor(eventSessionStart, targetedOnly)
 	}
 
-	builtins, custom, err := h.checks(rec.Root)
 	if err != nil {
 		return output{}
 	}
@@ -52,10 +59,16 @@ func (h *Handler) announced(ev Event, rec *record) output {
 	return contextFor(eventSessionStart, text)
 }
 
-// targetedOnly is the sentence for a project whose stop checks are off.
-// Nothing runs for the agent, so it is asked to check only what it changed:
+// checkCommand is the sentence for a project whose stop checks are off and
+// that has checks for `wavez check` to run. It runs exactly what the change
+// selects, so the agent need not work out the narrowest command itself, and
 // a whole-project build, test, or type check is the slowest thing a session
-// does, and CI does it anyway.
+// does.
+const checkCommand = "Check your work with `wavez check`, not whole-project build, test, lint, or type-check commands."
+
+// targetedOnly is the sentence for a project whose stop checks are off and
+// that has no check wavez could run. The agent is asked to check only what
+// it changed.
 const targetedOnly = "Check your work with the narrowest command that covers it: the tests, build, or " +
 	"type check for the files or packages you changed. Do not run whole-project build, test, lint, " +
 	"or type-check commands; CI runs those."

@@ -132,7 +132,7 @@ func (h *Handler) gated(ctx context.Context, store *session.Store, ev Event, rec
 		return output{}, status, nil
 	}
 
-	verdict, err := h.runner.Run(withBaseline(ctx, state.Baseline), rec.Root, changed, gate.StageStop)
+	verdict, err := h.runner.Run(WithSessionBaseline(ctx, state.Baseline), rec.Root, changed, gate.StageStop)
 	if err != nil {
 		return output{}, "", wrap("stop gates", err)
 	}
@@ -174,12 +174,12 @@ func (h *Handler) gated(ctx context.Context, store *session.Store, ev Event, rec
 	return res, status, nil
 }
 
-// withBaseline tells the gates which tree the session started from, so that
+// WithSessionBaseline tells the gates which tree the session started from, so that
 // a failure that tree already had is the person's to hear about and not the
 // agent's to fix. A baseline that cannot be rebuilt (outside git, before the
 // first commit, or uncommitted changes too large to have been kept) is left
 // out, and every failure then blocks as it always did.
-func withBaseline(ctx context.Context, base session.Baseline) context.Context {
+func WithSessionBaseline(ctx context.Context, base session.Baseline) context.Context {
 	if !base.Restorable() {
 		return ctx
 	}

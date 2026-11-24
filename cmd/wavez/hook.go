@@ -119,6 +119,10 @@ func handleHook(ctx context.Context, streams stdio) error {
 		opts = append(opts, hook.WithoutAnnouncement())
 	}
 
+	if envFile := os.Getenv(hook.EnvFileEnv); envFile != "" {
+		opts = append(opts, hook.WithEnvFile(envFile))
+	}
+
 	logPath := os.Getenv(hook.TraceEnv)
 	if logPath != "" {
 		opts = append(opts, hook.WithTrace(&trace))

@@ -37,3 +37,9 @@ func RenamesIn(command string) []string {
 func WithGoals(goals func(ctx context.Context, root string) (person, agent string, hold bool, err error)) Option {
 	return func(h *Handler) { h.goals = goals }
 }
+
+// ExportSession exposes the line SessionStart adds to the harness's
+// environment file.
+func ExportSession(envFile, id string) error {
+	return appendSessionExport(envFile, id)
+}

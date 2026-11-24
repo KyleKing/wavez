@@ -140,6 +140,7 @@ func TestHook_EventsThatNeedNoGate(t *testing.T) {
 
 func TestHook_SessionStartSentence(t *testing.T) {
 	const (
+		checkCmd = "Check your work with `wavez check`, not whole-project build, test, lint, or type-check commands."
 		targeted = "Check your work with the narrowest command that covers it: the tests, build, or " +
 			"type check for the files or packages you changed. Do not run whole-project build, test, lint, " +
 			"or type-check commands; CI runs those."
@@ -152,8 +153,14 @@ func TestHook_SessionStartSentence(t *testing.T) {
 		config string
 		want   string
 		note   string
+		// noModule leaves go.mod out, so no built-in check exists.
+		noModule bool
 	}{
-		{name: "stop checks off asks for targeted checks", want: targeted, note: "announced targeted checks"},
+		{name: "stop checks off points at wavez check", want: checkCmd, note: "announced wavez check"},
+		{
+			name: "stop checks off with nothing to run asks for targeted checks", config: "announce = true\n",
+			noModule: true, want: targeted, note: "announced targeted checks",
+		},
 		{
 			name: "stop checks on says they run by themselves", config: "stop_checks = true\n",
 			want: gated, note: "announced the gates",
@@ -166,7 +173,14 @@ func TestHook_SessionStartSentence(t *testing.T) {
 			t.Setenv(hook.TraceEnv, logPath)
 			t.Setenv(hook.AnnounceEnv, "")
 
+			envFile := filepath.Join(t.TempDir(), "env")
+			t.Setenv(hook.EnvFileEnv, envFile)
+
 			root := goProject(t)
+			if tt.noModule {
+				require.NoError(t, os.Remove(filepath.Join(root, "go.mod")))
+			}
+
 			if tt.config != "" {
 				require.NoError(t, os.WriteFile(filepath.Join(root, ".wavez.toml"), []byte(tt.config), 0o600))
 			}
@@ -190,6 +204,11 @@ func TestHook_SessionStartSentence(t *testing.T) {
 			assert.Contains(t, string(trace), `"note":"`+tt.note+`"`)
 			assert.Contains(t, string(trace), fmt.Sprintf(`"agent_bytes":%d`, len(tt.want)),
 				"the trace carries what the sentence cost")
+
+			exported, err := os.ReadFile(envFile) //nolint:gosec // a file this test named
+			require.NoError(t, err)
+			assert.Equal(t, "export WAVEZ_SESSION='s1'\n", string(exported),
+				"wavez check in the session's shell reads which session it is in")
 
 			t.Setenv(hook.AnnounceEnv, "0")
 

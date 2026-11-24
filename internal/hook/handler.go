@@ -75,7 +75,10 @@ type Handler struct {
 	goals func(ctx context.Context, root string) (person, agent string, hold bool, err error)
 	// projectDir is where the harness says the session started.
 	projectDir string
-	maxRounds  int
+	// envFile is where the harness reads variables for the session's
+	// later shell commands from.
+	envFile   string
+	maxRounds int
 	// quiet turns the SessionStart announcement off.
 	quiet bool
 	// unchecked ends a turn without running the stop-stage checks.
@@ -116,6 +119,14 @@ func WithRoute(d *decide.Engine) Option {
 // it before it looks at an event's cwd.
 func WithProjectDir(dir string) Option {
 	return func(h *Handler) { h.projectDir = dir }
+}
+
+// WithEnvFile names the file Claude Code gives a SessionStart hook in
+// CLAUDE_ENV_FILE, whose export lines it applies to every later shell
+// command of the session. The handler adds the session's id there, so that
+// `wavez check` run by the agent checks what this session changed.
+func WithEnvFile(path string) Option {
+	return func(h *Handler) { h.envFile = path }
 }
 
 // WithStopBudget tells the handler how long the stop gates may run in all,
@@ -213,6 +224,12 @@ func (h *Handler) dispatch(ctx context.Context, ev Event, rec *record) (output, 
 		// the first edit is still measured against the untouched tree.
 		if _, err := store.Update(ctx, ev.SessionID, keep); err != nil {
 			return output{}, wrap("starting session", err)
+		}
+
+		// Without the variable `wavez check` falls back to the working
+		// tree's changes, so a file that cannot be written costs little.
+		if err := appendSessionExport(h.envFile, ev.SessionID); err != nil {
+			rec.Note = err.Error()
 		}
 
 		return h.announced(ev, rec), nil

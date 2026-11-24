@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/kyleking/wavez/internal/gate"
+	"github.com/kyleking/wavez/internal/hook"
+	"github.com/kyleking/wavez/internal/session"
 )
 
 const (
@@ -37,17 +39,17 @@ func gateProject(t *testing.T, source string) string {
 	return root
 }
 
-// gateRun runs the command and returns what it printed and the status the
+// checkRun runs the command and returns what it printed and the status the
 // process would exit with.
-func gateRun(ctx context.Context, args ...string) (string, string, int) {
+func checkRun(ctx context.Context, args ...string) (string, string, int) {
 	var out, errOut bytes.Buffer
 
-	code := status(runGate(ctx, args, stdio{in: strings.NewReader(""), out: &out, err: &errOut}), "gate", &errOut)
+	code := status(runCheck(ctx, args, stdio{in: strings.NewReader(""), out: &out, err: &errOut}), "check", &errOut)
 
 	return out.String(), errOut.String(), code
 }
 
-func TestRunGate(t *testing.T) {
+func TestRunCheck(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -58,7 +60,7 @@ func TestRunGate(t *testing.T) {
 		args   []string
 		code   int
 	}{
-		{name: "a clean change prints nothing", source: gateClean},
+		{name: "a clean change prints one line", source: gateClean, out: "wavez check: passed build, test\n"},
 		{
 			name: "a compile error prints the failure and exits 1", source: gateBroken, code: 1,
 			out: "FAIL build\n./one.go:3:25: undefined: missing\n",
@@ -84,7 +86,7 @@ func TestRunGate(t *testing.T) {
 			root := gateProject(t, tt.source)
 			args := slices.Concat(tt.args, []string{"--root", root, filepath.Join(root, "one.go")})
 
-			out, errOut, code := gateRun(t.Context(), args...)
+			out, errOut, code := checkRun(t.Context(), args...)
 			if out != tt.out || code != tt.code || !strings.Contains(errOut, tt.errOut) {
 				t.Errorf("got status %d\nstdout: %q\nstderr: %q", code, out, errOut)
 			}
@@ -96,7 +98,7 @@ func TestRunGate(t *testing.T) {
 	}
 }
 
-func TestRunGate_JSON(t *testing.T) {
+func TestRunCheck_JSON(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -117,7 +119,7 @@ func TestRunGate_JSON(t *testing.T) {
 
 			root := gateProject(t, tt.source)
 
-			out, _, code := gateRun(t.Context(), "--json", "--root", root, filepath.Join(root, tt.file))
+			out, _, code := checkRun(t.Context(), "--json", "--root", root, filepath.Join(root, tt.file))
 			if code != tt.code {
 				t.Errorf("status %d, want %d", code, tt.code)
 			}
@@ -140,18 +142,18 @@ func TestRunGate_JSON(t *testing.T) {
 	}
 }
 
-func TestRunGate_RejectsAFileOutsideTheRoot(t *testing.T) {
+func TestRunCheck_RejectsAFileOutsideTheRoot(t *testing.T) {
 	t.Parallel()
 
 	root := gateProject(t, gateClean)
 
-	_, errOut, code := gateRun(t.Context(), "--root", root, filepath.Join(t.TempDir(), "other.go"))
+	_, errOut, code := checkRun(t.Context(), "--root", root, filepath.Join(t.TempDir(), "other.go"))
 	if code != 1 || !strings.Contains(errOut, "outside the root") {
 		t.Errorf("status %d, stderr %q", code, errOut)
 	}
 }
 
-func TestRunGate_AsksGitWhenNoFileIsNamed(t *testing.T) {
+func TestRunCheck_AsksGitWhenNoFileIsNamed(t *testing.T) {
 	t.Parallel()
 
 	if _, err := exec.LookPath("git"); err != nil {
@@ -164,8 +166,8 @@ func TestRunGate_AsksGitWhenNoFileIsNamed(t *testing.T) {
 		t.Skip("the temp dir is inside a repository on this machine")
 	}
 
-	out, errOut, code := gateRun(t.Context(), "--root", root)
-	if code != 0 || !strings.Contains(out, "not a git repository") || errOut != "" {
+	out, errOut, code := checkRun(t.Context(), "--root", root)
+	if code != 0 || !strings.Contains(out, "not a repository") || errOut != "" {
 		t.Errorf("outside a repository: status %d, stdout %q, stderr %q", code, out, errOut)
 	}
 
@@ -176,8 +178,101 @@ func TestRunGate_AsksGitWhenNoFileIsNamed(t *testing.T) {
 		t.Fatalf("git init: %v\n%s", err, msg)
 	}
 
-	out, _, code = gateRun(t.Context(), "--root", root)
+	out, _, code = checkRun(t.Context(), "--root", root)
 	if code != 1 || !strings.HasPrefix(out, "FAIL build\n") {
 		t.Errorf("inside a repository: status %d, stdout %q", code, out)
+	}
+}
+
+func TestRunCheck_ExitStatusAndPassLine(t *testing.T) {
+	t.Parallel()
+
+	const cached = "[[check]]\nname = \"notes\"\nglobs = [\"*.md\"]\ncommand = \"true\"\ninputs = []\n"
+
+	tests := []struct {
+		name   string
+		config string
+		file   string
+		out    []string
+		errOut string
+		codes  []int
+	}{
+		{
+			name:   "a check that could not run exits 3 and tells stderr",
+			config: "[[check]]\nname = \"gone\"\nglobs = [\"*.md\"]\ncommand = \"wavez-no-such-tool {files}\"\n",
+			file:   "notes.md", out: []string{""}, errOut: "NOT CHECKED gone", codes: []int{3},
+		},
+		{
+			name: "a second run on the same bytes says the pass was reused", config: cached, file: "notes.md",
+			out:   []string{"wavez check: passed notes\n", "wavez check: passed notes (unchanged: notes)\n"},
+			codes: []int{0, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			for name, body := range map[string]string{".wavez.toml": tt.config, tt.file: "x\n"} {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
+					t.Fatalf("writing %s: %v", name, err)
+				}
+			}
+
+			for i := range tt.codes {
+				out, errOut, code := checkRun(t.Context(), "--root", root, filepath.Join(root, tt.file))
+				if out != tt.out[i] || code != tt.codes[i] || !strings.Contains(errOut, tt.errOut) {
+					t.Errorf("run %d: status %d\nstdout: %q\nstderr: %q", i, code, out, errOut)
+				}
+			}
+		})
+	}
+}
+
+func TestRunGate_IsCheckUnderItsOlderName(t *testing.T) {
+	t.Parallel()
+
+	root := gateProject(t, gateBroken)
+
+	var out, errOut bytes.Buffer
+
+	err := runGate(t.Context(), []string{"--root", root, filepath.Join(root, "one.go")},
+		stdio{in: strings.NewReader(""), out: &out, err: &errOut})
+	if status(err, "gate", &errOut) != 1 || !strings.HasPrefix(out.String(), "FAIL build\n") {
+		t.Errorf("got %v, stdout %q, stderr %q", err, out.String(), errOut.String())
+	}
+}
+
+// The session variable is process-wide, so this test does not run in
+// parallel with the others.
+func TestRunCheck_ChecksWhatTheSessionChanged(t *testing.T) {
+	root := gateProject(t, gateBroken)
+
+	if _, err := gate.Changed(t.Context(), root); !errors.Is(err, gate.ErrNotRepository) {
+		t.Skip("the temp dir is inside a repository on this machine")
+	}
+
+	_, err := session.NewStore(root).Update(t.Context(), "s1", func(state *session.State) error {
+		state.Record("one.go")
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("recording the session: %v", err)
+	}
+
+	t.Setenv(hook.SessionEnv, "s1")
+
+	out, errOut, code := checkRun(t.Context(), "--root", root)
+	if code != 1 || !strings.HasPrefix(out, "FAIL build\n") {
+		t.Errorf("status %d, stdout %q, stderr %q", code, out, errOut)
+	}
+
+	t.Setenv(hook.SessionEnv, "unknown")
+
+	out, _, code = checkRun(t.Context(), "--root", root)
+	if code != 0 || !strings.Contains(out, "not a repository") {
+		t.Errorf("an unknown session falls back to the working tree: status %d, stdout %q", code, out)
 	}
 }
