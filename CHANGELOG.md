@@ -1,3 +1,17 @@
+## v3.4.0 (2026-11-24)
+
+### Feat
+
+- **hook**: say what the session had after a compaction, and run nothing at its start
+- work on a second copy of the tree with --at, and record the second brief run
+- **hook**: with the brief on, the session is told to edit with wavez apply
+- find what a prompt describes, and keep wavez apply's wait to the changed packages
+
+### Fix
+
+- ten faults a review found in the new commands, and the three-repetition brief run
+- **lookup**: write the git grep pattern in POSIX classes
+
 ## v3.3.0 (2026-11-24)
 
 ### Feat
