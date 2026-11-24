@@ -17,8 +17,8 @@ import (
 )
 
 // stopBudgetEnv names the environment variable that sets how long one stop
-// gate may run in all, as a Go duration such as "90s". It stands in until
-// .wavez.toml has a key for it.
+// gate may run in all, as a Go duration such as "90s". It wins over the
+// stop_budget key of .wavez.toml.
 const stopBudgetEnv = "WAVEZ_STOP_BUDGET"
 
 const (
@@ -43,8 +43,10 @@ it is not run by hand except to try an event out.
 
 Environment:
   WAVEZ_HOOK_LOG      file to append one JSON line per event to
-  WAVEZ_STOP_BUDGET   how long a stop gate may run in all (default 2m30s)
-  WAVEZ_ANNOUNCE=0    do not tell the agent at session start that the gates run
+  WAVEZ_STOP_BUDGET   how long a stop gate may run in all (default 2m30s); wins over
+                      stop_budget in .wavez.toml
+  WAVEZ_ANNOUNCE=0    do not tell the agent at session start that the gates run;
+                      wins over announce in .wavez.toml
 `
 
 // runHook handles the hook event on stdin. A failure of wavez itself is one
@@ -90,11 +92,14 @@ func handleHook(ctx context.Context, streams stdio) error {
 	var (
 		opts  []hook.Option
 		trace bytes.Buffer
+		cfg   = config.Config{Announce: true}
 	)
 
 	root, _ := hook.ResolveRoot(os.Getenv(hook.ProjectDirEnv), ev.Cwd)
 
-	if cfg, err := config.Load(root); root != "" && err == nil {
+	if loaded, err := config.Load(root); root != "" && err == nil {
+		cfg = loaded
+
 		opts = append(opts, hook.WithMaxRounds(cfg.MaxRounds))
 
 		if cfg.Route {
@@ -102,7 +107,11 @@ func handleHook(ctx context.Context, streams stdio) error {
 		}
 	}
 
-	if os.Getenv(hook.AnnounceEnv) == "0" {
+	if budget := stopBudget(cfg); budget > 0 {
+		opts = append(opts, hook.WithStopBudget(budget))
+	}
+
+	if !announces(cfg) {
 		opts = append(opts, hook.WithoutAnnouncement())
 	}
 
@@ -111,7 +120,7 @@ func handleHook(ctx context.Context, streams stdio) error {
 		opts = append(opts, hook.WithTrace(&trace))
 	}
 
-	handler := hook.New(hook.Gate{Runner: gate.New(gateOptions()...)}, opts...)
+	handler := hook.New(hook.Gate{Runner: gate.New(gateOptions(cfg)...)}, opts...)
 
 	err = handler.HandleEvent(ctx, ev, root, streams.out)
 	if logPath != "" {
@@ -121,11 +130,26 @@ func handleHook(ctx context.Context, streams stdio) error {
 	return err
 }
 
-// gateOptions reads the stop budget from the environment. A value that is
-// not a positive duration is ignored, since a hook has nobody to tell.
-func gateOptions() []gate.Option {
-	budget, err := time.ParseDuration(os.Getenv(stopBudgetEnv))
-	if err != nil || budget <= 0 {
+// stopBudget is the stop budget in force: the environment's, else the
+// file's, else zero for the gate package's default. An environment value that
+// is not a positive duration is ignored, since a hook has nobody to tell.
+func stopBudget(cfg config.Config) time.Duration {
+	if budget, err := time.ParseDuration(os.Getenv(stopBudgetEnv)); err == nil && budget > 0 {
+		return budget
+	}
+
+	return cfg.StopBudget
+}
+
+// announces reports whether a session's start tells the agent that the gates
+// run. WAVEZ_ANNOUNCE=0 turns it off whatever the file says.
+func announces(cfg config.Config) bool {
+	return cfg.Announce && os.Getenv(hook.AnnounceEnv) != "0"
+}
+
+func gateOptions(cfg config.Config) []gate.Option {
+	budget := stopBudget(cfg)
+	if budget <= 0 {
 		return nil
 	}
 

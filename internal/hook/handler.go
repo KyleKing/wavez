@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/decide"
@@ -64,7 +65,7 @@ type Handler struct {
 	trace  io.Writer
 	// router answers the route question, and is nil while the project has
 	// the hint turned off.
-	router decide.Decider
+	router *decide.Engine
 	// lookPath finds a program the way the shell would.
 	lookPath func(name string) (string, error)
 	// checks names what a stop in a project would run.
@@ -77,6 +78,9 @@ type Handler struct {
 	maxRounds  int
 	// quiet turns the SessionStart announcement off.
 	quiet bool
+	// stopBudget is how long the gates may run at a stop, which sets how long
+	// the goal check may run after them.
+	stopBudget time.Duration
 }
 
 // Option configures a Handler.
@@ -101,7 +105,7 @@ func WithTrace(w io.Writer) Option {
 // WithRoute turns the route hint on: a submitted prompt is put to d, and a
 // route other than the fallback reaches the agent as one fixed sentence.
 // Without this option a UserPromptSubmit event does nothing.
-func WithRoute(d decide.Decider) Option {
+func WithRoute(d *decide.Engine) Option {
 	return func(h *Handler) { h.router = d }
 }
 
@@ -110,6 +114,17 @@ func WithRoute(d decide.Decider) Option {
 // it before it looks at an event's cwd.
 func WithProjectDir(dir string) Option {
 	return func(h *Handler) { h.projectDir = dir }
+}
+
+// WithStopBudget tells the handler how long the stop gates may run in all,
+// so the goal check keeps inside the timeout init gave the Stop hook. A
+// value that is not positive is ignored.
+func WithStopBudget(budget time.Duration) Option {
+	return func(h *Handler) {
+		if budget > 0 {
+			h.stopBudget = budget
+		}
+	}
 }
 
 // WithoutAnnouncement keeps a SessionStart from telling the agent that the
@@ -121,8 +136,8 @@ func WithoutAnnouncement() Option {
 // New returns a Handler that runs gates through runner.
 func New(runner Runner, opts ...Option) *Handler {
 	h := &Handler{
-		runner: runner, maxRounds: config.DefaultMaxRounds, lookPath: exec.LookPath, checks: gate.Checks,
-		goals: goal.StopReport,
+		runner: runner, maxRounds: config.DefaultMaxRounds, stopBudget: gate.DefaultStopBudget,
+		lookPath: exec.LookPath, checks: gate.Checks, goals: goal.StopReport,
 	}
 	for _, opt := range opts {
 		opt(h)

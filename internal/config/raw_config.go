@@ -14,11 +14,14 @@ const problemEmpty = "is empty"
 // rawConfig mirrors the file's shape before validation. Pointers and
 // strings stand in for values whose absence means a default.
 type rawConfig struct {
-	MaxRounds *int       `toml:"max_rounds"`
-	Decide    rawDecide  `toml:"decide"`
-	Disable   []string   `toml:"disable"`
-	Checks    []rawCheck `toml:"check"`
-	Route     bool       `toml:"route"`
+	MaxRounds *int `toml:"max_rounds"`
+	// Announce is a pointer because leaving it out means true.
+	Announce   *bool      `toml:"announce"`
+	Decide     rawDecide  `toml:"decide"`
+	StopBudget string     `toml:"stop_budget"`
+	Disable    []string   `toml:"disable"`
+	Checks     []rawCheck `toml:"check"`
+	Route      bool       `toml:"route"`
 }
 
 type rawDecide struct {
@@ -38,7 +41,23 @@ type rawCheck struct {
 }
 
 func (r rawConfig) parse() (Config, error) {
-	cfg := Config{MaxRounds: DefaultMaxRounds, Disabled: r.Disable, Route: r.Route}
+	cfg := Config{MaxRounds: DefaultMaxRounds, Disabled: r.Disable, Route: r.Route, Announce: true}
+
+	if r.Announce != nil {
+		cfg.Announce = *r.Announce
+	}
+
+	if r.StopBudget != "" {
+		budget, err := time.ParseDuration(r.StopBudget)
+		if err != nil || budget <= 0 {
+			return Config{}, &Error{
+				Key:     "stop_budget",
+				Problem: fmt.Sprintf("is %q, want a positive duration such as 90s or 2m30s", r.StopBudget),
+			}
+		}
+
+		cfg.StopBudget = budget
+	}
 
 	decide, err := r.Decide.parse()
 	if err != nil {

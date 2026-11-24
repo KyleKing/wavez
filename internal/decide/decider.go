@@ -18,10 +18,6 @@ type Engine struct {
 	log     string
 }
 
-// Decider is the name internal/hook holds an Engine under.
-// Retires when internal/hook's Handler.router and WithRoute say *decide.Engine.
-type Decider = *Engine
-
 // Option configures an Engine.
 type Option func(*Engine)
 

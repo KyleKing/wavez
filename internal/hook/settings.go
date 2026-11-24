@@ -48,9 +48,14 @@ type entry struct {
 // SessionStart, UserPromptSubmit, and PreToolUse on the shell tool. The
 // UserPromptSubmit entry is installed whether or not the project has the
 // route hint on, and the handler does nothing on that event until it is, so
-// turning the hint on in .wavez.toml needs no second init.
-func entries() []entry {
-	stop := int((gate.DefaultStopBudget + stopMargin) / time.Second)
+// turning the hint on in .wavez.toml needs no second init. The Stop hook's
+// timeout is stopBudget plus a margin, with zero meaning the default budget.
+func entries(stopBudget time.Duration) []entry {
+	if stopBudget <= 0 {
+		stopBudget = gate.DefaultStopBudget
+	}
+
+	stop := int((stopBudget + stopMargin).Round(time.Second) / time.Second)
 
 	return []entry{
 		{event: eventPostToolUse, matcher: EditTools, timeout: editTimeout},
@@ -108,7 +113,7 @@ func (s settings) hooks() (*object, error) {
 // When the settings already say what init wants, current comes back
 // byte for byte, and when they do not, only the hooks value is rewritten:
 // the rest of the file keeps the layout its author gave it.
-func mergeSettings(current []byte, command string) ([]byte, error) {
+func mergeSettings(current []byte, command string, stopBudget time.Duration) ([]byte, error) {
 	parsed, err := parseSettings(current)
 	if err != nil {
 		return nil, err
@@ -124,7 +129,7 @@ func mergeSettings(current []byte, command string) ([]byte, error) {
 		return nil, err
 	}
 
-	for _, want := range entries() {
+	for _, want := range entries(stopBudget) {
 		groups, err := groupsOf(hooks, want.event)
 		if err != nil {
 			return nil, err
@@ -162,7 +167,7 @@ func unmergeSettings(current []byte, command string) ([]byte, error) {
 		return nil, err
 	}
 
-	for _, installed := range entries() {
+	for _, installed := range entries(0) {
 		groups, err := groupsOf(hooks, installed.event)
 		if err != nil {
 			return nil, err

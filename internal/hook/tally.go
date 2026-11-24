@@ -35,6 +35,18 @@ type Tally struct {
 // ReadTally sums a hook trace, as WithTrace writes it. A line that is not
 // a trace line is skipped.
 func ReadTally(trace io.Reader) (Tally, error) {
+	return tallyLines(trace, "")
+}
+
+// ReadSessionTally sums the lines of a hook trace that belong to one
+// session. A trace shared by several sessions holds all of theirs, and the
+// lines without that session are not counted.
+func ReadSessionTally(trace io.Reader, session string) (Tally, error) {
+	return tallyLines(trace, session)
+}
+
+// tallyLines counts every line when session is empty.
+func tallyLines(trace io.Reader, session string) (Tally, error) {
 	var tally Tally
 
 	lines := bufio.NewScanner(trace)
@@ -43,6 +55,10 @@ func ReadTally(trace io.Reader) (Tally, error) {
 	for lines.Scan() {
 		var rec record
 		if err := json.Unmarshal(lines.Bytes(), &rec); err != nil {
+			continue
+		}
+
+		if session != "" && rec.Session != session {
 			continue
 		}
 

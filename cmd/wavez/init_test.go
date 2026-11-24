@@ -255,3 +255,33 @@ func TestInit_RemoveTakesOutWhatInitPutIn(t *testing.T) {
 		})
 	}
 }
+
+func TestInit_StopHookTimeoutFollowsTheConfiguredBudget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		file string
+		want string
+	}{
+		{"no file", "", `"timeout": 180`},
+		{"a configured budget", "stop_budget = \"1m\"\n", `"timeout": 90`},
+		{"a file that does not load keeps the default", "stop_budget = \"soon\"\n", `"timeout": 180`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := goProject(t)
+			if tt.file != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, ".wavez.toml"), []byte(tt.file), 0o600))
+			}
+
+			code, out, errOut := invoke(t, "", "init", "--dir", dir, "--print")
+			require.Equal(t, 0, code, errOut)
+			assert.Contains(t, out, tt.want)
+			assert.Contains(t, out, `"statusMessage": "wavez: running checks"`)
+		})
+	}
+}

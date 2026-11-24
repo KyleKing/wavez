@@ -140,6 +140,9 @@ func TestLoad_RejectsWhatItCannotHonor(t *testing.T) {
 		{"endpoint without a model", "[decide]\nendpoint = \"http://localhost:11434/v1\"\n", "decide.model"},
 		{"unparsable decide timeout", "[decide]\ntimeout = \"soon\"\n", "decide.timeout"},
 		{"zero decide timeout", "[decide]\ntimeout = \"0s\"\n", "decide.timeout"},
+		{"unparsable stop budget", "stop_budget = \"soon\"\n", "stop_budget"},
+		{"zero stop budget", "stop_budget = \"0s\"\n", "stop_budget"},
+		{"negative stop budget", "stop_budget = \"-2m\"\n", "stop_budget"},
 	}
 
 	for _, tt := range tests {
@@ -245,5 +248,52 @@ func TestLoad_ReportsBrokenTOMLAndUnreadableFiles(t *testing.T) {
 
 	if _, err := config.Load(root); err == nil || !strings.Contains(err.Error(), "reading") {
 		t.Errorf("directory in place of the file: got %v", err)
+	}
+}
+
+func TestLoad_StopBudgetAndAnnounce(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantBudget   time.Duration
+		wantAnnounce bool
+	}{
+		{"neither key set", "max_rounds = 2\n", 0, true},
+		{"a budget", "stop_budget = \"2m30s\"\n", 150 * time.Second, true},
+		{"a shorter budget", "stop_budget = \"90s\"\n", 90 * time.Second, true},
+		{"announce off", "announce = false\n", 0, false},
+		{"announce on", "announce = true\n", 0, true},
+		{"both", "stop_budget = \"1m\"\nannounce = false\n", time.Minute, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(write(t, tt.body))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+
+			if cfg.StopBudget != tt.wantBudget || cfg.Announce != tt.wantAnnounce {
+				t.Errorf("got budget %v announce %v, want %v and %v",
+					cfg.StopBudget, cfg.Announce, tt.wantBudget, tt.wantAnnounce)
+			}
+		})
+	}
+}
+
+func TestLoad_NoFileAnnounces(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !cfg.Announce || cfg.StopBudget != 0 {
+		t.Errorf("got announce %v budget %v, want announce on and budget zero", cfg.Announce, cfg.StopBudget)
 	}
 }
