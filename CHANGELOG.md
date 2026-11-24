@@ -1,3 +1,15 @@
+## v3.3.0 (2026-11-24)
+
+### Feat
+
+- hand the prompt its source and apply edits with their check in one command
+- look up the prompt's names, run checks ahead, and stop paying for imports and new paths
+
+### Fix
+
+- keep lines that read as merge conflicts out of the source, and record the brief run
+- **bench**: wait for a killed process group to be gone before a run returns
+
 ## v3.2.0 (2026-11-24)
 
 ### Feat
