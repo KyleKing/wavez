@@ -59,3 +59,6 @@ holds the traps that are not visible from the code.
 - The Go build and test commands carry `-trimpath`, and `untrimmed` puts the
   directories back into a panic's trace. A new go command in the gates needs
   the flag too, or it compiles the module again beside the others
+- A pattern handed to `git grep -E` is written in POSIX classes. Git built
+  without PCRE, as on macOS, has no `\s` or `\b`, and a pattern that uses
+  them matches nothing there without an error

@@ -24,6 +24,11 @@ var (
 	pathToken = regexp.MustCompile(`[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+`)
 	// The quoted pattern matches text between a pair of quotes or backticks.
 	quoted = regexp.MustCompile("'([^'\n]+)'|\"([^\"\n]+)\"|`([^`\n]+)`")
+	// The declaring pattern is what `git grep -E` is asked for: a line that
+	// opens a function or a class. It is written in POSIX classes, because
+	// git's own expressions have no \s or \b where it is built without PCRE,
+	// as it is on macOS.
+	declaring = `^[[:space:]]*(export[[:space:]]+)?(async[[:space:]]+)?(func|def|class|function)[[:space:]]`
 	// The wordToken pattern matches a word, with the hyphens a compound is
 	// written with.
 	wordToken = regexp.MustCompile(`[A-Za-z][A-Za-z\-]+`)
@@ -138,7 +143,7 @@ func byWord(ctx context.Context, git, root, dir, prompt string) []Site {
 		wanted = words(prompt, dir)
 	)
 
-	for _, hit := range grep(ctx, git, root, "-n", "-E", "-e", `^\s*(export\s+)?(async\s+)?(func|def|class|function)\b`,
+	for _, hit := range grep(ctx, git, root, "-n", "-E", "-e", declaring,
 		"--", dir+"/*") {
 		site, ok := declaredOn(hit)
 		if !ok || testFile.MatchString(site.File) || filepath.ToSlash(filepath.Dir(site.File)) != dir {
