@@ -1,3 +1,10 @@
+## v3.2.0 (2026-11-24)
+
+### Feat
+
+- compile importers only when a declaration changed, and hold commits for a check
+- **bench**: add wide Hatchet tasks and an overlay for wired arms
+
 ## v3.1.0 (2026-11-24)
 
 ### Feat
