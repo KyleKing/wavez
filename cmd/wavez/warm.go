@@ -7,13 +7,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
+	"github.com/kyleking/wavez/internal/gate"
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/warm"
 )
 
 // errWarmUsage is a warm invocation without the session it is for.
-var errWarmUsage = errors.New("usage: wavez warm --root DIR --session ID")
+var errWarmUsage = errors.New("usage: wavez warm --root DIR --session ID [./pkg/ ...]")
+
+// buildTimeout bounds a build started ahead of the model's edits.
+const buildTimeout = 5 * time.Minute
 
 // runWarm is what the hooks start in the background: the session's checks,
 // run for what they leave behind and not for what they print. It is the
@@ -44,6 +49,17 @@ func runWarm(ctx context.Context, args []string, streams stdio) error {
 		return fmt.Errorf("warm: naming the session: %w", err)
 	}
 
+	// With packages named, the run is the build a prompt's brief asked for
+	// and not the session's checks: nothing has been edited yet.
+	if pkgs := flags.Args(); len(pkgs) > 0 {
+		bounded, cancel := context.WithTimeout(ctx, buildTimeout)
+		defer cancel()
+
+		gate.BuildAhead(bounded, *root, pkgs)
+
+		return nil
+	}
+
 	quiet := stdio{in: streams.in, out: io.Discard, err: io.Discard}
 
 	// A failing check is an answer here, not this command's failure: the
@@ -56,6 +72,17 @@ func runWarm(ctx context.Context, args []string, streams stdio) error {
 	}
 
 	return nil
+}
+
+// buildAhead is how a hook starts a build of pkgs: this binary again, on its
+// own, as the session's warm run.
+func buildAhead(root, id string, pkgs []string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("finding this binary: %w", err)
+	}
+
+	return warm.Start(self, root, id, pkgs...) //nolint:wrapcheck // the warm package names the step
 }
 
 // warmStart is how a hook starts a warm run: this binary again, on its own.

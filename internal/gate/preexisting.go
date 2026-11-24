@@ -290,7 +290,7 @@ func (c *comparison) testsAt(ctx context.Context, goCmd invocation, pkg string, 
 	// when the pattern matches nothing, and a test that never ran must not
 	// read as one that passed.
 	goCmd.args = []string{
-		goTest, c.r.testTimeout(), "-count=1", "-v", "-run", "^(" + strings.Join(quoted, "|") + ")$", pkg,
+		goTest, c.r.testTimeout(), "-count=1", "-v", runFlag, "^(" + strings.Join(quoted, "|") + ")$", pkg,
 	}
 
 	out := run(ctx, goCmd)

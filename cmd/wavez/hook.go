@@ -121,7 +121,7 @@ func handleHook(ctx context.Context, streams stdio) error {
 	}
 
 	if cfg.Brief {
-		opts = append(opts, hook.WithBrief())
+		opts = append(opts, hook.WithBrief(), hook.WithBuildAhead(buildAhead))
 	}
 
 	if cfg.Warm {

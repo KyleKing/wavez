@@ -13,6 +13,7 @@ import (
 	"github.com/kyleking/wavez/internal/hook"
 	"github.com/kyleking/wavez/internal/lane"
 	"github.com/kyleking/wavez/internal/session"
+	"github.com/kyleking/wavez/internal/warm"
 )
 
 const applyUsage = `usage: wavez apply [--root DIR] [--at REV] [--no-check] < edits
@@ -133,6 +134,12 @@ func applyChecked(ctx context.Context, root string, files []string, tracked, inL
 	kind := runQuick
 	if inLane {
 		kind = runLane
+	}
+
+	// A build started when the prompt arrived is compiling what this check
+	// is about to ask for, and two compilers at once finish later than one.
+	if id := os.Getenv(hook.SessionEnv); tracked && id != "" {
+		warm.Wait(ctx, root, id)
 	}
 
 	err := checkWith(ctx, "apply", args, streams, kind)

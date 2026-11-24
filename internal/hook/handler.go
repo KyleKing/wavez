@@ -78,6 +78,9 @@ type Handler struct {
 	// the project has warming off.
 	warm     func(root, id string) error
 	waitWarm func(ctx context.Context, root, id string)
+	// ahead starts a background build of Go packages and returns at once.
+	// It is nil unless the project hands the model a brief.
+	ahead func(root, id string, pkgs []string) error
 	// projectDir is where the harness says the session started.
 	projectDir string
 	// envFile is where the harness reads variables for the session's
@@ -199,6 +202,14 @@ func WithLocate() Option {
 // writes.
 func WithBrief() Option {
 	return func(h *Handler) { h.locate, h.brief = true, true }
+}
+
+// WithBuildAhead makes the handler start a build of the Go packages a
+// prompt's brief points at when the prompt arrives. The model takes seconds
+// to write its edits, and the check that follows them otherwise spends its
+// first run compiling packages that were never going to change.
+func WithBuildAhead(start func(root, id string, pkgs []string) error) Option {
+	return func(h *Handler) { h.ahead = start }
 }
 
 // WithCommitChecks holds a shell command that commits or pushes until

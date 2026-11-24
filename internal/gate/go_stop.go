@@ -43,6 +43,8 @@ const (
 	// every one of them again. Positions in compile errors stay relative to
 	// the package, and a panic's trace names files by import path.
 	trimpath = "-trimpath"
+	// The runFlag flag names the tests a run is limited to.
+	runFlag = "-run"
 	// The quietFormat template prints nothing for a package. An empty -f
 	// would mean go list's default, which prints the import path.
 	quietFormat = `{{""}}`
@@ -285,14 +287,14 @@ func (r *runner) goTests(
 	// which is also how a build failure found by the test run is put to
 	// the baseline tree. A binary run with -run '^$' still runs TestMain,
 	// which in some projects starts a database, so it is handed to true.
-	linkOnly := []string{goTest, trimpath, "-run", "^$"}
+	linkOnly := []string{goTest, trimpath, runFlag, "^$"}
 	if noop, err := r.lookPath("true"); err == nil {
 		linkOnly = append(linkOnly, "-exec", noop)
 	}
 
 	args := []string{goTest, trimpath, r.testTimeout()}
 	if plan.run != "" {
-		args = append(args, "-run", plan.run)
+		args = append(args, runFlag, plan.run)
 	}
 
 	if !wantTest {
