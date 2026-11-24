@@ -62,3 +62,7 @@ holds the traps that are not visible from the code.
 - A pattern handed to `git grep -E` is written in POSIX classes. Git built
   without PCRE, as on macOS, has no `\s` or `\b`, and a pattern that uses
   them matches nothing there without an error
+- A benchmark runs from a binary named `wavez` with `detest` beside it and
+  the lint binary on PATH. The model is told to run `wavez`, and a run from
+  a binary under another name once measured sixty sessions of "command not
+  found"; `bench run` now refuses that, but not a missing `detest`

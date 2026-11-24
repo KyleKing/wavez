@@ -17,6 +17,38 @@ const routeBudget = 5 * time.Second
 // locateBudget bounds the lookup of the names in a prompt.
 const locateBudget = 1500 * time.Millisecond
 
+// located is where the identifiers the prompt names are, or their source
+// when the project hands over a brief, and "" when the project has the
+// lookup off or it found nothing. With a brief it also starts a build of
+// the Go packages it points at.
+func (h *Handler) located(ctx context.Context, ev Event, rec *record) string {
+	if !h.locate {
+		return ""
+	}
+
+	bounded, cancel := context.WithTimeout(ctx, locateBudget)
+	sites := lookup.Find(bounded, rec.Root, ev.Prompt)
+
+	cancel()
+
+	hint := lookup.Hint(sites)
+	if h.brief {
+		hint = lookup.Brief(rec.Root, sites)
+	}
+
+	if hint != "" {
+		rec.Note = "located " + strconv.Itoa(len(sites))
+	}
+
+	if pkgs := lookup.Packages(sites); h.brief && h.ahead != nil && len(pkgs) > 0 && ev.SessionID != "" {
+		if err := h.ahead(rec.Root, ev.SessionID, pkgs); err != nil {
+			rec.Note += "; build ahead: " + err.Error()
+		}
+	}
+
+	return hint
+}
+
 // prompted answers a UserPromptSubmit event with what wavez can say before
 // the model starts: where the identifiers the prompt names are, when the
 // project has that on, and the route hint, when it has that on. It has no
@@ -30,21 +62,8 @@ func (h *Handler) prompted(ctx context.Context, ev Event, rec *record) output {
 
 	var parts []string
 
-	if h.locate {
-		bounded, cancel := context.WithTimeout(ctx, locateBudget)
-		sites := lookup.Find(bounded, rec.Root, ev.Prompt)
-
-		cancel()
-
-		hint := lookup.Hint(sites)
-		if h.brief {
-			hint = lookup.Brief(rec.Root, sites)
-		}
-
-		if hint != "" {
-			rec.Note = "located " + strconv.Itoa(len(sites))
-			parts = append(parts, hint)
-		}
+	if hint := h.located(ctx, ev, rec); hint != "" {
+		parts = append(parts, hint)
 	}
 
 	if hint := h.routed(ctx, ev, rec); hint != "" {

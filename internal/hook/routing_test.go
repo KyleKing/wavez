@@ -317,3 +317,35 @@ func TestHandle_SessionStart_AfterACompactionSaysWhatTheSessionHad(t *testing.T)
 	assert.Contains(t, start("compact"), "The checks passed on them as they are now.")
 	assert.Empty(t, start("resume"))
 }
+
+func TestHandle_UserPromptSubmit_StartsABuildOfTheBriefedGoPackages(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+	write(t, root, "pkg/valid/valid.go", "package valid\n\nfunc passwordRule(pw string) bool { return pw != \"\" }\n")
+	write(t, root, "web/label.ts", "export function labelFor(id: string): string { return id }\n")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-qm", "more")
+
+	var built [][]string
+
+	handler := hook.New(&fakeRunner{}, hook.WithBrief(), hook.WithoutStopChecks(),
+		hook.WithBuildAhead(func(_, id string, pkgs []string) error {
+			built = append(built, append([]string{id}, pkgs...))
+
+			return nil
+		}))
+
+	prompt := func(text string) {
+		_, err := fire(t, handler, map[string]any{
+			"session_id": sessionID, "cwd": root, "hook_event_name": "UserPromptSubmit", "prompt": text,
+		})
+		require.NoError(t, err)
+	}
+
+	prompt("labelFor returns the id unchanged")
+	assert.Empty(t, built, "a prompt about no Go code starts no build")
+
+	prompt("passwordRule accepts a blank password")
+	assert.Equal(t, [][]string{{sessionID, "./pkg/valid/"}}, built)
+}

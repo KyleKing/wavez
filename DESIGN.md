@@ -299,6 +299,21 @@ that file already does for another secret, and the check looked for the
 token spelled whole; the test the benchmark runs against the change
 passed. The check now looks for the prefix alone.
 
+Where the seconds go, from the transcripts of that run: the model's own
+writing. A session's tools ran for one to four seconds in total once the
+build cache was warm, against ten to thirty seconds of the model. The
+exception is a cold cache, where the first check of a session compiled for
+20 to 35 seconds in either arm. So when a brief points at Go packages, the
+prompt hook starts a build of them and their tests in the background
+(`wavez warm` with the packages named), and `wavez apply` waits for it
+before it checks. With an empty cache on Hatchet's `pkg/validator`, apply
+took 52 seconds alone and 7 after that build, which itself took 44: what is
+saved is however long the model spends writing before its first check.
+
+A prompt that asks for a rename is answered with the command, `wavez rename
+./dir:old new`, for a Go name declared once. Both sessions of the Go rename
+task had spent their first turn on that command's help.
+
 That is where this stands against halving the time: a third of the turns
 are gone, the money has started to follow, and the seconds have not,
 because a turn saved is a short turn and the one command that replaces

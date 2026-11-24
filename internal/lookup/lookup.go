@@ -320,6 +320,17 @@ func goRename(sites []Site) string {
 // goTest is the command that tests the Go packages the sites are in, and ""
 // when none of them is Go.
 func goTest(sites []Site) string {
+	pkgs := Packages(sites)
+	if len(pkgs) == 0 {
+		return ""
+	}
+
+	return "go test " + strings.Join(pkgs, " ")
+}
+
+// Packages is the Go packages the sites are in, as patterns relative to the
+// root, each once.
+func Packages(sites []Site) []string {
 	var pkgs []string
 
 	for _, site := range sites {
@@ -328,9 +339,5 @@ func goTest(sites []Site) string {
 		}
 	}
 
-	if len(pkgs) == 0 {
-		return ""
-	}
-
-	return "go test " + strings.Join(pkgs, " ")
+	return pkgs
 }
