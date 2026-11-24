@@ -73,10 +73,10 @@ type Handler struct {
 	// goals checks the project's goal at the end of a turn: a line for the
 	// person, text for the agent, and whether the turn should be held.
 	goals func(ctx context.Context, root string) (person, agent string, hold bool, err error)
-	// warm starts a background run of the session's checks, or with prewarm
-	// only fills the build cache, and returns at once. waitWarm returns when
-	// no such run is alive. Both are nil while the project has warming off.
-	warm     func(root, id string, prewarm bool) error
+	// warm starts a background run of the session's checks and returns at
+	// once. waitWarm returns when no such run is alive. Both are nil while
+	// the project has warming off.
+	warm     func(root, id string) error
 	waitWarm func(ctx context.Context, root, id string)
 	// projectDir is where the harness says the session started.
 	projectDir string
@@ -166,23 +166,23 @@ func WithoutStopChecks() Option {
 }
 
 // WithWarm makes the handler start a background run of the checks whenever
-// a file is written, and fill the build cache when a session starts. A stop
+// a file is written. A stop
 // that would run the checks waits for the run in flight first, since its
 // answer is the one the stop is about to ask for.
 func WithWarm(
-	start func(root, id string, prewarm bool) error, wait func(ctx context.Context, root, id string),
+	start func(root, id string) error, wait func(ctx context.Context, root, id string),
 ) Option {
 	return func(h *Handler) { h.warm, h.waitWarm = start, wait }
 }
 
 // warming starts a background run and notes a failure in the trace. A run
 // that could not start costs the time it would have saved and nothing else.
-func (h *Handler) warming(ev Event, rec *record, prewarm bool) {
+func (h *Handler) warming(ev Event, rec *record) {
 	if h.warm == nil {
 		return
 	}
 
-	if err := h.warm(rec.Root, ev.SessionID, prewarm); err != nil {
+	if err := h.warm(rec.Root, ev.SessionID); err != nil {
 		rec.Note = err.Error()
 	}
 }
@@ -287,9 +287,7 @@ func (h *Handler) dispatch(ctx context.Context, ev Event, rec *record) (output, 
 			rec.Note = err.Error()
 		}
 
-		h.warming(ev, rec, true)
-
-		return h.announced(ev, rec), nil
+		return h.started(ctx, store, ev, rec), nil
 	case eventUserPromptSubmit:
 		return h.prompted(ctx, ev, rec), nil
 	case eventPreToolUse:
@@ -300,6 +298,25 @@ func (h *Handler) dispatch(ctx context.Context, ev Event, rec *record) (output, 
 }
 
 func keep(*session.State) error { return nil }
+
+// started answers a SessionStart: the sentence about the checks, and after a
+// compaction what the session had established. Nothing is run ahead here. A
+// session that only asks a question would pay for it and use none of it,
+// and one that edits starts its background run with its first write.
+func (h *Handler) started(ctx context.Context, store *session.Store, ev Event, rec *record) output {
+	out := h.announced(ev, rec)
+
+	kept := h.recalled(ctx, store, ev, rec)
+	if kept == "" {
+		return out
+	}
+
+	if out.Specific != nil && out.Specific.AdditionalContext != "" {
+		kept = out.Specific.AdditionalContext + "\n" + kept
+	}
+
+	return contextFor(eventSessionStart, kept)
+}
 
 // edited records the file an edit tool wrote and runs the edit-stage checks
 // on it. Whatever they find is context for the model and never a block.
@@ -333,7 +350,7 @@ func (h *Handler) edited(ctx context.Context, store *session.Store, ev Event, re
 	}
 
 	// After the edit-stage fixers, so the run sees the bytes they left.
-	h.warming(ev, rec, false)
+	h.warming(ev, rec)
 
 	if verdict.Text == "" {
 		return output{}, nil

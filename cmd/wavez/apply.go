@@ -140,7 +140,7 @@ func applyChecked(ctx context.Context, root string, files []string, tracked, inL
 	// What the quick check left out is started now, where the project has
 	// background runs on, so that it is done by the time it is asked for.
 	if err == nil && tracked && projectConfig(root).Warm {
-		if warmErr := warmStart(root, os.Getenv(hook.SessionEnv), false); warmErr != nil {
+		if warmErr := warmStart(root, os.Getenv(hook.SessionEnv)); warmErr != nil {
 			sayf(streams.err, "wavez apply: the rest of the checks were not started: %v\n", warmErr)
 		}
 	}
