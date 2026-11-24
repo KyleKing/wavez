@@ -286,6 +286,19 @@ less. The tasks that did not improve are the two questions, the two
 renames, and the one change across three files, where the brief named one
 symbol of several and the session went on to read the rest.
 
+For that last task the brief now carries the package's variables,
+constants, and types the function it found reads, names the test files
+beside a declaration no test mentions, and tells the session to skip
+reading only when every declaration came with its tests. A fourth run, two
+repetitions, 60 sessions: turns 0.72x (p 0.012), cost 0.90x (p 0.078),
+wall clock 1.03x (p 0.85). The three-file change went from ten turns to
+seven against the baseline's eight and a half, and from a third dearer than
+the baseline to level with it. One of its two runs is recorded as failed
+because the session built the token in its tests out of two strings, as
+that file already does for another secret, and the check looked for the
+token spelled whole; the test the benchmark runs against the change
+passed. The check now looks for the prefix alone.
+
 That is where this stands against halving the time: a third of the turns
 are gone, the money has started to follow, and the seconds have not,
 because a turn saved is a short turn and the one command that replaces
