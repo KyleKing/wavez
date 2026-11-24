@@ -44,6 +44,10 @@ type Runner struct {
 	TranscriptRoot string
 	// TempDir is where workspaces are made, the system default when empty.
 	TempDir string
+	// CacheDir keeps a mirror of each repository a task names by URL, so
+	// a run fetches only the commit it pins and only the first time. Empty
+	// fetches into each workspace afresh.
+	CacheDir string
 	// Build identifies the wavez binary the run used and Flags the settings
 	// of the invocation that change what a run does. Both go into every
 	// record, and a report never pools runs that differ in either.
@@ -64,7 +68,7 @@ type Runner struct {
 // there is nothing to record; everything after that point, a harness that
 // fails included, is a record.
 func (r *Runner) Run(ctx context.Context, task *Task, arm Arm, model string) (Record, error) {
-	ws, err := NewWorkspace(ctx, task.Repo, task.Rev, r.TempDir)
+	ws, err := NewWorkspace(ctx, task.Repo, task.Rev, r.TempDir, r.CacheDir)
 	if err != nil {
 		return Record{}, err
 	}
@@ -92,7 +96,7 @@ func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, 
 		return Record{}, err
 	}
 
-	env, err := r.prepare(ctx, ws.Dir, spec)
+	env, err := r.prepare(ctx, ws.Dir, spec, task.Gates)
 	if err != nil {
 		return Record{}, err
 	}
@@ -205,13 +209,18 @@ func (r *Runner) harness(ctx context.Context, req Request) (Outcome, string, err
 // prepare wires the arm into the workspace and returns the harness's
 // environment. A wired arm gets hooks and a skill from `wavez init`, and
 // the binary's directory first on PATH so the skill's commands resolve. An
-// arm's settings are written into the workspace's .wavez.toml first.
-func (r *Runner) prepare(ctx context.Context, dir string, spec *armSpec) ([]string, error) {
+// arm's settings and the task's gates are written into the workspace's
+// .wavez.toml first.
+func (r *Runner) prepare(ctx context.Context, dir string, spec *armSpec, gates string) ([]string, error) {
 	if !spec.wired {
 		return r.Env, ensureBaseline(dir)
 	}
 
 	if err := applySettings(dir, spec.settings); err != nil {
+		return nil, err
+	}
+
+	if err := appendGates(dir, gates); err != nil {
 		return nil, err
 	}
 

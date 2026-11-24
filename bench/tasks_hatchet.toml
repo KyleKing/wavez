@@ -1,0 +1,256 @@
+# Benchmark tasks on Hatchet (https://github.com/hatchet-dev/hatchet), a
+# project wavez did not write: a Go engine and API with Python and TypeScript
+# SDKs under sdks/. The format is the one tasks.toml documents. Run with
+# `--tasks bench/tasks_hatchet.toml`; README.md beside this file says what the
+# checks need installed.
+#
+# Every Go check targets a package that imports only the standard library, so
+# it needs no module download. Python checks load one file by path, because
+# importing hatchet_sdk pulls in grpc. TypeScript checks import one file with
+# Node's built-in type stripping, because type-checking needs `pnpm install`.
+#
+# Each [[gate]] becomes a [[check]] in the .wavez.toml of a wired arm's
+# workspace, since the built-in gates only know Go. The baseline arm gets none.
+# Each prints one line per broken file, and a Node too old to strip types exits
+# 127, which the gates read as a check that could not run.
+
+[[gate]]
+name = "py-syntax"
+globs = ["sdks/python/**/*.py"]
+command = '''python3 -c '
+import sys
+bad = 0
+for f in sys.argv[1:]:
+    try:
+        compile(open(f, "rb").read(), f, "exec")
+    except SyntaxError as e:
+        bad = 1
+        print(f"{f}:{e.lineno}: {e.msg}")
+sys.exit(bad)
+' {files}'''
+
+[[gate]]
+name = "ts-syntax"
+globs = ["sdks/typescript/**/*.ts"]
+command = '''node --no-warnings -e '
+const strip = require("node:module").stripTypeScriptTypes;
+if (typeof strip !== "function") process.exit(127);
+let bad = 0;
+for (const f of process.argv.slice(1)) {
+  try {
+    strip(require("node:fs").readFileSync(f, "utf8"), { mode: "transform" });
+  } catch (e) {
+    bad = 1;
+    console.log(f + ": " + e.message.split("\n")[0]);
+  }
+}
+process.exit(bad);
+' {files}'''
+
+[[task]]
+id = "hq-go"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "A workflow that sets a high per-task maximum reassignment count is rejected when it registers. What decides the highest value the engine accepts? Name the environment variable an operator would set to raise it and its default value. Answer in two sentences."
+checks = [
+  "answer:SERVER_MAX_INTERNAL_RETRY_COUNT",
+  "answer:10",
+]
+
+[[task]]
+id = "hq-py"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "Our Python workers run with the worker healthcheck enabled, and /health starts returning 503 whenever a task does blocking work for a few seconds. Which environment variable controls how long the worker's event loop may be blocked before the healthcheck reports unhealthy, and what is its default? Answer in two sentences."
+checks = [
+  "answer:HATCHET_CLIENT_WORKER_HEALTHCHECK_EVENT_LOOP_BLOCK_THRESHOLD",
+  "answer:5",
+]
+
+[[task]]
+id = "he-go-len"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "The generic TTLCache in internal/cache has no way to ask how many entries it holds. Add a Len method that counts only the entries that have not expired, with a table-driven test in that package."
+checks = [
+  "internal/cache/cache.go:) Len() int",
+  '''cmd:f=internal/cache/wavez_bench_len_test.go
+trap 'rm -f "$f"' EXIT
+cat > "$f" <<'EOF'
+package cache_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/hatchet-dev/hatchet/internal/cache"
+)
+
+func TestWavezBenchLen(t *testing.T) {
+	c := cache.NewTTL[string, int]()
+	defer c.Stop()
+	if got := c.Len(); got != 0 {
+		t.Fatalf("empty Len() = %d", got)
+	}
+	c.Set("a", 1, time.Hour)
+	c.Set("b", 2, time.Hour)
+	c.Set("gone", 3, time.Nanosecond)
+	time.Sleep(20 * time.Millisecond)
+	if got := c.Len(); got != 2 {
+		t.Fatalf("Len() with one expired = %d, want 2", got)
+	}
+	c.Remove("a")
+	if got := c.Len(); got != 1 {
+		t.Fatalf("Len() after Remove = %d, want 1", got)
+	}
+}
+EOF
+go test -count=1 ./internal/cache/''',
+]
+
+[[task]]
+id = "he-go-rename"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "In hack/ci/loadreport, the number formatting helper is called num, which says nothing at its call sites. Rename it to formatNumber everywhere in the package, tests included."
+checks = [
+  "hack/ci/loadreport/sanitize.go:func formatNumber(",
+  "!hack/ci/loadreport/sanitize.go:func num(",
+  '''cmd:! grep -nE '(^|[^A-Za-z0-9_"])num\(' hack/ci/loadreport/*.go''',
+  "test:./hack/ci/loadreport/",
+]
+
+[[task]]
+id = "he-go-redact"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "The load report in hack/ci/loadreport redacts credential-shaped text before posting it on a pull request, but it lets GitLab personal access tokens through (glpat- followed by 20 or more letters, digits, underscores, or dashes). Redact them, list them in the sanitization policy, and cover them both in the unit tests for the secret rules and in the end-to-end test that checks every sink."
+checks = [
+  "hack/ci/loadreport/sanitize.go:glpat",
+  "hack/ci/loadreport/sanitize_test.go:glpat-",
+  "hack/ci/loadreport/main_test.go:glpat-",
+  '''cmd:f=hack/ci/loadreport/wavez_bench_redact_test.go
+trap 'rm -f "$f"' EXIT
+cat > "$f" <<'EOF'
+package main
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestWavezBenchRedactsGitLab(t *testing.T) {
+	for _, in := range []string{
+		"remote rejected glpat-AbCdEfGhIjKlMnOpQrSt for this push",
+		"glpat-a1_b2-c3d4e5f6g7h8i9j0kLmN",
+	} {
+		got := redactSecrets(in)
+		if strings.Contains(got, "AbCdEfGhIjKlMnOpQrSt") || strings.Contains(got, "a1_b2-c3d4e5f6g7h8i9j0kLmN") {
+			t.Errorf("redactSecrets(%q) = %q", in, got)
+		}
+	}
+	if got := redactSecrets("plain text stays"); got != "plain text stays" {
+		t.Errorf("plain text changed to %q", got)
+	}
+}
+EOF
+go test -count=1 ./hack/ci/loadreport/''',
+]
+
+[[task]]
+id = "he-py-expr"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "In the Python SDK, timedelta_to_expr silently truncates: timedelta(milliseconds=1500) becomes '1s', and a negative timedelta yields an expression the engine cannot use. Make it raise ValueError for a negative duration or one that is not a whole number of seconds, and extend sdks/python/tests/test_durations.py to cover it."
+checks = [
+  "sdks/python/tests/test_durations.py:ValueError",
+  "cmd:python3 -m py_compile sdks/python/hatchet_sdk/utils/timedelta_to_expression.py sdks/python/tests/test_durations.py",
+  '''cmd:python3 -I - <<'EOF'
+import importlib.util
+import sys
+from datetime import timedelta
+
+spec = importlib.util.spec_from_file_location("m", "sdks/python/hatchet_sdk/utils/timedelta_to_expression.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+for td, want in [(timedelta(hours=2), "2h"), (timedelta(minutes=3), "3m"), (timedelta(seconds=3661), "3661s"), (timedelta(hours=96, seconds=1), "345601s")]:
+    got = m.timedelta_to_expr(td)
+    if got != want:
+        sys.exit(f"timedelta_to_expr({td!r}) = {got!r}, want {want!r}")
+
+for td in [timedelta(milliseconds=1500), timedelta(microseconds=1), timedelta(seconds=-5), timedelta(hours=-1)]:
+    try:
+        got = m.timedelta_to_expr(td)
+    except ValueError:
+        continue
+    sys.exit(f"timedelta_to_expr({td!r}) = {got!r}, want ValueError")
+EOF''',
+]
+
+[[task]]
+id = "he-py-rename"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "Rename the helper create_chunks in sdks/python/hatchet_sdk/utils/iterables.py to chunked and update every use of it."
+checks = [
+  "sdks/python/hatchet_sdk/utils/iterables.py:def chunked(",
+  "cmd:! grep -rn --include=*.py create_chunks sdks/python/hatchet_sdk",
+  "sdks/python/examples/streaming/worker.py:def create_chunks(",
+  "examples/python/streaming/worker.py:def create_chunks(",
+  "cmd:python3 -m py_compile sdks/python/hatchet_sdk/utils/iterables.py sdks/python/hatchet_sdk/features/runs.py",
+  '''cmd:python3 -I - <<'EOF'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("m", "sdks/python/hatchet_sdk/utils/iterables.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+if not hasattr(m, "chunked"):
+    sys.exit("iterables.py defines no chunked")
+got = list(m.chunked([1, 2, 3, 4, 5], 2))
+if got != [[1, 2], [3, 4], [5]]:
+    sys.exit(f"chunked([1, 2, 3, 4, 5], 2) = {got!r}")
+EOF''',
+]
+
+[[task]]
+id = "he-ts-duration"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "In the TypeScript SDK, durationToString drops the sub-second part of a duration given in milliseconds: 1500 becomes '1s'. Keep the fraction as decimal seconds, so 1500 becomes '1.5s' and 90500 becomes '1m30.5s', and leave whole-second output as it is."
+checks = [
+  '''cmd:node --no-warnings --input-type=module <<'EOF'
+import { durationToString as d, durationToMs as ms } from './sdks/typescript/src/v1/client/duration.ts';
+const cases = [[1500, '1.5s'], [90500, '1m30.5s'], [250, '0.25s'], [1, '0.001s'], [0, '0s'], [61000, '1m1s'], [3600000, '1h'], [3725000, '1h2m5s'], ['10m', '10m'], [{ minutes: 2 }, '2m']];
+for (const [input, want] of cases) {
+  const got = d(input);
+  if (got !== want) { console.log(`durationToString(${JSON.stringify(input)}) = ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); process.exit(1); }
+}
+if (ms(d(90500)) !== 90500) { console.log('durationToMs does not read the output back'); process.exit(1); }
+EOF''',
+]
+
+[[task]]
+id = "he-ts-keys"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "serializePayload in the TypeScript SDK replaces lone UTF-16 surrogates in string values, but a lone surrogate in an object key still reaches the engine and is rejected there. Make it replace them in keys too, at any depth, with everything else serializing exactly as JSON.stringify does now. Update its doc comment and its test file."
+checks = [
+  "!sdks/typescript/src/util/serialize-payload.ts:Object keys are left as they are",
+  "!cmd:git diff --quiet HEAD -- sdks/typescript/src/util/serialize-payload.test.ts",
+  '''cmd:node --no-warnings --input-type=module <<'EOF'
+import { serializePayload as s } from './sdks/typescript/src/util/serialize-payload.ts';
+const fail = (msg) => { console.log(msg); process.exit(1); };
+const lone = '\ud83d';
+const out = s({ [lone + 'k']: { ['n' + lone]: [lone] }, d: new Date(0), u: undefined });
+const want = JSON.stringify({ '�k': { 'n�': ['�'] }, d: '1970-01-01T00:00:00.000Z' });
+if (out !== want) fail(`got ${out}, want ${want}`);
+for (const v of ['x', 1, null, [1, 'a'], { a: { b: [true] } }, { toJSON: () => ({ [lone]: 1 }) }]) {
+  const plain = JSON.stringify(v).replaceAll('\\ud83d', '\\ufffd');
+  const got = s(v).replaceAll('�', '\\ufffd');
+  if (got !== plain) fail(`serializePayload(${JSON.stringify(v)}) = ${s(v)}, want ${plain}`);
+}
+if (s(undefined) !== undefined) fail('undefined must stay undefined');
+EOF''',
+]

@@ -162,6 +162,11 @@ func Load(root string) (Config, error) {
 		return Config{}, fmt.Errorf("reading %s: %w", path, err)
 	}
 
+	return Parse(path, data)
+}
+
+// Parse reads the body of a configuration file, naming path in its errors.
+func Parse(path string, data []byte) (Config, error) {
 	var raw rawConfig
 
 	meta, err := toml.Decode(string(data), &raw)

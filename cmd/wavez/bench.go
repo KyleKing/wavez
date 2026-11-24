@@ -26,6 +26,8 @@ const (
 	// that a check which hangs does not hold up the whole schedule.
 	defaultCheckTimeout = 10 * time.Minute
 	harnessClaude       = "claude"
+	// The narrowest column `bench list` gives task ids.
+	minIDWidth = 5
 )
 
 // usageError is a command line the bench or stats command cannot act on.
@@ -101,9 +103,15 @@ func benchList(args []string, streams stdio) error {
 		return fmt.Errorf("loading tasks: %w", err)
 	}
 
+	width := minIDWidth
+	for i := range tasks {
+		width = max(width, len(tasks[i].ID))
+	}
+
 	for i := range tasks {
 		t := &tasks[i]
-		if _, err := fmt.Fprintf(streams.out, "%-5s %2d check(s)  %s\n", t.ID, len(t.Checks), t.Prompt); err != nil {
+		_, err := fmt.Fprintf(streams.out, "%-*s %2d check(s)  %s\n", width, t.ID, len(t.Checks), t.Prompt)
+		if err != nil {
 			return fmt.Errorf("writing task list: %w", err)
 		}
 	}
@@ -342,6 +350,7 @@ func newRunner(ctx context.Context, opts *runOptions) (*bench.Runner, error) {
 		Flags:          opts.flags(),
 		Keep:           opts.keep,
 		TranscriptRoot: transcriptRoot(),
+		CacheDir:       repoCache(),
 		WavezVersion:   version,
 	}
 
@@ -395,6 +404,18 @@ func transcriptRoot() string {
 	}
 
 	return filepath.Join(home, ".claude", "projects")
+}
+
+// repoCache is where the mirrors of repositories that tasks name by URL are
+// kept between invocations, or empty when there is no user cache directory
+// and each run fetches its own.
+func repoCache() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+
+	return filepath.Join(dir, "wavez", "bench-repos")
 }
 
 func benchReport(args []string, streams stdio) error {

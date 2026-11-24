@@ -342,9 +342,9 @@ for itself.
 - Checks for languages other than Go ship as configuration, not as built-ins
 - Only Claude Code has a hook adapter. Codex accepts the same hook contract,
   so a second writer for its settings file is the likely next adapter
-- The task set is seventeen tasks on this repository at its last
-  first-design commit. A task on a project wavez did not write is the next
-  thing the benchmark needs
+- The main task set is seventeen tasks on this repository at its last
+  first-design commit. Nine tasks on Hatchet, a project wavez did not write,
+  are in `bench/tasks_hatchet.toml` and have never been run live
 - Cross-package `move` is not built, and neither is adding a parameter:
   gopls cannot add one, and a hand-written rewriter of every call site is
   the cost this design avoids. `extract`, `params`, and `inline` have no

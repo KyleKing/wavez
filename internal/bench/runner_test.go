@@ -383,6 +383,73 @@ func TestRunner_RouteArmThatCannotBeConfiguredIsAnError(t *testing.T) {
 	}
 }
 
+func TestRunner_TaskGatesReachOnlyWiredArms(t *testing.T) {
+	t.Parallel()
+
+	const gates = "[[check]]\nname = \"py\"\nglobs = [\"*.py\"]\ncommand = \"true {files}\"\n"
+
+	tests := []struct {
+		arm bench.Arm
+		// want is the .wavez.toml the harness finds.
+		want string
+	}{
+		{arm: bench.ArmBaseline, want: "max_rounds = 2"},
+		{arm: bench.ArmWavez, want: "max_rounds = 2\n" + gates},
+		{arm: bench.ArmWavezRoute, want: "route = true\nmax_rounds = 2\n" + gates},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.arm), func(t *testing.T) {
+			t.Parallel()
+
+			task := newTask(t)
+			task.Gates = gates
+
+			// The pinned tree's file ends without a newline, and the
+			// gates still start on a line of their own.
+			write(t, filepath.Join(task.Repo, ".wavez.toml"), "max_rounds = 2")
+			gitIn(t, task.Repo, "add", ".")
+			gitIn(t, task.Repo, "commit", "--quiet", "-m", "configure")
+			task.Rev = gitIn(t, task.Repo, "rev-parse", "HEAD")
+
+			var config string
+
+			harness := &fakeHarness{run: func(_ context.Context, req bench.Request) (bench.Outcome, error) {
+				config = read(t, filepath.Join(req.Dir, ".wavez.toml"))
+
+				return bench.Outcome{Answer: "Done"}, nil
+			}}
+			runner := &bench.Runner{
+				Harness: harness, WavezBin: script(t, "wavez", "exit 0\n"), TempDir: t.TempDir(),
+				Env: []string{"PATH=/usr/bin:/bin"},
+			}
+
+			_, err := runner.Run(t.Context(), &task, tt.arm, "")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, config)
+		})
+	}
+}
+
+func TestRunner_GatesTheTreeAlreadyDeclaresAreAnError(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	task.Gates = "[[check]]\nname = \"py\"\nglobs = [\"*.py\"]\ncommand = \"true\"\n"
+
+	write(t, filepath.Join(task.Repo, ".wavez.toml"), task.Gates)
+	gitIn(t, task.Repo, "add", ".")
+	gitIn(t, task.Repo, "commit", "--quiet", "-m", "configure")
+	task.Rev = gitIn(t, task.Repo, "rev-parse", "HEAD")
+
+	runner := &bench.Runner{
+		Harness: editor(bench.Outcome{}), WavezBin: script(t, "wavez", "exit 0\n"), TempDir: t.TempDir(),
+	}
+
+	_, err := runner.Run(t.Context(), &task, bench.ArmWavez, "")
+	require.ErrorContains(t, err, "declared twice")
+}
+
 func TestRunner_WavezArmWithoutAPathStillGetsOne(t *testing.T) {
 	t.Parallel()
 
