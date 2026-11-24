@@ -42,7 +42,7 @@ const benchUsage = `usage:
   wavez bench run    <task-id[,task-id...]> | --all  --arm ARM[,ARM...]
                      [--model M] [--n N] [--seed S] [--keep]
                      [--timeout D] [--check-timeout D] [--tasks PATH] [--records PATH]
-                     [--harness-cmd 'prog {prompt}'] [--wavez-bin PATH] [--user-settings]
+                     [--harness-cmd 'prog {prompt}'] [--wavez-bin PATH] [--overlay DIR] [--user-settings]
   wavez bench report [task-id] [--against ARM] [--records PATH]
 
 arms: baseline, wavez, wavez-quiet, wavez-route. Several arms are interleaved:
@@ -127,6 +127,7 @@ type runOptions struct {
 	records      string
 	harnessCmd   string
 	wavezBin     string
+	overlay      string
 	arms         armList
 	seed         uint64
 	n            int
@@ -183,6 +184,7 @@ func parseRun(args []string, streams stdio) (runOptions, error) {
 	fs.StringVar(&o.records, "records", defaultRecords, "records file to append to")
 	fs.StringVar(&o.harnessCmd, "harness-cmd", "", "run this argv template instead of Claude Code")
 	fs.StringVar(&o.wavezBin, "wavez-bin", "", "wavez binary the wired arms use (default: this one)")
+	fs.StringVar(&o.overlay, "overlay", "", "directory of files added to each wired arm's workspace")
 	fs.BoolVar(&o.userSettings, "user-settings", false, "let Claude Code load user-level settings")
 
 	task, err := parseFlags(fs, args, streams)
@@ -388,7 +390,29 @@ func newRunner(ctx context.Context, opts *runOptions) (*bench.Runner, error) {
 		return nil, fmt.Errorf("identifying the build: %w", err)
 	}
 
-	return runner, nil
+	return runner, overlaid(runner, opts.overlay)
+}
+
+// overlaid gives the runner the --overlay directory and names its content in
+// the flags every record carries.
+func overlaid(runner *bench.Runner, dir string) error {
+	if dir == "" {
+		return nil
+	}
+
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolving %s: %w", dir, err)
+	}
+
+	digest, err := bench.TreeDigest(abs)
+	if err != nil {
+		return fmt.Errorf("reading --overlay: %w", err)
+	}
+
+	runner.Overlay, runner.Flags = abs, runner.Flags+" overlay="+digest
+
+	return nil
 }
 
 // transcriptRoot is where Claude Code keeps one folder of transcripts per

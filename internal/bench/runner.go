@@ -53,6 +53,10 @@ type Runner struct {
 	// record, and a report never pools runs that differ in either.
 	Build string
 	Flags string
+	// Overlay is a directory whose files a wired arm's workspace gets before
+	// wavez is wired in: what a project that uses wavez would keep beside its
+	// code and the pinned tree lacks, such as a test trace. Empty adds none.
+	Overlay string
 	// Env is the environment the harness inherits.
 	Env []string
 	// Timeout bounds one harness run and CheckTimeout each check that runs
@@ -216,6 +220,10 @@ func (r *Runner) prepare(ctx context.Context, dir string, spec *armSpec, gates s
 		return r.Env, ensureBaseline(dir)
 	}
 
+	if err := r.overlay(dir); err != nil {
+		return nil, err
+	}
+
 	if err := applySettings(dir, spec.settings); err != nil {
 		return nil, err
 	}
@@ -232,6 +240,21 @@ func (r *Runner) prepare(ctx context.Context, dir string, spec *armSpec, gates s
 	}
 
 	return withPath(r.Env, filepath.Dir(r.WavezBin)), nil
+}
+
+// overlay copies the runner's overlay into the workspace. A file the pinned
+// tree already has is an error, since the arm would then differ from the
+// baseline in the project's own code.
+func (r *Runner) overlay(dir string) error {
+	if r.Overlay == "" {
+		return nil
+	}
+
+	if err := os.CopyFS(dir, os.DirFS(r.Overlay)); err != nil {
+		return fmt.Errorf("copying the overlay into the workspace: %w", err)
+	}
+
+	return nil
 }
 
 // The bits RFC 9562 fixes in a version 4 UUID.

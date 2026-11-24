@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	mathrand "math/rand/v2"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 )
 
 // Schedule orders the runs of an interleaved invocation: reps repetitions,
@@ -72,6 +75,39 @@ func BinaryDigest(path string) (string, error) {
 
 	if err != nil {
 		return "", fmt.Errorf("hashing the wavez binary: %w", err)
+	}
+
+	return hex.EncodeToString(sum.Sum(nil))[:digestLength], nil
+}
+
+// TreeDigest identifies a directory by the names and content of its files,
+// so runs given different overlays are never pooled.
+func TreeDigest(dir string) (string, error) {
+	sum := sha256.New()
+
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return fmt.Errorf("naming %s: %w", path, err)
+		}
+
+		body, err := os.ReadFile(path) //nolint:gosec // the owner names the overlay
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", path, err)
+		}
+
+		// A hash's Write never fails.
+		sum.Write([]byte(filepath.ToSlash(rel) + "\x00" + strconv.Itoa(len(body)) + "\x00"))
+		sum.Write(body)
+
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("hashing the overlay: %w", err)
 	}
 
 	return hex.EncodeToString(sum.Sum(nil))[:digestLength], nil
