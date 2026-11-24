@@ -384,6 +384,14 @@ func newRunner(ctx context.Context, opts *runOptions) (*bench.Runner, error) {
 		return nil, fmt.Errorf("resolving %s: %w", bin, err)
 	}
 
+	// A wired arm tells the model to run `wavez`, and finds it by this
+	// binary's directory being first on PATH. Under any other name the
+	// command is not found and the arm is measured without it.
+	wired := slices.ContainsFunc(opts.arms, func(arm bench.Arm) bool { return arm != bench.ArmBaseline })
+	if name := strings.TrimSuffix(filepath.Base(abs), ".exe"); wired && name != "wavez" {
+		return nil, fmt.Errorf("%w: the binary is %s", errBinaryName, abs)
+	}
+
 	runner.WavezBin = abs
 
 	if runner.Build, err = bench.BinaryDigest(abs); err != nil {

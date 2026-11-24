@@ -449,3 +449,14 @@ func TestStats(t *testing.T) {
 		})
 	}
 }
+
+func TestBench_RefusesAWiredArmUnderAnotherBinaryName(t *testing.T) {
+	t.Parallel()
+
+	fx := newBenchFixture(t)
+
+	// The test binary is not called wavez, and it is what a run falls back to.
+	_, err := runCommand(t, runBench, "run", "ok", "--arm", "baseline,wavez", "--tasks", fx.tasks,
+		"--records", fx.records, "--harness-cmd", "echo done")
+	require.ErrorContains(t, err, "named wavez")
+}
