@@ -1,3 +1,17 @@
+## v3.0.0 (2026-11-24)
+
+### BREAKING CHANGE
+
+- a project that relied on the stop checks sets
+stop_checks = true in .wavez.toml.
+
+### Feat
+
+- **gate**: make the stop-stage checks opt-in and ask for targeted checks instead
+- **bench**: add Hatchet tasks, cached URL mirrors, and task-file gates
+- **refactor**: add extract, params, and inline commands over gopls code actions
+- **config**: add stop_budget and announce keys, tally one session's trace
+
 ## v2.0.0 (2026-11-23)
 
 ### Feat
