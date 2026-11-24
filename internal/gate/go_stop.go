@@ -230,7 +230,9 @@ func (r *runner) goCompile(
 		return nil
 	}
 
-	if wantBuild && !wholeModule && r.bodiesOnly(ctx, proj.root, proj.changed) {
+	// A run that stays near the change leaves the importers to a later one,
+	// as it leaves their tests.
+	if wantBuild && !wholeModule && (r.near || r.bodiesOnly(ctx, proj.root, proj.changed)) {
 		pkgs.buildable = narrowed(pkgs.buildable, dirs)
 	}
 
