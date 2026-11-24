@@ -109,10 +109,14 @@ a cloned repository would then choose where your key is sent.
 
 ## Does it help
 
-Not shown yet. The live runs so far are in
-[bench/records.jsonl](bench/records.jsonl) and prove the plumbing, not a
-benefit. [DESIGN.md](DESIGN.md#what-has-been-measured) says what they found.
-The comparison that would settle it bills a Claude account:
+Not on cost, so far. One paired run on Sonnet over seventeen small tasks
+found turns and cost inside the noise (1.08x and 1.05x of Claude Code alone)
+and wall clock 1.5x, because the stop gate runs checks the baseline skips.
+The pass rate did not move. [DESIGN.md](DESIGN.md#what-has-been-measured)
+has the table. What wavez gives today is for you and not for the bill: a
+goal code checks, a line saying what needs you, and a flag on a skipped test.
+
+To repeat the run, which bills a Claude account:
 
 ```bash
 go build -o bin/wavez ./cmd/wavez

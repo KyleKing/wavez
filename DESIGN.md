@@ -289,19 +289,38 @@ session, so daily work is measurable without a benchmark run.
 
 ## What has been measured
 
-Nothing shows wavez makes Claude Code cheaper. The live runs so far are one
-run per arm on `claude-sonnet-5-5` on two tasks, recorded in
-`bench/records.jsonl`, and they prove the plumbing:
+Wavez does not make Claude Code cheaper on this task set, and it makes it
+slower. One paired run on `claude-sonnet-5-5`, 2026-11-24: all seventeen
+tasks once under each arm, arms interleaved, 51 sessions, appended to
+`bench/records.jsonl`. Each row is the geometric mean of the per-task ratios
+against the baseline, with `p` from the paired permutation test.
 
-- The hooks fire end to end, and a block and a release both happened in real
-  sessions
-- A pre-existing failure cost the wavez arm six extra turns until the
-  baseline comparison stopped it from blocking
-- `wavez rename` was used once the PreToolUse rule existed, and the rename
-  task was no cheaper than the baseline's four turns. A rename is the wrong
-  place to look for a saving, since the model does one in a few edits
-- Whole-project build and test commands still appeared in wavez-arm sessions
-  before the SessionStart sentence existed
+| Arm | Passed | Turns | Cost | Wall clock | Sweeps per task |
+|---|---|---|---|---|---|
+| baseline | 12 of 17 | | | | |
+| wavez | 11 of 17 | 1.08x, p 0.36 | 1.05x, p 0.15 | 1.51x, p 0.001 | -0.12, p 0.63 |
+| wavez-quiet | 12 of 17 | 1.09x, p 0.33 | 1.07x, p 0.11 | 1.61x, p 0.001 | +0.12, p 0.75 |
+
+- **Turns and cost are inside the noise**, leaning the wrong way
+- **Wall clock is half again as long, and that is outside the noise.** The
+  stop gate runs build, test, and lint while the baseline simply ends
+- **There were few sweeps to remove.** A whole-project build or test ran in
+  5 of 17 baseline sessions, 2 with wavez, and 4 with wavez and no
+  sentence, which is too few to tell apart
+- **The SessionStart sentence changed nothing measurable.** `wavez` against
+  `wavez-quiet` is 0.99x turns, p 0.91
+- **The gates did not raise the pass rate.** The checks that failed were
+  ones a build and test of the changed packages do not catch
+
+One repetition on tasks from one repository is thin, and the tasks are small
+enough that the baseline finishes in three to ten turns, which leaves a gate
+little to save. That is the case for the Hatchet tasks in
+`bench/tasks_hatchet.toml`, not a reason to discount the result.
+
+Earlier single runs, also in the records, proved the plumbing: the hooks
+fire end to end, a pre-existing failure stopped blocking once the baseline
+comparison existed, and `wavez rename` was used once the PreToolUse rule
+existed without being cheaper than the baseline's four turns.
 
 What the transcripts say about where cost goes: cache reads are 84-98% of
 input tokens in every session read, so each turn re-pays for the whole
@@ -311,9 +330,11 @@ for itself.
 
 ## What is not here yet
 
-- **The paired A/B with the SessionStart sentence on and off.** The arms and
-  the report exist. The run is the next thing to do, and the sentence's
-  default follows its result
+- **A result on a project wavez did not write, and on longer tasks.** The
+  one paired run is on small tasks from this repository
+- **A cheaper stop gate.** The measured cost of wavez is wall clock at the
+  end of a turn. Running the gate only when the agent has not already run
+  the same checks itself is the first thing to try
 - The goal, the end-of-turn line, and the status line have no before and
   after, because they tell the agent nothing unless a goal blocks
 - Lint failures and failures that name no test are not compared against the
