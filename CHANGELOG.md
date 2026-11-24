@@ -1,3 +1,13 @@
+## v3.5.0 (2026-11-24)
+
+### Feat
+
+- brief the values a Go function reads, and say so when no test names it
+
+### Fix
+
+- refuse a benchmark of a wired arm when the binary is not named wavez
+
 ## v3.4.0 (2026-11-24)
 
 ### Feat
