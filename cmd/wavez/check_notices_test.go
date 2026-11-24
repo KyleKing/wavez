@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunGate_SaysWhenItCheckedNothing(t *testing.T) {
+func TestRunCheck_SaysWhenItCheckedNothing(t *testing.T) {
 	t.Parallel()
 
 	if _, err := exec.LookPath("git"); err != nil {
@@ -26,11 +26,11 @@ func TestRunGate_SaysWhenItCheckedNothing(t *testing.T) {
 	}{
 		{
 			name: "a named file that selects no check", file: ".github/notes.md",
-			errOut: "wavez gate: nothing to check: no stop-stage check is selected by the 1 changed file(s)\n",
+			errOut: "wavez check: nothing to check: no stop-stage check is selected by the 1 changed file(s)\n",
 		},
 		{
 			name: "a clean repository with no file named", init: true,
-			errOut: "wavez gate: nothing to check: git reports no changed file\n",
+			errOut: "wavez check: nothing to check: no file changed in the working tree\n",
 		},
 	}
 
@@ -52,7 +52,7 @@ func TestRunGate_SaysWhenItCheckedNothing(t *testing.T) {
 				args = append(args, filepath.Join(root, tt.file))
 			}
 
-			out, errOut, code := gateRun(t.Context(), args...)
+			out, errOut, code := checkRun(t.Context(), args...)
 			assert.Equal(t, 0, code)
 			assert.Empty(t, out, "stdout is what an agent reads, and a run that checked nothing has nothing for it")
 			assert.Contains(t, errOut, tt.errOut)
@@ -60,15 +60,15 @@ func TestRunGate_SaysWhenItCheckedNothing(t *testing.T) {
 	}
 }
 
-func TestRunGate_SaysWhenANamedFileDoesNotExist(t *testing.T) {
+func TestRunCheck_SaysWhenANamedFileDoesNotExist(t *testing.T) {
 	t.Parallel()
 
 	root := gateProject(t, gateClean)
 	missing := filepath.Join(root, "nonexistent.go")
 
-	out, errOut, code := gateRun(t.Context(), "--root", root, missing)
+	out, errOut, code := checkRun(t.Context(), "--root", root, missing)
 
 	assert.Equal(t, 0, code, "a deleted file still selects its package, which builds")
-	assert.Empty(t, out)
-	assert.Equal(t, "wavez gate: "+missing+" does not exist; it is checked as a file that was deleted\n", errOut)
+	assert.Equal(t, "wavez check: passed build, test\n", out)
+	assert.Equal(t, "wavez check: "+missing+" does not exist; it is checked as a file that was deleted\n", errOut)
 }

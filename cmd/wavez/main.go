@@ -79,7 +79,8 @@ func commands() []command {
 	return []command{
 		{name: "init", summary: "wire wavez into this project's Claude Code settings", run: runInit},
 		{name: "hook", summary: "handle one Claude Code hook event read from stdin", run: runHook},
-		{name: "gate", summary: "run the checks selected by the changed files", run: runGate},
+		{name: "check", summary: "check what changed: fixers, then build, test, lint, and your own", run: runCheck},
+		{name: "gate", run: runGate},
 		{name: "rename", summary: "rename a Go symbol and every reference to it", run: runRename},
 		{name: "move", summary: "move Go declarations to another file in the package", run: runMove},
 		{name: "delete", summary: "delete Go declarations nothing else uses", run: runDelete},
@@ -166,6 +167,9 @@ func usage(w io.Writer) {
 	sayf(w, "usage: wavez <command> [arguments]\n\n")
 
 	for _, c := range commands() {
-		sayf(w, "  %-8s %s\n", c.name, c.summary)
+		// A command without a summary is an older name kept working.
+		if c.summary != "" {
+			sayf(w, "  %-10s %s\n", c.name, c.summary)
+		}
 	}
 }
