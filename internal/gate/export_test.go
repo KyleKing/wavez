@@ -17,3 +17,10 @@ func WithoutCache() Option {
 func DirsSelected(root string, changed []string) []string {
 	return packageDirs(root, changed)
 }
+
+// ShapeOf exposes a Go file with its function bodies emptied.
+func ShapeOf(src string) (string, bool) {
+	out, ok := shape([]byte(src))
+
+	return string(out), ok
+}

@@ -224,6 +224,10 @@ func (r *runner) goCompile(
 		return nil
 	}
 
+	if wantBuild && !wholeModule && r.bodiesOnly(ctx, proj.root, proj.changed) {
+		pkgs.buildable = narrowed(pkgs.buildable, dirs)
+	}
+
 	if wantBuild && len(pkgs.buildable) > 0 {
 		inv := r.compileOnly(proj.root, goBin, pkgs.buildable)
 		if build = classifyGo(proj.root, build, run(ctx, inv), evidence{again: inv}); build.Status != StatusPass {

@@ -83,6 +83,9 @@ type Handler struct {
 	quiet bool
 	// unchecked ends a turn without running the stop-stage checks.
 	unchecked bool
+	// commitChecks holds a commit or a push of changes `wavez check` has not
+	// passed on.
+	commitChecks bool
 	// stopBudget is how long the gates may run at a stop, which sets how long
 	// the goal check may run after them.
 	stopBudget time.Duration
@@ -151,6 +154,13 @@ func WithoutAnnouncement() Option {
 // and the edit-stage checks work as they do with them.
 func WithoutStopChecks() Option {
 	return func(h *Handler) { h.unchecked = true }
+}
+
+// WithCommitChecks holds a shell command that commits or pushes until
+// `wavez check` has passed on what the session changed. It holds each change
+// set once: the same command sent again runs.
+func WithCommitChecks() Option {
+	return func(h *Handler) { h.commitChecks = true }
 }
 
 // New returns a Handler that runs gates through runner.

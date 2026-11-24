@@ -95,6 +95,10 @@ func checkAs(ctx context.Context, name string, args []string, streams stdio) err
 		return err
 	}
 
+	if source == sessionSource && gate.Stage(*stage) == gate.StageStop {
+		remembered(ctx, root, name, report, streams)
+	}
+
 	switch {
 	case len(changed) == 0:
 		sayf(streams.err, "wavez %s: nothing to check: no file changed in %s\n", name, source)
@@ -132,7 +136,7 @@ func checkScope(
 	}
 
 	if sessionCtx, changed, ok, err := sessionScope(ctx, root); ok || err != nil {
-		return sessionCtx, changed, "the session", err
+		return sessionCtx, changed, sessionSource, err
 	}
 
 	changed, err := gate.Changed(ctx, root)
@@ -141,6 +145,62 @@ func checkScope(
 	}
 
 	return ctx, changed, "the working tree", nil
+}
+
+// sessionSource is what checkScope calls the changes of an agent session.
+const sessionSource = "the session"
+
+// remembered records the report in the session and says so on stderr when it
+// could not. The report is printed and stands either way.
+func remembered(ctx context.Context, root, name string, report gate.Report, streams stdio) {
+	if err := remember(ctx, root, report); err != nil {
+		sayf(streams.err, "wavez %s: the result was not recorded in the session: %v\n", name, err)
+	}
+}
+
+// remember records in the session how the checks answered on what it has
+// changed, as a stop that ran them would: the end-of-turn line and the
+// status line then say so, and a commit held for an unchecked change is let
+// through. A failure is left for the stop to count.
+func remember(ctx context.Context, root string, report gate.Report) error {
+	resolved, err := filepath.Abs(root)
+	if err != nil || report.Failed() {
+		return nil //nolint:nilerr // sessionScope read the session under this root, so it resolves
+	}
+
+	store, id := session.NewStore(resolved), os.Getenv(hook.SessionEnv)
+
+	state, ok := store.Read(id)
+	if !ok {
+		return nil
+	}
+
+	// The fixers may have rewritten files, so the change set the report
+	// speaks for is the one on disk now.
+	changed, err := store.Changed(ctx, state)
+	if err != nil {
+		return fmt.Errorf("finding what the session changed: %w", err)
+	}
+
+	set, err := session.Fingerprint(resolved, changed)
+	if err != nil {
+		return fmt.Errorf("fingerprinting what the session changed: %w", err)
+	}
+
+	_, err = store.Update(ctx, id, func(state *session.State) error {
+		if report.Abstained() {
+			state.Abstain(set)
+		} else {
+			state.Pass(set)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("updating the session: %w", err)
+	}
+
+	return nil
 }
 
 // sessionScope returns what the session named by SessionEnv changed, with

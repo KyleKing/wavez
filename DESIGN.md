@@ -108,8 +108,11 @@ With it off, the same checks are one command the agent is told about,
   session changed, including files a shell command wrote. The Go built-ins
   are format, build, test, and lint over the packages the changed files
   select and their importers. A changed non-Go file selects the package of
-  its directory, so a fixture edit runs the tests that read it. A failure
-  blocks the stop and hands the agent the reduced output
+  its directory, so a fixture edit runs the tests that read it. Importers
+  are compiled only when a changed file differs outside its function
+  bodies, since a rewritten body leaves them the same declarations to
+  compile against; their tests still run, or the ones a selector picks. A
+  failure blocks the stop and hands the agent the reduced output
 
 `wavez check` is that stop stage run from the shell. It reads which session
 it is in from `WAVEZ_SESSION`, which the SessionStart hook appends to the
@@ -204,6 +207,18 @@ the slow part: 130 seconds warm for a widely imported Hatchet package. When
 detest cannot trust its selection (no trace, a stale one, a dependency or
 test-config change) or fails, every test runs as before. A selection is
 never allowed to pass a change on a guess.
+
+### Checks before a commit
+
+`commit_checks = true` makes the PreToolUse hook hold a shell command that
+commits or pushes, through git or jj, while the session's changes have not
+passed `wavez check`. A run of `wavez check` inside a session records its
+pass or its abstention in the session, the way a stop that ran the checks
+would, so the hold lifts by itself and the end-of-turn line says what was
+checked. Each change set is held once, and the same command sent again runs.
+It is off by default and has no benchmark. The reason for it is a workspace
+with no commit hook, which is every jj workspace, and a hook that checks the
+whole project where a targeted run would do.
 
 ## What the person sees
 
@@ -389,6 +404,19 @@ model and day, 18 sessions) found no difference in either direction: both
 arms passed 9 of 9, wall clock 1.01x (p 0.94), cost 1.07x (p 0.28), turns
 1.22x (p 0.19). The wall-clock penalty is gone, and nothing is gained yet.
 
+A third paired run asked whether `wavez check` with test selection pays on
+changes to widely imported packages: six tasks in `bench/tasks_hatchet_wide.toml`,
+each a small edit to a package that 95 to 252 of Hatchet's 356 packages
+import, baseline against wavez with a detest trace, same model and day, 12
+sessions. It does not. Both arms passed 6 of 6, and wavez took 3.95x the
+wall clock (p 0.031), 1.11x the cost (p 0.062), and 1.29x the turns
+(p 0.25). The baseline never ran a whole-project command: it tested the one
+package it changed and stopped, in 13 to 41 seconds. The wavez arm ran
+`wavez check`, which recompiled every importer of the changed package, about
+45 seconds in a fresh worktree, to guard against a break none of these edits
+could cause. The run is what led to compiling importers only when a
+declaration changed; it has not been repeated since.
+
 One repetition is thin, and these tasks are small enough that the baseline
 finishes in three to seventeen turns and rarely runs a whole-project
 command, which leaves little to save.
@@ -424,6 +452,14 @@ warm-edited 1.9, 2.2, and 4.3; format under 0.1 everywhere. What it says:
   because it skips importers, and build is cheap once the cache is warm.
   `go test` over the 255 importers of a widely used package is two minutes
   on a warm cache, which is what a test selector would remove
+- **Selection and a narrower build remove most of it.** The same warm
+  edit to `pkg/enums`, a function body rewritten, one run each on the same
+  box: 60 seconds and no answer without a trace, since the test check times
+  out; 33 seconds with a detest trace, which runs the two tests that reach
+  the function; 11 seconds once the importers are compiled only when a
+  declaration changed. In a fresh worktree, where nothing of the module is
+  in the build cache under that path, the last figure is 26. A warm
+  `go test ./...` there is 70
 - **Running the checks side by side is not a clear win.** It saved 10 and 2
   seconds warm, and cost 39 seconds cold on Hatchet, where lint and the
   build each type-check from source on four CPUs and sequential lint reads
@@ -444,13 +480,18 @@ for itself.
 
 - **A result on longer tasks, and more than one repetition.** Both paired
   runs are one repetition on small tasks
-- **Any benchmark result for `wavez check`.** The parallel checks, the
-  reused passes, the 96-byte sentence, and the jj paths are unmeasured on
-  any task set. The timings above are machine time for one file on two
-  repositories, one run each, not turns, cost, or pass rate
-- **A test selector.** The seam exists and nothing fills it, so `go test`
-  still runs every test of every affected package, which on Hatchet is 255
-  packages for an edit to `pkg/enums`
+- **A benchmark of `wavez check` since importers stopped being compiled for
+  a change to function bodies.** The one run before that found it four times
+  slower than the baseline on wide packages. The reused passes, the jj
+  paths, and `commit_checks` are unmeasured on any task set
+- **A task where the unaided agent checks too much.** On every task so far
+  the baseline tested the package it changed and nothing else, so there has
+  been nothing for a targeted check to save. A slow whole-program type
+  check, or a project whose instructions demand the full suite, is where
+  that would show, and no task has one
+- **A trace that keeps itself current.** Test selection reads a detest trace
+  that a person or a nightly job has to make: 5m25s for Hatchet's 1,848 Go
+  tests on four cores. A trace more than fifty commits behind is refused
 - **jj against a real binary.** The jj paths are tested against a fake
   `jj`, not against jj itself
 - The goal, the end-of-turn line, and the status line have no before and

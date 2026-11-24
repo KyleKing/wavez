@@ -43,3 +43,6 @@ func WithGoals(goals func(ctx context.Context, root string) (person, agent strin
 func ExportSession(envFile, id string) error {
 	return appendSessionExport(envFile, id)
 }
+
+// CommitsOrPushes exposes whether a shell command is read as a commit or a push.
+func CommitsOrPushes(command string) bool { return recordsHistory(command) }

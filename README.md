@@ -80,6 +80,7 @@ For anything else, declare checks in `.wavez.toml`:
 
 ```toml
 stop_checks = false     # true: build, test, lint at the end of every turn
+commit_checks = false   # true: a commit or push waits, once, for `wavez check` to pass
 max_rounds = 3          # the same failure this many times releases the agent
 stop_budget = "2m30s"   # how long one stop run may take in all; init sizes the Stop hook to it
 announce = true         # tell the agent at session start that the gates run
@@ -122,12 +123,34 @@ globs that select it only when that project changes:
 [[check]]
 name = "types-app"
 globs = ["frontend/app/**/*.ts", "frontend/app/**/*.tsx"]
-command = "cd frontend/app && npx tsc --noEmit -p ."
+command = "cd frontend/app && npx tsc --noEmit -p . --incremental --tsBuildInfoFile node_modules/.cache/wavez.tsbuildinfo"
 inputs = ["frontend/app/tsconfig.json", "frontend/app/package-lock.json"]
+exclusive = true        # a type check of a large app wants the memory to itself
+timeout = "5m"
 ```
+
+`--incremental` with a build-info file kept outside the sources is what
+makes the second run cheap: the compiler rechecks the files whose
+dependencies changed shape and reads the rest back. There is no sound way to
+type-check only the changed files, since an edit can break a file that
+imports it, so the whole project is checked and the saving is in what the
+compiler remembers. The native compiler (TypeScript 7) checks on four
+threads by default, each with its own memory; `--checkers 2` or
+`--singleThreaded` trades time for a smaller peak. This recipe is from the
+compilers' documentation and has not been timed here on a large app.
 
 `ruff check {files}`, `pyright {files}`, and `ty check {files}` take files
 directly.
+
+With `commit_checks = true`, a shell command that commits or pushes (`git
+commit`, `git push`, `jj commit`, `jj git push`) is held once while the
+session's changes have not passed `wavez check`, and runs when sent again.
+Under jj, which fires no commit hook, that is the check a commit meets. Under
+git with a hook manager, it puts the targeted run first; to keep the hook from
+repeating it across the whole project in agent sessions, set the manager's
+own switch in `.claude/settings.json`, such as `"env": {"HK": "0"}` for hk,
+and declare what the hook ran as a `[[check]]`, such as
+`command = "hk check {files}"`.
 
 A remote endpoint goes in your own environment as `WAVEZ_DECIDE_ENDPOINT`,
 with `WAVEZ_DECIDE_API_KEY` beside it. A project file cannot name one, since

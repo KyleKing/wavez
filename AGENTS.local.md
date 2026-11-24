@@ -46,3 +46,10 @@ holds the traps that are not visible from the code.
 - The stop-stage checks are off by default (`stop_checks`). A change that
   makes any default run more at the end of a turn needs a benchmark showing
   it is worth the wall clock
+- A `go` build of a tree under a new path is a cold build of the module's own
+  packages, whatever the cache holds: a fresh worktree of Hatchet compiles
+  for 43 seconds where the old path takes one. Time a check in the kind of
+  directory it will run in
+- `shellSegments` drops here-document bodies itself. Passing it a command
+  that already went through `withoutHeredocs` drops the lines after the
+  first body as well

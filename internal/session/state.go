@@ -39,6 +39,9 @@ type State struct {
 	// Goal counts consecutive stops the project's goal held the same way.
 	// Its ChangeSet is not used.
 	Goal Failure `json:"goal"`
+	// Asked is the Fingerprint of the change set a commit was last held on
+	// until it had been checked, so the same commit is held once.
+	Asked string `json:"asked,omitempty"`
 	// Summary identifies the end-of-turn line the person last saw, so the
 	// same line is shown once.
 	Summary string `json:"summary,omitempty"`
