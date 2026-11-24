@@ -27,6 +27,7 @@ type rawConfig struct {
 	StopChecks   bool       `toml:"stop_checks"`
 	Warm         bool       `toml:"warm"`
 	Locate       bool       `toml:"locate"`
+	Brief        bool       `toml:"brief"`
 	CommitChecks bool       `toml:"commit_checks"`
 }
 
@@ -54,7 +55,7 @@ type rawCheck struct {
 func (r rawConfig) parse() (Config, error) {
 	cfg := Config{
 		MaxRounds: DefaultMaxRounds, Disabled: r.Disable, Route: r.Route, Announce: true, StopChecks: r.StopChecks,
-		CommitChecks: r.CommitChecks, Warm: r.Warm, Locate: r.Locate,
+		CommitChecks: r.CommitChecks, Warm: r.Warm, Locate: r.Locate, Brief: r.Brief,
 	}
 
 	if r.Announce != nil {

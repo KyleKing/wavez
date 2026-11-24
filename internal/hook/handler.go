@@ -91,8 +91,10 @@ type Handler struct {
 	quiet bool
 	// unchecked ends a turn without running the stop-stage checks.
 	unchecked bool
-	// locate looks up the identifiers a prompt names.
+	// locate looks up the identifiers a prompt names, and brief hands over
+	// their source with them.
 	locate bool
+	brief  bool
 	// commitChecks holds a commit or a push of changes `wavez check` has not
 	// passed on.
 	commitChecks bool
@@ -189,6 +191,14 @@ func (h *Handler) warming(ev Event, rec *record, prewarm bool) {
 // prompt names are declared and which tests mention them.
 func WithLocate() Option {
 	return func(h *Handler) { h.locate = true }
+}
+
+// WithBrief is WithLocate with the source of each declaration and of the
+// tests that mention it handed over too, and the command that makes edits
+// and checks them in one step, so that a session need not read before it
+// writes.
+func WithBrief() Option {
+	return func(h *Handler) { h.locate, h.brief = true, true }
 }
 
 // WithCommitChecks holds a shell command that commits or pushes until

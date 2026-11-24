@@ -120,6 +120,10 @@ func handleHook(ctx context.Context, streams stdio) error {
 		opts = append(opts, hook.WithLocate())
 	}
 
+	if cfg.Brief {
+		opts = append(opts, hook.WithBrief())
+	}
+
 	if cfg.Warm {
 		opts = append(opts, hook.WithWarm(warmStart, warm.Wait))
 	}

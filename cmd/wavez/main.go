@@ -80,6 +80,7 @@ func commands() []command {
 		{name: "init", summary: "wire wavez into this project's Claude Code settings", run: runInit},
 		{name: "hook", summary: "handle one Claude Code hook event read from stdin", run: runHook},
 		{name: "check", summary: "check what changed: fixers, then build, test, lint, and your own", run: runCheck},
+		{name: "apply", summary: "make several edits at once and check the result", run: runApply},
 		{name: "gate", run: runGate},
 		{name: "warm", run: runWarm},
 		{name: "rename", summary: "rename a Go symbol and every reference to it", run: runRename},

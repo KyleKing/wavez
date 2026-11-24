@@ -28,6 +28,12 @@ func WithBudget(budget time.Duration) Option {
 	}
 }
 
+// Without turns built-in checks off for this run, as the project's `disable`
+// does for every run.
+func Without(checks ...string) Option {
+	return func(r *runner) { r.skip = append(r.skip, checks...) }
+}
+
 // WithoutFixers makes a run rewrite nothing: no formatter and no check's fix
 // command. It is for a run nobody is waiting on, which must not change a
 // file under an agent that is about to edit it.
@@ -51,8 +57,10 @@ func New(opts ...Option) Runner {
 type runner struct {
 	lookPath func(name string) (string, error)
 	selector Selector
-	budget   time.Duration
-	noCache  bool
+	// skip names built-in checks this run leaves out.
+	skip    []string
+	budget  time.Duration
+	noCache bool
 	// readOnly keeps the fixers from running.
 	readOnly bool
 }
@@ -114,6 +122,8 @@ func (r *runner) Run(ctx context.Context, root string, changed []string, stage S
 	if err != nil {
 		return Report{}, err
 	}
+
+	proj.cfg.Disabled = slices.Concat(proj.cfg.Disabled, r.skip)
 
 	if stage == StageStop {
 		var cancel context.CancelFunc

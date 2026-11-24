@@ -63,7 +63,7 @@ func runWarm(ctx context.Context, args []string, streams stdio) error {
 
 	// A failing check is an answer here, not this command's failure: the
 	// run that reports it is the one somebody asked for.
-	if err := checkWith(ctx, "check", []string{"--root", *root}, quiet, true); err != nil {
+	if err := checkWith(ctx, "check", []string{"--root", *root}, quiet, runAhead); err != nil {
 		var status exitError
 		if !errors.As(err, &status) {
 			return err

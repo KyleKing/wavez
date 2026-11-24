@@ -49,13 +49,24 @@ func runGate(ctx context.Context, args []string, streams stdio) error {
 }
 
 func checkAs(ctx context.Context, name string, args []string, streams stdio) error {
-	return checkWith(ctx, name, args, streams, false)
+	return checkWith(ctx, name, args, streams, "")
 }
 
-// checkWith runs the checks. Ahead is a run made before anyone asked for it:
-// it rewrites no file and records nothing in the session, so that all it
-// leaves is what the tools and wavez cache.
-func checkWith(ctx context.Context, name string, args []string, streams stdio, ahead bool) error {
+// The kinds of run checkWith makes besides the one somebody asked for by
+// name.
+const (
+	// A run ahead is made before anyone asked: it rewrites no file and
+	// records nothing in the session.
+	runAhead = "ahead"
+	// A quick run follows an edit made through wavez and leaves lint out,
+	// which in a tree new to the linter's cache type-checks every
+	// dependency from source and is what `wavez check` and a commit are for.
+	runQuick = "quick"
+)
+
+// checkWith runs the checks as the kind of run it is told, "" for the run
+// somebody asked for by name.
+func checkWith(ctx context.Context, name string, args []string, streams stdio, kind string) error {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.SetOutput(streams.err)
 
@@ -87,7 +98,7 @@ func checkWith(ctx context.Context, name string, args []string, streams stdio, a
 
 	noteMissing(streams, name, flags.Args())
 
-	report, err := gate.New(checkOptions(root, ahead)...).Run(ctx, root, changed, gate.Stage(*stage))
+	report, err := gate.New(checkOptions(root, kind)...).Run(ctx, root, changed, gate.Stage(*stage))
 	if err != nil {
 		return fmt.Errorf("running checks: %w", err)
 	}
@@ -96,7 +107,9 @@ func checkWith(ctx context.Context, name string, args []string, streams stdio, a
 		return err
 	}
 
-	if source == sessionSource && gate.Stage(*stage) == gate.StageStop && !ahead {
+	// Only the whole run speaks for the change set: one made ahead ran no
+	// fixer, and a quick one no lint.
+	if source == sessionSource && gate.Stage(*stage) == gate.StageStop && kind == "" {
 		remembered(ctx, root, name, report, streams)
 	}
 
@@ -162,11 +175,15 @@ func noteMissing(streams stdio, name string, files []string) {
 }
 
 // checkOptions is the runner's options for a run started from the shell,
-// and with the fixers off for one made ahead.
-func checkOptions(root string, ahead bool) []gate.Option {
+// of the kind given.
+func checkOptions(root, kind string) []gate.Option {
 	opts := withSelector(root, handOptions(projectConfig(root)))
-	if ahead {
+
+	switch kind {
+	case runAhead:
 		opts = append(opts, gate.WithoutFixers())
+	case runQuick:
+		opts = append(opts, gate.Without(config.BuiltinLint))
 	}
 
 	return opts
