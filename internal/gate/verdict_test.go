@@ -247,3 +247,20 @@ func readOptional(name string) (string, error) {
 
 	return string(data), err
 }
+
+func TestRun_AFixerRewritingAnotherCheckFilesVoidsItsCachedPass(t *testing.T) {
+	t.Parallel()
+
+	count := filepath.Join(t.TempDir(), "count")
+	config := checkCommand("first", countingRun(count, "true"), "inputs = []") +
+		checkCommand("second", "true", "fix = \"echo fixed >> a.txt\"")
+	root := project(t, map[string]string{".wavez.toml": config, "a.txt": "x"})
+
+	for range 2 {
+		runGate(t.Context(), t, root, gate.StageStop, []string{"a.txt"})
+	}
+
+	if got := runsIn(t, count); got != 2 {
+		t.Errorf("first ran %d times, want 2: the second check's fixer changed its file both times", got)
+	}
+}
