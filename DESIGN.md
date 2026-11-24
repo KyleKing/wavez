@@ -62,6 +62,9 @@ flowchart LR
     H --> G[gate runner]
     H --> Goal[.wavez/goal.toml]
     G --> C[.wavez.toml checks + Go built-ins]
+    Bash --> K[wavez check]
+    K --> G
+    K --> S
     Bash --> R[wavez rename / move / delete / extract / params / inline]
     R --> gopls
     Line --> SL[wavez statusline]
@@ -75,7 +78,7 @@ flowchart LR
 | Package | Responsibility |
 |---|---|
 | `internal/config` | Loads the optional `.wavez.toml`. A Go module gets the built-in checks with no file at all |
-| `internal/gate` | Selects checks from the changed files, runs fixers first, runs the checks inside a time budget, and reports pass, fail, or abstained |
+| `internal/gate` | Selects checks from the changed files, runs fixers first, runs the checks side by side inside a time budget, reuses a pass whose inputs are unchanged, and reports pass, fail, or abstained |
 | `internal/reduce` | Cuts tool output down to the lines that carry a diagnostic |
 | `internal/session` | What one agent session changed, including through the shell, the tree it started from, and what the gates last said |
 | `internal/hook` | Translates Claude Code hook events into gate runs and gate reports into hook responses. `wavez init` writes the settings |
@@ -95,7 +98,8 @@ project sets `stop_checks = true`, because the one paired run found it made
 sessions half again as long without making them cheaper or more often right.
 A project turns it on where a failure caught before CI is worth that wait,
 and should not where a check is slow, such as a whole-program type check.
-Two stages:
+With it off, the same checks are one command the agent is told about,
+`wavez check`. Two stages:
 
 - **edit** runs after every write and has to be near-instant. The built-in
   formats the file. If bytes changed the agent is told its view is stale, and
@@ -107,17 +111,28 @@ Two stages:
   its directory, so a fixture edit runs the tests that read it. A failure
   blocks the stop and hands the agent the reduced output
 
+`wavez check` is that stop stage run from the shell. It reads which session
+it is in from `WAVEZ_SESSION`, which the SessionStart hook appends to the
+file Claude Code names in `CLAUDE_ENV_FILE`, and checks what the session
+changed against the tree it started from. Outside a session it checks what
+git, or jj in a workspace git cannot read, reports as changed. It is named
+`check` because the sentence that points at it then needs no gloss, and
+`gate` stays as an older name. It prints one line on a pass, the reduced
+failure on a failure, and exits 0, 1, or 3 for passed, failed, and could not
+run.
+
 Rules, most of them paid for:
 
 - **Silence on a pass.** A passing gate costs the agent zero tokens
-- **One sentence at the start.** With the stop checks off, SessionStart asks
-  the agent to check its work with the narrowest command that covers it and
-  to leave whole-project build, test, lint, and type-check commands to CI.
-  With them on, it says they run by themselves. Either way the aim is fewer
-  whole-project runs, which are the slowest thing a session does. The run
-  below could not tell the sentence's arms apart, so it is kept for the
-  machine time it should save and is not shown to save turns.
-  `announce = false` or `WAVEZ_ANNOUNCE=0` turns it off
+- **One sentence at the start.** With the stop checks off, SessionStart
+  says "Check your work with `wavez check`, not whole-project build, test,
+  lint, or type-check commands." (96 bytes; the narrowest-command sentence
+  it replaced was 212). A project with no check to run keeps that older
+  sentence. With the stop checks on, it says they run by themselves. Either
+  way the aim is fewer whole-project runs, which are the slowest thing a
+  session does. The run below could not tell the sentence's arms apart, so
+  it is kept for the machine time it should save and is not shown to save
+  turns. `announce = false` or `WAVEZ_ANNOUNCE=0` turns it off
 - **A check that could not run abstains, and only the person hears it.** A
   missing binary, a process-level timeout, or a toolchain error is
   `NOT CHECKED`, never a failure. It is recorded as neither a pass nor a
@@ -126,7 +141,13 @@ Rules, most of them paid for:
 - **The stop gate has a budget.** One stop gets 150 seconds, half of the five
   minutes after which the prompt cache goes cold. `go test` gets two fifths
   of it as its own `-timeout`, so a hanging test is named as a failure
-  instead of holding the turn until the harness gives up
+  instead of holding the turn until the harness gives up. `wavez check` gets
+  100 seconds, inside the shell tool's two-minute limit
+- **Checks that only read run side by side.** Fixers rewrite files, so they
+  run first and one at a time. Then build and test (one job, since a build
+  failure is reported alone), lint, and each configured check run at most
+  `parallel` at once, one per CPU by default, in a fixed report order. A
+  check with `exclusive = true` runs with nothing beside it
 - **A finding with a mechanical fix never reaches a turn.** A check's `fix`
   command runs first
 - **A failure that predates the session does not block.** On a failing stop
@@ -139,11 +160,38 @@ Rules, most of them paid for:
   row, or six blocks in one turn, releases the agent and tells the person.
   Six is below the harness's own silent cap of eight
 - **Unchanged work is not rechecked.** A stop over a change set the gates
-  already passed, or already could not check, runs nothing
+  already passed, or already could not check, runs nothing. Within a
+  changed set, a pass is reused by content: lint per package, keyed on the
+  linter, go and their environment, the linter config, go.mod and go.sum,
+  and every file of the package and of the module packages it imports, with
+  the cache off where a vendor directory, a go.work, or a local replace
+  reaches code that key cannot see; a configured check only when it
+  declares `inputs`, keyed on its commands, PATH, the files it was handed,
+  and every project file its globs or inputs match. Keying only the files a
+  check is handed is not enough: a changed config or lockfile would then
+  reuse a stale pass. Build and test rely on go's own caches. A failure or
+  an abstention is never reused
+- **Lint covers the changed packages, not their importers.** A finding in
+  an importer would sit in a file the change did not touch, which is never
+  reported. On Hatchet, linting `pkg/enums` after an edit took 3 seconds and
+  adding its 36 direct importers took 46-53
+- **Test selection has a seam and no selector.** `gate.Selector` names the
+  tests a change can affect. Only a selection that says it is complete
+  narrows the test run; any other answer runs every test of the affected
+  packages
 
 A project in another language declares its checks in `.wavez.toml`: a name,
 the globs that select it, a command, an optional fixer, whether it blocks or
-advises, and its stage.
+advises, its stage, and optionally its inputs and whether it is exclusive. A
+type check stays narrow by passing `{files}` or by being declared once per
+project, with globs that select only that project.
+
+In a jj workspace colocated with git, git sees the working-copy changes and
+everything above works. In one whose git store is inside `.jj`, the root is
+found by `.jj`, the changed files come from `jj diff --name-only`, and a
+session's baseline is the working-copy commit id at its start, diffed with
+`jj diff --from`. Such a workspace has no git tree to compare a failure
+against, so a failure there blocks with a note.
 
 ## What the person sees
 
@@ -338,6 +386,42 @@ fire end to end, a pre-existing failure stopped blocking once the baseline
 comparison existed, and `wavez rename` was used once the PreToolUse rule
 existed without being cheaper than the baseline's four turns.
 
+Machine time of one `wavez check` over a one-file change, in seconds, one
+run each on a 4-CPU Linux box with Go 1.26 and golangci-lint 2.13. Cold is a
+fresh build and lint cache; warm-edited is the same after a second edit that
+changes the compiled package; unchanged is the same tree again. "Before" is
+the runner whose checks ran side by side without a bound or a reused pass.
+
+| Change | Runner | Cold | Warm, edited | Unchanged |
+|---|---|---|---|---|
+| wavez `internal/reduce` (6 packages) | before | 74 | 50 | 1.1 |
+| | after, parallel | 78 | 44 | 1.1 |
+| | after, `parallel = 1` | 79 | 54 | 1.5 |
+| Hatchet handler (5 packages) | before | 149 | 5.4 | 1.7 |
+| | after, parallel | 154 | 5.8 | 1.7 |
+| | after, `parallel = 1` | 116 | 7.6 | 1.6 |
+| Hatchet `pkg/enums` (255 packages) | before | 256 | 132 | 7.1 |
+| | after, parallel | 266 | 133 | 6.5 |
+| | after, `parallel = 1` | 259 | 127 | 6.9 |
+
+Each check alone, same changes: build cold 17, 88, and 240; test cold 54,
+106, and 259 and warm-edited 50, 4.3, and 133; lint cold 24, 107, and 43 and
+warm-edited 1.9, 2.2, and 4.3; format under 0.1 everywhere. What it says:
+
+- **A test run over importers is the cost that is left.** Lint is cheap
+  because it skips importers, and build is cheap once the cache is warm.
+  `go test` over the 255 importers of a widely used package is two minutes
+  on a warm cache, which is what a test selector would remove
+- **Running the checks side by side is not a clear win.** It saved 10 and 2
+  seconds warm, and cost 39 seconds cold on Hatchet, where lint and the
+  build each type-check from source on four CPUs and sequential lint reads
+  the build cache the build just filled. One run each is inside the noise
+  for everything but that cold row
+- **A reused lint pass saves under half a second here** (1.1 to 0.8 and 2.0
+  to 1.7 on an unchanged tree after a comment edit), because golangci-lint
+  already caches by package; what remains is `go list` and go's own test
+  cache lookup
+
 What the transcripts say about where cost goes: cache reads are 84-98% of
 input tokens in every session read, so each turn re-pays for the whole
 context. The lever is the number of turns, and above all the turns after the
@@ -348,9 +432,15 @@ for itself.
 
 - **A result on longer tasks, and more than one repetition.** Both paired
   runs are one repetition on small tasks
-- **Checks narrow enough to be worth their wait.** The stop checks select
-  by package. A check selected by the tests a change can affect, or left to
-  CI and read back from it, has not been tried
+- **Any benchmark result for `wavez check`.** The parallel checks, the
+  reused passes, the 96-byte sentence, and the jj paths are unmeasured on
+  any task set. The timings above are machine time for one file on two
+  repositories, one run each, not turns, cost, or pass rate
+- **A test selector.** The seam exists and nothing fills it, so `go test`
+  still runs every test of every affected package, which on Hatchet is 255
+  packages for an edit to `pkg/enums`
+- **jj against a real binary.** The jj paths are tested against a fake
+  `jj`, not against jj itself
 - The goal, the end-of-turn line, and the status line have no before and
   after, because they tell the agent nothing unless a goal blocks
 - Lint failures and failures that name no test are not compared against the

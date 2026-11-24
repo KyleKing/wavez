@@ -3,12 +3,14 @@
 The deterministic layer under a coding agent. Wavez runs beside Claude Code
 and does the parts of the work that never needed a model:
 
-- **Gates** run the checks a change selects, without the agent asking. The
-  edit-stage formatter is on by default. The stop-stage checks (build, test,
-  lint) are opt-in with `stop_checks = true`: a failure then blocks the end
-  of the turn with the lines that carry a diagnostic, and a check that could
-  not run, or a test that was already failing, is reported to you and not to
-  the agent
+- **Checks** run on what a change selects. `wavez check` is the one command
+  the agent is told to use: fixers first, then build, test, lint, and the
+  project's own checks side by side, with a pass reused while its inputs are
+  byte for byte the same. The edit-stage formatter runs by itself. The same
+  checks at the end of every turn are opt-in with `stop_checks = true`: a
+  failure then blocks the turn with the lines that carry a diagnostic, and a
+  check that could not run, or a test that was already failing, is reported
+  to you and not to the agent
 - **A goal** you write once in `.wavez/goal.toml` is checked by code at the
   end of every turn: a test passes, a pattern is present or absent, a file
   exists, a command exits 0
@@ -43,11 +45,21 @@ and keeps its session state under `.wavez/`, which ignores itself. In a Go
 module it also installs a skill that tells the agent when to use the refactor
 commands. Run it again after an upgrade, and `wavez init --remove` takes the
 hooks and the skill back out. The built-in Go checks are format, build, test, and lint (lint only when the
-project has a `.golangci.*` file). Out of the box only format runs, after
-each edit, and the agent is told once to check its work with the narrowest
-command and leave whole-project runs to CI. `stop_checks = true` adds build,
-test, and lint over the changed packages at the end of every turn, which a
-benchmark found costs half again the wall clock.
+project has a `.golangci.*` file). Out of the box only format runs by itself,
+after each edit, and the agent is told once: "Check your work with `wavez
+check`, not whole-project build, test, lint, or type-check commands."
+`stop_checks = true` runs the same checks at the end of every turn instead,
+which a benchmark found costs half again the wall clock.
+
+`wavez check` checks what the session changed (the SessionStart hook hands
+the session's id to the agent's shell through `CLAUDE_ENV_FILE`), or what
+git or jj reports as changed outside a session. Build and test cover the
+changed packages and their importers; lint covers only the changed packages,
+since a finding in an importer would be in a file the change did not touch.
+It prints one line on a pass and the failing lines on a failure, and exits 0
+passed, 1 failed, 3 could not run (the reason is on stderr). A run from the
+shell stops at 100 seconds unless `stop_budget` says otherwise, inside the
+shell tool's two minutes.
 
 The status line is your own choice, so init leaves it alone. `wavez
 statusline --config` prints what to add to `~/.claude/settings.json`.
@@ -73,6 +85,7 @@ stop_budget = "2m30s"   # how long one stop run may take in all; init sizes the 
 announce = true         # tell the agent at session start that the gates run
 route = false           # hint each prompt as direct, explore, or coordinate
 disable = ["lint"]      # built-ins: format, build, test, lint
+parallel = 4            # checks at once after the fixers; default one per CPU, 1 is sequential
 
 [decide]                # optional, used only with route = true
 endpoint = "http://localhost:11434/v1"   # asked only when it is on this machine
@@ -87,7 +100,34 @@ fix = "uv run ruff check --fix {files}"   # runs first
 level = "block"         # or "advise"
 stage = "stop"          # or "edit", which runs after every write
 timeout = "2m"
+inputs = ["pyproject.toml", "uv.lock"]   # what else the command reads; declaring it lets a pass be reused
+exclusive = false       # true: nothing runs beside it (a shared port, database, or directory)
 ```
+
+A pass is reused only for a check that declares `inputs`, and only while
+every file its globs or inputs match, the files it was handed, its commands,
+and PATH are what they were. `inputs = []` says the command reads nothing
+else. A check without `inputs` runs every time, since its command may read
+anything. Lint's pass is reused per package, keyed on the linter, go, the
+linter config, go.mod and go.sum, and every file of the package and of the
+module packages it imports. A failure or a check that could not run is never
+reused. `WAVEZ_NO_CACHE=1` turns reuse off.
+
+A type check for another language stays narrow by being declared narrow.
+`{files}` hands a check the changed files it matched, and a check whose
+tool takes a project rather than files is declared once per project, with
+globs that select it only when that project changes:
+
+```toml
+[[check]]
+name = "types-app"
+globs = ["frontend/app/**/*.ts", "frontend/app/**/*.tsx"]
+command = "cd frontend/app && npx tsc --noEmit -p ."
+inputs = ["frontend/app/tsconfig.json", "frontend/app/package-lock.json"]
+```
+
+`ruff check {files}`, `pyright {files}`, and `ty check {files}` take files
+directly.
 
 A remote endpoint goes in your own environment as `WAVEZ_DECIDE_ENDPOINT`,
 with `WAVEZ_DECIDE_API_KEY` beside it. A project file cannot name one, since
@@ -98,7 +138,7 @@ a cloned repository would then choose where your key is sent.
 | Command | What it does |
 |---|---|
 | `wavez init [--dir DIR] [--bin PATH] [--print] [--remove]` | Wire the hooks and the skill into a project, or take them out |
-| `wavez gate [--stage edit\|stop] [--json] [files...]` | Run the checks by hand. With no files it uses git's changed files |
+| `wavez check [--stage edit\|stop] [--json] [files...]` | Run the checks for what changed: the session's changes, else git's or jj's. `wavez gate` is the older name |
 | `wavez goal [status\|init\|add\|clear]` | Write a goal code can check, and say how much of it is done |
 | `wavez statusline [--config]` | The Claude Code status line: what needs you first, then progress |
 | `wavez report [session] [--text] [--bench]` | Write a page on how a session went, or on the benchmark records |
@@ -121,9 +161,10 @@ and wall clock 1.5x, because the stop gate runs checks the baseline skips.
 The pass rate did not move. [DESIGN.md](DESIGN.md#what-has-been-measured)
 has the table. So the stop checks are off unless
 a project turns them on, and a second run on nine Hatchet tasks with them
-off found no difference from Claude Code alone in either direction. What wavez gives by default is for you and not for
-the bill: a goal code checks, a line saying what needs you, and a flag on a
-skipped test.
+off found no difference from Claude Code alone in either direction. Both runs
+predate `wavez check`, which has no benchmark result yet. What wavez gives by
+default is for you and not for the bill: a goal code checks, a line saying
+what needs you, and a flag on a skipped test.
 
 To repeat the run, which bills a Claude account:
 
