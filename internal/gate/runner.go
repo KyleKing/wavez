@@ -117,9 +117,15 @@ func (r *runner) Run(ctx context.Context, root string, changed []string, stage S
 
 	checks := selectChecks(proj, stage)
 	for i := range checks {
-		if checks[i].hit = r.cachedPass(proj, &checks[i]); !checks[i].hit {
+		if !r.cachedPass(proj, &checks[i]) {
 			checks[i].fixed = r.fix(ctx, proj.root, checks[i])
 		}
+	}
+
+	// Asked again, since a later fixer may have rewritten what an earlier
+	// check covers.
+	for i := range checks {
+		checks[i].hit = r.cachedPass(proj, &checks[i])
 	}
 
 	var (
