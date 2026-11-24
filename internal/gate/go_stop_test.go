@@ -212,3 +212,18 @@ func TestRun_TestFailureSummaryIsReduced(t *testing.T) {
 		t.Errorf("Render() =\n%s", report.Render())
 	}
 }
+
+func TestRun_BuildWithoutTestsRunsNoTestMain(t *testing.T) {
+	t.Parallel()
+
+	// A TestMain that needs a database fails wherever there is none.
+	const needsDatabase = "package a\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\n" +
+		"func TestMain(m *testing.M) {\n\tprintln(\"no database\")\n\tos.Exit(1)\n}\n"
+
+	root := project(t, module(map[string]string{
+		"a/main_test.go": needsDatabase, ".wavez.toml": "disable = [\"test\", \"lint\"]\n",
+	}))
+
+	report := runGate(t.Context(), t, root, gate.StageStop, []string{"a/a.go"})
+	expect(t, report, want{"build", gate.StatusPass, ""})
+}

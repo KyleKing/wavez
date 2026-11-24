@@ -267,8 +267,12 @@ func (r *runner) goTests(
 
 	// The linkOnly arguments build the test binaries and run nothing,
 	// which is also how a build failure found by the test run is put to
-	// the baseline tree.
+	// the baseline tree. A binary run with -run '^$' still runs TestMain,
+	// which in some projects starts a database, so it is handed to true.
 	linkOnly := []string{goTest, "-run", "^$"}
+	if noop, err := r.lookPath("true"); err == nil {
+		linkOnly = append(linkOnly, "-exec", noop)
+	}
 
 	args := []string{goTest, r.testTimeout()}
 	if plan.run != "" {
