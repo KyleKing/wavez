@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -624,4 +625,31 @@ func TestInstall_RemovalLeavesWhatInitDidNotWrite(t *testing.T) {
 	again, err := in.PlanRemoval()
 	require.NoError(t, err)
 	assert.Empty(t, again)
+}
+
+func TestInstall_StopTimeoutFollowsTheStopBudget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		budget time.Duration
+		want   float64
+	}{
+		{"the default budget", 0, 180},
+		{"a shorter budget", 60 * time.Second, 90},
+		{"a longer budget", 10 * time.Minute, 630},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			in := hook.Install{Dir: dir, Skill: skill, StopBudget: tt.budget}
+			install(t, in)
+
+			assert.InDelta(t, tt.want, timeouts(t, dir)["Stop"], 0)
+			assert.Empty(t, install(t, in), "a second run has nothing to do")
+		})
+	}
 }

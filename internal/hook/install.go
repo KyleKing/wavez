@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -39,6 +40,9 @@ type Install struct {
 	// Skill is the SKILL.md to install. Empty installs none, which is what
 	// a project the skill's commands cannot work in gets.
 	Skill string
+	// StopBudget is the project's stop budget, which sets the Stop hook's
+	// timeout. Zero means the default.
+	StopBudget time.Duration
 }
 
 // Change is one file init would create, rewrite, or remove.
@@ -109,7 +113,7 @@ func (i Install) Plan() ([]Change, error) {
 		return nil, err
 	}
 
-	settings, err := mergeSettings(current, command)
+	settings, err := mergeSettings(current, command, i.StopBudget)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", SettingsPath, err)
 	}

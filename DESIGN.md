@@ -108,7 +108,7 @@ Rules, most of them paid for:
 - **One sentence at the start.** SessionStart tells the agent that format,
   build, and tests run by themselves and not to run whole-project commands.
   The first design's sweeps went from 8 to 0 on a sentence this size, not on
-  the gates alone. `WAVEZ_ANNOUNCE=0` turns it off, and the `wavez-quiet`
+  the gates alone. `announce = false` or `WAVEZ_ANNOUNCE=0` turns it off, and the `wavez-quiet`
   benchmark arm exists to measure it
 - **A check that could not run abstains, and only the person hears it.** A
   missing binary, a process-level timeout, or a toolchain error is
@@ -305,8 +305,6 @@ for itself.
   thing the benchmark needs
 - Cross-package `move`, extract, and change-signature are not built. Those
   are where a refactor engine saves turns, and rename is not
-- `stop_budget` and `announce` are environment switches
-  (`WAVEZ_STOP_BUDGET`, `WAVEZ_ANNOUNCE`) and not yet `.wavez.toml` keys
 - Ideas with a reason behind them and no code: a one-line pass notice so the
   agent stops verifying by hand, a PreCompact hook that saves the goal and
   the change set, a SubagentStop gate, and a lint baseline by fingerprint

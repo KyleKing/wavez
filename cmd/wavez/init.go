@@ -74,7 +74,9 @@ func runInit(_ context.Context, args []string, streams stdio) error {
 		return err
 	}
 
-	install := hook.Install{Dir: dir, Bin: parsed.bin, Skill: refactor.Skill}
+	install := hook.Install{
+		Dir: dir, Bin: parsed.bin, Skill: refactor.Skill, StopBudget: projectConfig(dir).StopBudget,
+	}
 
 	var (
 		changes []hook.Change

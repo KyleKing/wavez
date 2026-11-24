@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,6 +183,41 @@ func TestReadTally(t *testing.T) {
 		"the bytes are every text an event handed the agent, summed")
 
 	_, err = hook.ReadTally(failingReader{})
+	require.ErrorIs(t, err, errRead)
+}
+
+func TestReadSessionTally(t *testing.T) {
+	t.Parallel()
+
+	lines := `{"session":"a","event":"UserPromptSubmit","outcome":"context","agent_bytes":10}
+{"session":"b","event":"UserPromptSubmit","outcome":"context","agent_bytes":20}
+{"session":"a","event":"Stop","outcome":"block","agent_bytes":5}
+not json
+{"event":"Stop","outcome":"block","agent_bytes":99}
+`
+
+	tests := []struct {
+		name    string
+		session string
+		want    hook.Tally
+	}{
+		{"one session", "a", hook.Tally{RouteHints: 1, StopBlocks: 1, HookTextBytes: 15}},
+		{"the other", "b", hook.Tally{RouteHints: 1, HookTextBytes: 20}},
+		{"a session with no lines", "c", hook.Tally{}},
+		{"no session counts every line", "", hook.Tally{RouteHints: 2, StopBlocks: 2, HookTextBytes: 134}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := hook.ReadSessionTally(strings.NewReader(lines), tt.session)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	_, err := hook.ReadSessionTally(failingReader{}, "a")
 	require.ErrorIs(t, err, errRead)
 }
 

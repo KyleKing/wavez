@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/gate"
 )
 
@@ -50,7 +51,7 @@ func runGate(ctx context.Context, args []string, streams stdio) error {
 		}
 	}
 
-	report, err := gate.New(gateOptions()...).Run(ctx, *root, changed, gate.Stage(*stage))
+	report, err := gate.New(gateOptions(projectConfig(*root))...).Run(ctx, *root, changed, gate.Stage(*stage))
 	if err != nil {
 		return fmt.Errorf("running checks: %w", err)
 	}
@@ -74,6 +75,18 @@ func runGate(ctx context.Context, args []string, streams stdio) error {
 	}
 
 	return nil
+}
+
+// projectConfig is root's configuration for the settings a gate run reads
+// before it runs. One that does not load gives the defaults, and the run
+// reports the error where it reads the checks.
+func projectConfig(root string) config.Config {
+	cfg, err := config.Load(root)
+	if err != nil {
+		return config.Config{}
+	}
+
+	return cfg
 }
 
 // gateFiles returns the changed set relative to root: the named files, which

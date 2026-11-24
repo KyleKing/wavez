@@ -61,6 +61,8 @@ For anything else, declare checks in `.wavez.toml`:
 
 ```toml
 max_rounds = 3          # the same failure this many times releases the agent
+stop_budget = "2m30s"   # how long one stop run may take in all; init sizes the Stop hook to it
+announce = true         # tell the agent at session start that the gates run
 route = false           # hint each prompt as direct, explore, or coordinate
 disable = ["lint"]      # built-ins: format, build, test, lint
 

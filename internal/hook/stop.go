@@ -38,7 +38,7 @@ func (h *Handler) stopping(ctx context.Context, store *session.Store, ev Event, 
 		return res, err
 	}
 
-	goalCtx, cancel := context.WithDeadline(ctx, started.Add(stopWindow))
+	goalCtx, cancel := context.WithDeadline(ctx, started.Add(h.stopBudget+stopMargin-stopWindowReserve))
 	defer cancel()
 
 	person, agent, hold, goalErr := h.goals(goalCtx, rec.Root)
@@ -94,10 +94,10 @@ func said(status string) string {
 	}
 }
 
-// stopWindow is how long after a Stop event arrives the goal may still be
-// running. It ends inside the timeout init gives the Stop hook, so the
-// harness never has to kill a goal check.
-const stopWindow = gate.DefaultStopBudget + stopMargin - 10*time.Second
+// stopWindowReserve is how much of the Stop hook's timeout the goal check
+// leaves unused, so the harness never has to kill it. The check may run until
+// the stop budget plus stopMargin less this has passed.
+const stopWindowReserve = 10 * time.Second
 
 // gated runs the stop-stage checks on what the session changed, unless that
 // exact change set already passed, could not be checked, or was already

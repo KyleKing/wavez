@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,6 +112,45 @@ func TestHandle_Stop_Goal(t *testing.T) {
 					assert.Equal(t, unmet.agent, res.Reason, "stop %d", i)
 				}
 			}
+		})
+	}
+}
+
+func TestHandle_Stop_GoalWindowFollowsTheStopBudget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		opts   []hook.Option
+		window time.Duration
+	}{
+		{"the default budget", nil, 170 * time.Second},
+		{"a configured budget", []hook.Option{hook.WithStopBudget(60 * time.Second)}, 80 * time.Second},
+		{"a budget that is not positive is ignored", []hook.Option{hook.WithStopBudget(0)}, 170 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var left time.Duration
+
+			goals := hook.WithGoals(func(ctx context.Context, _ string) (string, string, bool, error) {
+				deadline, ok := ctx.Deadline()
+				require.True(t, ok, "the goal check has a deadline")
+
+				left = time.Until(deadline)
+
+				return "", "", false, nil
+			})
+
+			root := repo(t)
+			h := hook.New(&fakeRunner{verdicts: []hook.Verdict{green}}, append(tt.opts, goals)...)
+			start(t, h, root)
+
+			_, err := fire(t, h, stop(root, false))
+			require.NoError(t, err)
+			assert.InDelta(t, tt.window.Seconds(), left.Seconds(), 5)
 		})
 	}
 }

@@ -103,10 +103,17 @@ type Config struct {
 	// MaxRounds is how many times a stop may be refused over the same
 	// failure before the agent is let go. This package only carries it.
 	MaxRounds int
+	// StopBudget is how long one whole stop-stage run may take. Zero means
+	// the gate package's default, which this package cannot name without
+	// importing it.
+	StopBudget time.Duration
 	// Route turns on the hint that tells the agent whether a prompt is
 	// direct work, exploration, or work to split. It is off until a
 	// benchmark shows it pays.
 	Route bool
+	// Announce says whether a session's start tells the agent that the gates
+	// run by themselves.
+	Announce bool
 }
 
 // Decide locates the decision model: an OpenAI-compatible chat completions
@@ -148,7 +155,7 @@ func Load(root string) (Config, error) {
 
 	data, err := fs.ReadFile(os.DirFS(root), FileName)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Config{MaxRounds: DefaultMaxRounds, Decide: Decide{Timeout: DefaultDecideTimeout}}, nil
+		return Config{MaxRounds: DefaultMaxRounds, Announce: true, Decide: Decide{Timeout: DefaultDecideTimeout}}, nil
 	}
 
 	if err != nil {

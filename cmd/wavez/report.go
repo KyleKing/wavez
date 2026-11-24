@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,7 +30,6 @@ const (
 	reportsDir     = "reports"
 	reportDirMode  = 0o750
 	reportFileMode = 0o600
-	maxTraceLine   = 1 << 20
 )
 
 type reportOptions struct {
@@ -194,28 +191,8 @@ func hookTally(path, id string) *page.Tally {
 		return nil
 	}
 
-	var own bytes.Buffer
-
-	lines := bufio.NewScanner(f)
-	lines.Buffer(nil, maxTraceLine)
-
-	for lines.Scan() {
-		var rec struct {
-			Session string `json:"session"`
-		}
-
-		if json.Unmarshal(lines.Bytes(), &rec) == nil && rec.Session == id {
-			own.Write(lines.Bytes())
-			own.WriteByte('\n')
-		}
-	}
-
-	if errors.Join(lines.Err(), f.Close()) != nil {
-		return nil
-	}
-
-	tally, err := hook.ReadTally(&own)
-	if err != nil {
+	tally, err := hook.ReadSessionTally(f, id)
+	if err = errors.Join(err, f.Close()); err != nil {
 		return nil
 	}
 

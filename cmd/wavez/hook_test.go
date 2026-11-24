@@ -9,10 +9,12 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kyleking/wavez/internal/config"
 	"github.com/kyleking/wavez/internal/hook"
 )
 
@@ -271,4 +273,64 @@ func TestHook_StdinThatCannotBeRead(t *testing.T) {
 
 	assert.Equal(t, 1, code)
 	assert.Contains(t, errOut.String(), "read failed")
+}
+
+func TestHook_AnnounceFollowsTheFileUnlessTheEnvironmentSaysNo(t *testing.T) {
+	tests := []struct {
+		name string
+		file string
+		env  string
+		want bool
+	}{
+		{"no file", "", "", true},
+		{"file turns it on", "announce = true\n", "", true},
+		{"file turns it off", "announce = false\n", "", false},
+		{"environment turns it off over a file that wants it", "announce = true\n", "0", false},
+		{"environment turns it off with no file", "", "0", false},
+		{"an environment value other than 0 changes nothing", "announce = false\n", "1", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(hook.AnnounceEnv, tt.env)
+
+			root := goProject(t)
+			if tt.file != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(root, ".wavez.toml"), []byte(tt.file), 0o600))
+			}
+
+			stdin := event(t, map[string]any{
+				"session_id": "s1", "cwd": root, "hook_event_name": "SessionStart", "source": "startup",
+			})
+
+			code, out, errOut := invoke(t, stdin, "hook")
+			require.Equal(t, 0, code, errOut)
+			assert.Equal(t, tt.want, out != "", out)
+		})
+	}
+}
+
+func TestStopBudget_EnvironmentWinsOverTheFile(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		file time.Duration
+		want time.Duration
+	}{
+		{"neither", "", 0, 0},
+		{"file only", "", time.Minute, time.Minute},
+		{"environment only", "45s", 0, 45 * time.Second},
+		{"environment wins", "45s", time.Minute, 45 * time.Second},
+		{"an environment value that is not a duration falls back to the file", "soon", time.Minute, time.Minute},
+		{"a non-positive environment value falls back to the file", "0s", time.Minute, time.Minute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(stopBudgetEnv, tt.env)
+
+			assert.Equal(t, tt.want, stopBudget(config.Config{StopBudget: tt.file}))
+			assert.Equal(t, tt.want > 0, len(gateOptions(config.Config{StopBudget: tt.file})) == 1)
+		})
+	}
 }
