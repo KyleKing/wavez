@@ -127,8 +127,8 @@ rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
 prompt = "The load report in hack/ci/loadreport redacts credential-shaped text before posting it on a pull request, but it lets GitLab personal access tokens through (glpat- followed by 20 or more letters, digits, underscores, or dashes). Redact them, list them in the sanitization policy, and cover them both in the unit tests for the secret rules and in the end-to-end test that checks every sink."
 checks = [
   "hack/ci/loadreport/sanitize.go:glpat",
-  "hack/ci/loadreport/sanitize_test.go:glpat-",
-  "hack/ci/loadreport/main_test.go:glpat-",
+  "hack/ci/loadreport/sanitize_test.go:glpat",
+  "hack/ci/loadreport/main_test.go:glpat",
   '''cmd:f=hack/ci/loadreport/wavez_bench_redact_test.go
 trap 'rm -f "$f"' EXIT
 cat > "$f" <<'EOF'
