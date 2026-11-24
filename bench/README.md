@@ -103,6 +103,37 @@ downloads Hatchet's modules: run `go mod download` once in a checkout of the
 pinned commit before a wired run, or the first stop gate spends its budget
 downloading.
 
+## Wide tasks on Hatchet
+
+`tasks_hatchet_wide.toml` holds six more tasks at the same commit, each a
+small change in a package that between 95 and 252 of the module's 356 packages
+import. Testing every importer of such a package takes longer than the check
+budget, so these are the tasks where an agent is tempted into a whole-project
+run and where `wavez check` needs test selection to answer at all.
+
+Selection reads a [detest](https://github.com/KyleKing/detest) trace of the
+pinned commit, which the pinned tree does not carry. Make one, once, and hand
+it to the wired arms with `--overlay`, a directory whose files are copied into
+each wired arm's workspace before wavez is wired in:
+
+    git clone https://github.com/hatchet-dev/hatchet.git && cd hatchet
+    git checkout 290556fb419b76b39a6a42264600c0130edc4b1b
+    go mod download && detest init && detest trace   # about 5 minutes on 4 cores
+    mkdir -p ../overlay/.detest/cache
+    cp .detest/detest.toml ../overlay/.detest/
+    cp .detest/cache/trace.json ../overlay/.detest/cache/
+    printf '*\n' > ../overlay/.detest/.gitignore
+
+    wavez bench run --all --tasks bench/tasks_hatchet_wide.toml \
+        --overlay ../overlay --arm baseline,wavez --model sonnet
+
+`detest` has to be on `PATH`, and so does a `golangci-lint` that accepts the
+module's Go version, or the lint check abstains in the wired arm. The overlay
+is hashed into each record's `flags`, so runs with different traces are never
+pooled, and a file the pinned tree already has is refused. The baseline gets
+no overlay. A trace is a nightly cost in a project that keeps one, and no
+record counts it.
+
 ## Reading the report
 
 Each task gets one table per setup (harness, served model, task definition,

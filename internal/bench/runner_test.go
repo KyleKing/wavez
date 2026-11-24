@@ -703,3 +703,86 @@ func TestBinaryVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestRunner_OverlayReachesOnlyWiredArms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		arm  bench.Arm
+		want bool
+	}{
+		{arm: bench.ArmBaseline, want: false},
+		{arm: bench.ArmWavez, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.arm), func(t *testing.T) {
+			t.Parallel()
+
+			task := newTask(t)
+			overlay := t.TempDir()
+			write(t, filepath.Join(overlay, ".detest", "cache", "trace.json"), "{}")
+
+			var found bool
+
+			harness := &fakeHarness{run: func(_ context.Context, req bench.Request) (bench.Outcome, error) {
+				found = fileHasContent(filepath.Join(req.Dir, ".detest", "cache", "trace.json"))
+
+				return bench.Outcome{Answer: "Done"}, nil
+			}}
+			runner := &bench.Runner{
+				Harness: harness, WavezBin: script(t, "wavez", "exit 0\n"), TempDir: t.TempDir(),
+				Env: []string{"PATH=/usr/bin:/bin"}, Overlay: overlay,
+			}
+
+			_, err := runner.Run(t.Context(), &task, tt.arm, "")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, found)
+		})
+	}
+}
+
+func TestRunner_OverlayOverAFileOfTheTreeIsAnError(t *testing.T) {
+	t.Parallel()
+
+	task := newTask(t)
+	overlay := t.TempDir()
+
+	entries, err := os.ReadDir(task.Repo)
+	require.NoError(t, err)
+
+	for _, entry := range entries {
+		if entry.Type().IsRegular() {
+			write(t, filepath.Join(overlay, entry.Name()), "replaced")
+		}
+	}
+
+	runner := &bench.Runner{
+		Harness: &fakeHarness{}, WavezBin: script(t, "wavez", "exit 0\n"), TempDir: t.TempDir(),
+		Env: []string{"PATH=/usr/bin:/bin"}, Overlay: overlay,
+	}
+
+	_, err = runner.Run(t.Context(), &task, bench.ArmWavez, "")
+	require.ErrorContains(t, err, "copying the overlay")
+}
+
+func TestTreeDigest_FollowsNamesAndContent(t *testing.T) {
+	t.Parallel()
+
+	digest := func(files map[string]string) string {
+		dir := t.TempDir()
+		for name, body := range files {
+			write(t, filepath.Join(dir, name), body)
+		}
+
+		got, err := bench.TreeDigest(dir)
+		require.NoError(t, err)
+
+		return got
+	}
+
+	base := digest(map[string]string{"a/b": "one"})
+	assert.Equal(t, base, digest(map[string]string{"a/b": "one"}))
+	assert.NotEqual(t, base, digest(map[string]string{"a/b": "two"}))
+	assert.NotEqual(t, base, digest(map[string]string{"a/c": "one"}))
+}
