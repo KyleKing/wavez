@@ -64,6 +64,44 @@ with a change to the harness. Records from before these fields were kept show
 Another harness joins with `--harness-cmd 'pi -p {prompt}'`. Its stdout is the
 answer and wall clock is its only recorded cost.
 
+A task whose `repo` is a clone URL is checked out from a bare mirror under the
+user cache directory (`~/.cache/wavez/bench-repos` on Linux,
+`~/Library/Caches/wavez/bench-repos` on macOS), one per URL. A full commit hash
+is fetched alone at depth one the first time a run needs it, and every later
+run makes a worktree of the mirror without touching the network. An
+abbreviated hash fetches every branch with full history instead. Delete a
+mirror to reclaim the space.
+
+## Tasks on Hatchet
+
+`tasks_hatchet.toml` holds nine tasks on
+[Hatchet](https://github.com/hatchet-dev/hatchet) at one pinned commit, a
+project wavez did not write: two questions, edits and renames in its Go code,
+its Python SDK, and its TypeScript SDK, and one change across three files.
+
+    wavez bench list --tasks bench/tasks_hatchet.toml
+    wavez bench run --all --tasks bench/tasks_hatchet.toml --arm baseline,wavez --model sonnet
+
+The first run fetches the commit, about 100 MB. The checks then run offline
+and need `git`, `sh`, `grep`, `python3` (3.11 or later), Node 22.18 or later
+for its built-in TypeScript type stripping, and a Go that can build the
+module's `go` line (1.26.10 at the pinned commit; an older Go fetches that
+toolchain once, which needs the network). Each Go check builds one package that
+imports only the standard library, so no module is downloaded, and takes about
+20 seconds with a cold build cache. Python checks load one file by path,
+because importing `hatchet_sdk` needs grpc, and TypeScript checks import one
+file through Node, because type-checking needs `pnpm install`.
+
+A tasks file may declare `[[gate]]` tables, which take the keys of a
+`[[check]]` in `.wavez.toml`. Each is added to the `.wavez.toml` of every
+wired arm's workspace and to the hash of every task in the file; the baseline
+gets none. Hatchet's declare a syntax check for changed Python and TypeScript
+files, since the built-in gates know only Go. The built-in Go gates still run
+on Hatchet's Go files, and building the importers of a changed package
+downloads Hatchet's modules: run `go mod download` once in a checkout of the
+pinned commit before a wired run, or the first stop gate spends its budget
+downloading.
+
 ## Reading the report
 
 Each task gets one table per setup (harness, served model, task definition,

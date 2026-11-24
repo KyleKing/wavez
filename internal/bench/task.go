@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/kyleking/wavez/internal/config"
 )
 
 // Task is one pinned piece of work: a prompt, the tree it runs against, and
@@ -25,6 +28,12 @@ type Task struct {
 	// source is Repo as the tasks file spelled it, which is what the hash
 	// covers so the same file hashes alike on every machine.
 	source string
+	// Gates is the [[check]] tables, as TOML, that a wired arm adds to the
+	// workspace's .wavez.toml. The tasks file declares them once as
+	// [[gate]] for every task in it, so a project in a language the
+	// built-in gates do not know is still gated. Empty when it declares
+	// none.
+	Gates  string
 	Checks []Check
 }
 
@@ -61,6 +70,12 @@ func (t *Task) Hash() string {
 		parts = append(parts, c.String())
 	}
 
+	// Only a task with gates hashes them, so every task written before
+	// gates existed keeps the hash its records carry.
+	if t.Gates != "" {
+		parts = append(parts, t.Gates)
+	}
+
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 
 	return hex.EncodeToString(sum[:])[:hashLength]
@@ -83,7 +98,8 @@ var revPattern = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 // against the repository the file lives in.
 func LoadTasks(path string) ([]Task, error) {
 	var file struct {
-		Task []rawTask `toml:"task"`
+		Task []rawTask        `toml:"task"`
+		Gate []map[string]any `toml:"gate"`
 	}
 
 	meta, err := toml.DecodeFile(path, &file)
@@ -100,6 +116,11 @@ func LoadTasks(path string) ([]Task, error) {
 		return nil, fmt.Errorf("resolving %s: %w", path, err)
 	}
 
+	gates, err := renderGates(file.Gate)
+	if err != nil {
+		return nil, err
+	}
+
 	tasks := make([]Task, 0, len(file.Task))
 	seen := map[string]bool{}
 
@@ -114,6 +135,7 @@ func LoadTasks(path string) ([]Task, error) {
 		}
 
 		seen[task.ID] = true
+		task.Gates = gates
 
 		tasks = append(tasks, task)
 	}
@@ -149,6 +171,27 @@ func parseTask(raw *rawTask, dir string) (Task, error) {
 	}
 
 	return task, nil
+}
+
+// renderGates writes the tasks file's [[gate]] tables as the [[check]]
+// tables of a .wavez.toml, and refuses any that file would refuse, so a
+// typo fails when the tasks load and not in the middle of a run.
+func renderGates(gates []map[string]any) (string, error) {
+	if len(gates) == 0 {
+		return "", nil
+	}
+
+	var buf bytes.Buffer
+
+	if err := toml.NewEncoder(&buf).Encode(map[string]any{"check": gates}); err != nil {
+		return "", &ValidationError{Task: "", Key: "gate", Reason: err.Error()}
+	}
+
+	if _, err := config.Parse("[[gate]]", buf.Bytes()); err != nil {
+		return "", &ValidationError{Task: "", Key: "gate", Reason: err.Error()}
+	}
+
+	return buf.String(), nil
 }
 
 // resolveRepo turns the repo a task names into something git accepts from

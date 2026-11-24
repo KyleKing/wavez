@@ -3,6 +3,7 @@ package bench_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,7 @@ func TestWorkspace_WorktreeAtThePinnedRev(t *testing.T) {
 
 			temp := t.TempDir()
 
-			ws, err := bench.NewWorkspace(t.Context(), tt.repo, first, temp)
+			ws, err := bench.NewWorkspace(t.Context(), tt.repo, first, temp, "")
 			require.NoError(t, err)
 
 			assert.Equal(t, "Status: first.\n", read(t, filepath.Join(ws.Dir, "README.md")))
@@ -57,7 +58,7 @@ func TestWorkspace_CloneOfAURL(t *testing.T) {
 	repo, first := newRepo(t)
 	temp := t.TempDir()
 
-	ws, err := bench.NewWorkspace(t.Context(), "file://"+repo, first, temp)
+	ws, err := bench.NewWorkspace(t.Context(), "file://"+repo, first, temp, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "Status: first.\n", read(t, filepath.Join(ws.Dir, "README.md")))
@@ -89,7 +90,7 @@ func TestWorkspace_FailuresLeaveNothingBehind(t *testing.T) {
 
 			temp := t.TempDir()
 
-			_, err := bench.NewWorkspace(t.Context(), tt.repo, tt.rev, temp)
+			_, err := bench.NewWorkspace(t.Context(), tt.repo, tt.rev, temp, "")
 			require.Error(t, err)
 
 			left, readErr := os.ReadDir(temp)
@@ -104,6 +105,77 @@ func TestWorkspace_UnusableTempDir(t *testing.T) {
 
 	repo, first := newRepo(t)
 
-	_, err := bench.NewWorkspace(t.Context(), repo, first, filepath.Join(t.TempDir(), "absent"))
+	_, err := bench.NewWorkspace(t.Context(), repo, first, filepath.Join(t.TempDir(), "absent"), "")
 	require.Error(t, err)
+}
+
+func TestWorkspace_URLMirrorIsFetchedOnceAndKept(t *testing.T) {
+	t.Parallel()
+
+	repo, first := newRepo(t)
+	second := gitIn(t, repo, "rev-parse", "HEAD")
+	cache := t.TempDir()
+	url := "file://" + repo
+
+	ws, err := bench.NewWorkspace(t.Context(), url, first, t.TempDir(), cache)
+	require.NoError(t, err)
+	assert.Equal(t, "Status: first.\n", read(t, filepath.Join(ws.Dir, "README.md")))
+	require.NoError(t, ws.Remove(t.Context()))
+
+	mirrors, err := filepath.Glob(filepath.Join(cache, "*.git"))
+	require.NoError(t, err)
+	require.Len(t, mirrors, 1, "one mirror per URL")
+	assert.Equal(t, "true", gitIn(t, mirrors[0], "rev-parse", "--is-shallow-repository"),
+		"a full hash is fetched alone, not with its history")
+	assert.NotContains(t, gitIn(t, mirrors[0], "worktree", "list"), ws.Dir)
+
+	// The same URL at another commit reuses the mirror and fetches into it.
+	ws, err = bench.NewWorkspace(t.Context(), url, second, t.TempDir(), cache)
+	require.NoError(t, err)
+	assert.Equal(t, "Status: second.\n", read(t, filepath.Join(ws.Dir, "README.md")))
+	require.NoError(t, ws.Remove(t.Context()))
+
+	again, err := filepath.Glob(filepath.Join(cache, "*"))
+	require.NoError(t, err)
+	assert.Equal(t, mirrors, again, "nothing but the mirror is left in the cache")
+
+	// With the source gone, a commit the mirror holds still checks out.
+	require.NoError(t, os.RemoveAll(repo))
+
+	ws, err = bench.NewWorkspace(t.Context(), url, first, t.TempDir(), cache)
+	require.NoError(t, err)
+	assert.Equal(t, first, gitIn(t, ws.Dir, "rev-parse", "HEAD"))
+	require.NoError(t, ws.Remove(t.Context()))
+}
+
+func TestWorkspace_URLAtAnAbbreviatedRevFetchesTheBranches(t *testing.T) {
+	t.Parallel()
+
+	repo, first := newRepo(t)
+	cache := t.TempDir()
+
+	ws, err := bench.NewWorkspace(t.Context(), "file://"+repo, first[:7], t.TempDir(), cache)
+	require.NoError(t, err)
+	assert.Equal(t, first, gitIn(t, ws.Dir, "rev-parse", "HEAD"))
+	require.NoError(t, ws.Remove(t.Context()))
+}
+
+func TestWorkspace_URLWithAnUnknownRevLeavesOnlyTheMirror(t *testing.T) {
+	t.Parallel()
+
+	repo, _ := newRepo(t)
+	cache := t.TempDir()
+	temp := t.TempDir()
+
+	_, err := bench.NewWorkspace(t.Context(), "file://"+repo, "0000000000000000000000000000000000000000", temp, cache)
+	require.ErrorContains(t, err, "no commit")
+
+	left, err := os.ReadDir(temp)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+
+	mirrors, err := filepath.Glob(filepath.Join(cache, "*"))
+	require.NoError(t, err)
+	assert.Len(t, mirrors, 1)
+	assert.True(t, strings.HasSuffix(mirrors[0], ".git"), "no half-made mirror is left: %v", mirrors)
 }

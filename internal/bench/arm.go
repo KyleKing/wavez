@@ -165,3 +165,39 @@ func applySettings(dir string, settings []setting) error {
 
 	return nil
 }
+
+// appendGates adds a task's [[check]] tables to the end of the workspace's
+// .wavez.toml, where a table can always go, and refuses a result the gates
+// could not load, such as a check whose name the pinned tree already uses.
+func appendGates(dir, gates string) error {
+	if gates == "" {
+		return nil
+	}
+
+	workspace, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("opening the workspace: %w", err)
+	}
+
+	body, err := workspace.ReadFile(config.FileName)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.Join(fmt.Errorf("reading %s: %w", config.FileName, err), workspace.Close())
+	}
+
+	if len(body) > 0 && !bytes.HasSuffix(body, []byte("\n")) {
+		body = append(body, '\n')
+	}
+
+	body = append(body, gates...)
+
+	err = workspace.WriteFile(config.FileName, body, settingsFileMode)
+	if err = errors.Join(err, workspace.Close()); err != nil {
+		return fmt.Errorf("writing the task's gates to %s: %w", config.FileName, err)
+	}
+
+	if _, err := config.Load(dir); err != nil {
+		return fmt.Errorf("adding the task's gates: %w", err)
+	}
+
+	return nil
+}

@@ -2,6 +2,7 @@ package bench_test
 
 import (
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -97,6 +98,9 @@ func TestLoadTasks_Validation(t *testing.T) {
 			`[[task]]` + "\n" + `id = "a"` + "\n" + `prompt = "p"` + "\n" + `rev = "abc1234"` + "\n" + `extra = []`,
 			"", "task.extra",
 		},
+		{"gate with a misspelled key", "[[gate]]\nname = \"py\"\nglobs = [\"*.py\"]\ncomand = \"x\"\n", "", "gate"},
+		{"gate with no command", "[[gate]]\nname = \"py\"\nglobs = [\"*.py\"]\n", "", "gate"},
+		{"gate with no name", "[[gate]]\nglobs = [\"*.py\"]\ncommand = \"x\"\n", "", "gate"},
 	}
 
 	for _, tt := range tests {
@@ -118,6 +122,42 @@ func TestLoadTasks_Validation(t *testing.T) {
 	}
 }
 
+func TestLoadTasks_GatesGoToEveryTaskAsChecks(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "tasks.toml")
+	write(t, path, `
+[[gate]]
+name = "py"
+globs = ["*.py"]
+command = "python3 -m py_compile {files}"
+level = "advise"
+
+[[task]]
+id = "a"
+prompt = "p"
+rev = "`+rev+`"
+
+[[task]]
+id = "b"
+prompt = "q"
+rev = "`+rev+`"
+`)
+
+	tasks, err := bench.LoadTasks(path)
+	require.NoError(t, err)
+	require.Len(t, tasks, 2)
+
+	want := "[[check]]\n  command = \"python3 -m py_compile {files}\"\n  globs = [\"*.py\"]\n" +
+		"  level = \"advise\"\n  name = \"py\"\n"
+	assert.Equal(t, want, tasks[0].Gates)
+	assert.Equal(t, want, tasks[1].Gates)
+
+	without := tasks[0]
+	without.Gates = ""
+	assert.NotEqual(t, without.Hash(), tasks[0].Hash(), "two tasks gated differently are different tasks")
+}
+
 func TestLoadTasks_UnreadableFile(t *testing.T) {
 	t.Parallel()
 
@@ -136,6 +176,10 @@ func TestTask_Hash(t *testing.T) {
 
 	base := bench.Task{ID: "a", Prompt: "p", Rev: rev, Checks: mustChecks(t, "answer:ok")}
 
+	// A task without gates hashes as it did before gates existed, so the
+	// records already kept for it still pair with new ones.
+	assert.Equal(t, "40e51209727c", base.Hash())
+
 	tests := []struct {
 		change func(task *bench.Task)
 		name   string
@@ -146,6 +190,7 @@ func TestTask_Hash(t *testing.T) {
 		{name: "prompt", change: func(task *bench.Task) { task.Prompt = "q" }},
 		{name: "rev", change: func(task *bench.Task) { task.Rev = "abc1234" }},
 		{name: "checks", change: func(task *bench.Task) { task.Checks = mustChecks(t, "!answer:ok") }},
+		{name: "gates", change: func(task *bench.Task) { task.Gates = "[[check]]\n" }},
 	}
 
 	for _, tt := range tests {
@@ -157,6 +202,40 @@ func TestTask_Hash(t *testing.T) {
 
 			assert.Len(t, changed.Hash(), 12)
 			assert.Equal(t, tt.same, base.Hash() == changed.Hash())
+		})
+	}
+}
+
+// The tasks files the repository ships are the benchmark itself, so each
+// must load, pin every task to a full hash, and give it something to check.
+func TestTasksFiles_EveryShippedTaskIsRunnable(t *testing.T) {
+	t.Parallel()
+
+	files, err := filepath.Glob(filepath.Join("..", "..", "bench", "tasks*.toml"))
+	require.NoError(t, err)
+	require.Contains(t, files, filepath.Join("..", "..", "bench", "tasks_hatchet.toml"))
+
+	fullHash := regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+	for _, file := range files {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			t.Parallel()
+
+			tasks, err := bench.LoadTasks(file)
+			require.NoError(t, err)
+			require.NotEmpty(t, tasks)
+
+			seen := map[string]bool{}
+
+			for i := range tasks {
+				task := &tasks[i]
+
+				assert.False(t, seen[task.ID], "%s is defined twice", task.ID)
+				seen[task.ID] = true
+
+				assert.Regexp(t, fullHash, task.Rev, "%s pins an abbreviated or moving rev", task.ID)
+				assert.NotEmpty(t, task.Checks, "%s has nothing to check", task.ID)
+			}
 		})
 	}
 }
