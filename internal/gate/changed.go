@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -17,20 +18,37 @@ const (
 	porcelainPrefix = 3
 )
 
-// ErrNotRepository is returned by Changed when root is not inside a git
-// working tree, or git is not installed to say so.
+// ErrNotRepository is returned by Changed when root is in neither a git
+// working tree nor a jj workspace, or the tool that would say so is not
+// installed.
 var ErrNotRepository = errors.New("not a git repository")
 
 // Changed returns the files git reports as modified, added, deleted,
 // renamed, or untracked under root, relative to root. Both names of a rename
 // are returned: the old one no longer exists and still selects the checks
-// for where it lived.
+// for where it lived. A jj workspace that git cannot read, because its git
+// store is inside .jj rather than at the root, is asked through jj instead:
+// the files the working-copy commit changes. A workspace colocated with git
+// is read through git, which sees the same working-copy changes.
 func Changed(ctx context.Context, root string) ([]string, error) {
 	root, err := resolveRoot(root)
 	if err != nil {
 		return nil, err
 	}
 
+	changed, err := gitChanged(ctx, root)
+	if !errors.Is(err, ErrNotRepository) {
+		return changed, err
+	}
+
+	if changed, ok, jjErr := jjChanged(ctx, root); ok {
+		return changed, jjErr
+	}
+
+	return nil, err
+}
+
+func gitChanged(ctx context.Context, root string) ([]string, error) {
 	git, err := exec.LookPath("git")
 	if err != nil {
 		return nil, fmt.Errorf("%w: git not on PATH", ErrNotRepository)
@@ -70,12 +88,93 @@ func Changed(ctx context.Context, root string) ([]string, error) {
 	return normalize(out), nil
 }
 
-// StatusError is git status failing inside a repository.
+// jjChanged asks jj for the files the working-copy commit changes, and
+// reports false when root is not in a jj workspace or jj is not installed.
+// Since jj snapshots the working copy before it answers, a file a shell
+// command wrote is included.
+func jjChanged(ctx context.Context, root string) ([]string, bool, error) {
+	if _, inWorkspace := nearestDir(root, ".jj"); !inWorkspace {
+		return nil, false, nil
+	}
+
+	jj, found := lookPath("jj")
+	if !found {
+		return nil, false, nil
+	}
+
+	top := run(ctx, invocation{dir: root, name: jj, timeout: gitTimeout, args: []string{"root"}})
+	if top.reason != "" || top.exit != 0 {
+		return nil, false, nil
+	}
+
+	workspace, err := filepath.EvalSymlinks(strings.TrimSpace(top.output))
+	if err != nil {
+		return nil, true, fmt.Errorf("resolving jj root: %w", err)
+	}
+
+	// Run from the workspace root, where the paths jj prints relative to
+	// the working directory are relative to the workspace.
+	diff := run(ctx, invocation{
+		dir: workspace, name: jj, timeout: gitTimeout,
+		args: []string{"diff", "--name-only", "--color=never"},
+	})
+	if diff.reason != "" || diff.exit != 0 {
+		return nil, true, &StatusError{Tool: "jj diff", Detail: oneLine(diff.reason + "\n" + diff.output)}
+	}
+
+	var out []string
+
+	for line := range strings.SplitSeq(diff.output, "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+
+		rel, err := filepath.Rel(root, filepath.Join(workspace, filepath.FromSlash(line)))
+		if err == nil {
+			out = append(out, filepath.ToSlash(rel))
+		}
+	}
+
+	return normalize(out), true, nil
+}
+
+// lookPath finds a program on PATH.
+func lookPath(name string) (string, bool) {
+	bin, err := exec.LookPath(name)
+
+	return bin, err == nil
+}
+
+// nearestDir walks up from dir to the first directory holding name.
+func nearestDir(dir, name string) (string, bool) {
+	for {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			return dir, true
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+
+		dir = parent
+	}
+}
+
+// StatusError is git status, or jj diff, failing inside a repository.
 type StatusError struct {
+	// Tool is the command that failed, "git status" when empty.
+	Tool   string
 	Detail string
 }
 
-func (e *StatusError) Error() string { return "git status: " + e.Detail }
+func (e *StatusError) Error() string {
+	if e.Tool == "" {
+		return "git status: " + e.Detail
+	}
+
+	return e.Tool + ": " + e.Detail
+}
 
 // porcelainPaths reads NUL-separated `git status --porcelain -z` output. A
 // rename or copy entry is followed by a second field holding the old path,

@@ -167,7 +167,9 @@ func (s *Store) baseline(ctx context.Context) (Baseline, error) {
 
 	prefix, ok := tree.prefix(ctx)
 	if !ok {
-		return Baseline{}, nil
+		start, _ := jjWorkspace{root: s.root}.start(ctx)
+
+		return Baseline{JJ: start}, nil
 	}
 
 	paths, err := tree.dirty(ctx, prefix)
@@ -273,23 +275,35 @@ func wrapLock(err error) error {
 // tools recorded, plus every file whose content is no longer what the
 // baseline saw, which is how a file rewritten by a shell command, a
 // generator, or a refactor is noticed. Paths are root-relative, sorted, and
-// include files that have been deleted. Outside a git repository only the
-// recorded files are known.
+// include files that have been deleted. Outside a git repository or a jj
+// workspace only the recorded files are known.
 func (s *Store) Changed(ctx context.Context, state State) ([]string, error) {
 	changed := make(map[string]struct{}, len(state.Recorded))
 	for _, path := range state.Recorded {
 		changed[path] = struct{}{}
 	}
 
-	if state.Baseline.Git {
-		drifted, err := s.drifted(ctx, state.Baseline)
-		if err != nil {
-			return nil, err
-		}
+	var (
+		drifted []string
+		err     error
+	)
 
-		for _, path := range drifted {
-			changed[path] = struct{}{}
+	switch {
+	case state.Baseline.Git:
+		drifted, err = s.drifted(ctx, state.Baseline)
+	case state.Baseline.JJ != "":
+		drifted, err = jjWorkspace{root: s.root}.changedSince(ctx, state.Baseline.JJ)
+		if err != nil {
+			err = fmt.Errorf("reading working copy: %w", err)
 		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, path := range drifted {
+		changed[path] = struct{}{}
 	}
 
 	maps.DeleteFunc(changed, func(path string, _ struct{}) bool { return internal(path) })

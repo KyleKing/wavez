@@ -53,8 +53,9 @@ type State struct {
 
 // Baseline is the working tree as the session found it. Dirty maps every
 // file that differed from Head at that moment to a hash of its content, and
-// to "" when the file was deleted. Outside a git repository Git is false and
-// nothing but Recorded can say what changed.
+// to "" when the file was deleted. Outside a git repository Git is false,
+// and nothing but Recorded can say what changed unless the project is a jj
+// workspace, whose starting working-copy commit JJ names.
 type Baseline struct {
 	Dirty map[string]string `json:"dirty,omitempty"`
 	Head  string            `json:"head,omitempty"`
@@ -63,7 +64,11 @@ type Baseline struct {
 	// Dirty is not empty, since Head is that tree otherwise, and is left
 	// empty when the dirt was too large to keep or could not be stored.
 	Tree string `json:"tree,omitempty"`
-	Git  bool   `json:"git"`
+	// JJ is the commit id of a jj workspace's working-copy commit when the
+	// session began, for a workspace git cannot read. Every later change
+	// is a diff from it.
+	JJ  string `json:"jj,omitempty"`
+	Git bool   `json:"git"`
 }
 
 // Restorable reports whether the tree the session started from can be

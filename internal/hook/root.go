@@ -23,7 +23,7 @@ const ProjectDirEnv = "CLAUDE_PROJECT_DIR"
 // to start a second state file with a fresh baseline, which made the stop
 // gate blind to everything changed before it. The session's own starting
 // directory does not move, so it is used when the harness names it: its
-// nearest ancestor holding .wavez.toml, or else holding .git or go.mod.
+// nearest ancestor holding .wavez.toml, or else holding .git, .jj, or go.mod.
 // Without it, or when it is in no project, the root is the nearest .wavez.toml above cwd, or else the
 // repository cwd is in, or else the nearest go.mod.
 //
@@ -41,7 +41,7 @@ func ResolveRoot(projectDir, cwd string) (string, bool) {
 			return root, true
 		}
 
-		if root, ok := nearest(dir, ".git", moduleFile); ok {
+		if root, ok := nearest(dir, ".git", jjDir, moduleFile); ok {
 			return root, true
 		}
 	}
@@ -50,8 +50,8 @@ func ResolveRoot(projectDir, cwd string) (string, bool) {
 }
 
 // FindRoot resolves the project root for a directory named by hand: the
-// nearest ancestor holding .wavez.toml, and without one the repository the
-// directory is in, and without one the nearest go.mod. A directory with no
+// nearest ancestor holding .wavez.toml, and without one the repository or jj
+// workspace the directory is in, and without one the nearest go.mod. A directory with no
 // marker above it is its own root.
 func FindRoot(dir string) string {
 	dir = filepath.Clean(dir)
@@ -63,15 +63,19 @@ func FindRoot(dir string) string {
 	return dir
 }
 
-// RepositoryRoot is the top of the git repository dir is in, which is
-// where Claude Code reads a project's settings from.
+// RepositoryRoot is the top of the repository dir is in, git or jj, which
+// is where Claude Code reads a project's settings from.
 func RepositoryRoot(dir string) (string, bool) {
-	return nearest(filepath.Clean(dir), ".git")
+	return nearest(filepath.Clean(dir), ".git", jjDir)
 }
 
+// jjDir marks the top of a jj workspace, which has no .git when its git
+// store is kept inside it.
+const jjDir = ".jj"
+
 func locate(dir string) (string, bool) {
-	for _, marker := range []string{configFile, ".git", moduleFile} {
-		if root, ok := nearest(dir, marker); ok {
+	for _, markers := range [][]string{{configFile}, {".git", jjDir}, {moduleFile}} {
+		if root, ok := nearest(dir, markers...); ok {
 			return root, true
 		}
 	}
