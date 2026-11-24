@@ -33,6 +33,12 @@ func (h *Handler) announced(ev Event, rec *record) output {
 
 	builtins, custom, err := h.checks(rec.Root)
 
+	if h.unchecked && h.brief {
+		rec.Note = "announced wavez apply"
+
+		return contextFor(eventSessionStart, applyCommand)
+	}
+
 	if h.unchecked {
 		if err == nil && len(builtins)+len(custom) > 0 {
 			rec.Note = "announced wavez check"
@@ -65,6 +71,13 @@ func (h *Handler) announced(ev Event, rec *record) output {
 // a whole-project build, test, or type check is the slowest thing a session
 // does.
 const checkCommand = "Check your work with `wavez check`, not whole-project build, test, lint, or type-check commands."
+
+// applyCommand is the sentence for a project that hands the prompt its
+// source. A session told to check with `wavez check` runs it after its
+// edits and waits for lint and for the tests of every importer, which is
+// what `wavez apply` leaves out of the wait.
+const applyCommand = "Make edits with `wavez apply` (`wavez apply --help` shows the form): it writes " +
+	"several edits at once, then builds and tests what changed. Run no build, test, or lint command yourself."
 
 // targetedOnly is the sentence for a project whose stop checks are off and
 // that has no check wavez could run. The agent is asked to check only what

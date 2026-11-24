@@ -261,3 +261,17 @@ func TestHandle_UserPromptSubmit_SaysWhereANamedSymbolIs(t *testing.T) {
 		})
 	}
 }
+
+func TestHandle_SessionStart_WithTheBriefNamesWavezApply(t *testing.T) {
+	t.Parallel()
+
+	root := repo(t)
+	handler := hook.New(&fakeRunner{}, hook.WithBrief(), hook.WithoutStopChecks())
+
+	res, err := fire(t, handler, map[string]any{
+		"session_id": sessionID, "cwd": root, "hook_event_name": "SessionStart", "source": "startup",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, res.Specific.AdditionalContext, "Make edits with `wavez apply`")
+	assert.NotContains(t, res.Specific.AdditionalContext, "wavez check")
+}
