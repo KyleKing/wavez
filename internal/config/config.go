@@ -114,8 +114,11 @@ type Config struct {
 	// means one per CPU.
 	Parallel   int
 	StopChecks bool
-	Route      bool
-	Announce   bool
+	// CommitChecks holds a commit or a push until `wavez check` has passed
+	// on what the session changed.
+	CommitChecks bool
+	Route        bool
+	Announce     bool
 }
 
 // Decide locates the decision model: an OpenAI-compatible chat completions

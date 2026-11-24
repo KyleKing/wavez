@@ -115,6 +115,10 @@ func handleHook(ctx context.Context, streams stdio) error {
 		opts = append(opts, hook.WithoutStopChecks())
 	}
 
+	if cfg.CommitChecks {
+		opts = append(opts, hook.WithCommitChecks())
+	}
+
 	if !announces(cfg) {
 		opts = append(opts, hook.WithoutAnnouncement())
 	}

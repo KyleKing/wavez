@@ -56,6 +56,10 @@ func (h *Handler) running(ctx context.Context, ev Event, rec *record) output {
 		return output{}
 	}
 
+	if res, held := h.committing(ctx, ev, rec); held {
+		return res
+	}
+
 	renames := textRenames(ev.ToolInput.Command)
 	if len(renames) == 0 {
 		return output{}

@@ -18,13 +18,14 @@ type rawConfig struct {
 	// Announce is a pointer because leaving it out means true.
 	Announce *bool `toml:"announce"`
 	// Parallel is a pointer because leaving it out means one per CPU.
-	Parallel   *int       `toml:"parallel"`
-	Decide     rawDecide  `toml:"decide"`
-	StopBudget string     `toml:"stop_budget"`
-	Disable    []string   `toml:"disable"`
-	Checks     []rawCheck `toml:"check"`
-	Route      bool       `toml:"route"`
-	StopChecks bool       `toml:"stop_checks"`
+	Parallel     *int       `toml:"parallel"`
+	Decide       rawDecide  `toml:"decide"`
+	StopBudget   string     `toml:"stop_budget"`
+	Disable      []string   `toml:"disable"`
+	Checks       []rawCheck `toml:"check"`
+	Route        bool       `toml:"route"`
+	StopChecks   bool       `toml:"stop_checks"`
+	CommitChecks bool       `toml:"commit_checks"`
 }
 
 type rawDecide struct {
@@ -51,6 +52,7 @@ type rawCheck struct {
 func (r rawConfig) parse() (Config, error) {
 	cfg := Config{
 		MaxRounds: DefaultMaxRounds, Disabled: r.Disable, Route: r.Route, Announce: true, StopChecks: r.StopChecks,
+		CommitChecks: r.CommitChecks,
 	}
 
 	if r.Announce != nil {

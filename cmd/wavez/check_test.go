@@ -276,3 +276,47 @@ func TestRunCheck_ChecksWhatTheSessionChanged(t *testing.T) {
 		t.Errorf("an unknown session falls back to the working tree: status %d, stdout %q", code, out)
 	}
 }
+
+func TestRunCheck_RemembersAPassInTheSession(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		passed bool
+	}{
+		{name: "a pass is what the session last passed on", source: gateClean, passed: true},
+		{name: "a failure is left for the stop to count", source: gateBroken},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := gateProject(t, tt.source)
+			store := session.NewStore(root)
+
+			_, err := store.Update(t.Context(), "s1", func(state *session.State) error {
+				state.Record("one.go")
+
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("recording the session: %v", err)
+			}
+
+			t.Setenv(hook.SessionEnv, "s1")
+			checkRun(t.Context(), "--root", root)
+
+			want, err := session.Fingerprint(root, []string{"one.go"})
+			if err != nil {
+				t.Fatalf("fingerprinting: %v", err)
+			}
+
+			state, _ := store.Read("s1")
+			if got := state.Passed == want; got != tt.passed {
+				t.Errorf("passed %q, change set %q, want remembered = %v", state.Passed, want, tt.passed)
+			}
+
+			if state.Failure.Rounds != 0 {
+				t.Errorf("a check run by hand counted %d failing rounds", state.Failure.Rounds)
+			}
+		})
+	}
+}
