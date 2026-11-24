@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kyleking/wavez/internal/refactor"
@@ -176,6 +177,19 @@ func contents(t *testing.T, root string) map[string]string {
 	}))
 
 	return out
+}
+
+// refused asserts an operation failed the way a case expects and left
+// every file as it was before.
+func refused(
+	t *testing.T, root string, before map[string]string, err error, check func(*testing.T, error), msg string,
+) {
+	t.Helper()
+
+	require.Error(t, err)
+	check(t, err)
+	assert.Contains(t, err.Error(), msg)
+	assert.Equal(t, before, contents(t, root), "a refused operation must leave the tree alone")
 }
 
 // builds asserts the module compiles, tests included.

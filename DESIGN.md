@@ -62,7 +62,7 @@ flowchart LR
     H --> G[gate runner]
     H --> Goal[.wavez/goal.toml]
     G --> C[.wavez.toml checks + Go built-ins]
-    Bash --> R[wavez rename / move / delete]
+    Bash --> R[wavez rename / move / delete / extract / params / inline]
     R --> gopls
     Line --> SL[wavez statusline]
     SL --> S
@@ -82,7 +82,7 @@ flowchart LR
 | `internal/goal` | Checks a written goal with code: a test passes, a pattern is present or absent, a file exists, a command exits 0 |
 | `internal/statusline` | Renders the status line: what needs the person first, then progress |
 | `internal/report` | Renders one session, or the benchmark records, as a self-contained HTML page |
-| `internal/refactor` | `rename`, `move`, and `delete` for Go declarations, located with `go/ast` and applied with `gopls` |
+| `internal/refactor` | `rename`, `move`, `delete`, `extract`, `params`, and `inline` for Go, located with `go/ast` and applied with `gopls` |
 | `internal/decide` | Asks a closed-set question: the caller's rules first, a small model second, the fallback when anything goes wrong |
 | `internal/route` | The one question so far: is this prompt direct work, exploration, or work to split |
 | `internal/bench` | Runs pinned tasks in throwaway worktrees under a harness, arms interleaved, and reports them side by side with a significance test |
@@ -173,6 +173,27 @@ the candidates, and a delete that would orphan a caller names the caller.
 `--dry-run` shows the edit without making it. After a rename, uses in files
 the build excludes (another platform, a build tag) are listed, since `gopls`
 does not see them.
+
+`wavez extract`, `params`, and `inline` are the gopls code actions that
+work from its command line, and each refuses what gopls gets wrong
+there, since those results compile and the build check passes them:
+
+- **extract** takes a line range and selects the whole statements of one
+  block, refusing a range that cuts one. gopls names the result
+  `newFunction`, so a rename follows. A `defer` is refused, because it would
+  run when the new function returns, and so is a bare `break` whose loop or
+  switch is outside the range, which gopls rewrites into a `break` of the
+  switch it generates. A variable the range declares and the code after it
+  only updates (`sum -= x`) is not returned, which does not compile, so the
+  build check catches it
+- **params** rewrites the parameter list by renaming the `func` keyword to
+  the new signature, which is how gopls's command line reaches its
+  change-signature refactoring. It removes and reorders, and gopls cannot
+  add. A removed argument that holds a call is refused, because gopls
+  deletes the argument and the call's effect with it. Syntax cannot tell a
+  conversion to a named type from a call, so that is refused too
+- **inline** runs gopls's inliner once per call on the range and formats
+  the file, which the inliner leaves as printed
 
 A skill description did not make an agent use them, so a rule does. A
 PreToolUse hook reads each shell command. A `sed -i`, `perl -pi`, or
@@ -303,8 +324,10 @@ for itself.
 - The task set is seventeen tasks on this repository at its last
   first-design commit. A task on a project wavez did not write is the next
   thing the benchmark needs
-- Cross-package `move`, extract, and change-signature are not built. Those
-  are where a refactor engine saves turns, and rename is not
+- Cross-package `move` is not built, and neither is adding a parameter:
+  gopls cannot add one, and a hand-written rewriter of every call site is
+  the cost this design avoids. `extract`, `params`, and `inline` have no
+  benchmark task yet, so nothing shows they save a turn
 - Ideas with a reason behind them and no code: a one-line pass notice so the
   agent stops verifying by hand, a PreCompact hook that saves the goal and
   the change set, a SubagentStop gate, and a lint baseline by fingerprint

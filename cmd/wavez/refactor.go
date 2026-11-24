@@ -10,9 +10,12 @@ import (
 )
 
 const (
-	renameUsage = "usage: wavez rename [--root DIR] [--dry-run] <file.go|./pkg/dir>:<Name|Type.Member> <NewName>"
-	moveUsage   = "usage: wavez move [--root DIR] [--dry-run] <file.go>:<Name>[,<Name>...] <dest.go>"
-	deleteUsage = "usage: wavez delete [--root DIR] [--dry-run] <file.go>:<Name>[,<Name>...] [<file.go>:<Name>...]"
+	renameUsage  = "usage: wavez rename [--root DIR] [--dry-run] <file.go|./pkg/dir>:<Name|Type.Member> <NewName>"
+	moveUsage    = "usage: wavez move [--root DIR] [--dry-run] <file.go>:<Name>[,<Name>...] <dest.go>"
+	deleteUsage  = "usage: wavez delete [--root DIR] [--dry-run] <file.go>:<Name>[,<Name>...] [<file.go>:<Name>...]"
+	extractUsage = "usage: wavez extract [--root DIR] [--dry-run] <file.go>:<FROM>-<TO> <NewName>"
+	inlineUsage  = "usage: wavez inline [--root DIR] [--dry-run] <file.go>:<FROM>[-<TO>] <Func>"
+	paramsUsage  = "usage: wavez params [--root DIR] [--dry-run] <file.go|./pkg/dir>:<Func|Type.Method> <name,name,...>"
 )
 
 // refactorUsageError is a command line that does not fit a command's form.
@@ -147,5 +150,26 @@ func runDelete(ctx context.Context, args []string, streams stdio) error {
 	return refactorCommand(args, streams, deleteUsage, func(n int) bool { return n >= 1 },
 		func(r *refactor.Refactorer, rest []string) (summarizer, error) {
 			return r.Delete(ctx, rest)
+		})
+}
+
+func runExtract(ctx context.Context, args []string, streams stdio) error {
+	return refactorCommand(args, streams, extractUsage, func(n int) bool { return n == 2 }, //nolint:mnd // lines, name
+		func(r *refactor.Refactorer, rest []string) (summarizer, error) {
+			return r.Extract(ctx, rest[0], rest[1])
+		})
+}
+
+func runParams(ctx context.Context, args []string, streams stdio) error {
+	return refactorCommand(args, streams, paramsUsage, func(n int) bool { return n == 2 }, //nolint:mnd // target, names
+		func(r *refactor.Refactorer, rest []string) (summarizer, error) {
+			return r.Params(ctx, rest[0], rest[1])
+		})
+}
+
+func runInline(ctx context.Context, args []string, streams stdio) error {
+	return refactorCommand(args, streams, inlineUsage, func(n int) bool { return n == 2 }, //nolint:mnd // lines, name
+		func(r *refactor.Refactorer, rest []string) (summarizer, error) {
+			return r.Inline(ctx, rest[0], rest[1])
 		})
 }

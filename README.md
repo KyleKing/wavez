@@ -13,10 +13,12 @@ and does the parts of the work that never needed a model:
 - **What needs you** comes first, at no token cost: one line at the end of a
   turn, a status line, and a page per session with a timeline, a waste list,
   and sentences to copy into the next prompt
-- **Refactors** take a name instead of text: `wavez rename`, `move`, and
-  `delete` for Go declarations, applied through `gopls` and undone if they
-  add a build error. A `sed` rename of a declared Go symbol is refused once
-  and pointed at `wavez rename`
+- **Refactors** take a name or a line range instead of text: `wavez rename`,
+  `move`, and `delete` for Go declarations, `extract` for statements,
+  `params` to remove or reorder parameters at every call, and `inline` for
+  calls. They are applied through `gopls` and undone if they add a build
+  error. A `sed` rename of a declared Go symbol is refused once and pointed
+  at `wavez rename`
 - **A benchmark** runs the same pinned tasks under Claude Code alone and
   under Claude Code with wavez, interleaved, and says whether the difference
   is outside the noise
@@ -98,6 +100,9 @@ a cloned repository would then choose where your key is sent.
 | `wavez rename [--dry-run] <file.go\|./pkg>:<Name\|Type.Method> <NewName>` | Rename a symbol and every reference, then list leftover mentions |
 | `wavez move <file.go>:<Name>[,<Name>...] <dest.go>` | Move declarations to another file of the same package |
 | `wavez delete <file.go>:<Name>[,...] [more...]` | Delete declarations, refusing while anything outside the set still uses them |
+| `wavez extract <file.go>:<FROM>-<TO> <NewName>` | Move whole statements into a new function, or a method when they use the receiver |
+| `wavez params <file.go\|./pkg>:<Func\|Type.Method> <name,...>` | Keep the named parameters in that order, at the declaration and every call |
+| `wavez inline <file.go>:<FROM>[-<TO>] <Func>` | Replace the calls to a function on those lines with its body |
 | `wavez bench list\|run\|report` | The A/B benchmark. [bench/README.md](bench/README.md) explains how to read it |
 | `wavez route <prompt>` \| `route eval [--claude MODEL] <corpus.jsonl>` | Print the route decision for a prompt, or score the rules and a model on a labeled corpus |
 | `wavez hook` | What the hooks call. It reads one Claude Code hook event on stdin |
@@ -119,4 +124,4 @@ bin/wavez bench report
 
 - A chat loop, a daemon, or a TUI
 - A sandbox or a permission layer. The harness has its own
-- Plugins. The checks are a config file and the refactors are three commands
+- Plugins. The checks are a config file and the refactors are six commands

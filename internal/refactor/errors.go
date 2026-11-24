@@ -194,3 +194,33 @@ func (e *StillUsedError) Error() string {
 
 	return b.String()
 }
+
+// ExtractError reports a line range that cannot be extracted as asked.
+type ExtractError struct {
+	At     string
+	Reason string
+}
+
+func (e *ExtractError) Error() string {
+	return fmt.Sprintf("cannot extract %s: %s", e.At, e.Reason)
+}
+
+// ParamsError reports a parameter list that cannot be changed as asked.
+type ParamsError struct {
+	Func   string
+	Reason string
+}
+
+func (e *ParamsError) Error() string {
+	return fmt.Sprintf("cannot change the parameters of %s: %s", e.Func, e.Reason)
+}
+
+// InlineError reports a line range with nothing to inline as asked.
+type InlineError struct {
+	At     string
+	Reason string
+}
+
+func (e *InlineError) Error() string {
+	return fmt.Sprintf("cannot inline on %s: %s", e.At, e.Reason)
+}
