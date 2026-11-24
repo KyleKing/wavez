@@ -27,6 +27,9 @@ const (
 	maxSites = 2
 	// The maxTests bound is how many test files are named for one identifier.
 	maxTests = 2
+	// The maxBeside bound is how many test files of a directory are named
+	// when none mentions the identifier.
+	maxBeside = 3
 	// The minLength bound keeps short words, which are rarely a name worth a lookup,
 	// out of the search.
 	minLength = 5
@@ -57,7 +60,10 @@ type Site struct {
 	File string
 	// Tests are the test files that mention the name, nearest first.
 	Tests []string
-	Line  int
+	// Beside are the test files in the declaration's directory, and are
+	// only filled in when no test mentions the name.
+	Beside []string
+	Line   int
 }
 
 // Names returns the identifiers a prompt mentions, in the order it mentions
@@ -118,7 +124,34 @@ func Find(ctx context.Context, root, prompt string) []Site {
 		sites = append(sites, site)
 	}
 
+	for i := range sites {
+		if len(sites[i].Tests) == 0 {
+			sites[i].Beside = beside(ctx, git, root, sites[i].File)
+		}
+	}
+
 	return sites
+}
+
+// beside returns the test files tracked in file's own directory.
+func beside(ctx context.Context, git, root, file string) []string {
+	cmd := exec.CommandContext(ctx, git, "ls-files", "--", path.Dir(file)+"/") //nolint:gosec // git
+	cmd.Dir = root
+
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	var files []string
+
+	for _, name := range strings.Fields(string(out)) {
+		if testFile.MatchString(name) && path.Dir(name) == path.Dir(file) {
+			files = append(files, name)
+		}
+	}
+
+	return files[:min(len(files), maxBeside)]
 }
 
 // declared returns the lines outside test files that declare name.
@@ -201,8 +234,11 @@ func Hint(sites []Site) string {
 
 	for _, site := range sites {
 		line := site.Name + " is declared at " + site.File + ":" + strconv.Itoa(site.Line)
-		if len(site.Tests) > 0 {
+		switch {
+		case len(site.Tests) > 0:
 			line += "; tests that name it: " + strings.Join(site.Tests, ", ")
+		case len(site.Beside) > 0:
+			line += "; no test names it, the tests beside it: " + strings.Join(site.Beside, ", ")
 		}
 
 		lines = append(lines, line)

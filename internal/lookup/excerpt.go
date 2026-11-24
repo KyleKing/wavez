@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,9 @@ const (
 	// lines either side of a mention in a test file are.
 	declLines = 80
 	around    = 8
+	// The maxUsed bound is how many of the declarations a function reads
+	// are shown with it.
+	maxUsed = 6
 )
 
 // span is a run of lines of one file, first and last counted from one.
@@ -36,15 +40,16 @@ type piece struct {
 
 // Excerpts is the source the sites point at, as numbered lines under a line
 // naming each file: every declaration whole, then the parts of the test
-// files that mention it. A reader holding it has what reading those files
-// would have told it. It is cut off, with a line saying so, at the budget.
+// package's variables, constants, and types a Go function reads, then the
+// parts of the test files that mention it. It is cut off, with a line
+// saying so, at the budget.
 func Excerpts(root string, sites []Site) string {
 	var (
 		out  strings.Builder
 		seen = map[string]bool{}
 	)
 
-	for _, p := range append(declarations(root, sites), tested(root, sites)...) {
+	for _, p := range slices.Concat(declarations(root, sites), used(root, sites), tested(root, sites)) {
 		key := p.file + ":" + strconv.Itoa(p.span.first)
 		if seen[key] || p.span.first < 1 || p.span.last > len(p.lines) {
 			continue
@@ -76,6 +81,165 @@ func declarations(root string, sites []Site) []piece {
 	}
 
 	return out
+}
+
+// used is the variables, constants, and types of its own package that each
+// Go function among the sites reads. A change to what a function does is as
+// often a change to the table it walks as to the function.
+func used(root string, sites []Site) []piece {
+	var out []piece
+
+	for _, site := range sites {
+		if !strings.HasSuffix(site.File, ".go") {
+			continue
+		}
+
+		lines, ok := read(root, site.File)
+		if !ok {
+			continue
+		}
+
+		names := reads(lines, site.Line)
+		if len(names) == 0 {
+			continue
+		}
+
+		out = append(out, valuesIn(root, filepath.ToSlash(filepath.Dir(filepath.FromSlash(site.File))), names)...)
+	}
+
+	return out[:min(len(out), maxUsed)]
+}
+
+// valuesIn is the declarations that go by one of names in the Go files, tests
+// aside, directly in dir.
+func valuesIn(root, dir string, names map[string]bool) []piece {
+	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(dir)))
+	if err != nil {
+		return nil
+	}
+
+	var out []piece
+
+	for _, entry := range entries {
+		file := dir + "/" + entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(file, ".go") || testFile.MatchString(file) {
+			continue
+		}
+
+		if body, ok := read(root, file); ok {
+			for _, s := range values(body, names) {
+				out = append(out, piece{file: file, lines: body, span: s})
+			}
+		}
+	}
+
+	return out
+}
+
+// reads is the names the Go function declared around line refers to, other
+// than the fields and methods it selects.
+func reads(lines []string, line int) map[string]bool {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, "", strings.Join(lines, "\n"), parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+
+	names := map[string]bool{}
+
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || line < fset.Position(fn.Pos()).Line || line > fset.Position(fn.End()).Line {
+			continue
+		}
+
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.SelectorExpr:
+				ast.Inspect(node.X, func(x ast.Node) bool {
+					if id, ok := x.(*ast.Ident); ok {
+						names[id.Name] = true
+					}
+
+					return true
+				})
+
+				return false
+			case *ast.Ident:
+				names[node.Name] = true
+			}
+
+			return true
+		})
+	}
+
+	return names
+}
+
+// values is the spans of a Go file's package-level variables, constants,
+// and types that go by one of names, each with its comment. A declaration
+// in a parenthesized group is shown alone.
+func values(lines []string, names map[string]bool) []span {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, "", strings.Join(lines, "\n"), parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return nil
+	}
+
+	var spans []span
+
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok == token.IMPORT {
+			continue
+		}
+
+		for _, spec := range gen.Specs {
+			if !named(spec, names) {
+				continue
+			}
+
+			var node ast.Node = gen
+
+			doc := gen.Doc
+			if gen.Lparen.IsValid() {
+				node, doc = spec, specDoc(spec)
+			}
+
+			s := span{first: fset.Position(node.Pos()).Line, last: fset.Position(node.End()).Line}
+			if doc != nil {
+				s.first = fset.Position(doc.Pos()).Line
+			}
+
+			spans = append(spans, s)
+		}
+	}
+
+	return spans
+}
+
+func specDoc(spec ast.Spec) *ast.CommentGroup {
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		return s.Doc
+	case *ast.ValueSpec:
+		return s.Doc
+	}
+
+	return nil
+}
+
+func named(spec ast.Spec, names map[string]bool) bool {
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		return names[s.Name.Name]
+	case *ast.ValueSpec:
+		return slices.ContainsFunc(s.Names, func(id *ast.Ident) bool { return names[id.Name] })
+	}
+
+	return false
 }
 
 // tested is the parts of each site's test files that mention it.
@@ -247,14 +411,27 @@ func Brief(root string, sites []Site) string {
 		return hint
 	}
 
+	lead := whole
+	if slices.ContainsFunc(sites, func(s Site) bool { return len(s.Tests) == 0 }) {
+		lead = partial
+	}
+
 	return hint + "\nTheir current source:\n" +
-		source + apply.Fill(applyHelp)
+		source + lead + apply.Fill(applyHelp)
 }
+
+const (
+	// The whole sentence leads the edit instructions when every site came
+	// with the tests that name it, and partial when one did not: a model
+	// told it holds everything edits blind where it does not.
+	whole   = "You have the source, so skip reading and make every edit, tests included, in one command:\n"
+	partial = "Read what else the change needs in one message, not a file at a time, " +
+		"then make every edit, tests included, in one command:\n"
+)
 
 // applyHelp tells the model how to make its edits and check them in one
 // step. The format is the one `wavez apply` reads.
-const applyHelp = `You have the source, so skip reading and make every edit, tests included, in one command:
-wavez apply <<'WAVEZ'
+const applyHelp = `wavez apply <<'WAVEZ'
 === path/to/file.go
 %OPEN%
 exact lines to replace (no line numbers)
