@@ -128,7 +128,7 @@ func handleHook(ctx context.Context, streams stdio) error {
 		opts = append(opts, hook.WithTrace(&trace))
 	}
 
-	handler := hook.New(hook.Gate{Runner: gate.New(gateOptions(cfg)...)}, opts...)
+	handler := hook.New(hook.Gate{Runner: gate.New(withSelector(root, gateOptions(cfg))...)}, opts...)
 
 	err = handler.HandleEvent(ctx, ev, root, streams.out)
 	if logPath != "" {
@@ -156,12 +156,24 @@ func announces(cfg config.Config) bool {
 }
 
 func gateOptions(cfg config.Config) []gate.Option {
-	budget := stopBudget(cfg)
-	if budget <= 0 {
-		return nil
+	var opts []gate.Option
+
+	if budget := stopBudget(cfg); budget > 0 {
+		opts = append(opts, gate.WithBudget(budget))
 	}
 
-	return []gate.Option{gate.WithBudget(budget)}
+	return opts
+}
+
+// withSelector adds the test selector of a project that uses detest, so the
+// test check runs the tests that reach the change and not every test of
+// every package that imports it.
+func withSelector(root string, opts []gate.Option) []gate.Option {
+	if selector, ok := gate.Detest(root); ok {
+		return append(opts, gate.WithSelector(selector))
+	}
+
+	return opts
 }
 
 // hookFailure prints the one line a failed hook says and returns the status

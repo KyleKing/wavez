@@ -193,6 +193,18 @@ session's baseline is the working-copy commit id at its start, diffed with
 `jj diff --from`. Such a workspace has no git tree to compare a failure
 against, so a failure there blocks with a note.
 
+### Tests that reach the change
+
+A project that keeps a `.detest` directory, with `detest` on PATH, has its
+test check narrowed: `detest select --worktree` reads a trace of which
+functions each test executes and names the tests that reach the session's
+uncommitted change, and `go test` runs those alone. Without it the test
+check runs every test of the changed packages and their importers, which is
+the slow part: 130 seconds warm for a widely imported Hatchet package. When
+detest cannot trust its selection (no trace, a stale one, a dependency or
+test-config change) or fails, every test runs as before. A selection is
+never allowed to pass a change on a guess.
+
 ## What the person sees
 
 The agent is told as little as possible. The person is told what needs them,
