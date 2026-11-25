@@ -1,3 +1,9 @@
+## v3.8.0 (2026-11-25)
+
+### Feat
+
+- apply takes fragments and loose indentation, rename fixes clear mentions, tasks take a setup
+
 ## v3.7.0 (2026-11-25)
 
 ### Feat
