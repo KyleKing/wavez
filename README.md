@@ -191,6 +191,7 @@ whenever detest cannot vouch for its selection.
 | Command | What it does |
 |---|---|
 | `wavez init [--dir DIR] [--bin PATH] [--print] [--remove]` | Wire the hooks and the skill into a project, or take them out |
+| `wavez run [claude arguments...]` | Start Claude Code with a short system prompt and five tools, interactive or with `-p`. The rest goes to `claude` as written |
 | `wavez check [--stage edit\|stop] [--json] [files...]` | Run the checks for what changed: the session's changes, else git's or jj's. `wavez gate` is the older name |
 | `wavez goal [status\|init\|add\|clear]` | Write a goal code can check, and say how much of it is done |
 | `wavez statusline [--config]` | The Claude Code status line: what needs you first, then progress |
@@ -208,22 +209,34 @@ whenever detest cannot vouch for its selection.
 
 ## Does it help
 
-Not on cost, so far. One paired run on Sonnet over seventeen small tasks
-found turns and cost inside the noise (1.08x and 1.05x of Claude Code alone)
-and wall clock 1.5x, because the stop gate runs checks the baseline skips.
-The pass rate did not move. [DESIGN.md](DESIGN.md#what-has-been-measured)
-has the table. So the stop checks are off unless
-a project turns them on, and a second run on nine Hatchet tasks with them
-off found no difference from Claude Code alone in either direction. Both runs
-predate `wavez check`, which has no benchmark result yet. What wavez gives by
-default is for you and not for the bill: a goal code checks, a line saying
-what needs you, and a flag on a skipped test.
+With the defaults, not on cost: the first paired runs on Sonnet found turns
+and cost inside the noise, and the stop checks slowed a session down, so
+they are off unless a project turns them on. What wavez gives by default is
+for you and not for the bill: a goal code checks, a line saying what needs
+you, and a flag on a skipped test.
+
+Two things that are off by default do move the bill, on fifteen tasks in
+Hatchet served by `claude-sonnet-5-5`
+([DESIGN.md](DESIGN.md#what-the-harnesss-standing-text-costs) has the
+tables):
+
+- `brief = true` in `.wavez.toml` answers a prompt with the code it names
+  and the tests of that code, and one command that edits and checks. Turns
+  0.72x and cost 0.90x of Claude Code alone
+- `wavez run` starts the session with a short system prompt and the tools
+  Bash, Read, Edit, Grep, and Glob. With the brief, cost was 0.48x and every
+  run passed. A session started this way has no subagents, web tools, or
+  skills, and it is still Claude Code on the account `claude` is signed in
+  to: `wavez run`, `wavez run -p "..."`, `wavez run --model haiku`,
+  `wavez run --continue`
+
+Wall clock moved in neither: the model writes the same edits either way.
 
 To repeat the run, which bills a Claude account:
 
 ```bash
 go build -o bin/wavez ./cmd/wavez
-bin/wavez bench run --all --arm baseline,wavez,wavez-gates --model sonnet
+bin/wavez bench run --all --tasks bench/tasks_hatchet.toml --arm baseline,wavez-brief,wavez-lean --model sonnet
 bin/wavez bench report
 ```
 

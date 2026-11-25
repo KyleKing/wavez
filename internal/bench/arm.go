@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kyleking/wavez/internal/config"
+	"github.com/kyleking/wavez/internal/lean"
 )
 
 // Arm is one side of the comparison.
@@ -66,11 +67,6 @@ type armSpec struct {
 	wired bool
 }
 
-// leanPrompt stands in for the harness's own system prompt in the lean arm.
-const leanPrompt = "You are a coding agent working in a git checkout from a terminal. " +
-	"Make the change or answer the question you are given, check it, and stop. " +
-	"Run independent commands and reads in one message. Say what you did in a sentence or two."
-
 // on is a setting turned on, as TOML and as git write it.
 const on = "true"
 
@@ -91,7 +87,7 @@ var armSpecs = []armSpec{
 	{name: ArmWavezBrief, wired: true, settings: []setting{{key: "brief", value: on}}},
 	{
 		name: ArmWavezLean, wired: true, settings: []setting{{key: "brief", value: on}},
-		args: []string{"--system-prompt", leanPrompt, "--tools", "Bash,Read,Edit,Grep,Glob"},
+		args: lean.Args(),
 	},
 }
 
