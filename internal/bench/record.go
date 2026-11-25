@@ -50,7 +50,9 @@ type Record struct {
 	Checks     []CheckResult     `json:"checks"`
 	// ArmEnv is what the arm added to the harness's environment and
 	// ArmConfig the lines it wrote into the workspace's .wavez.toml.
-	ArmEnv    []string `json:"arm_env,omitempty"`
+	ArmEnv []string `json:"arm_env,omitempty"`
+	// ArmArgs is what the arm added to the harness's command line.
+	ArmArgs   []string `json:"arm_args,omitempty"`
 	ArmConfig []string `json:"arm_config,omitempty"`
 	Usage     Usage    `json:"usage"`
 	Turns     int      `json:"turns"`

@@ -37,6 +37,10 @@ const (
 	// ArmWavezBrief is the wavez-locate arm that is handed the source of
 	// what was found as well, and the command that edits and checks at once.
 	ArmWavezBrief Arm = "wavez-brief"
+	// ArmWavezLean is the wavez-brief arm with the harness cut down to what
+	// such a session uses: a system prompt of a few lines in place of the
+	// harness's own, and the tools to run a command, read, search, and edit.
+	ArmWavezLean Arm = "wavez-lean"
 )
 
 // setting is one top-level key of a .wavez.toml and the value an arm gives
@@ -55,10 +59,17 @@ type armSpec struct {
 	// env is added to the environment of the harness, and so of every hook
 	// it runs.
 	env []string
+	// args are added to the harness's command line.
+	args []string
 	// wired runs `wavez init` in the workspace. An arm that is not wired
 	// must find no wavez there at all.
 	wired bool
 }
+
+// leanPrompt stands in for the harness's own system prompt in the lean arm.
+const leanPrompt = "You are a coding agent working in a git checkout from a terminal. " +
+	"Make the change or answer the question you are given, check it, and stop. " +
+	"Run independent commands and reads in one message. Say what you did in a sentence or two."
 
 // on is a setting turned on, as TOML and as git write it.
 const on = "true"
@@ -78,6 +89,10 @@ var armSpecs = []armSpec{
 	},
 	{name: ArmWavezLocate, wired: true, settings: []setting{{key: "locate", value: on}}},
 	{name: ArmWavezBrief, wired: true, settings: []setting{{key: "brief", value: on}}},
+	{
+		name: ArmWavezLean, wired: true, settings: []setting{{key: "brief", value: on}},
+		args: []string{"--system-prompt", leanPrompt, "--tools", "Bash,Read,Edit,Grep,Glob"},
+	},
 }
 
 // Arms lists the arms in the order a report shows them.
