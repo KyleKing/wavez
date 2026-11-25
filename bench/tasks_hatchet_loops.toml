@@ -76,7 +76,7 @@ open(t, "w").write(s)
 PY'''
 checks = [
   '''pkg/client/types/action.go:func ParseActionID(actionID string, opts ParseOptions) (Action, error)''',
-  '''cmd:! git grep -nE 'ParseActionID\([^,()]*\)' -- '*.go'''',
+  '''cmd:! git grep -nE '(^|[^A-Za-z0-9_])ParseActionID\([^,()]*\)' -- '*.go'''',
   '''cmd:go build ./internal/services/admin/... ./pkg/client/operatorclient/ ./pkg/serverlessoperator/ ./pkg/worker/''',
   '''cmd:go vet ./pkg/repository/ ./pkg/worker/ ./pkg/serverlessoperator/''',
   '''cmd:go test -count=1 ./pkg/client/types/ ./pkg/validator/''',

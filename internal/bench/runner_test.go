@@ -689,7 +689,8 @@ func TestParseArm(t *testing.T) {
 	require.ErrorAs(t, err, &unknown)
 	assert.Contains(t, err.Error(), "control")
 	assert.Contains(t, err.Error(),
-		"baseline, wavez, wavez-quiet, wavez-route, wavez-gates, wavez-warm, wavez-locate, wavez-brief, wavez-lean, lean")
+		"baseline, wavez, wavez-quiet, wavez-route, wavez-gates, wavez-warm, wavez-locate, wavez-brief, "+
+			"wavez-lean, lean")
 }
 
 func TestBinaryVersion(t *testing.T) {
