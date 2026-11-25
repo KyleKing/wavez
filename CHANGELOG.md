@@ -1,3 +1,16 @@
+## v3.6.0 (2026-11-25)
+
+### Feat
+
+- a benchmark arm with a short system prompt and five tools
+- say on the status line how many prompts a smaller model would have fit
+- build the briefed Go packages while the model writes its edits
+- hand over the exact rename command when a prompt asks for a rename
+
+### Fix
+
+- keep the first line of a check in a benchmark record, not its script
+
 ## v3.5.0 (2026-11-24)
 
 ### Feat
