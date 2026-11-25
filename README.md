@@ -217,7 +217,7 @@ you, and a flag on a skipped test.
 
 Two things that are off by default do move the bill, on fifteen tasks in
 Hatchet served by `claude-sonnet-5-5`
-([DESIGN.md](DESIGN.md#what-the-harnesss-standing-text-costs) has the
+([DESIGN.md](DESIGN.md#what-the-standing-text-of-the-harness-costs) has the
 tables):
 
 - `brief = true` in `.wavez.toml` answers a prompt with the code it names
