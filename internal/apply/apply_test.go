@@ -104,8 +104,8 @@ func TestApply_WritesNothingUnlessEveryEditApplies(t *testing.T) {
 			want: "edit 2, in a/a.go: the lines to replace are not in the file; its first line is nowhere",
 		},
 		{
-			name:  "only the indentation differs",
-			edits: []apply.Edit{{File: "a/a.go", Old: "  func C() int { return 1 }\n", New: "x\n"}},
+			name:  "a later line differs",
+			edits: []apply.Edit{{File: "a/a.go", Old: "func C() int { return 1 }\nfunc D() {}\n", New: "x\n"}},
 			want:  "its first line is at line 5",
 		},
 		{
@@ -114,9 +114,9 @@ func TestApply_WritesNothingUnlessEveryEditApplies(t *testing.T) {
 			want:  "more than once",
 		},
 		{
-			name:  "the text is only part of a line",
+			name:  "the text is part of two lines",
 			edits: []apply.Edit{{File: "a/a.go", Old: "int { return 1 }\n", New: "x\n"}},
-			want:  "the lines to replace are not in the file",
+			want:  "more than once",
 		},
 		{
 			name: "one file by two paths that fold to one",
@@ -215,4 +215,53 @@ func TestParse_RefusesTextThatHoldsAMarkerLine(t *testing.T) {
 	_, err := apply.Parse(apply.Fill("=== notes.md\n%OPEN%\nHeading\n%SPLIT%\nbody\n%SPLIT%\nnew body\n%CLOSE%\n"))
 	require.ErrorIs(t, err, apply.ErrEdits)
 	assert.Contains(t, err.Error(), "second")
+}
+
+func TestApply_MatchesLooselyWhenOnlyOnePlaceFits(t *testing.T) {
+	t.Parallel()
+
+	const before = "package a\n\nfunc A() int {\n\tif ok {\n\t\treturn 1\n\t}\n\n\treturn 2\n}\n"
+
+	tests := []struct {
+		name string
+		edit apply.Edit
+		want string
+	}{
+		{
+			name: "lines written without their indentation take the file's",
+			edit: apply.Edit{Old: "if ok {\n\treturn 1\n}\n", New: "if ok {\n\treturn 3\n}\n"},
+			want: "package a\n\nfunc A() int {\n\tif ok {\n\t\treturn 3\n\t}\n\n\treturn 2\n}\n",
+		},
+		{
+			name: "lines indented with spaces in a file of tabs",
+			edit: apply.Edit{Old: "    if ok {\n        return 1\n", New: "    if !ok {\n        return 1\n"},
+			want: "package a\n\nfunc A() int {\n\tif !ok {\n\t\treturn 1\n\t}\n\n\treturn 2\n}\n",
+		},
+		{
+			name: "the start of a line",
+			edit: apply.Edit{Old: "func A() int\n", New: "func A() int64\n"},
+			want: "package a\n\nfunc A() int64 {\n\tif ok {\n\t\treturn 1\n\t}\n\n\treturn 2\n}\n",
+		},
+		{
+			name: "the end of a line",
+			edit: apply.Edit{Old: "return 2\n}\n", New: "return 4\n}\n"},
+			want: "package a\n\nfunc A() int {\n\tif ok {\n\t\treturn 1\n\t}\n\n\treturn 4\n}\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			write(t, root, "a/a.go", before)
+
+			edit := tt.edit
+			edit.File = "a/a.go"
+
+			_, err := apply.Apply(root, []apply.Edit{edit})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, read(t, root, "a/a.go"))
+		})
+	}
 }

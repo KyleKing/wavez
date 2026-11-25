@@ -314,6 +314,21 @@ A prompt that asks for a rename is answered with the command, `wavez rename
 ./dir:old new`, for a Go name declared once. Both sessions of the Go rename
 task had spent their first turn on that command's help.
 
+In the transcripts of the lean run below, 21 of 65 calls to `wavez apply`
+were refused, in 63 wired sessions, and each refusal cost a turn that
+sent every edit again. Most were not stale
+text but a fragment: the start or end of a long line, which the harness's
+own Edit tool accepts, or lines written without their indentation. Apply
+now takes the lines whole first, then with indentation ignored and the
+replacement moved to the file's indentation line by line, then as text
+inside a line, and each looser match has to be the only one. A path written
+from the directory the command ran in, after a `cd`, names the same file
+as one from the root. And `wavez rename` used to leave every comment and
+string to the model, which spent two turns reading the lines it listed and
+editing them: it now renames the mentions in the files it changed that can
+only mean the symbol (a call, a name in backquotes, or in a comment a name
+no prose word looks like) and lists the rest with their text.
+
 The same fifteen tasks on `claude-haiku-5-5`, two repetitions an arm, 60
 sessions: both arms passed 30 of 30, and the brief's turns were 0.57x the
 Haiku baseline's (p 0.004), its cost 0.85x and its wall clock 0.83x, both

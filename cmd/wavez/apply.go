@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/kyleking/wavez/internal/apply"
 	"github.com/kyleking/wavez/internal/hook"
@@ -112,7 +113,7 @@ func written(ctx context.Context, root string, inLane bool, streams stdio) ([]st
 		return nil, false, err //nolint:wrapcheck // the apply package's error is the message
 	}
 
-	files, err := apply.Apply(root, edits)
+	files, err := apply.Apply(root, fromHere(root, edits))
 	if err != nil {
 		return nil, false, err //nolint:wrapcheck // the apply package names the file
 	}
@@ -197,4 +198,39 @@ func openLane(ctx context.Context, root, rev string) (lane.Lane, error) {
 	}
 
 	return opened, nil
+}
+
+// fromHere names each edited file from the project root when the edit named
+// it from the working directory instead: a path that is no file under the
+// root but is one under the directory the command was run from.
+func fromHere(root string, edits []apply.Edit) []apply.Edit {
+	wd, err := os.Getwd()
+	if err != nil {
+		return edits
+	}
+
+	here, err := filepath.Rel(root, wd)
+	if err != nil || here == "." || !filepath.IsLocal(here) {
+		return edits
+	}
+
+	out := slices.Clone(edits)
+	for i, edit := range out {
+		if exists(filepath.Join(root, filepath.FromSlash(edit.File))) {
+			continue
+		}
+
+		if near := filepath.Join(here, filepath.FromSlash(edit.File)); exists(filepath.Join(root, near)) {
+			out[i].File = filepath.ToSlash(near)
+		}
+	}
+
+	return out
+}
+
+// exists says whether a path names something on disk.
+func exists(path string) bool {
+	_, err := os.Stat(path)
+
+	return err == nil
 }

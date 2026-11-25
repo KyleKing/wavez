@@ -77,7 +77,10 @@ func (r *Runner) Run(ctx context.Context, task *Task, arm Arm, model string) (Re
 		return Record{}, err
 	}
 
-	rec, err := r.runIn(ctx, ws, task, arm, model)
+	var rec Record
+	if err = ws.Seed(ctx, task.Setup); err == nil {
+		rec, err = r.runIn(ctx, ws, task, arm, model)
+	}
 
 	if r.Keep {
 		rec.Workspace = ws.Dir

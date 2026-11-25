@@ -94,18 +94,43 @@ func TestRename_ReportsLeftoverMentions(t *testing.T) {
 	// The changed files come first, then the rest of the module. gopls
 	// rewrites the declaration's own doc comment, so lib.go has none left.
 	assert.Equal(t, []refactor.Mention{
-		{File: "app/app.go", Line: 6},
-		{File: "lib/lib_test.go", Line: 9},
-		{File: "lib/lib_test.go", Line: 12},
-		{File: "app/notes.go", Line: 3},
-		{File: "app/notes.go", Line: 4},
-		{File: "app/notes.go", Line: 6},
+		{File: "app/app.go", Line: 6, Text: "// Hello calls lib.Greet, not Greeting."},
+		{File: "lib/lib_test.go", Line: 9, Text: "// TestGreet covers Greet."},
+		{File: "lib/lib_test.go", Line: 12, Text: `t.Fatal("Greet returned the wrong greeting")`},
+		{File: "app/notes.go", Line: 3, Text: "// greeting mentions Greet in a comment and Greeter as a longer word."},
+		{File: "app/notes.go", Line: 4, Text: "const note = \"call Greet\\n\" + `"},
+		{File: "app/notes.go", Line: 6, Text: "Greet again`"},
 	}, res.Mentions)
 
 	summary := res.Summary()
 	assert.Contains(t, summary, `"Greet" still appears in 6 comment or string lines`)
-	assert.Contains(t, summary, "  app/notes.go:6\n")
+	assert.Contains(t, summary, "  app/notes.go:6: Greet again`\n")
+	assert.NotContains(t, summary, "too")
 	assert.Contains(t, read(t, root, "app/app.go"), "// Hello calls lib.Greet, not Greeting.")
+}
+
+func TestRename_RenamesMentionsThatCanOnlyMeanTheSymbol(t *testing.T) {
+	t.Parallel()
+	needGopls(t)
+
+	root := fixture(t, map[string]string{
+		"lib/fmt.go": "package lib\n\n// fmtNum is used by Box. The num column says fmtNum(x) too.\n" +
+			"func fmtNum(n int) int { return n }\n\n" +
+			"// num is a word here, and `num` here is not the symbol.\nvar label = \"fmtNum(%v)\"\n" +
+			"var tag = `json:\"fmtNum\"`\n\n// Callers wrap fmtNum, and the num column says fmtNum(x).\nvar _ = 0\n",
+	})
+
+	res, err := newRefactorer(t, root).Rename(t.Context(), "lib/fmt.go:fmtNum", "formatNumber")
+	require.NoError(t, err)
+
+	got := read(t, root, "lib/fmt.go")
+	assert.Contains(t, got, "// Callers wrap formatNumber, and the num column says formatNumber(x).")
+	assert.Contains(t, got, "// num is a word here, and `num` here is not the symbol.")
+	assert.Contains(t, got, `var label = "formatNumber(%v)"`)
+	assert.Contains(t, got, "`json:\"fmtNum\"`", "a struct tag or a key stays")
+	assert.Equal(t, 3, res.Rewritten)
+	assert.Contains(t, res.Summary(), "renamed it in 3 comment or string mentions too")
+	builds(t, root)
 }
 
 func TestRename_Refuses(t *testing.T) {
