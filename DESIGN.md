@@ -330,7 +330,7 @@ on a larger model says how many of its prompts that was ("3 of 4 prompts
 fit haiku"). The count is read from the session's file, and nothing is
 handed to the model.
 
-### What the harness's standing text costs
+### What the standing text of the harness costs
 
 Every turn of a Claude Code session reads back the harness's own system
 prompt and tool descriptions before anything of the project's. The
