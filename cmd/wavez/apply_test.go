@@ -160,6 +160,7 @@ func TestRunApply_AtARevisionLeavesTheCheckoutAlone(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // t.Chdir changes the process's working directory
 func TestFromHere_NamesAFileFromTheRootWhenTheEditNamedItFromBelow(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"a/b/one.go", "top.go"} {
