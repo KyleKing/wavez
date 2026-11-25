@@ -103,6 +103,22 @@ func (c Check) String() string {
 	return bang + head + ":" + c.Want
 }
 
+// labelLength bounds what a record keeps of a check's text.
+const labelLength = 120
+
+// label is the name a record keeps for a check: its first line, cut short.
+// A command check is a whole script, written into every record of every run
+// it would be most of the file, and the task's hash already says which
+// script it was.
+func label(check string) string {
+	first, _, _ := strings.Cut(check, "\n")
+	if len(first) > labelLength {
+		first = first[:labelLength]
+	}
+
+	return first
+}
+
 // CheckResult is one check and whether the run satisfied it.
 type CheckResult struct {
 	Check string `json:"check"`
@@ -124,7 +140,7 @@ func Verify(ctx context.Context, checks []Check, dir, answer string, timeout tim
 
 	for _, c := range checks {
 		got := c.evaluate(ctx, dir, answer, timeout)
-		res := CheckResult{Check: c.String(), Pass: !got.timedOut && got.held != c.Negate}
+		res := CheckResult{Check: label(c.String()), Pass: !got.timedOut && got.held != c.Negate}
 
 		switch {
 		case res.Pass:
