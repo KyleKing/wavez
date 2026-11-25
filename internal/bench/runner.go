@@ -117,7 +117,7 @@ func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, 
 	rec := Record{
 		TaskID: task.ID, TaskHash: task.Hash(), Arm: arm, Harness: r.HarnessName,
 		Model: model, Rev: task.Rev, WavezVersion: r.WavezVersion, Build: r.Build, Flags: r.Flags,
-		ArmEnv: spec.env, ArmConfig: spec.configLines(),
+		ArmEnv: spec.env, ArmArgs: spec.args, ArmConfig: spec.configLines(),
 		Started: r.now().UTC().Format(time.RFC3339),
 	}
 
@@ -128,7 +128,7 @@ func (r *Runner) runIn(ctx context.Context, ws *Workspace, task *Task, arm Arm, 
 
 	start := time.Now()
 	outcome, stop, runErr := r.harness(ctx, Request{
-		Dir: ws.Dir, Prompt: task.Prompt, Model: model, Env: env, SessionID: session,
+		Dir: ws.Dir, Prompt: task.Prompt, Model: model, Env: env, SessionID: session, Args: spec.args,
 	})
 	rec.WallMS = time.Since(start).Milliseconds()
 

@@ -18,6 +18,9 @@ type Request struct {
 	SessionID string
 	// Env is the child's whole environment.
 	Env []string
+	// Args are added to the harness's command line by the arm. A harness
+	// that is not Claude Code ignores them.
+	Args []string
 }
 
 // Usage is the tokens a run spent.

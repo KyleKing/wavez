@@ -666,6 +666,7 @@ func TestParseArm(t *testing.T) {
 
 	names := []string{
 		"baseline", "wavez", "wavez-quiet", "wavez-route", "wavez-gates", "wavez-warm", "wavez-locate", "wavez-brief",
+		"wavez-lean",
 	}
 
 	arms := make([]bench.Arm, 0, len(names))
@@ -688,7 +689,7 @@ func TestParseArm(t *testing.T) {
 	require.ErrorAs(t, err, &unknown)
 	assert.Contains(t, err.Error(), "control")
 	assert.Contains(t, err.Error(),
-		"baseline, wavez, wavez-quiet, wavez-route, wavez-gates, wavez-warm, wavez-locate, wavez-brief")
+		"baseline, wavez, wavez-quiet, wavez-route, wavez-gates, wavez-warm, wavez-locate, wavez-brief, wavez-lean")
 }
 
 func TestBinaryVersion(t *testing.T) {

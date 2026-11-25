@@ -49,7 +49,7 @@ func (c *Claude) args(req Request) []string {
 		args = append(args, "--model", req.Model)
 	}
 
-	return args
+	return append(args, req.Args...)
 }
 
 // claudeResult is the object `claude -p --output-format json` prints.
