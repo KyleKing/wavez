@@ -314,6 +314,18 @@ A prompt that asks for a rename is answered with the command, `wavez rename
 ./dir:old new`, for a Go name declared once. Both sessions of the Go rename
 task had spent their first turn on that command's help.
 
+The same fifteen tasks on `claude-haiku-5-5`, two repetitions an arm, 60
+sessions: both arms passed 30 of 30, and the brief's turns were 0.57x the
+Haiku baseline's (p 0.004), its cost 0.85x and its wall clock 0.83x, both
+inside the noise. Beside the Sonnet baseline of the fourth run, a
+repetition of all fifteen cost $1.29 and 294 seconds on Sonnet, $0.13 and
+529 seconds on Haiku alone, and $0.11 and 384 seconds on Haiku with the
+brief. The smaller model does these tasks for a twelfth of the money, and
+the brief takes back about three fifths of the time it gives up, with the
+largest gains on the tasks where the brief came with the tests. Which
+model a session runs is not something a hook can set, so this is a
+measurement and not yet a feature.
+
 That is where this stands against halving the time: a third of the turns
 are gone, the money has started to follow, and the seconds have not,
 because a turn saved is a short turn and the one command that replaces
