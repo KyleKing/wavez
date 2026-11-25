@@ -4,7 +4,9 @@ This directory answers one question: does wavez make Claude Code cheaper or
 faster on the same work, or not? Each task in `tasks.toml` is a prompt, a pinned
 commit, and a list of checks. A run checks the commit out into a throwaway git
 worktree, hands the prompt to the harness, runs the checks against what it left
-behind, and appends one line to `records.jsonl`.
+behind, and appends one line to `records.jsonl`. Runs before the fourth
+brief run are in `records-2026-11-early.jsonl`, moved there to keep each file
+under the size CI's hooks allow; `wavez bench report --records` reads either.
 
 There are five arms. `baseline` is Claude Code alone. `wavez` is the same
 Claude Code after `wavez init` has written its hooks and its refactor skill into

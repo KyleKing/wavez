@@ -330,6 +330,37 @@ on a larger model says how many of its prompts that was ("3 of 4 prompts
 fit haiku"). The count is read from the session's file, and nothing is
 handed to the model.
 
+### What the harness's standing text costs
+
+Every turn of a Claude Code session reads back the harness's own system
+prompt and tool descriptions before anything of the project's. The
+`wavez-lean` arm is the brief arm with that prompt replaced by three
+sentences (`--system-prompt`) and the tools narrowed to Bash, Read, Edit,
+Grep, and Glob (`--tools`). On the fifteen tasks, served by
+`claude-sonnet-5-5`, 94 sessions (a restart cut the run and one repetition
+of nine tasks was run again):
+
+| against baseline | turns | cost | wall | passed |
+|---|---|---|---|---|
+| `wavez-brief` | 0.72x (p 0.014) | 0.90x (p 0.043) | 0.85x (p 0.42) | 31 of 31 |
+| `wavez-lean` | 0.67x (p 0.004) | 0.48x (p < 0.001) | 0.88x (p 0.58) | 32 of 32 |
+
+The baseline passed 31 of 31. The lean arm read 482,000 cached tokens over
+the fifteen tasks where the baseline read 2,933,000, and that is where half
+the cost went. Wall clock did not follow, because the model writes the same
+edits either way.
+
+This is the part of owning the loop that needs no loop of our own: the
+flags are Claude Code's, and the session stays on the subscription. What a
+loop adapted from Pi would add is control while the model is writing
+(checks started mid-stream, edits applied in process, sub-tasks in parallel
+lanes under one controller), at the price of an API key billed by the
+token and of Claude Code's interface, permissions, and connectors. That
+has not been measured; the benchmark's `--harness-cmd` can run such a
+harness as an arm once there is a key for it. An interactive session
+cannot be started lean by a hook, so for now the lean arm is a measurement
+of headless runs.
+
 That is where this stands against halving the time: a third of the turns
 are gone, the money has started to follow, and the seconds have not,
 because a turn saved is a short turn and the one command that replaces
