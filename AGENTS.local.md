@@ -66,3 +66,6 @@ holds the traps that are not visible from the code.
   the lint binary on PATH. The model is told to run `wavez`, and a run from
   a binary under another name once measured sixty sessions of "command not
   found"; `bench run` now refuses that, but not a missing `detest`
+- CI's hooks job fails a file over 500 KB, and `bench/records.jsonl` is the
+  one that grows. A record keeps the first line of each check, not the
+  script; when the file nears the limit again, move the oldest runs out
