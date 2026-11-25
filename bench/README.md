@@ -4,11 +4,15 @@ This directory answers one question: does wavez make Claude Code cheaper or
 faster on the same work, or not? Each task in `tasks.toml` is a prompt, a pinned
 commit, and a list of checks. A run checks the commit out into a throwaway git
 worktree, hands the prompt to the harness, runs the checks against what it left
-behind, and appends one line to `records.jsonl`. Runs before the fourth
-brief run are in `records-2026-11-early.jsonl`, moved there to keep each file
-under the size CI's hooks allow; `wavez bench report --records` reads either.
+behind, and appends one line to `records.jsonl`. Older runs are moved out to
+keep each file under the size CI's hooks allow: those before the fourth brief
+run are in `records-2026-11-early.jsonl`, and those from there to the first
+lean run in `records-2026-11-mid.jsonl`. `wavez bench report --records` reads
+any of them.
 
-There are five arms. `baseline` is Claude Code alone. `wavez` is the same
+These are the first arms; `arm.go` lists the rest, among them `lean`, Claude Code
+started as `wavez run` starts it with no wavez in the workspace, and
+`wavez-lean`, the same with the brief. `baseline` is Claude Code alone. `wavez` is the same
 Claude Code after `wavez init` has written its hooks and its refactor skill into
 the workspace, with the `wavez` binary first on `PATH`. `wavez-quiet` is the
 `wavez` arm with `WAVEZ_ANNOUNCE=0` in the harness's environment, which every
@@ -135,6 +139,21 @@ is hashed into each record's `flags`, so runs with different traces are never
 pooled, and a file the pinned tree already has is refused. The baseline gets
 no overlay. A trace is a nightly cost in a project that keeps one, and no
 record counts it.
+
+## Tasks that loop
+
+`tasks_hatchet_loops.toml` holds three tasks that start broken. A task's
+`setup` is a shell script run in the checkout before the harness starts, and
+what it changed is committed as "Work in progress", so the session finds a
+clean tree whose last commit leaves a test failing or the module not
+building. The prompt names the symptom and not the place, so the agent has
+to reproduce it, find the cause, and run the check again:
+
+    wavez bench run --all --tasks bench/tasks_hatchet_loops.toml \
+        --overlay ../overlay --arm baseline,lean,wavez-lean --model sonnet --n 3
+
+The setup is part of the task's hash, and its checks compare the tests with
+that commit, so a run that edits the tests to pass fails.
 
 ## Reading the report
 

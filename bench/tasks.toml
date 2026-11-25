@@ -7,6 +7,8 @@
 #   repo    path (relative to this file) or clone URL; default is the repository
 #           this file lives in
 #   rev     the commit to check out, required so a task never drifts
+#   setup   a shell script run in the checkout before the harness starts, its
+#           changes committed, so a task can begin from a seeded bug
 #   checks  what a finished run must satisfy:
 #             path:substring     the file contains the substring
 #             answer:substring   the harness's final text contains it

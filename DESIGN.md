@@ -391,6 +391,45 @@ because a turn saved is a short turn and the one command that replaces
 three still builds and tests. These tasks are also ones a baseline finishes
 in three to eleven turns.
 
+### The launcher and the brief apart, and tasks that loop
+
+The `lean` arm is the launcher alone: the short prompt and the five tools,
+and no wavez in the workspace. On the fifteen tasks, two repetitions an
+arm, `claude-sonnet-5-5`, 90 sessions:
+
+| against baseline | turns | cost | wall | passed |
+|---|---|---|---|---|
+| `lean` | 0.79x (p 0.008) | 0.49x (p < 0.001) | 0.86x (p 0.011) | 29 of 30 |
+| `wavez-lean` | 0.64x (p 0.008) | 0.46x (p < 0.001) | 0.85x (p 0.19) | 30 of 30 |
+
+The baseline passed 30 of 30. The money is the launcher's: the brief on top
+of it took turns to 0.81x of the launcher's (p 0.047) and moved cost and
+wall clock inside the noise. With apply and rename changed as above, a run
+of the brief arm against the launcher alone, 60 sessions, gave turns 0.79x
+(p 0.029), cost 0.90x and wall clock 0.94x, both inside the noise, and the
+apply refusals in its transcripts fell from 8 to 3 and the Go rename from
+four turns to three.
+
+Those tasks are ones a model finishes in a few turns, so
+`tasks_hatchet_loops.toml` holds three that have to loop. A task's `setup`
+script runs in the checkout and is committed before the harness starts, so
+each begins from a commit that leaves a test failing or the module not
+building, and its prompt says what is wrong but not where: a swapped order
+the package's own test catches, a change in one package that fails the
+tests of another, and a new parameter on a function with eleven callers in
+seven packages, which the build reports one package at a time. Three
+repetitions an arm, 27 sessions, every one passed:
+
+| against baseline | turns | cost | wall |
+|---|---|---|---|
+| `lean` | 1.00x, 1.20x, 0.88x | 0.46x, 0.52x, 0.47x | 0.78x, 0.89x, 0.90x |
+| `wavez-lean` | 1.00x, 1.40x, 0.50x | 0.40x, 0.69x, 0.40x | 0.80x, 0.61x, 0.70x |
+
+Three runs an arm is too few for the report to give a verdict, so these
+are directions. The unfinished refactor is where wavez's own part shows:
+half the turns and 50 seconds of a three-minute session, most of the rest
+being the builds. Sonnet still closes each in four to eight turns.
+
 ### What a turn costs, and what survives a compaction
 
 Each turn reads the whole conversation back, from cache when the cache is
@@ -415,8 +454,7 @@ passed on them as they are, and how far the goal is. It is a few lines of
 fixed shape, read from the session's state, and costs no model call.
 
 Not built: telling the person when the cache is about to go cold or that a
-turn's end is a good place to compact, and starting a session with fewer
-tools so that the part every turn re-reads is smaller.
+turn's end is a good place to compact.
 
 ### Two changes, one checkout
 
