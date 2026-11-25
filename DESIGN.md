@@ -357,9 +357,18 @@ loop adapted from Pi would add is control while the model is writing
 lanes under one controller), at the price of an API key billed by the
 token and of Claude Code's interface, permissions, and connectors. That
 has not been measured; the benchmark's `--harness-cmd` can run such a
-harness as an arm once there is a key for it. An interactive session
-cannot be started lean by a hook, so for now the lean arm is a measurement
-of headless runs.
+harness as an arm once there is a key for it.
+
+A hook cannot make a session lean, so a command does: `wavez run` starts
+`claude` with those two flags and passes everything else through, for an
+interactive session as for `-p`. In an interactive session started that
+way the harness reported a system prompt of 74 tokens and 4,200 of tool
+descriptions. A `--system-prompt` or `--tools` given by the person replaces
+the one wavez would pass, which is how a session gets a tool back. The
+hooks, the project's instructions, and the connectors load as they do
+without it, and what is given up is what the short prompt and the five
+tools leave out: subagents, the web tools, skills, and the harness's own
+guidance on how to work.
 
 That is where this stands against halving the time: a third of the turns
 are gone, the money has started to follow, and the seconds have not,
