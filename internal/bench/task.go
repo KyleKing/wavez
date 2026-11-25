@@ -33,7 +33,11 @@ type Task struct {
 	// [[gate]] for every task in it, so a project in a language the
 	// built-in gates do not know is still gated. Empty when it declares
 	// none.
-	Gates  string
+	Gates string
+	// Setup is a shell script run in the checkout before the harness
+	// starts, its changes committed, so a task can begin from a seeded bug
+	// or a half-done change that looks like the tree's own history.
+	Setup  string
 	Checks []Check
 }
 
@@ -76,6 +80,10 @@ func (t *Task) Hash() string {
 		parts = append(parts, t.Gates)
 	}
 
+	if t.Setup != "" {
+		parts = append(parts, "setup", t.Setup)
+	}
+
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 
 	return hex.EncodeToString(sum[:])[:hashLength]
@@ -87,6 +95,7 @@ type rawTask struct {
 	Prompt string   `toml:"prompt"`
 	Repo   string   `toml:"repo"`
 	Rev    string   `toml:"rev"`
+	Setup  string   `toml:"setup"`
 	Checks []string `toml:"checks"`
 }
 
@@ -160,6 +169,7 @@ func parseTask(raw *rawTask, dir string) (Task, error) {
 	}
 
 	task := Task{ID: raw.ID, Prompt: raw.Prompt, Rev: raw.Rev, Repo: resolveRepo(raw.Repo, dir), source: raw.Repo}
+	task.Setup = raw.Setup
 
 	for i, text := range raw.Checks {
 		check, err := ParseCheck(text)

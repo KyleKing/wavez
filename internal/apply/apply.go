@@ -290,10 +290,11 @@ var (
 	errAmbiguous = errors.New("the lines to replace are in the file more than once; include a line more of context")
 )
 
-// replaced is body with the edit made. The lines to replace have to be
-// whole lines of the file: text that only occurs inside a longer line, as an
-// edit written without its indentation does, is not a match, since replacing
-// it would leave the start of that line in front of the replacement.
+// replaced is body with the edit made. The lines to replace are first
+// looked for as whole lines of the file. Failing that, the same lines with
+// their indentation ignored, and the replacement moved to the file's
+// indentation; failing that, the text anywhere in a line, as an editor's
+// string replacement takes it. Each looser match has to be the only one.
 func replaced(body string, edit Edit) (string, error) {
 	if edit.Old == "" {
 		if body != "" && !strings.HasSuffix(body, "\n") {
@@ -325,10 +326,142 @@ func replaced(body string, edit Edit) (string, error) {
 	case 1:
 		return body[:at[0]] + edit.New + body[at[0]+len(old):], nil
 	case 0:
-		return "", fmt.Errorf("%w%s", errNoMatch, nearest(body, edit.Old))
+		return loosely(body, edit)
 	default:
 		return "", errAmbiguous
 	}
+}
+
+// loosely is body with the edit made where the lines to replace match only
+// once with their indentation ignored, or as text inside a line.
+func loosely(body string, edit Edit) (string, error) {
+	next, n := reindented(body, edit)
+	if n == 1 {
+		return next, nil
+	}
+
+	if n == 0 {
+		next, n = inLine(body, edit)
+		if n == 1 {
+			return next, nil
+		}
+	}
+
+	if n > 1 {
+		return "", errAmbiguous
+	}
+
+	return "", fmt.Errorf("%w%s", errNoMatch, nearest(body, edit.Old))
+}
+
+// reindented replaces the lines of body that match the lines to replace
+// with indentation and trailing space ignored, and returns how many places
+// matched; it changes body only when that is one. The replacement takes the
+// file's indentation in place of the edit's, line by line, so a block
+// written with spaces in a file indented with tabs lands as tabs.
+func reindented(body string, edit Edit) (string, int) {
+	lines := strings.SplitAfter(body, "\n")
+	old := strings.Split(strings.TrimSuffix(edit.Old, "\n"), "\n")
+
+	var at []int
+
+	for i := 0; i+len(old) <= len(lines); i++ {
+		if sameText(lines[i:i+len(old)], old) {
+			at = append(at, i)
+		}
+	}
+
+	if len(at) != 1 {
+		return body, len(at)
+	}
+
+	matched := lines[at[0] : at[0]+len(old)]
+
+	var next strings.Builder
+
+	next.WriteString(strings.Join(lines[:at[0]], ""))
+
+	news := strings.SplitAfter(edit.New, "\n")
+	for j, line := range news {
+		next.WriteString(reindent(line, j, old, matched, len(news) == len(old)+1))
+	}
+
+	end := lines[at[0]+len(old)-1]
+	if !strings.HasSuffix(end, "\n") {
+		// The match ran to a last line with no newline, which the
+		// replacement's own newline would add.
+		return strings.TrimSuffix(next.String(), "\n"), 1
+	}
+
+	next.WriteString(strings.Join(lines[at[0]+len(old):], ""))
+
+	return next.String(), 1
+}
+
+// reindent is line j of a replacement with the file's indentation. A
+// replacement as long as the lines it replaces takes, line by line, the
+// indentation of the file's line where it kept the edit's; any other takes
+// the file's indentation for the first of the edit's lines that was
+// indented as it is, or the first line's offset when none was.
+func reindent(line string, j int, old, matched []string, sameLength bool) string {
+	if strings.TrimSpace(line) == "" {
+		return line
+	}
+
+	own, rest := indent(line), strings.TrimLeft(line, " \t")
+
+	if sameLength && j < len(old) && own == indent(old[j]) {
+		return indent(matched[j]) + rest
+	}
+
+	for i := range old {
+		if strings.TrimSpace(old[i]) != "" && indent(old[i]) == own {
+			return indent(matched[i]) + rest
+		}
+	}
+
+	if deeper, ok := strings.CutPrefix(own, indent(old[0])); ok {
+		return indent(matched[0]) + deeper + rest
+	}
+
+	return line
+}
+
+// sameText says whether the file's lines hold the edit's lines, indentation
+// and trailing space aside. A blank line matches only a blank line.
+func sameText(lines, old []string) bool {
+	for i, line := range old {
+		if strings.TrimSpace(lines[i]) != strings.TrimSpace(line) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// indent is the white space a line starts with.
+func indent(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+}
+
+// inLine replaces the lines to replace where they are text inside a line,
+// as when an edit names the start or the end of a long line, and returns
+// how many places held it. The newline that closes the edit's text is not
+// part of what is matched, on either side.
+func inLine(body string, edit Edit) (string, int) {
+	old := strings.TrimSuffix(edit.Old, "\n")
+	if strings.TrimSpace(old) == "" {
+		return body, 0
+	}
+
+	n := strings.Count(body, old)
+	if n != 1 {
+		return body, n
+	}
+
+	i := strings.Index(body, old)
+
+	return body[:i] + strings.TrimSuffix(edit.New, "\n") + body[i+len(old):], 1
 }
 
 // lineStarts returns where old occurs in body at the start of a line.

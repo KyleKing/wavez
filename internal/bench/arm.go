@@ -42,6 +42,10 @@ const (
 	// such a session uses: a system prompt of a few lines in place of the
 	// harness's own, and the tools to run a command, read, search, and edit.
 	ArmWavezLean Arm = "wavez-lean"
+	// ArmLean is the harness alone with the lean arm's system prompt and
+	// tools, and no wavez, so the launcher's share is measured apart from
+	// the brief's.
+	ArmLean Arm = "lean"
 )
 
 // setting is one top-level key of a .wavez.toml and the value an arm gives
@@ -89,6 +93,7 @@ var armSpecs = []armSpec{
 		name: ArmWavezLean, wired: true, settings: []setting{{key: "brief", value: on}},
 		args: lean.Args(),
 	},
+	{name: ArmLean, args: lean.Args()},
 }
 
 // Arms lists the arms in the order a report shows them.

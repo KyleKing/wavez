@@ -195,6 +195,38 @@ func (w *Workspace) Remove(ctx context.Context) error {
 	return err
 }
 
+// Seed runs a task's setup script in the checkout and commits what it
+// changed, so the harness starts from a clean tree that holds it. An empty
+// script, or one that changes nothing, leaves the checkout as it is.
+func (w *Workspace) Seed(ctx context.Context, script string) error {
+	if script == "" {
+		return nil
+	}
+
+	out, err := run(ctx, invocation{Dir: w.Dir, Name: "sh", Args: []string{"-c", script}})
+	if err != nil {
+		return fmt.Errorf("task setup: %w: %s", err, firstLine(string(out)))
+	}
+
+	if err := git(ctx, w.Dir, "add", "-A"); err != nil {
+		return err
+	}
+
+	if !changedIndex(ctx, w.Dir) {
+		return nil
+	}
+
+	return git(ctx, w.Dir, "-c", "user.name=bench", "-c", "user.email=bench@example.invalid",
+		"commit", "-q", "--no-verify", "-m", "Work in progress")
+}
+
+// changedIndex says whether the index differs from HEAD.
+func changedIndex(ctx context.Context, dir string) bool {
+	_, err := run(ctx, invocation{Dir: dir, Name: gitBin, Args: []string{"diff", "--cached", "--quiet"}})
+
+	return err != nil
+}
+
 func git(ctx context.Context, dir string, args ...string) error {
 	out, err := run(ctx, invocation{Dir: dir, Name: gitBin, Args: args})
 	if err != nil {

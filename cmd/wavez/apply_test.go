@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kyleking/wavez/internal/apply"
 )
 
 // applyRun runs the command on edits and returns what it printed and the
@@ -155,5 +157,30 @@ func TestRunApply_AtARevisionLeavesTheCheckoutAlone(t *testing.T) {
 
 	if got := fileText(t, lanes[0]); !strings.Contains(got, "return 2") {
 		t.Errorf("the lane holds %q", got)
+	}
+}
+
+func TestFromHere_NamesAFileFromTheRootWhenTheEditNamedItFromBelow(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a/b/one.go", "top.go"} {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte("package b\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Chdir(filepath.Join(root, "a"))
+
+	got := fromHere(root, []apply.Edit{{File: "b/one.go"}, {File: "top.go"}, {File: "b/new.go"}})
+
+	want := []string{"a/b/one.go", "top.go", "b/new.go"}
+	for i, edit := range got {
+		if edit.File != want[i] {
+			t.Errorf("edit %d names %q, want %q", i+1, edit.File, want[i])
+		}
 	}
 }

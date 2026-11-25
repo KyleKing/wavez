@@ -179,3 +179,25 @@ func TestWorkspace_URLWithAnUnknownRevLeavesOnlyTheMirror(t *testing.T) {
 	assert.Len(t, mirrors, 1)
 	assert.True(t, strings.HasSuffix(mirrors[0], ".git"), "no half-made mirror is left: %v", mirrors)
 }
+
+func TestWorkspace_SeedCommitsWhatTheSetupChanged(t *testing.T) {
+	t.Parallel()
+
+	repo, first := newRepo(t)
+
+	ws, err := bench.NewWorkspace(t.Context(), "file://"+repo, first, t.TempDir(), "")
+	require.NoError(t, err)
+
+	require.NoError(t, ws.Seed(t.Context(), ""))
+	assert.Equal(t, first, gitIn(t, ws.Dir, "rev-parse", "HEAD"), "no setup, no commit")
+
+	require.NoError(t, ws.Seed(t.Context(), "printf 'Status: broken.\\n' > README.md"))
+	assert.NotEqual(t, first, gitIn(t, ws.Dir, "rev-parse", "HEAD"))
+	assert.Empty(t, gitIn(t, ws.Dir, "status", "--porcelain"), "the tree starts clean")
+	assert.Equal(t, "Status: broken.\n", read(t, filepath.Join(ws.Dir, "README.md")))
+
+	err = ws.Seed(t.Context(), "exit 3")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "task setup")
+	require.NoError(t, ws.Remove(t.Context()))
+}

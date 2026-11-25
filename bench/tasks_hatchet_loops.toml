@@ -1,0 +1,83 @@
+# Benchmark tasks on Hatchet that take an agent loop: each starts from a
+# commit a setup script makes on top of the pinned tree, which leaves a test
+# failing or the module not building, and the prompt says only what is wrong,
+# not where. The agent has to reproduce it, find the cause, change the code,
+# and run the check again. The format is the one tasks.toml documents, with
+# setup run in the checkout and committed before the harness starts.
+#
+# Every check runs offline once the module's dependencies are downloaded.
+
+[[task]]
+id = "lp-go-droporder"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "go test ./hack/ci/loadreport/ started failing at the last commit. Find the cause and fix the code; the tests are right, so leave them as they are."
+setup = '''python3 - <<'PY'
+p = "hack/ci/loadreport/main.go"
+s = open(p).read()
+old = "\t\tcase l.pgstat:\n\t\t\tl.pgstat = false\n\t\tcase l.pprof:\n\t\t\tl.pprof = false\n"
+assert old in s
+s = s.replace(old, "\t\tcase l.pprof:\n\t\t\tl.pprof = false\n\t\tcase l.pgstat:\n\t\t\tl.pgstat = false\n", 1)
+open(p, "w").write(s)
+PY'''
+checks = [
+  '''test:./hack/ci/loadreport/''',
+  '''cmd:git diff --quiet HEAD -- hack/ci/loadreport/main_test.go hack/ci/loadreport/sanitize_test.go''',
+]
+
+[[task]]
+id = "lp-go-validator"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "go test ./pkg/validator/ fails at the last commit. Find out why and fix it, without changing pkg/validator's tests."
+setup = '''python3 - <<'PY'
+p = "pkg/client/types/action.go"
+s = open(p).read()
+old = "\tService := firstToLower(parts[0])\n"
+assert old in s
+s = s.replace(old, old + "\n\t// An id written as :verb runs on the default service, the one a worker\n\t// registers without naming one.\n\tif Service == \"\" {\n\t\tService = DefaultService\n\t}\n", 1)
+s = s.replace("type Action struct {", "// DefaultService is the service an action id with an empty service part\n// belongs to.\nconst DefaultService = \"default\"\n\ntype Action struct {", 1)
+open(p, "w").write(s)
+PY'''
+checks = [
+  '''cmd:go test -count=1 ./pkg/validator/ ./pkg/client/types/''',
+  '''cmd:git diff --quiet HEAD -- pkg/validator/validator_test.go pkg/validator/slot_requests_validation_test.go''',
+]
+
+[[task]]
+id = "lp-go-parseopts"
+repo = "https://github.com/hatchet-dev/hatchet.git"
+rev = "290556fb419b76b39a6a42264600c0130edc4b1b"
+prompt = "The last commit gave types.ParseActionID an options parameter, ParseOptions, and stopped before updating its callers, so the module no longer builds. Finish the change: every caller passes options that keep its current behavior, and the packages it touches build and pass their tests."
+setup = '''python3 - <<'PY'
+p = "pkg/client/types/action.go"
+s = open(p).read()
+s = s.replace("func ParseActionID(actionID string) (Action, error) {",
+  "func ParseActionID(actionID string, opts ParseOptions) (Action, error) {", 1)
+s = s.replace("type Action struct {",
+  "// ParseOptions changes what ParseActionID accepts. The zero value accepts\n"
+  "// what it always has.\n"
+  "type ParseOptions struct {\n"
+  "\t// RequireParts refuses an id whose service or verb is empty.\n"
+  "\tRequireParts bool\n"
+  "}\n\n"
+  "type Action struct {", 1)
+old = "\tvar subresource string\n"
+s = s.replace(old,
+  "\tif opts.RequireParts && (parts[0] == \"\" || parts[1] == \"\") {\n"
+  "\t\treturn Action{}, fmt.Errorf(\"invalid action id %s, service and verb must not be empty\", actionID)\n"
+  "\t}\n\n" + old, 1)
+open(p, "w").write(s)
+t = "pkg/client/types/action_test.go"
+s = open(t).read()
+import re
+s = re.sub(r'ParseActionID\(("[^"]*"|id)\)', r'ParseActionID(\1, ParseOptions{})', s)
+open(t, "w").write(s)
+PY'''
+checks = [
+  '''pkg/client/types/action.go:func ParseActionID(actionID string, opts ParseOptions) (Action, error)''',
+  '''cmd:! git grep -nE 'ParseActionID\([^,()]*\)' -- '*.go'''',
+  '''cmd:go build ./internal/services/admin/... ./pkg/client/operatorclient/ ./pkg/serverlessoperator/ ./pkg/worker/''',
+  '''cmd:go vet ./pkg/repository/ ./pkg/worker/ ./pkg/serverlessoperator/''',
+  '''cmd:go test -count=1 ./pkg/client/types/ ./pkg/validator/''',
+]

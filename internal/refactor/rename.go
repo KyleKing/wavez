@@ -34,7 +34,7 @@ type RenameResult struct {
 	// out. gopls does not load those, so they are not renamed.
 	Excluded []Mention
 	// Mentions lists comment and string lines that still carry the old
-	// name. They are reported, never edited.
+	// name, after Rewritten of them were renamed as well.
 	Mentions []Mention
 	// Lines counts the changed lines of each file in Files, which a dry
 	// run reports.
@@ -47,6 +47,9 @@ type RenameResult struct {
 	ExcludedUnchecked bool
 	// DryRun is set when the tree was put back after the rename ran.
 	DryRun bool
+	// Rewritten counts the comment and string mentions of the old name, in
+	// the files renamed, that name the symbol unmistakably and were renamed.
+	Rewritten int
 }
 
 // Summary is the report an agent reads: what changed, and what it may still
@@ -89,6 +92,10 @@ func (r RenameResult) Summary() string {
 			"these still use "+old+":\n")
 	}
 
+	if r.Rewritten > 0 {
+		fmt.Fprintf(&b, "renamed it in %s too\n", count(r.Rewritten, "comment or string mention"))
+	}
+
 	listed(&b, r.Mentions, fmt.Sprintf("%q still appears in %s (left alone; edit the ones that mean this symbol):\n",
 		old, count(len(r.Mentions), "comment or string line")))
 
@@ -111,7 +118,13 @@ func listed(b *strings.Builder, places []Mention, heading string) {
 			break
 		}
 
-		fmt.Fprintf(b, "  %s:%d\n", m.File, m.Line)
+		if m.Text == "" {
+			fmt.Fprintf(b, "  %s:%d\n", m.File, m.Line)
+
+			continue
+		}
+
+		fmt.Fprintf(b, "  %s:%d: %s\n", m.File, m.Line, m.Text)
 	}
 }
 
@@ -162,6 +175,10 @@ func (r *Refactorer) Rename(ctx context.Context, spec, newName string) (RenameRe
 		if s.isGenerated(file) {
 			res.Generated = append(res.Generated, file)
 		}
+	}
+
+	if res.Rewritten, err = s.renameMentions(changed, decl.base(), newName); err != nil {
+		return RenameResult{}, s.fail(err)
 	}
 
 	excluded, checked := s.excluded(ctx, files, &decl)
