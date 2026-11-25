@@ -413,12 +413,18 @@ func Brief(root string, sites []Site) string {
 	}
 
 	lead := whole
-	if slices.ContainsFunc(sites, func(s Site) bool { return len(s.Tests) == 0 }) {
+	if !Complete(sites) {
 		lead = partial
 	}
 
 	return hint + "\nTheir current source:\n" +
 		source + lead + apply.Fill(applyHelp)
+}
+
+// Complete reports whether every site came with a test that names it, which
+// is when a brief holds what the change needs and the work left is typing.
+func Complete(sites []Site) bool {
+	return len(sites) > 0 && !slices.ContainsFunc(sites, func(s Site) bool { return len(s.Tests) == 0 })
 }
 
 const (

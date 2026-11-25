@@ -27,6 +27,25 @@ func TestRender(t *testing.T) {
 	}{
 		{name: "nothing known prints nothing"},
 		{
+			name: "prompts answered with the code and its tests are counted for a larger model",
+			in: statusline.Input{
+				State: &session.State{Passed: "abc", Prompts: 4, Briefed: 3}, Model: "claude-sonnet-5-5",
+			},
+			want: "wavez · checks passed · 3 of 4 prompts fit haiku",
+		},
+		{
+			name: "a session on the smallest model is told nothing about it",
+			in: statusline.Input{
+				State: &session.State{Passed: "abc", Prompts: 4, Briefed: 3}, Model: "claude-haiku-5-5",
+			},
+			want: "wavez · checks passed",
+		},
+		{
+			name: "no prompt answered in full says nothing",
+			in:   statusline.Input{State: &session.State{Passed: "abc", Prompts: 2}, Model: "claude-sonnet-5-5"},
+			want: "wavez · checks passed",
+		},
+		{
 			name: "a quiet session shows progress only",
 			in:   statusline.Input{State: passed, ContextPercent: percent(41.6), CostUSD: 0.314, MaxRounds: 3},
 			want: "wavez · checks passed · context 42% · $0.31",

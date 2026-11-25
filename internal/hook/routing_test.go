@@ -348,4 +348,19 @@ func TestHandle_UserPromptSubmit_StartsABuildOfTheBriefedGoPackages(t *testing.T
 
 	prompt("passwordRule accepts a blank password")
 	assert.Equal(t, [][]string{{sessionID, "./pkg/valid/"}}, built)
+
+	// Neither prompt's name has a test, so neither brief was complete.
+	state, ok := session.NewStore(root).Read(sessionID)
+	require.True(t, ok)
+	assert.Equal(t, 2, state.Prompts)
+	assert.Zero(t, state.Briefed)
+
+	write(t, root, "pkg/valid/valid_test.go", "package valid\n\nfunc TestRule(t *testing.T) { passwordRule(\"\") }\n")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-qm", "a test")
+	prompt("passwordRule accepts a blank password")
+
+	state, _ = session.NewStore(root).Read(sessionID)
+	assert.Equal(t, 3, state.Prompts)
+	assert.Equal(t, 1, state.Briefed)
 }

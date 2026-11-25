@@ -16,6 +16,10 @@ const contextHigh = 80
 
 const separator = " · "
 
+// smallest is the family name of the smallest model, as it appears in a
+// model's id.
+const smallest = "haiku"
+
 // The ANSI sequences the line uses.
 const (
 	red    = "\x1b[31m"
@@ -35,6 +39,9 @@ type Input struct {
 	// ContextPercent is how full the context window is, and nil when the
 	// harness did not say.
 	ContextPercent *float64
+	// Model is the id of the model the session runs on, and "" when the
+	// harness did not say.
+	Model string
 	// CostUSD is what the session has cost so far.
 	CostUSD float64
 	// MaxRounds is how many times the gates fail the same way before they
@@ -145,6 +152,10 @@ func progress(in Input) []segment {
 		out = append(out, goalSegment(*in.Goal))
 	}
 
+	if text := smaller(in); text != "" {
+		out = append(out, segment{text: text, color: dim})
+	}
+
 	if in.ContextPercent != nil && *in.ContextPercent < contextHigh {
 		out = append(out, segment{text: fmt.Sprintf("context %.0f%%", *in.ContextPercent), color: dim})
 	}
@@ -154,6 +165,18 @@ func progress(in Input) []segment {
 	}
 
 	return out
+}
+
+// smaller says how many of the session's prompts were answered with the
+// code and its tests in hand, which is the work a smaller model did as well
+// and for a twelfth of the cost when it was measured. It is "" on a session
+// that already runs the smallest model, or that has had no such prompt.
+func smaller(in Input) string {
+	if in.State == nil || in.State.Briefed == 0 || strings.Contains(strings.ToLower(in.Model), smallest) {
+		return ""
+	}
+
+	return fmt.Sprintf("%d of %s fit %s", in.State.Briefed, count(in.State.Prompts, "prompt"), smallest)
 }
 
 func goalSegment(sum goal.Summary) segment {

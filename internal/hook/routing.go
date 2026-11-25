@@ -8,6 +8,7 @@ import (
 
 	"github.com/kyleking/wavez/internal/lookup"
 	"github.com/kyleking/wavez/internal/route"
+	"github.com/kyleking/wavez/internal/session"
 )
 
 // routeBudget bounds one route decision, whatever the decision model's own
@@ -40,6 +41,8 @@ func (h *Handler) located(ctx context.Context, ev Event, rec *record) string {
 		rec.Note = "located " + strconv.Itoa(len(sites))
 	}
 
+	h.counted(ctx, ev, rec, lookup.Complete(sites))
+
 	if pkgs := lookup.Packages(sites); h.brief && h.ahead != nil && len(pkgs) > 0 && ev.SessionID != "" {
 		if err := h.ahead(rec.Root, ev.SessionID, pkgs); err != nil {
 			rec.Note += "; build ahead: " + err.Error()
@@ -47,6 +50,28 @@ func (h *Handler) located(ctx context.Context, ev Event, rec *record) string {
 	}
 
 	return hint
+}
+
+// counted keeps, for the status line, how many of the session's prompts a
+// brief answered in full. A count that cannot be written is a line the
+// person does not see, and nothing the prompt waits on.
+func (h *Handler) counted(ctx context.Context, ev Event, rec *record, complete bool) {
+	if !h.brief || ev.SessionID == "" {
+		return
+	}
+
+	_, err := session.NewStore(rec.Root).Update(ctx, ev.SessionID, func(state *session.State) error {
+		state.Prompts++
+
+		if complete {
+			state.Briefed++
+		}
+
+		return nil
+	})
+	if err != nil {
+		rec.Note += "; counting the prompt: " + err.Error()
+	}
 }
 
 // prompted answers a UserPromptSubmit event with what wavez can say before
