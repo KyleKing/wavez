@@ -36,6 +36,9 @@ type statusInput struct {
 	} `json:"context_window"`
 	SessionID string `json:"session_id"`
 	Cwd       string `json:"cwd"`
+	Model     struct {
+		ID string `json:"id"`
+	} `json:"model"`
 	Workspace struct {
 		ProjectDir string `json:"project_dir"`
 	} `json:"workspace"`
@@ -94,6 +97,7 @@ func statusFor(root string, in statusInput) statusline.Input {
 	out := statusline.Input{
 		ContextPercent: in.ContextWindow.UsedPercentage,
 		CostUSD:        in.Cost.TotalCostUSD,
+		Model:          in.Model.ID,
 		MaxRounds:      config.DefaultMaxRounds,
 		Color:          os.Getenv("NO_COLOR") == "",
 	}

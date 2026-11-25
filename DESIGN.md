@@ -323,8 +323,12 @@ repetition of all fifteen cost $1.29 and 294 seconds on Sonnet, $0.13 and
 brief. The smaller model does these tasks for a twelfth of the money, and
 the brief takes back about three fifths of the time it gives up, with the
 largest gains on the tasks where the brief came with the tests. Which
-model a session runs is not something a hook can set, so this is a
-measurement and not yet a feature.
+model a session runs is not something a hook can set, and the trade of
+time for money is the person's. So wavez counts the prompts it answered
+with the code and the tests that name it, and the status line of a session
+on a larger model says how many of its prompts that was ("3 of 4 prompts
+fit haiku"). The count is read from the session's file, and nothing is
+handed to the model.
 
 That is where this stands against halving the time: a third of the turns
 are gone, the money has started to follow, and the seconds have not,

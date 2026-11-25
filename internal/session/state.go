@@ -52,6 +52,10 @@ type State struct {
 	// Chain counts the stops blocked since the agent last stopped of its
 	// own accord, whatever they failed on.
 	Chain int `json:"chain"`
+	// Prompts counts the prompts a brief was looked up for, and Briefed
+	// those of them it answered with the code and the tests that name it.
+	Prompts int `json:"prompts,omitempty"`
+	Briefed int `json:"briefed,omitempty"`
 }
 
 // Baseline is the working tree as the session found it. Dirty maps every
