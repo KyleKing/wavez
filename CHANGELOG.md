@@ -1,3 +1,9 @@
+## v3.7.0 (2026-11-25)
+
+### Feat
+
+- wavez run starts Claude Code with a short system prompt and five tools
+
 ## v3.6.0 (2026-11-25)
 
 ### Feat
